@@ -35,12 +35,15 @@ export default function HelpSupportScreen() {
 
   return (
     <ScrollView
-      contentContainerStyle={[styles.container, { paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + spacing.xl }]}
+      style={styles.root}
+      contentContainerStyle={[styles.contentContainer, { paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + spacing.xl }]}
       showsVerticalScrollIndicator={false}
       testID="help-support-screen"
     >
-      <Text style={styles.title}>Help & Support</Text>
-      <Text style={styles.subtitle}>Browse frequently asked questions or contact the support team directly.</Text>
+      <View style={styles.header}>
+        <Text style={styles.title}>Help & Support</Text>
+        <Text style={styles.subtitle}>Browse frequently asked questions or contact the support team directly.</Text>
+      </View>
 
       {FAQ_ITEMS.map((item, index) => {
         const open = openIndex === index;
@@ -76,6 +79,9 @@ export default function HelpSupportScreen() {
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.surface },
+  contentContainer: { minHeight: "100%", paddingHorizontal: spacing.lg },
+  header: { marginBottom: spacing.xl },
   container: { backgroundColor: colors.surface, paddingHorizontal: spacing.lg },
   title: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface, marginBottom: spacing.sm },
   subtitle: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary, marginBottom: spacing.lg },

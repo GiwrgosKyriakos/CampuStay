@@ -99,11 +99,15 @@ export default function PrivacySafetyScreen() {
 
   return (
     <ScrollView
-      contentContainerStyle={[styles.container, { paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + spacing.xl }]}
+      style={styles.root}
+      contentContainerStyle={[styles.contentContainer, { paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + spacing.xl }]}
       showsVerticalScrollIndicator={false}
       testID="privacy-safety-screen"
     >
-      <Text style={styles.title}>Privacy & Safety</Text>
+      <View style={styles.header}>
+        <Text style={styles.title}>Privacy & Safety</Text>
+        <Text style={styles.subtitle}>Control who sees your profile and manage blocked accounts.</Text>
+      </View>
       <Text style={styles.subtitle}>Control who sees your profile and manage blocked accounts.</Text>
 
       <View style={styles.toggleCard}>
@@ -151,6 +155,9 @@ export default function PrivacySafetyScreen() {
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.surface },
+  contentContainer: { minHeight: "100%", paddingHorizontal: spacing.lg },
+  header: { marginBottom: spacing.xl },
   container: { backgroundColor: colors.surface, paddingHorizontal: spacing.lg },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   title: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface, marginBottom: spacing.sm },
