@@ -6,7 +6,7 @@ import os
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field
-from typing import List, Dict
+from typing import List, Dict, Optional
 import uuid
 from datetime import datetime, timezone
 
@@ -82,6 +82,46 @@ async def save_roomie_profile(user_id: str, payload: RoomieProfileIn):
         upsert=True,
     )
     return {"user_id": user_id, "answers": payload.answers, "updated_at": now}
+
+
+# ---- Full User Profile (edit/complete profile) ----
+class FullProfileIn(BaseModel):
+    photos: List[str] = []
+    age: Optional[int] = None
+    about: Optional[str] = None
+    gender: Optional[str] = None
+    city: Optional[str] = None
+    has_place: bool = False
+    university: Optional[str] = None
+    year_of_study: Optional[str] = None
+    budget: Optional[int] = None
+    move_in: Optional[str] = None
+    instagram: Optional[str] = None
+    facebook: Optional[str] = None
+    linkedin: Optional[str] = None
+    twitter: Optional[str] = None
+
+
+@api_router.get("/profile/{user_id}")
+async def get_user_profile(user_id: str):
+    doc = await db.user_profiles.find_one({"user_id": user_id})
+    if not doc:
+        return {"user_id": user_id, "profile": None}
+    doc.pop("_id", None)
+    return {"user_id": user_id, "profile": doc}
+
+
+@api_router.put("/profile/{user_id}")
+async def save_user_profile(user_id: str, payload: FullProfileIn):
+    now = datetime.now(timezone.utc).isoformat()
+    data = payload.dict()
+    data["updated_at"] = now
+    await db.user_profiles.update_one(
+        {"user_id": user_id},
+        {"$set": data, "$setOnInsert": {"user_id": user_id}},
+        upsert=True,
+    )
+    return {"user_id": user_id, "profile": {**data, "user_id": user_id}}
 
 # Include the router in the main app
 app.include_router(api_router)

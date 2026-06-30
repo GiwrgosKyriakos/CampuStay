@@ -105,6 +105,7 @@ export default function ProfileScreen() {
               key={s.label}
               style={[styles.row, i < SETTINGS.length - 1 && styles.rowBorder]}
               testID={`setting-${s.label}`}
+              onPress={s.label === "Edit profile" ? () => router.push("/edit-profile") : undefined}
             >
               <View style={styles.rowIcon}>
                 <Ionicons name={s.icon} size={20} color={colors.onSurface} />
