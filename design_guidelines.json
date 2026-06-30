@@ -1,0 +1,164 @@
+{
+  "app_name": "RoomieSwipe",
+  "personality": "4 Tactile / Playful structure with 2 Material You / Expressive vibrant accents",
+  "personality_one_liner": "A vibrant, energetic, and highly interactive experience combining tactile floating cards with Gen-Z dopamine-driven high-contrast accents.",
+  "color": {
+    "surface": "#FDFCF8",
+    "onSurface": "#1A1A1A",
+    "surfaceSecondary": "#FFFFFF",
+    "onSurfaceSecondary": "#1A1A1A",
+    "surfaceTertiary": "#F0EFE9",
+    "onSurfaceTertiary": "#4A4A4A",
+    "surfaceInverse": "#1A1A1A",
+    "onSurfaceInverse": "#FFFFFF",
+    "brand": "#00E676",
+    "brandPrimary": "#00E676",
+    "onBrandPrimary": "#000000",
+    "brandSecondary": "#FFC400",
+    "onBrandSecondary": "#000000",
+    "brandTertiary": "#E0FBE8",
+    "onBrandTertiary": "#004D27",
+    "success": "#00E676",
+    "onSuccess": "#000000",
+    "warning": "#FFC400",
+    "onWarning": "#000000",
+    "error": "#FF1744",
+    "onError": "#FFFFFF",
+    "info": "#1A1A1A",
+    "onInfo": "#FFFFFF",
+    "border": "#EAE8E0",
+    "borderStrong": "#1A1A1A",
+    "divider": "#F0EFE9"
+  },
+  "typography": {
+    "displayFontFamily": "Bricolage Grotesque",
+    "textFontFamily": "Plus Jakarta Sans",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Generous spacing for tactile elements. Floating cards should have md/lg padding from screen edges.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 8,
+    "md": 16,
+    "lg": 24,
+    "pill": 999
+  },
+  "shadow_tier": "2",
+  "navigation": "bottom_tabs",
+  "icon_set": "Phosphor",
+  "glassmorphism": {
+    "enabled": true,
+    "do's": [
+      "Top-center filter pill hovering over the swipe stack",
+      "Bottom tab bar background",
+      "Floating action buttons or secondary action pills"
+    ],
+    "dont's": [
+      "Data-heavy list rows",
+      "Body content regions",
+      "Swipe cards themselves (they should be solid tactile cards with imagery)"
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Home",
+      "purpose": "Primary swipe interface to discover roommates via Tinder-style cards.",
+      "states": {
+        "loading": "Centered electric lime spinner",
+        "empty": "Playful illustration showing 'No more matches in your area', with a button to broaden filter.",
+        "error": "Readable text with a prominent retry button."
+      },
+      "layout": "No page scrolling. Full-screen absolute positioned swipe cards (accounting for safe area and tab bar). Top-center glass filter pill overlay. Bottom of the card image has a dark gradient scrim (0 to 80% opacity) behind the text overlay (Name, Age, Gender, Budget). Floating LIKE/NOPE stamps linked to gesture pan."
+    },
+    {
+      "name": "Matches",
+      "purpose": "View liked roommates and apartments.",
+      "states": {
+        "loading": "Spinner",
+        "empty": "Empty state graphic stating 'Start swiping to find matches!'",
+        "error": "Error message with retry."
+      },
+      "layout": "Grid or vertical list of liked profiles and apartments. Use chunky tactile cards with generous padding."
+    },
+    {
+      "name": "Apartments",
+      "purpose": "List of available apartments in the study city.",
+      "states": {
+        "loading": "Spinner",
+        "empty": "No apartments found for current filters.",
+        "error": "Error message with retry."
+      },
+      "layout": "Vertical scroll list. Each apartment card is full-width minus padding, featuring a large cover image, dark gradient scrim, and bold typography for rent/location. Tags for amenities."
+    },
+    {
+      "name": "Profile",
+      "purpose": "Manage user settings, preferences, and view own roommate card.",
+      "states": {
+        "loading": "Spinner",
+        "empty": "N/A",
+        "error": "Error message with retry."
+      },
+      "layout": "Header with user photo, floating edit button. Tactile list rows for settings. Sticky primary CTA at bottom for saving profile changes."
+    }
+  ],
+  "images": {
+    "student_portrait_1": {
+      "url": "https://images.unsplash.com/photo-1544168190-79c17527004f?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxNzV8MHwxfHNlYXJjaHwzfHx1bml2ZXJzaXR5JTIwc3R1ZGVudCUyMHBvcnRyYWl0JTIwcmVhbCUyMHBob3RvfGVufDB8fHx8MTc4Mjc3ODMwNHww&ixlib=rb-4.1.0&q=85",
+      "alt": "Female university student smiling"
+    },
+    "student_portrait_2": {
+      "url": "https://images.unsplash.com/photo-1492462543947-040389c4a66c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxNzV8MHwxfHNlYXJjaHw0fHx1bml2ZXJzaXR5JTIwc3R1ZGVudCUyMHBvcnRyYWl0JTIwcmVhbCUyMHBob3RvfGVufDB8fHx8MTc4Mjc3ODMwNHww&ixlib=rb-4.1.0&q=85",
+      "alt": "Male university student smiling on campus"
+    },
+    "student_portrait_3": {
+      "url": "https://images.unsplash.com/photo-1548810020-ea2f1da35cff?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxNzV8MHwxfHNlYXJjaHwyfHx1bml2ZXJzaXR5JTIwc3R1ZGVudCUyMHBvcnRyYWl0JTIwcmVhbCUyMHBob3RvfGVufDB8fHx8MTc4Mjc3ODMwNHww&ixlib=rb-4.1.0&q=85",
+      "alt": "Male student with glasses"
+    },
+    "student_portrait_4": {
+      "url": "https://images.unsplash.com/photo-1618355776464-8666794d2520?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxNzV8MHwxfHNlYXJjaHwxfHx1bml2ZXJzaXR5JTIwc3R1ZGVudCUyMHBvcnRyYWl0JTIwcmVhbCUyMHBob3RvfGVufDB8fHx8MTc4Mjc3ODMwNHww&ixlib=rb-4.1.0&q=85",
+      "alt": "Female student in academic dress"
+    },
+    "apartment_interior_1": {
+      "url": "https://images.unsplash.com/photo-1564078516393-cf04bd966897?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzZ8MHwxfHNlYXJjaHwxfHxlbXB0eSUyMGFwYXJ0bWVudCUyMGxpdmluZyUyMHJvb20lMjB3YXJtJTIwbGlnaHR8ZW58MHx8fHwxNzgyNzc4MzA0fDA&ixlib=rb-4.1.0&q=85",
+      "alt": "Warm lit empty apartment living room with tall windows"
+    },
+    "apartment_interior_2": {
+      "url": "https://images.unsplash.com/photo-1541194577687-8c63bf9e7ee3?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzZ8MHwxfHNlYXJjaHwyfHxlbXB0eSUyMGFwYXJ0bWVudCUyMGxpdmluZyUyMHJvb20lMjB3YXJtJTIwbGlnaHR8ZW58MHx8fHwxNzgyNzc4MzA0fDA&ixlib=rb-4.1.0&q=85",
+      "alt": "Modern apartment interior with sectional sofa"
+    }
+  },
+  "instructions_to_main_agent": [
+    "CRITICAL: The Home screen must NOT have vertical scrolling. Use `react-native-reanimated` and `react-native-gesture-handler` for absolute-positioned swipe cards.",
+    "SWIPE MECHANICS: Cards must rotate slightly as they are dragged left or right. Map the X-translation to a rotation angle. Link a LIKE and NOPE stamp opacity to the drag distance.",
+    "FILTER UI: Place the filter action (Gender, Age range, Budget) inside a floating, glassmorphic pill docked at the top center, sitting z-index above the cards.",
+    "CARD UI: Use real portrait images filling the card. A mandatory dark gradient scrim must overlay the bottom 40% of the image (0% to 80% surfaceInverse) to guarantee contrast for the Name, Age, and Budget (€) text.",
+    "TAB BAR: Implement a custom bottom tab bar with a glassmorphic background (`expo-blur` / `expo-glass-effect`). Ensure cards respect the bottom safe area without hiding behind it awkwardly.",
+    "LEARNINGS FROM RESEARCH: Gen Z apps favor 'Dopamine Maximalism' – chunky typography (Bricolage Grotesque), electric high-contrast accents (Lime Green and Vivid Amber), and highly responsive tactile interactions over plain minimalism."
+  ]
+}
