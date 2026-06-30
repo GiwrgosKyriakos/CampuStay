@@ -6,9 +6,9 @@ import os
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field
-from typing import List
+from typing import List, Dict
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 ROOT_DIR = Path(__file__).parent
@@ -51,6 +51,37 @@ async def create_status_check(input: StatusCheckCreate):
 async def get_status_checks():
     status_checks = await db.status_checks.find().to_list(1000)
     return [StatusCheck(**status_check) for status_check in status_checks]
+
+
+# ---- Roomie Compatibility Profile (quiz) ----
+class RoomieProfileIn(BaseModel):
+    answers: Dict[str, int]
+
+
+@api_router.get("/roomie-profile/{user_id}")
+async def get_roomie_profile(user_id: str):
+    doc = await db.roomie_profiles.find_one({"user_id": user_id})
+    if not doc:
+        return {"user_id": user_id, "answers": {}, "updated_at": None}
+    return {
+        "user_id": user_id,
+        "answers": doc.get("answers", {}),
+        "updated_at": doc.get("updated_at"),
+    }
+
+
+@api_router.put("/roomie-profile/{user_id}")
+async def save_roomie_profile(user_id: str, payload: RoomieProfileIn):
+    now = datetime.now(timezone.utc).isoformat()
+    await db.roomie_profiles.update_one(
+        {"user_id": user_id},
+        {
+            "$set": {"answers": payload.answers, "updated_at": now},
+            "$setOnInsert": {"user_id": user_id},
+        },
+        upsert=True,
+    )
+    return {"user_id": user_id, "answers": payload.answers, "updated_at": now}
 
 # Include the router in the main app
 app.include_router(api_router)

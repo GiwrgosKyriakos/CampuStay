@@ -1,8 +1,10 @@
 import React from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
 import { Image } from "expo-image";
+import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import { useMatches } from "@/src/store/matches";
@@ -31,6 +33,7 @@ const SETTINGS: { icon: keyof typeof Ionicons.glyphMap; label: string }[] = [
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const matches = useMatches();
 
   return (
@@ -39,7 +42,29 @@ export default function ProfileScreen() {
         contentContainerStyle={{ paddingBottom: TAB_BAR_SPACE + insets.bottom }}
         showsVerticalScrollIndicator={false}
       >
-        <View style={[styles.hero, { paddingTop: insets.top + spacing.xl }]}>
+        <Pressable
+          style={[styles.roomieWrap, { marginTop: insets.top + spacing.md }]}
+          onPress={() => router.push("/roomie-profile")}
+          testID="roomie-profile-row"
+        >
+          <LinearGradient
+            colors={[colors.brand, colors.brandSecondary]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.roomieCard}
+          >
+            <View style={styles.roomieIcon}>
+              <Ionicons name="sparkles" size={22} color={colors.onBrand} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.roomieTitle}>Roomie Profile</Text>
+              <Text style={styles.roomieSub}>Complete your compatibility quiz</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={22} color={colors.onBrand} />
+          </LinearGradient>
+        </Pressable>
+
+        <View style={[styles.hero, { paddingTop: spacing.xl }]}>
           <View style={styles.avatarWrap}>
             <Image source={{ uri: ME.photo }} style={styles.avatar} contentFit="cover" />
             <Pressable style={styles.editBadge} testID="edit-photo-button">
@@ -101,6 +126,23 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
+  roomieWrap: { marginHorizontal: spacing.lg, borderRadius: radius.lg, overflow: "hidden" },
+  roomieCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    padding: spacing.lg,
+  },
+  roomieIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.pill,
+    backgroundColor: "rgba(255,255,255,0.3)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  roomieTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize.xl, color: colors.onBrand },
+  roomieSub: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onBrand, opacity: 0.8 },
   hero: { alignItems: "center", paddingBottom: spacing.xl, gap: spacing.xs },
   avatarWrap: { marginBottom: spacing.sm },
   avatar: {
