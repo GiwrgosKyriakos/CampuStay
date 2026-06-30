@@ -10,6 +10,7 @@ import { useFonts } from "expo-font";
 import { StatusBar } from "expo-status-bar";
 
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
+import { AuthProvider } from "@/src/context/auth";
 
 // Disable logbox errors etc so that users can see the app
 // and agent works as expected.
@@ -48,8 +49,10 @@ export default function RootLayout() {
       <KeyboardProvider>
         <SafeAreaProvider>
           <BottomSheetModalProvider>
-            <StatusBar style="dark" />
-            <Stack screenOptions={{ headerShown: false }} />
+            <AuthProvider>
+              <StatusBar style="dark" />
+              <Stack screenOptions={{ headerShown: false }} />
+            </AuthProvider>
           </BottomSheetModalProvider>
         </SafeAreaProvider>
       </KeyboardProvider>

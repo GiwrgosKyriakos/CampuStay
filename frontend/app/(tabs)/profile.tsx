@@ -8,6 +8,7 @@ import { useRouter } from "expo-router";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import { useMatches } from "@/src/store/matches";
+import { useAuth } from "@/src/context/auth";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 100;
@@ -23,18 +24,17 @@ const ME = {
     "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?crop=entropy&cs=srgb&fm=jpg&w=900&q=85",
 };
 
-const SETTINGS: { icon: keyof typeof Ionicons.glyphMap; label: string }[] = [
-  { icon: "person-outline", label: "Edit profile" },
-  { icon: "options-outline", label: "Roommate preferences" },
-  { icon: "notifications-outline", label: "Notifications" },
-  { icon: "shield-checkmark-outline", label: "Privacy & safety" },
-  { icon: "help-circle-outline", label: "Help & support" },
+const NAV_SETTINGS: { icon: keyof typeof Ionicons.glyphMap; label: string; route: string }[] = [
+  { icon: "notifications-outline", label: "Notifications", route: "/notifications" },
+  { icon: "shield-checkmark-outline", label: "Privacy & safety", route: "/privacy-safety" },
+  { icon: "help-circle-outline", label: "Help & support", route: "/help-support" },
 ];
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const matches = useMatches();
+  const auth = useAuth();
 
   return (
     <View style={styles.container} testID="profile-screen">
@@ -79,46 +79,74 @@ export default function ProfileScreen() {
           </Text>
         </View>
 
-        <View style={styles.statsCard}>
-          <View style={styles.statItem}>
-            <Text style={styles.statNum}>{matches.length}</Text>
-            <Text style={styles.statLabel}>Matches</Text>
+        {!auth.isGuest ? (
+          <View style={styles.statsCard}>
+            <View style={styles.statItem}>
+              <Text style={styles.statNum}>{matches.length}</Text>
+              <Text style={styles.statLabel}>Matches</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text style={styles.statNum}>{ME.gender}</Text>
+              <Text style={styles.statLabel}>Gender</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text style={styles.statNum}>
+                {CURRENCY}
+                {ME.budget}
+              </Text>
+              <Text style={styles.statLabel}>Max budget</Text>
+            </View>
           </View>
-          <View style={styles.statDivider} />
-          <View style={styles.statItem}>
-            <Text style={styles.statNum}>{ME.gender}</Text>
-            <Text style={styles.statLabel}>Gender</Text>
-          </View>
-          <View style={styles.statDivider} />
-          <View style={styles.statItem}>
-            <Text style={styles.statNum}>
-              {CURRENCY}
-              {ME.budget}
+        ) : (
+          <View style={styles.guestBanner}>
+            <Ionicons name="eye-off-outline" size={36} color={colors.onSurfaceTertiary} />
+            <Text style={styles.guestTitle}>Guest visitor mode</Text>
+            <Text style={styles.guestText}>
+              You are browsing without an active account. Profile details and account actions are disabled.
             </Text>
-            <Text style={styles.statLabel}>Max budget</Text>
           </View>
-        </View>
+        )}
 
         <View style={styles.section}>
-          {SETTINGS.map((s, i) => (
+          {NAV_SETTINGS.map((s, i) => (
             <Pressable
               key={s.label}
-              style={[styles.row, i < SETTINGS.length - 1 && styles.rowBorder]}
+              style={[styles.row, i < NAV_SETTINGS.length - 1 && styles.rowBorder]}
               testID={`setting-${s.label}`}
-              onPress={s.label === "Edit profile" ? () => router.push("/edit-profile") : undefined}
+              onPress={() => !auth.isGuest && router.push(s.route)}
             >
               <View style={styles.rowIcon}>
                 <Ionicons name={s.icon} size={20} color={colors.onSurface} />
               </View>
-              <Text style={styles.rowLabel}>{s.label}</Text>
-              <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+              <Text style={[styles.rowLabel, auth.isGuest && styles.rowDisabled]}>{s.label}</Text>
+              <Ionicons name="chevron-forward" size={18} color={auth.isGuest ? colors.border : colors.onSurfaceTertiary} />
             </Pressable>
           ))}
         </View>
 
-        <Pressable style={styles.logout} testID="logout-button">
+        <Pressable
+          style={[styles.logout, auth.isGuest && styles.disabledAction]}
+          testID="logout-button"
+          onPress={async () => {
+            if (!auth.isGuest) {
+              await auth.logout();
+              router.replace("/guest");
+            }
+          }}
+        >
           <Ionicons name="log-out-outline" size={20} color={colors.error} />
           <Text style={styles.logoutText}>Log out</Text>
+        </Pressable>
+
+        <Pressable
+          style={[styles.deleteAccount, auth.isGuest && styles.disabledAction]}
+          testID="delete-account-button"
+          onPress={() => !auth.isGuest && router.push("/delete-account")}
+        >
+          <Ionicons name="trash-outline" size={20} color={colors.error} />
+          <Text style={[styles.deleteAccountText, auth.isGuest && styles.rowDisabled]}>Delete Account</Text>
         </Pressable>
       </ScrollView>
     </View>
@@ -215,4 +243,33 @@ const styles = StyleSheet.create({
     borderColor: colors.error,
   },
   logoutText: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.error },
+  guestBanner: {
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.lg,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.lg,
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  guestTitle: { fontFamily: fonts.semibold, fontSize: fontSize.xl, color: colors.onSurface },
+  guestText: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary, textAlign: "center" },
+  deleteAccount: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+    marginHorizontal: spacing.lg,
+    paddingVertical: spacing.lg,
+    borderRadius: radius.pill,
+    borderWidth: 1.5,
+    borderColor: colors.error,
+    backgroundColor: "rgba(255,23,68,0.08)",
+  },
+  deleteAccountText: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.error },
+  disabledAction: { opacity: 0.5 },
+  rowDisabled: { color: colors.onSurfaceTertiary },
 });

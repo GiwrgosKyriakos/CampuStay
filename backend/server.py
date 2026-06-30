@@ -123,6 +123,93 @@ async def save_user_profile(user_id: str, payload: FullProfileIn):
     )
     return {"user_id": user_id, "profile": {**data, "user_id": user_id}}
 
+
+class BlockedProfile(BaseModel):
+    id: str
+    name: str
+
+
+class NotificationPreferences(BaseModel):
+    new_matches: bool = True
+    direct_messages: bool = True
+    app_updates_and_tips: bool = True
+
+
+class PrivacyPreferences(BaseModel):
+    is_visible: bool = True
+    blocked_profiles: List[BlockedProfile] = Field(default_factory=list)
+
+
+class UserSettingsIn(BaseModel):
+    notifications: Optional[NotificationPreferences] = None
+    privacy: Optional[PrivacyPreferences] = None
+
+
+class DeleteAccountBody(BaseModel):
+    credential: str
+
+
+@api_router.get("/user-settings/{user_id}")
+async def get_user_settings(user_id: str):
+    doc = await db.user_settings.find_one({"user_id": user_id})
+    if not doc:
+        return {
+            "user_id": user_id,
+            "notifications": {
+                "new_matches": True,
+                "direct_messages": True,
+                "app_updates_and_tips": True,
+            },
+            "privacy": {
+                "is_visible": True,
+                "blocked_profiles": [],
+            },
+        }
+    doc.pop("_id", None)
+    return doc
+
+
+@api_router.put("/user-settings/{user_id}")
+async def save_user_settings(user_id: str, payload: UserSettingsIn):
+    data: Dict[str, object] = {"user_id": user_id}
+    update_data: Dict[str, object] = {}
+    if payload.notifications is not None:
+        update_data["notifications"] = payload.notifications.dict()
+    if payload.privacy is not None:
+        update_data["privacy"] = payload.privacy.dict()
+    if update_data:
+        await db.user_settings.update_one(
+            {"user_id": user_id},
+            {"$set": update_data, "$setOnInsert": {"user_id": user_id}},
+            upsert=True,
+        )
+    doc = await db.user_settings.find_one({"user_id": user_id})
+    if not doc:
+        doc = {
+            "user_id": user_id,
+            "notifications": {
+                "new_matches": True,
+                "direct_messages": True,
+                "app_updates_and_tips": True,
+            },
+            "privacy": {
+                "is_visible": True,
+                "blocked_profiles": [],
+            },
+        }
+    doc.pop("_id", None)
+    return doc
+
+
+@api_router.delete("/delete-account/{user_id}")
+async def delete_account(user_id: str, payload: DeleteAccountBody):
+    # Remove all account-related documents from the database.
+    await db.user_profiles.delete_one({"user_id": user_id})
+    await db.roomie_profiles.delete_one({"user_id": user_id})
+    await db.user_settings.delete_one({"user_id": user_id})
+    return {"deleted": True}
+
+
 # Include the router in the main app
 app.include_router(api_router)
 
