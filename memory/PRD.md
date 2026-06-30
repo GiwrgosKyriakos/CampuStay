@@ -26,6 +26,13 @@ Mobile app (React Native + Expo + TypeScript) for university students to find ro
 - Matches tab (reactive grid + empty state), Apartments tab (cards), Profile tab (hero, stats, settings).
 - Tested: 100% pass (testing_agent iteration_1).
 
+### Step 2 (2026-06-30)
+- Matches tab reworked into Instagram-style chat list (avatar, name, "Hey there! 👋", paper-plane icon).
+- Dedicated ChatScreen at `app/chat/[id].tsx` (outside tabs → tab bar fully hidden). Header shows Gender/Age/Budget; floating input + send (react-native-keyboard-controller KeyboardProvider + KeyboardAvoidingView).
+- Bottom tab active indicator changed to perfect circle (48×48).
+- Swipe cards: reduced photo aspect ratio (0.66) so buttons/info fit; image transition=0 + recyclingKey for flash-free, smooth swaps.
+- Tested: 100% pass (testing_agent iteration_2).
+
 ## Backlog
 - P1: Real backend (FastAPI + MongoDB) for profiles, persisted matches, user auth.
 - P1: Apartment filtering + detail screen; apartment swipe/save.
