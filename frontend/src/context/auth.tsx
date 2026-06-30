@@ -31,7 +31,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     async function loadSession() {
-      const storedGuest = await storage.getItem(AUTH_GUEST_KEY, false);
       const storedUserId = await storage.getItem(AUTH_USER_ID_KEY, "");
       const storedCredential = await storage.getItem(AUTH_USER_CREDENTIAL_KEY, "");
 
