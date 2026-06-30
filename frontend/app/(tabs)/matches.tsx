@@ -1,18 +1,18 @@
 import React from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
 import { Image } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
-import { useMatches, matchesStore } from "@/src/store/matches";
+import { useMatches } from "@/src/store/matches";
 
-const CURRENCY = "€";
 const TAB_BAR_SPACE = 100;
 
 export default function MatchesScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const matches = useMatches();
 
   return (
@@ -29,7 +29,7 @@ export default function MatchesScreen() {
       {matches.length === 0 ? (
         <View style={styles.empty} testID="matches-empty">
           <View style={styles.emptyIcon}>
-            <Ionicons name="heart-outline" size={42} color={colors.onBrandTertiary} />
+            <Ionicons name="chatbubbles-outline" size={42} color={colors.onBrandTertiary} />
           </View>
           <Text style={styles.emptyTitle}>No matches yet</Text>
           <Text style={styles.emptySub}>Start swiping to find your future flatmate!</Text>
@@ -40,35 +40,23 @@ export default function MatchesScreen() {
           showsVerticalScrollIndicator={false}
         >
           {matches.map((p) => (
-            <View key={p.id} style={styles.card} testID={`match-card-${p.id}`}>
-              <Image source={{ uri: p.photo }} style={styles.photo} contentFit="cover" transition={150} />
-              <LinearGradient
-                colors={["transparent", "rgba(26,26,26,0.9)"]}
-                locations={[0.45, 1]}
-                style={StyleSheet.absoluteFill}
-              />
-              <Pressable
-                style={styles.removeBtn}
-                onPress={() => matchesStore.remove(p.id)}
-                testID={`match-remove-${p.id}`}
-                hitSlop={8}
-              >
-                <Ionicons name="close" size={18} color={colors.onSurface} />
-              </Pressable>
-              <View style={styles.cardBody}>
-                <Text style={styles.name}>
-                  {p.name}, {p.age}
+            <Pressable
+              key={p.id}
+              style={styles.row}
+              testID={`chat-row-${p.id}`}
+              onPress={() => router.push({ pathname: "/chat/[id]", params: { id: p.id } })}
+            >
+              <Image source={{ uri: p.photo }} style={styles.avatar} contentFit="cover" transition={150} />
+              <View style={styles.rowText}>
+                <Text style={styles.rowName} numberOfLines={1}>
+                  {p.name}
                 </Text>
-                <Text style={styles.meta}>{p.university}</Text>
-                <View style={styles.budgetPill}>
-                  <Ionicons name="wallet-outline" size={13} color={colors.onBrand} />
-                  <Text style={styles.budgetText}>
-                    {CURRENCY}
-                    {p.budget}/mo
-                  </Text>
-                </View>
+                <Text style={styles.rowMsg} numberOfLines={1}>
+                  Hey there! 👋
+                </Text>
               </View>
-            </View>
+              <Ionicons name="paper-plane-outline" size={22} color={colors.onSurfaceTertiary} />
+            </Pressable>
           ))}
         </ScrollView>
       )}
@@ -81,41 +69,19 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md, gap: spacing.xs },
   title: { fontFamily: fonts.displayExtra, fontSize: fontSize["3xl"], color: colors.onSurface },
   subtitle: { fontFamily: fonts.regular, fontSize: fontSize.lg, color: colors.onSurfaceTertiary },
-  list: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, flexDirection: "row", flexWrap: "wrap", gap: spacing.md },
-  card: {
-    width: "47.5%",
-    aspectRatio: 0.74,
-    borderRadius: radius.lg,
-    overflow: "hidden",
-    backgroundColor: colors.surfaceTertiary,
-  },
-  photo: { ...StyleSheet.absoluteFillObject },
-  removeBtn: {
-    position: "absolute",
-    top: spacing.sm,
-    right: spacing.sm,
-    width: 32,
-    height: 32,
-    borderRadius: radius.pill,
-    backgroundColor: "rgba(255,255,255,0.9)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  cardBody: { position: "absolute", left: 0, right: 0, bottom: 0, padding: spacing.md, gap: 4 },
-  name: { fontFamily: fonts.displayExtra, fontSize: fontSize.xl, color: colors.onSurfaceInverse },
-  meta: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: "rgba(255,255,255,0.85)" },
-  budgetPill: {
+  list: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
+  row: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    alignSelf: "flex-start",
-    backgroundColor: "rgba(0,230,118,0.25)",
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
-    borderRadius: radius.pill,
-    marginTop: 4,
+    gap: spacing.md,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.divider,
   },
-  budgetText: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onBrand },
+  avatar: { width: 60, height: 60, borderRadius: radius.pill, backgroundColor: colors.surfaceTertiary },
+  rowText: { flex: 1, gap: 3 },
+  rowName: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface },
+  rowMsg: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary },
   empty: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.xl, gap: spacing.sm },
   emptyIcon: {
     width: 88,

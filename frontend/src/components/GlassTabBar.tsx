@@ -79,8 +79,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   iconPill: {
-    width: 52,
-    height: 44,
+    width: 48,
+    height: 48,
     borderRadius: radius.pill,
     alignItems: "center",
     justifyContent: "center",

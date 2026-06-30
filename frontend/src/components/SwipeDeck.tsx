@@ -129,7 +129,14 @@ const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck(
 
   const renderCard = (p: RoommateProfile) => (
     <View style={styles.card}>
-      <Image source={{ uri: p.photo }} style={styles.photo} contentFit="cover" transition={200} />
+      <Image
+        source={{ uri: p.photo }}
+        style={styles.photo}
+        contentFit="cover"
+        transition={0}
+        cachePolicy="memory-disk"
+        recyclingKey={p.id}
+      />
       <LinearGradient
         colors={["transparent", "rgba(26,26,26,0.2)", "rgba(26,26,26,0.92)"]}
         locations={[0.4, 0.62, 1]}
@@ -190,9 +197,19 @@ export default SwipeDeck;
 
 const styles = StyleSheet.create({
   deckArea: { flex: 1, alignItems: "center", justifyContent: "center" },
-  cardWrap: { ...StyleSheet.absoluteFillObject },
+  cardWrap: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    alignItems: "stretch",
+    justifyContent: "center",
+  },
   card: {
-    flex: 1,
+    width: "100%",
+    aspectRatio: 0.66,
+    maxHeight: "100%",
     borderRadius: radius.lg,
     backgroundColor: colors.surfaceTertiary,
     overflow: "hidden",
