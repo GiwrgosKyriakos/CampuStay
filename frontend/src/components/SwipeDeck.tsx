@@ -158,8 +158,8 @@ const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck(
             <Text style={styles.metaText}>{p.gender}</Text>
           </View>
           <View style={[styles.metaPill, styles.budgetPill]}>
-            <Ionicons name="wallet-outline" size={14} color={colors.onBrand} />
-            <Text style={[styles.metaText, { color: colors.onBrand }]}>
+            <Ionicons name="wallet-outline" size={14} color={colors.onSurfaceInverse} />
+            <Text style={styles.metaText}>
               {currency}
               {p.budget}/mo
             </Text>
@@ -197,19 +197,9 @@ export default SwipeDeck;
 
 const styles = StyleSheet.create({
   deckArea: { flex: 1, alignItems: "center", justifyContent: "center" },
-  cardWrap: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    alignItems: "stretch",
-    justifyContent: "center",
-  },
+  cardWrap: { ...StyleSheet.absoluteFillObject },
   card: {
-    width: "100%",
-    aspectRatio: 0.66,
-    maxHeight: "100%",
+    flex: 1,
     borderRadius: radius.lg,
     backgroundColor: colors.surfaceTertiary,
     overflow: "hidden",
@@ -233,12 +223,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    backgroundColor: "rgba(255,255,255,0.18)",
-    paddingHorizontal: spacing.md,
+    backgroundColor: colors.brand,
+    paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
     borderRadius: radius.pill,
   },
-  budgetPill: { backgroundColor: "rgba(0,230,118,0.22)" },
+  budgetPill: { backgroundColor: colors.brand },
   metaText: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurfaceInverse },
   stamp: {
     position: "absolute",

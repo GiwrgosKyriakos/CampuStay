@@ -168,9 +168,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
-  chipActive: { backgroundColor: colors.onSurface, borderColor: colors.onSurface },
+  chipActive: { backgroundColor: colors.brand, borderColor: colors.brand },
   chipText: { fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onSurfaceTertiary },
-  chipTextActive: { color: colors.onSurfaceInverse },
+  chipTextActive: { color: colors.onBrand },
   actions: { flexDirection: "row", gap: spacing.md, marginTop: spacing.xl },
   resetBtn: {
     paddingHorizontal: spacing.xl,

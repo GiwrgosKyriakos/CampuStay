@@ -10,6 +10,7 @@ import { useFonts } from "expo-font";
 import { StatusBar } from "expo-status-bar";
 
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
+import { colors } from "@/src/theme";
 import { AuthProvider } from "@/src/context/auth";
 
 // Disable logbox errors etc so that users can see the app
@@ -50,8 +51,8 @@ export default function RootLayout() {
         <SafeAreaProvider>
           <BottomSheetModalProvider>
             <AuthProvider>
-              <StatusBar style="dark" />
-              <Stack screenOptions={{ headerShown: false }} />
+              <StatusBar style="light" />
+              <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.surface } }} />
             </AuthProvider>
           </BottomSheetModalProvider>
         </SafeAreaProvider>

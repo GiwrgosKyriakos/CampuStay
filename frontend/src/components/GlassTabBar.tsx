@@ -1,6 +1,5 @@
 import React from "react";
-import { View, Pressable, StyleSheet, Platform } from "react-native";
-import { BlurView } from "expo-blur";
+import { View, Pressable, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
@@ -19,7 +18,7 @@ export default function GlassTabBar({ state, navigation }: BottomTabBarProps) {
 
   return (
     <View style={[styles.wrap, { paddingBottom: Math.max(insets.bottom, spacing.md) }]} testID="bottom-tab-bar">
-      <BlurView intensity={Platform.OS === "ios" ? 60 : 90} tint="light" style={styles.blur}>
+      <View style={styles.bar}>
         <View style={styles.row}>
           {state.routes.map((route, idx) => {
             const focused = state.index === idx;
@@ -40,14 +39,14 @@ export default function GlassTabBar({ state, navigation }: BottomTabBarProps) {
                   <Ionicons
                     name={focused ? cfg.active : cfg.inactive}
                     size={24}
-                    color={focused ? colors.onBrand : colors.onSurfaceTertiary}
+                    color={focused ? colors.onBrand : "#0A3A45"}
                   />
                 </View>
               </Pressable>
             );
           })}
         </View>
-      </BlurView>
+      </View>
     </View>
   );
 }
@@ -59,12 +58,10 @@ const styles = StyleSheet.create({
     right: spacing.lg,
     bottom: 0,
   },
-  blur: {
+  bar: {
     borderRadius: radius.pill,
     overflow: "hidden",
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: "rgba(255,255,255,0.6)",
+    backgroundColor: colors.muted,
   },
   row: {
     flexDirection: "row",

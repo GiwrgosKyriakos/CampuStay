@@ -34,14 +34,6 @@ export default function RoommatesScreen() {
 
   const deckKey = `${filters.gender}-${filters.ageMin}-${filters.ageMax}-${filters.budgetMax}`;
 
-  const filterSummary = useMemo(() => {
-    const parts: string[] = [];
-    parts.push(filters.gender === "All" ? "Everyone" : filters.gender);
-    parts.push(`${filters.ageMin}-${filters.ageMax}`);
-    parts.push(`≤${CURRENCY}${filters.budgetMax}`);
-    return parts.join(" · ");
-  }, [filters]);
-
   const openSheet = useCallback(() => sheetRef.current?.present(), []);
   const applyFilters = useCallback((f: Filters) => {
     setFilters(f);
@@ -64,15 +56,11 @@ export default function RoommatesScreen() {
           Roomie<Text style={{ color: colors.brand }}>Swipe</Text>
         </Text>
         <Pressable style={styles.filterPill} onPress={openSheet} testID="filter-open-button">
-          <Ionicons name="options-outline" size={18} color={colors.onSurface} />
-          <Text style={styles.filterText} numberOfLines={1}>
-            {filterSummary}
-          </Text>
-          <Ionicons name="chevron-down" size={16} color={colors.onSurfaceTertiary} />
+          <Text style={styles.filterText}>Roomate Preferences</Text>
         </Pressable>
       </View>
 
-      <View style={[styles.deckArea, { marginBottom: TAB_BAR_SPACE + insets.bottom }]}>
+      <View style={styles.deckArea}>
         <SwipeDeck
           key={deckKey}
           ref={deckRef}
@@ -83,16 +71,13 @@ export default function RoommatesScreen() {
         />
       </View>
 
-      <View
-        style={[styles.actions, { bottom: TAB_BAR_SPACE + insets.bottom - 28 }]}
-        pointerEvents="box-none"
-      >
+      <View style={styles.actions}>
         <Pressable
           style={[styles.actionBtn, styles.nopeBtn]}
           onPress={() => press("left")}
           testID="nope-button"
         >
-          <Ionicons name="close" size={32} color={colors.error} />
+          <Ionicons name="close" size={32} color={colors.onBrand} />
         </Pressable>
         <Pressable
           style={[styles.actionBtn, styles.likeBtn]}
@@ -102,6 +87,8 @@ export default function RoommatesScreen() {
           <Ionicons name="heart" size={30} color={colors.onBrand} />
         </Pressable>
       </View>
+
+      <View style={{ height: TAB_BAR_SPACE + insets.bottom }} />
 
       <FilterSheet ref={sheetRef} current={filters} currency={CURRENCY} onApply={applyFilters} />
     </View>
@@ -117,32 +104,19 @@ const styles = StyleSheet.create({
   },
   brand: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface },
   filterPill: {
-    flexDirection: "row",
     alignItems: "center",
-    gap: spacing.sm,
-    alignSelf: "center",
-    backgroundColor: colors.surfaceSecondary,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    justifyContent: "center",
+    backgroundColor: colors.muted,
+    paddingVertical: spacing.lg,
     borderRadius: radius.pill,
-    borderWidth: 1,
-    borderColor: colors.border,
-    shadowColor: "#000",
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
-    maxWidth: "92%",
   },
-  filterText: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface },
+  filterText: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurfaceInverse },
   deckArea: { flex: 1, marginHorizontal: spacing.lg },
   actions: {
-    position: "absolute",
-    left: 0,
-    right: 0,
     flexDirection: "row",
     justifyContent: "center",
     gap: spacing.xl,
+    paddingVertical: spacing.lg,
   },
   actionBtn: {
     width: 64,
@@ -150,13 +124,13 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.surfaceSecondary,
+    backgroundColor: colors.brand,
     shadowColor: "#000",
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
     shadowOffset: { width: 0, height: 6 },
     elevation: 6,
   },
-  nopeBtn: { borderWidth: 2, borderColor: colors.error },
-  likeBtn: { backgroundColor: colors.brand },
+  nopeBtn: {},
+  likeBtn: {},
 });
