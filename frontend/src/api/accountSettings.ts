@@ -22,19 +22,6 @@ export interface UserSettings {
   privacy: PrivacyPreferences;
 }
 
-const DEFAULT_SETTINGS: UserSettings = {
-  user_id: "",
-  notifications: {
-    new_matches: true,
-    direct_messages: true,
-    app_updates_and_tips: true,
-  },
-  privacy: {
-    is_visible: true,
-    blocked_profiles: [],
-  },
-};
-
 export async function getUserSettings(userId: string): Promise<UserSettings> {
   const res = await fetch(`${BASE}/api/user-settings/${userId}`);
   if (!res.ok) throw new Error(`Failed to load user settings (${res.status})`);
