@@ -40,6 +40,12 @@ Mobile app (React Native + Expo + TypeScript) for university students to find ro
 - Backend (`server.py`): GET/PUT `/api/roomie-profile/{user_id}` (Mongo `roomie_profiles`, upsert, no `_id` leak). User id is a persistent local UUID (`src/utils/userId.ts`).
 - Tested: backend 8/8 pytest + frontend all pass (testing_agent iteration_3).
 
+### Step 7 (2026-06-30)
+- Global theme overhaul: Deep Teal #083D4A bg, Vibrant Orange #E07A2F accent, Muted Light Teal #8BB4B9 (nav/filter pill), white text — applied app-wide via `src/theme/index.ts` tokens (+ added `muted`).
+- Home: 'Roomie'(white)+'Swipe'(orange) brand; full-width 'Roomate Preferences' filter pill; orange info pills; full-bleed card; orange X/Heart action circles in normal flow (zero overlap, 16px/24px gaps); muted-teal tab bar with perfect-circle orange active indicator.
+- Root StatusBar set to light + Stack contentStyle teal. delete-account bg tied to theme.
+- Tested: frontend all pass (testing_agent iteration_4 re-run), zero-overlap geometry verified.
+
 ## Backlog
 - P1: Real backend (FastAPI + MongoDB) for profiles, persisted matches, user auth.
 - P1: Apartment filtering + detail screen; apartment swipe/save.

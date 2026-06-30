@@ -58,7 +58,7 @@ export default function DeleteAccountScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#1C1C1C", paddingHorizontal: spacing.lg, justifyContent: "space-between" },
+  container: { flex: 1, backgroundColor: colors.surface, paddingHorizontal: spacing.lg, justifyContent: "space-between" },
   content: { gap: spacing.lg },
   heading: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface, marginBottom: spacing.sm },
   warning: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.surfaceSecondary, lineHeight: 22 },
