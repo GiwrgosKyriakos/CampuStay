@@ -3,7 +3,6 @@ import { storage } from "@/src/utils/storage";
 
 const AUTH_USER_ID_KEY = "roomie_user_id";
 const AUTH_USER_CREDENTIAL_KEY = "auth_user_credential";
-const AUTH_GUEST_KEY = "auth_is_guest";
 const DEFAULT_USER_CREDENTIAL = "alex.mercer@unimates.com";
 
 interface AuthContextValue {
@@ -36,17 +35,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const storedUserId = await storage.getItem(AUTH_USER_ID_KEY, "");
       const storedCredential = await storage.getItem(AUTH_USER_CREDENTIAL_KEY, "");
 
-      if (storedGuest) {
-        setUserId(null);
-        setCredential(null);
-      } else if (storedUserId && storedCredential) {
+      if (storedUserId && storedCredential) {
         setUserId(storedUserId);
         setCredential(storedCredential);
       } else {
         const newUserId = uuidv4();
         await storage.setItem(AUTH_USER_ID_KEY, newUserId);
         await storage.setItem(AUTH_USER_CREDENTIAL_KEY, DEFAULT_USER_CREDENTIAL);
-        await storage.setItem(AUTH_GUEST_KEY, false);
         setUserId(newUserId);
         setCredential(DEFAULT_USER_CREDENTIAL);
       }
@@ -60,7 +55,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (newUserId: string, newCredential: string) => {
     await storage.setItem(AUTH_USER_ID_KEY, newUserId);
     await storage.setItem(AUTH_USER_CREDENTIAL_KEY, newCredential);
-    await storage.setItem(AUTH_GUEST_KEY, false);
     setUserId(newUserId);
     setCredential(newCredential);
   };
@@ -68,7 +62,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = async () => {
     await storage.removeItem(AUTH_USER_ID_KEY);
     await storage.removeItem(AUTH_USER_CREDENTIAL_KEY);
-    await storage.setItem(AUTH_GUEST_KEY, true);
     setUserId(null);
     setCredential(null);
   };

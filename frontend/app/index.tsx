@@ -9,9 +9,9 @@ export default function Index() {
 
   useEffect(() => {
     if (auth.loaded) {
-      router.replace(auth.isGuest ? "/guest" : "/roommates");
+      router.replace("/roommates");
     }
-  }, [auth.loaded, auth.isGuest, router]);
+  }, [auth.loaded, router]);
 
-  return auth.loaded ? <Redirect href={auth.isGuest ? "/guest" : "/roommates"} /> : null;
+  return auth.loaded ? <Redirect href="/roommates" /> : null;
 }
