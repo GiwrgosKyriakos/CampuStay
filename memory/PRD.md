@@ -33,6 +33,13 @@ Mobile app (React Native + Expo + TypeScript) for university students to find ro
 - Swipe cards: reduced photo aspect ratio (0.66) so buttons/info fit; image transition=0 + recyclingKey for flash-free, smooth swaps.
 - Tested: 100% pass (testing_agent iteration_2).
 
+### Step 4 (2026-06-30)
+- Premium "Roomie Profile" row at top of Profile tab → navigates to RoomieProfileScreen (`app/roomie-profile.tsx`, outside tabs → tab bar hidden).
+- Single scrollable 15-question compatibility quiz in 6 categories; emoji-prefixed questions, 3 clean (emoji-free) radio-card options each; live answered/15 progress.
+- Top-right Back button auto-saves all answers to backend then returns. Answers reload on re-open.
+- Backend (`server.py`): GET/PUT `/api/roomie-profile/{user_id}` (Mongo `roomie_profiles`, upsert, no `_id` leak). User id is a persistent local UUID (`src/utils/userId.ts`).
+- Tested: backend 8/8 pytest + frontend all pass (testing_agent iteration_3).
+
 ## Backlog
 - P1: Real backend (FastAPI + MongoDB) for profiles, persisted matches, user auth.
 - P1: Apartment filtering + detail screen; apartment swipe/save.
