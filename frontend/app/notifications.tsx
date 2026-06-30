@@ -115,26 +115,31 @@ export default function NotificationsScreen() {
 
   return (
     <ScrollView
-      contentContainerStyle={[styles.container, { paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + spacing.xl }]}
+      style={styles.root}
+      contentContainerStyle={[styles.contentContainer, { paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + spacing.xl }]}
       showsVerticalScrollIndicator={false}
       testID="notifications-screen"
     >
-      <Text style={styles.title}>Notifications</Text>
-      <Text style={styles.subtitle}>Manage your push notification preferences.</Text>
-      {NOTIFICATION_ROWS.map((row) => (
-        <View key={row.id} style={styles.settingRow} testID={`notification-row-${row.id}`}>
-          <View style={styles.rowText}>
-            <Text style={styles.settingTitle}>{row.title}</Text>
-            <Text style={styles.settingSubtitle}>{row.subtitle}</Text>
+      <View style={styles.header}>
+        <Text style={styles.title}>Notifications</Text>
+        <Text style={styles.subtitle}>Manage your push notification preferences.</Text>
+      </View>
+      <View style={styles.centerBlock}>
+        {NOTIFICATION_ROWS.map((row) => (
+          <View key={row.id} style={styles.settingRow} testID={`notification-row-${row.id}`}>
+            <View style={styles.rowText}>
+              <Text style={styles.settingTitle}>{row.title}</Text>
+              <Text style={styles.settingSubtitle}>{row.subtitle}</Text>
+            </View>
+            <Switch
+              value={preferences[row.id]}
+              onValueChange={(value) => updatePreference(row.id, value)}
+              trackColor={{ false: colors.surfaceSecondary, true: colors.brand }}
+              thumbColor={preferences[row.id] ? colors.surface : colors.surfaceSecondary}
+            />
           </View>
-          <Switch
-            value={preferences[row.id]}
-            onValueChange={(value) => updatePreference(row.id, value)}
-            trackColor={{ false: colors.surfaceSecondary, true: colors.brand }}
-            thumbColor={preferences[row.id] ? colors.surface : colors.surfaceSecondary}
-          />
-        </View>
-      ))}
+        ))}
+      </View>
       {saving && <Text style={styles.saveText}>Saving changes…</Text>}
       {error && <Text style={styles.errorText}>{error}</Text>}
     </ScrollView>
@@ -142,10 +147,14 @@ export default function NotificationsScreen() {
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.surface },
+  contentContainer: { minHeight: "100%", paddingHorizontal: spacing.lg, justifyContent: "center" },
+  header: { marginBottom: spacing.xl, alignItems: "center" },
+  centerBlock: { flex: 1, justifyContent: "center", gap: spacing.sm },
   container: { backgroundColor: colors.surface, paddingHorizontal: spacing.lg },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   title: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface, marginBottom: spacing.sm },
-  subtitle: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary, marginBottom: spacing.lg },
+  subtitle: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary, textAlign: "center" },
   settingRow: {
     flexDirection: "row",
     alignItems: "center",
