@@ -25,6 +25,7 @@ const ME = {
 };
 
 const NAV_SETTINGS: { icon: keyof typeof Ionicons.glyphMap; label: string; route: string }[] = [
+  { icon: "create-outline", label: "Edit profile", route: "/edit-profile" },
   { icon: "notifications-outline", label: "Notifications", route: "/notifications" },
   { icon: "shield-checkmark-outline", label: "Privacy & safety", route: "/privacy-safety" },
   { icon: "help-circle-outline", label: "Help & support", route: "/help-support" },
