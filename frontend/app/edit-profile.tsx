@@ -21,6 +21,7 @@ import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import Dropdown from "@/src/components/Dropdown";
 import { getUserId } from "@/src/utils/userId";
 import { getUserProfile, saveUserProfile, UserProfile } from "@/src/api/userProfile";
+import { useAuth } from "@/src/context/auth";
 
 const CITIES = ["Thessaloniki", "Athens", "Patras", "Heraklion", "Ioannina", "Larissa", "Rethymno"];
 const UNIVERSITIES = [
@@ -49,6 +50,7 @@ const MOVE_IN_OPTIONS = (() => {
 export default function EditProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const auth = useAuth();
 
   const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -183,7 +185,13 @@ export default function EditProfileScreen() {
         twitter: twitter.trim(),
       };
       if (userId) await saveUserProfile(userId, profile);
-      router.replace("/roommates");
+      
+      // Clear profile setup flag if this was a post-login flow
+      if (auth.needsProfileSetup) {
+        auth.clearProfileSetup();
+      }
+      
+      router.replace("/(tabs)/roommates");
     } catch {
       setError("Failed to save your profile. Please try again.");
       setSubmitting(false);
@@ -206,6 +214,7 @@ export default function EditProfileScreen() {
     moveIn,
     userId,
     router,
+    auth,
   ]);
 
   const photosError = !!error && photos.length < 1;
@@ -224,7 +233,17 @@ export default function EditProfileScreen() {
     <View style={styles.container} testID="edit-profile-screen">
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
-        <Pressable style={styles.iconBtn} onPress={() => router.back()} testID="edit-back-button" hitSlop={8}>
+        <Pressable
+          style={[styles.iconBtn, auth.needsProfileSetup && styles.iconBtnDisabled]}
+          onPress={() => {
+            if (!auth.needsProfileSetup) {
+              router.back();
+            }
+          }}
+          disabled={auth.needsProfileSetup}
+          testID="edit-back-button"
+          hitSlop={8}
+        >
           <Ionicons name="chevron-back" size={24} color={colors.onSurface} />
         </Pressable>
         <Text style={styles.headerTitle}>Complete Your Profile</Text>
@@ -510,6 +529,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.surfaceTertiary,
+  },
+  iconBtnDisabled: {
+    opacity: 0.5,
   },
   headerTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize.xl, color: colors.onSurface },
   scroll: { padding: spacing.lg, gap: spacing.lg },

@@ -116,7 +116,7 @@ export default function ProfileScreen() {
               key={s.label}
               style={[styles.row, i < NAV_SETTINGS.length - 1 && styles.rowBorder]}
               testID={`setting-${s.label}`}
-              onPress={() => !auth.isGuest && router.push(s.route)}
+              onPress={() => !auth.isGuest && router.push(s.route as any)}
             >
               <View style={styles.rowIcon}>
                 <Ionicons name={s.icon} size={20} color={colors.onSurface} />
@@ -127,28 +127,38 @@ export default function ProfileScreen() {
           ))}
         </View>
 
-        <Pressable
-          style={[styles.logout, auth.isGuest && styles.disabledAction]}
-          testID="logout-button"
-          onPress={async () => {
-            if (!auth.isGuest) {
-              await auth.logout();
-              router.replace("/guest");
-            }
-          }}
-        >
-          <Ionicons name="log-out-outline" size={20} color={colors.error} />
-          <Text style={styles.logoutText}>Log out</Text>
-        </Pressable>
+        {!auth.isGuest ? (
+          <>
+            <Pressable
+              style={styles.logout}
+              testID="logout-button"
+              onPress={async () => {
+                await auth.logout();
+                router.replace("/guest");
+              }}
+            >
+              <Ionicons name="log-out-outline" size={20} color={colors.error} />
+              <Text style={styles.logoutText}>Log out</Text>
+            </Pressable>
 
-        <Pressable
-          style={[styles.deleteAccount, auth.isGuest && styles.disabledAction]}
-          testID="delete-account-button"
-          onPress={() => !auth.isGuest && router.push("/delete-account")}
-        >
-          <Ionicons name="trash-outline" size={20} color={colors.error} />
-          <Text style={[styles.deleteAccountText, auth.isGuest && styles.rowDisabled]}>Delete Account</Text>
-        </Pressable>
+            <Pressable
+              style={styles.deleteAccount}
+              testID="delete-account-button"
+              onPress={() => router.push("/delete-account")}
+            >
+              <Ionicons name="trash-outline" size={20} color={colors.error} />
+              <Text style={styles.deleteAccountText}>Delete Account</Text>
+            </Pressable>
+          </>
+        ) : (
+          <Pressable
+            style={styles.guestSignUpButton}
+            testID="guest-signup-button"
+            onPress={() => router.navigate("auth-landing" as any)}
+          >
+            <Text style={styles.guestSignUpText}>Εγγραφή / Σύνδεση</Text>
+          </Pressable>
+        )}
       </ScrollView>
     </View>
   );
@@ -273,4 +283,19 @@ const styles = StyleSheet.create({
   deleteAccountText: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.error },
   disabledAction: { opacity: 0.5 },
   rowDisabled: { color: colors.onSurfaceTertiary },
+  guestSignUpButton: {
+    marginTop: spacing.xl,
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.lg,
+    paddingVertical: spacing.lg,
+    borderRadius: radius.pill,
+    backgroundColor: colors.muted,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  guestSignUpText: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.lg,
+    color: colors.onSurface,
+  },
 });

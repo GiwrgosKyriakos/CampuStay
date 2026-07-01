@@ -1,0 +1,365 @@
+import React, { useState } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  Pressable,
+  TextInput,
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+} from "react-native";
+import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
+
+import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
+import { useAuth } from "@/src/context/auth";
+
+type Mode = "initial" | "login" | "register";
+
+export default function AuthEmailScreen() {
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const auth = useAuth();
+
+  const [mode, setMode] = useState<Mode>("initial");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+
+  const handleBack = () => {
+    if (mode === "initial") {
+      router.back();
+    } else {
+      setMode("initial");
+      setEmail("");
+      setPassword("");
+      setConfirmPassword("");
+    }
+  };
+
+  const handleLogin = async () => {
+    if (!email.trim() || !password.trim()) {
+      Alert.alert("Error", "Please fill in all fields");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await auth.loginEmail(email.trim(), password);
+      // Navigation is handled by the auth state change
+    } catch (err: any) {
+      Alert.alert("Login Error", err.message || "Failed to log in. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRegister = async () => {
+    if (!email.trim() || !password.trim() || !confirmPassword.trim()) {
+      Alert.alert("Error", "Please fill in all fields");
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      Alert.alert("Error", "Passwords do not match");
+      return;
+    }
+
+    if (password.length < 6) {
+      Alert.alert("Error", "Password must be at least 6 characters");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await auth.registerEmail(email.trim(), password);
+      // Navigation is handled by the auth state change
+    } catch (err: any) {
+      Alert.alert("Registration Error", err.message || "Failed to register. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (mode === "initial") {
+    return (
+      <View style={styles.container} testID="auth-email-initial">
+        <View style={[styles.header, { paddingTop: insets.top }]}>
+          <Pressable onPress={handleBack} testID="back-button">
+            <Ionicons name="chevron-back" size={28} color={colors.onSurface} />
+          </Pressable>
+          <Text style={styles.headerTitle}>Sign In</Text>
+          <View style={{ width: 28 }} />
+        </View>
+
+        <View style={styles.content}>
+          <Text style={styles.subtitle}>Choose your preferred method</Text>
+
+          <Pressable
+            style={styles.methodButton}
+            onPress={() => setMode("login")}
+            testID="email-login-option"
+          >
+            <View style={styles.methodIcon}>
+              <Ionicons name="mail-outline" size={24} color={colors.brand} />
+            </View>
+            <View style={styles.methodContent}>
+              <Text style={styles.methodTitle}>Email Login</Text>
+              <Text style={styles.methodDesc}>Sign in with your email and password</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />
+          </Pressable>
+
+          <Pressable
+            style={styles.methodButton}
+            onPress={() => setMode("register")}
+            testID="email-register-option"
+          >
+            <View style={styles.methodIcon}>
+              <Ionicons name="person-add-outline" size={24} color={colors.brand} />
+            </View>
+            <View style={styles.methodContent}>
+              <Text style={styles.methodTitle}>Create Account</Text>
+              <Text style={styles.methodDesc}>Register with email and password</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <KeyboardAwareScrollView
+      style={styles.container}
+      contentContainerStyle={{ paddingTop: insets.top }}
+      testID={`auth-email-${mode}`}
+    >
+      <View style={styles.header}>
+        <Pressable onPress={handleBack} testID="back-button">
+          <Ionicons name="chevron-back" size={28} color={colors.onSurface} />
+        </Pressable>
+        <Text style={styles.headerTitle}>{mode === "login" ? "Sign In" : "Create Account"}</Text>
+        <View style={{ width: 28 }} />
+      </View>
+
+      <View style={styles.content}>
+        <Text style={styles.subtitle}>
+          {mode === "login" ? "Enter your credentials" : "Set up your account"}
+        </Text>
+
+        {/* Email Input */}
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Email Address</Text>
+          <View style={styles.inputWrapper}>
+            <Ionicons name="mail-outline" size={20} color={colors.onSurfaceTertiary} />
+            <TextInput
+              style={styles.input}
+              placeholder="you@example.com"
+              placeholderTextColor={colors.onSurfaceTertiary}
+              value={email}
+              onChangeText={setEmail}
+              editable={!loading}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              testID="email-input"
+            />
+          </View>
+        </View>
+
+        {/* Password Input */}
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Password</Text>
+          <View style={styles.inputWrapper}>
+            <Ionicons name="lock-closed-outline" size={20} color={colors.onSurfaceTertiary} />
+            <TextInput
+              style={styles.input}
+              placeholder="Enter password"
+              placeholderTextColor={colors.onSurfaceTertiary}
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry={!showPassword}
+              editable={!loading}
+              testID="password-input"
+            />
+            <Pressable onPress={() => setShowPassword(!showPassword)}>
+              <Ionicons
+                name={showPassword ? "eye-outline" : "eye-off-outline"}
+                size={20}
+                color={colors.onSurfaceTertiary}
+              />
+            </Pressable>
+          </View>
+          {mode === "register" && (
+            <Text style={styles.helperText}>At least 6 characters</Text>
+          )}
+        </View>
+
+        {/* Confirm Password Input (Register Only) */}
+        {mode === "register" && (
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Confirm Password</Text>
+            <View style={styles.inputWrapper}>
+              <Ionicons name="lock-closed-outline" size={20} color={colors.onSurfaceTertiary} />
+              <TextInput
+                style={styles.input}
+                placeholder="Confirm password"
+                placeholderTextColor={colors.onSurfaceTertiary}
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                secureTextEntry={!showPassword}
+                editable={!loading}
+                testID="confirm-password-input"
+              />
+            </View>
+          </View>
+        )}
+
+        {/* Submit Button */}
+        <Pressable
+          style={[styles.submitButton, loading && styles.submitButtonDisabled]}
+          onPress={mode === "login" ? handleLogin : handleRegister}
+          disabled={loading}
+          testID="submit-button"
+        >
+          {loading ? (
+            <ActivityIndicator color={colors.onBrand} size="small" />
+          ) : (
+            <Text style={styles.submitButtonText}>
+              {mode === "login" ? "Sign In" : "Create Account"}
+            </Text>
+          )}
+        </Pressable>
+
+        {mode === "login" && (
+          <Pressable testID="forgot-password-button">
+            <Text style={styles.forgotText}>Forgot password?</Text>
+          </Pressable>
+        )}
+      </View>
+    </KeyboardAwareScrollView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: colors.surface,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.lg,
+  },
+  headerTitle: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.xl,
+    color: colors.onSurface,
+  },
+  content: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.xl,
+    gap: spacing.lg,
+  },
+  subtitle: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.base,
+    color: colors.onSurfaceTertiary,
+    marginBottom: spacing.md,
+  },
+  methodButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    padding: spacing.lg,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  methodIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.md,
+    backgroundColor: "rgba(224, 122, 47, 0.1)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  methodContent: {
+    flex: 1,
+  },
+  methodTitle: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.base,
+    color: colors.onSurface,
+  },
+  methodDesc: {
+    fontFamily: fonts.regular,
+    fontSize: fontSize.sm,
+    color: colors.onSurfaceTertiary,
+    marginTop: spacing.xs,
+  },
+  inputGroup: {
+    gap: spacing.sm,
+    marginTop: spacing.lg,
+  },
+  label: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.base,
+    color: colors.onSurface,
+  },
+  inputWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceSecondary,
+    gap: spacing.sm,
+  },
+  input: {
+    flex: 1,
+    paddingVertical: spacing.md,
+    fontFamily: fonts.regular,
+    fontSize: fontSize.base,
+    color: colors.onSurface,
+  },
+  helperText: {
+    fontFamily: fonts.regular,
+    fontSize: fontSize.sm,
+    color: colors.onSurfaceTertiary,
+  },
+  submitButton: {
+    paddingVertical: spacing.lg,
+    borderRadius: radius.pill,
+    backgroundColor: colors.brand,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: spacing.lg,
+  },
+  submitButtonDisabled: {
+    opacity: 0.7,
+  },
+  submitButtonText: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.lg,
+    color: colors.onBrand,
+  },
+  forgotText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.base,
+    color: colors.brand,
+    textAlign: "center",
+    marginTop: spacing.lg,
+    textDecorationLine: "underline",
+  },
+});

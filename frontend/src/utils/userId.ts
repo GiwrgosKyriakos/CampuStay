@@ -13,11 +13,17 @@ function uuidv4(): string {
 
 export async function getUserId(): Promise<string> {
   if (cached) return cached;
-  let id = await storage.getItem(KEY, "");
+  let id: string | null = await storage.getItem(KEY, null);
   if (!id) {
     id = uuidv4();
     await storage.setItem(KEY, id);
   }
   cached = id;
   return id;
+}
+
+// Used by the auth layer to bind the active account's id so profile/quiz
+// screens (which read getUserId) target the logged-in user.
+export function setUserIdCache(id: string): void {
+  cached = id;
 }

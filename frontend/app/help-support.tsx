@@ -29,7 +29,7 @@ export default function HelpSupportScreen() {
   const auth = useAuth();
   const [openIndex, setOpenIndex] = useState<number | null>(null);
 
-  if (!auth.loaded) return null;
+  if (auth.isLoading) return null;
 
   const navigationSource = auth.isGuest ? "/guest" : "/roommates";
 

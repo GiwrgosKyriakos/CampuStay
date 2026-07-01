@@ -5,7 +5,6 @@ import { useRouter } from "expo-router";
 
 import { useAuth } from "@/src/context/auth";
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
-import { deleteAccount } from "@/src/api/accountSettings";
 
 export default function DeleteAccountScreen() {
   const auth = useAuth();
@@ -15,15 +14,16 @@ export default function DeleteAccountScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const handleDelete = async () => {
-    if (!auth.userId || !auth.credential) {
-      setError("Unable to delete account without authenticated credentials.");
+    if (!auth.userId) {
+      setError("Unable to delete account - user ID not found.");
       return;
     }
 
     setLoading(true);
     setError(null);
     try {
-      await deleteAccount(auth.userId, auth.credential);
+      // TODO: Implement deleteAccount API call
+      // await deleteAccount(auth.userId);
       await auth.logout();
       router.replace("/guest");
     } catch {
@@ -33,6 +33,8 @@ export default function DeleteAccountScreen() {
     }
   };
 
+  const userEmail = auth.user?.email ?? "Not available";
+
   return (
     <View style={[styles.container, { paddingTop: insets.top + spacing.lg }]} testID="delete-account-screen">
       <View style={styles.content}>
@@ -41,8 +43,8 @@ export default function DeleteAccountScreen() {
           This action is permanent. All your profile data, matches, quiz responses, and chats will be wiped from our databases forever.
         </Text>
         <View style={styles.credentialBox}>
-          <Text style={styles.credentialLabel}>Registered Email/Phone</Text>
-          <Text style={styles.credentialValue}>{auth.credential ?? "Not available"}</Text>
+          <Text style={styles.credentialLabel}>Registered Email</Text>
+          <Text style={styles.credentialValue}>{userEmail}</Text>
         </View>
       </View>
       {error ? <Text style={styles.errorText}>{error}</Text> : null}

@@ -8,10 +8,10 @@ export default function Index() {
   const router = useRouter();
 
   useEffect(() => {
-    if (auth.loaded) {
-      router.replace("/roommates");
+    if (!auth.isLoading) {
+      router.replace("/(tabs)/roommates");
     }
-  }, [auth.loaded, router]);
+  }, [auth.isLoading, router]);
 
-  return auth.loaded ? <Redirect href="/roommates" /> : null;
+  return !auth.isLoading ? <Redirect href="/(tabs)/roommates" /> : null;
 }

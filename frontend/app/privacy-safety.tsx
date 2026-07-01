@@ -78,7 +78,7 @@ export default function PrivacySafetyScreen() {
     [privacy, persistPrivacy],
   );
 
-  if (!auth.loaded || loading) {
+  if (auth.isLoading || loading) {
     return (
       <View style={[styles.container, styles.center]}>
         <ActivityIndicator size="large" color={colors.brand} />
