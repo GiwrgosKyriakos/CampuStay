@@ -76,11 +76,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   iconPill: {
-    width: 48,
-    height: 48,
-    borderRadius: radius.pill,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "transparent",
   },
   iconPillActive: {
     backgroundColor: colors.brand,

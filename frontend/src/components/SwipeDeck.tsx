@@ -32,30 +32,36 @@ interface Props {
   currency: string;
   onLike: (p: RoommateProfile) => void;
   onNope: (p: RoommateProfile) => void;
+  onSwipeAction?: (dir: "left" | "right") => void;
   onEmptyReset?: () => void;
 }
 
 const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck(
-  { profiles, currency, onLike, onNope, onEmptyReset },
+  { profiles, currency, onLike, onNope, onSwipeAction, onEmptyReset },
   ref,
 ) {
-  const [index, setIndex] = useState(0);
+  const [cardStack, setCardStack] = useState<RoommateProfile[]>(profiles);
   const x = useSharedValue(0);
   const y = useSharedValue(0);
 
+  React.useEffect(() => {
+    setCardStack(profiles);
+  }, [profiles]);
+
   const finish = (dir: "left" | "right") => {
-    const p = profiles[index];
+    const p = cardStack[0];
     if (p) {
       if (dir === "right") onLike(p);
       else onNope(p);
     }
     x.value = 0;
     y.value = 0;
-    setIndex((i) => i + 1);
+    setCardStack((prev) => prev.slice(1));
   };
 
   const fly = (dir: "left" | "right") => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    onSwipeAction?.(dir);
     x.value = withTiming(dir === "right" ? OUT_X : -OUT_X, { duration: 280 }, () => {
       runOnJS(finish)(dir);
     });
@@ -73,8 +79,10 @@ const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck(
     })
     .onEnd(() => {
       if (x.value > SWIPE_THRESHOLD) {
+        runOnJS(onSwipeAction)?.("right");
         x.value = withTiming(OUT_X, { duration: 250 }, () => runOnJS(finish)("right"));
       } else if (x.value < -SWIPE_THRESHOLD) {
+        runOnJS(onSwipeAction)?.("left");
         x.value = withTiming(-OUT_X, { duration: 250 }, () => runOnJS(finish)("left"));
       } else {
         x.value = withSpring(0);
@@ -95,14 +103,7 @@ const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck(
     return { transform: [{ scale }, { translateY }] };
   });
 
-  const likeStamp = useAnimatedStyle(() => ({
-    opacity: interpolate(x.value, [0, SWIPE_THRESHOLD * 0.6], [0, 1], Extrapolation.CLAMP),
-  }));
-  const nopeStamp = useAnimatedStyle(() => ({
-    opacity: interpolate(x.value, [-SWIPE_THRESHOLD * 0.6, 0], [1, 0], Extrapolation.CLAMP),
-  }));
-
-  if (index >= profiles.length) {
+  if (cardStack.length === 0) {
     return (
       <View style={styles.deckArea}>
         <View style={styles.empty} testID="deck-empty">
@@ -114,7 +115,7 @@ const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck(
           <Pressable
             style={styles.emptyBtn}
             onPress={() => {
-              setIndex(0);
+              setCardStack(profiles);
               onEmptyReset?.();
             }}
             testID="deck-reset-button"
@@ -169,7 +170,7 @@ const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck(
     </View>
   );
 
-  const next = profiles[index + 1];
+  const next = cardStack[1];
 
   return (
     <View style={styles.deckArea}>
@@ -180,13 +181,7 @@ const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck(
       )}
       <GestureDetector gesture={pan}>
         <Animated.View style={[styles.cardWrap, topStyle]} testID="swipe-card-top">
-          {renderCard(profiles[index])}
-          <Animated.View style={[styles.stamp, styles.stampLike, likeStamp]}>
-            <Text style={[styles.stampText, { color: colors.success }]}>LIKE</Text>
-          </Animated.View>
-          <Animated.View style={[styles.stamp, styles.stampNope, nopeStamp]}>
-            <Text style={[styles.stampText, { color: colors.error }]}>NOPE</Text>
-          </Animated.View>
+          {renderCard(cardStack[0])}
         </Animated.View>
       </GestureDetector>
     </View>
@@ -230,18 +225,6 @@ const styles = StyleSheet.create({
   },
   budgetPill: { backgroundColor: colors.brand },
   metaText: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurfaceInverse },
-  stamp: {
-    position: "absolute",
-    top: spacing["3xl"],
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.md,
-    borderWidth: 4,
-    backgroundColor: "rgba(255,255,255,0.85)",
-  },
-  stampLike: { left: spacing.xl, transform: [{ rotate: "-16deg" }], borderColor: colors.success },
-  stampNope: { right: spacing.xl, transform: [{ rotate: "16deg" }], borderColor: colors.error },
-  stampText: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], letterSpacing: 2 },
   empty: { alignItems: "center", paddingHorizontal: spacing.xl, gap: spacing.md },
   emptyIcon: {
     width: 88,

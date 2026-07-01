@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState, useCallback } from "react";
+import React, { useMemo, useRef, useState, useCallback, useEffect } from "react";
 import { View, Text, StyleSheet, Pressable } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -19,6 +19,8 @@ export default function RoommatesScreen() {
   const deckRef = useRef<SwipeDeckHandle>(null);
   const sheetRef = useRef<BottomSheetModal>(null);
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
+  const [activeAction, setActiveAction] = useState<"left" | "right" | null>(null);
+  const actionTimeout = useRef<NodeJS.Timeout | null>(null);
 
   const filtered = useMemo(
     () =>
@@ -43,8 +45,21 @@ export default function RoommatesScreen() {
   const onLike = useCallback((p: (typeof PROFILES)[number]) => matchesStore.add(p), []);
   const onNope = useCallback(() => {}, []);
 
+  const triggerActionFeedback = useCallback((action: "left" | "right") => {
+    setActiveAction(action);
+    actionTimeout.current && clearTimeout(actionTimeout.current);
+    actionTimeout.current = setTimeout(() => setActiveAction(null), 220);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      actionTimeout.current && clearTimeout(actionTimeout.current);
+    };
+  }, []);
+
   const press = (action: "left" | "right") => {
     Haptics.selectionAsync();
+    triggerActionFeedback(action);
     if (action === "right") deckRef.current?.swipeRight();
     else deckRef.current?.swipeLeft();
   };
@@ -68,23 +83,40 @@ export default function RoommatesScreen() {
           currency={CURRENCY}
           onLike={onLike}
           onNope={onNope}
+          onSwipeAction={triggerActionFeedback}
         />
       </View>
 
       <View style={styles.actions}>
         <Pressable
-          style={[styles.actionBtn, styles.nopeBtn]}
+          style={[
+            styles.actionBtn,
+            styles.nopeBtn,
+            activeAction === "left" && styles.actionBtnActive,
+          ]}
           onPress={() => press("left")}
           testID="nope-button"
         >
-          <Ionicons name="close" size={32} color={colors.onBrand} />
+          <Ionicons
+            name="close"
+            size={32}
+            color={activeAction === "left" ? colors.brand : colors.onBrand}
+          />
         </Pressable>
         <Pressable
-          style={[styles.actionBtn, styles.likeBtn]}
+          style={[
+            styles.actionBtn,
+            styles.likeBtn,
+            activeAction === "right" && styles.actionBtnActive,
+          ]}
           onPress={() => press("right")}
           testID="like-button"
         >
-          <Ionicons name="heart" size={30} color={colors.onBrand} />
+          <Ionicons
+            name="heart"
+            size={30}
+            color={activeAction === "right" ? colors.brand : colors.onBrand}
+          />
         </Pressable>
       </View>
 
@@ -121,15 +153,18 @@ const styles = StyleSheet.create({
   actionBtn: {
     width: 64,
     height: 64,
-    borderRadius: radius.pill,
+    borderRadius: 32,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.brand,
+    backgroundColor: colors.muted,
     shadowColor: "#000",
     shadowOpacity: 0.2,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 6 },
     elevation: 6,
+  },
+  actionBtnActive: {
+    backgroundColor: "#78A3A8",
   },
   nopeBtn: {},
   likeBtn: {},
