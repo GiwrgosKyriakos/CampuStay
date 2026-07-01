@@ -35,7 +35,12 @@ export default function GlassTabBar({ state, navigation }: BottomTabBarProps) {
                 testID={`tab-${route.name}`}
                 hitSlop={8}
               >
-                <View style={[styles.iconPill, focused && styles.iconPillActive]}>
+                <View
+                  style={[
+                    styles.iconPill,
+                    focused ? { backgroundColor: colors.brand } : undefined,
+                  ]}
+                >
                   <Ionicons
                     name={focused ? cfg.active : cfg.inactive}
                     size={24}
