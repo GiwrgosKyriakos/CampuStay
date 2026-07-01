@@ -72,50 +72,80 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let mounted = true;
     (async () => {
       try {
+        console.log("[Auth] Starting bootstrap...");
+
         // Web: handle OAuth redirect (session_id in URL) first.
         if (Platform.OS === "web" && typeof window !== "undefined") {
+          console.log("[Auth] Checking for OAuth redirect on web...");
           const sid = parseSessionId(window.location.hash) || parseSessionId(window.location.search);
           if (sid) {
+            console.log("[Auth] Found session_id in URL, logging in via Google...");
             try {
               await loginWithGoogleSession(sid);
+            } catch (err) {
+              console.error("[Auth] Google session login failed:", err);
             } finally {
               window.history.replaceState(null, "", window.location.pathname);
             }
             return;
           }
         }
+
         // Mobile cold-start deep link fallback.
         if (Platform.OS !== "web") {
+          console.log("[Auth] Checking for deep link on mobile...");
           const initial = await Linking.getInitialURL();
           const sid = parseSessionId(initial);
           if (sid) {
-            await loginWithGoogleSession(sid);
+            console.log("[Auth] Found session_id in deep link, logging in via Google...");
+            try {
+              await loginWithGoogleSession(sid);
+            } catch (err) {
+              console.error("[Auth] Google session login from deep link failed:", err);
+            }
             return;
           }
         }
 
+        console.log("[Auth] Checking for stored token...");
         const setupFlag = await storage.getItem(SETUP_KEY, false);
-        if (mounted && setupFlag) setNeedsProfileSetup(true);
+        if (mounted && setupFlag) {
+          console.log("[Auth] Profile setup flag found");
+          setNeedsProfileSetup(true);
+        }
 
         const storedToken = await storage.secureGet(TOKEN_KEY, "");
         if (storedToken) {
+          console.log("[Auth] Found stored token, validating with server...");
           try {
             const me = await apiMe(storedToken);
             if (mounted) {
+              console.log("[Auth] Token valid! User logged in:", me.user_id);
               setToken(storedToken);
               setUser(me);
               setUserIdCache(me.user_id);
               setStatus("authed");
             }
             return;
-          } catch {
+          } catch (err) {
+            console.warn("[Auth] Stored token invalid, clearing:", err);
             await storage.secureRemove(TOKEN_KEY);
           }
         }
 
+        console.log("[Auth] No valid token found, checking guest mode...");
         const guest = await storage.getItem(GUEST_KEY, false);
-        if (mounted) setStatus(guest ? "guest" : "unauth");
-      } catch {
+        if (mounted) {
+          if (guest) {
+            console.log("[Auth] Guest mode enabled");
+            setStatus("guest");
+          } else {
+            console.log("[Auth] User not authenticated, showing login screen");
+            setStatus("unauth");
+          }
+        }
+      } catch (err) {
+        console.error("[Auth] Bootstrap error:", err);
         if (mounted) setStatus("unauth");
       }
     })();

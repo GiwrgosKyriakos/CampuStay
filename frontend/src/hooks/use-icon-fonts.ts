@@ -44,9 +44,25 @@ const iconFontMap = (): Record<string, string> =>
     Object.entries(ICON_FAMILIES).map(([key, file]) => [key, cdnUrl(file)]),
   );
 
-export const useIconFonts = (): readonly [boolean, Error | null] =>
-  useFonts(
-    Constants.executionEnvironment === ExecutionEnvironment.StoreClient
-      ? iconFontMap()
-      : {},
-  );
+export const useIconFonts = (): readonly [boolean, Error | null] => {
+  try {
+    console.log("[Fonts] Loading icon fonts...");
+    const result = useFonts(
+      Constants.executionEnvironment === ExecutionEnvironment.StoreClient
+        ? iconFontMap()
+        : {},
+    );
+    const [loaded, error] = result;
+    if (loaded) {
+      console.log("[Fonts] Icon fonts loaded successfully");
+    }
+    if (error) {
+      console.warn("[Fonts] Icon fonts loading error:", error);
+    }
+    return result;
+  } catch (err) {
+    console.error("[Fonts] Icon font hook error:", err);
+    // Return [true, error] to indicate fonts are "ready" but with an error
+    return [true, err as Error];
+  }
+};

@@ -23,6 +23,8 @@ LogBox.ignoreAllLogs(true);
 // the family is registered — which throws on Android Expo Go.
 SplashScreen.preventAutoHideAsync();
 
+console.log("[App] Starting app initialization...");
+
 function RootLayoutNavigator() {
   const auth = useAuth();
 
@@ -83,6 +85,62 @@ function RootLayoutNavigator() {
   );
 }
 
+function RootLayoutContent() {
+  const auth = useAuth();
+  const [iconsLoaded, iconsError] = useIconFonts();
+  const [fontsLoaded, fontsError] = useFonts({
+    "Bricolage-Bold": require("../assets/fonts/BricolageGrotesque-Bold.ttf"),
+    "Bricolage-ExtraBold": require("../assets/fonts/BricolageGrotesque-ExtraBold.ttf"),
+    "Jakarta-Regular": require("../assets/fonts/PlusJakartaSans-Regular.ttf"),
+    "Jakarta-SemiBold": require("../assets/fonts/PlusJakartaSans-SemiBold.ttf"),
+    "Jakarta-Bold": require("../assets/fonts/PlusJakartaSans-Bold.ttf"),
+  });
+
+  const fontsReady = (iconsLoaded || iconsError) && (fontsLoaded || fontsError);
+  const authReady = !auth.isLoading;
+  const appReady = fontsReady && authReady;
+
+  useEffect(() => {
+    console.log("[App] Fonts ready:", fontsReady, "| Auth ready:", authReady, "| App ready:", appReady);
+    if (fontsReady && !fontsLoaded && !iconsLoaded && iconsError) {
+      console.warn("[App] Icon fonts failed to load, but app will proceed with fallback.");
+    }
+    if (fontsReady && !fontsLoaded && fontsError) {
+      console.warn("[App] Custom fonts failed to load:", fontsError);
+    }
+  }, [fontsReady, fontsLoaded, iconsLoaded, iconsError, fontsError, authReady, appReady]);
+
+  useEffect(() => {
+    if (appReady) {
+      console.log("[App] App ready! Hiding splash screen.");
+      SplashScreen.hideAsync().catch((err) => {
+        console.warn("[App] Failed to hide splash screen:", err);
+      });
+    }
+  }, [appReady]);
+
+  // If fonts aren't ready, show nothing (splash screen still visible)
+  if (!fontsReady) {
+    console.log("[App] Waiting for fonts to load...");
+    return null;
+  }
+
+  // Fonts are ready but auth is still loading, show the splash screen through the Router
+  // If fonts fail to load, we fall through and render the app anyway (icons will be missing but app works)
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <KeyboardProvider>
+        <SafeAreaProvider>
+          <BottomSheetModalProvider>
+            <StatusBar style="light" />
+            <RootLayoutNavigator />
+          </BottomSheetModalProvider>
+        </SafeAreaProvider>
+      </KeyboardProvider>
+    </GestureHandlerRootView>
+  );
+}
+
 export default function RootLayout() {
   const [iconsLoaded, iconsError] = useIconFonts();
   const [fontsLoaded, fontsError] = useFonts({
@@ -93,30 +151,27 @@ export default function RootLayout() {
     "Jakarta-Bold": require("../assets/fonts/PlusJakartaSans-Bold.ttf"),
   });
 
-  const ready = (iconsLoaded || iconsError) && (fontsLoaded || fontsError);
+  const fontsReady = (iconsLoaded || iconsError) && (fontsLoaded || fontsError);
 
-  useEffect(() => {
-    if (ready) {
-      SplashScreen.hideAsync();
-    }
-  }, [ready]);
+  // If fonts fail, log error but allow app to continue
+  if (fontsError) {
+    console.warn("[App] Font loading error (continuing with fallback):", fontsError);
+  }
+  if (iconsError) {
+    console.warn("[App] Icon font error (continuing with fallback):", iconsError);
+  }
 
-  // If the CDN is unreachable we fall through on error rather than wedging
-  // the app — icons will tofu, but the app still boots.
-  if (!ready) return null;
+  // Wait for fonts to load before rendering the app
+  if (!fontsReady) {
+    console.log("[App] Waiting for fonts to load...");
+    return null;
+  }
+
+  console.log("[App] Fonts loaded! Rendering app with AuthProvider...");
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <KeyboardProvider>
-        <SafeAreaProvider>
-          <BottomSheetModalProvider>
-            <AuthProvider>
-              <StatusBar style="light" />
-              <RootLayoutNavigator />
-            </AuthProvider>
-          </BottomSheetModalProvider>
-        </SafeAreaProvider>
-      </KeyboardProvider>
-    </GestureHandlerRootView>
+    <AuthProvider>
+      <RootLayoutContent />
+    </AuthProvider>
   );
 }
