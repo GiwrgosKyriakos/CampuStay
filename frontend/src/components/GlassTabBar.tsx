@@ -86,6 +86,7 @@ const styles = StyleSheet.create({
     borderRadius: 26,
     alignItems: "center",
     justifyContent: "center",
+    overflow: 'hidden', // Εμποδίζει το περιεχόμενο να ξεχειλώσει τις γωνίες
     backgroundColor: "transparent",
   },
   iconPillActive: {
