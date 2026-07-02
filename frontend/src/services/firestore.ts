@@ -149,20 +149,27 @@ export async function saveUserProfile(userId: string, profile: UserProfile): Pro
 }
 
 export async function syncAuthUserToFirestore(user: User): Promise<void> {
-  const profileRef = doc(db, "users", user.uid);
-  await setDoc(
-    profileRef,
-    {
-      id: user.uid,
-      email: user.email ?? null,
-      name: user.displayName ?? null,
-      photo: user.photoURL ?? null,
-      profileComplete: false,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    },
-    { merge: true },
-  );
+  try {
+    console.log(`[Firestore] → Syncing Firebase user to Firestore: ${user.uid.substring(0, 8)}...`);
+    const profileRef = doc(db, "users", user.uid);
+    await setDoc(
+      profileRef,
+      {
+        id: user.uid,
+        email: user.email ?? null,
+        name: user.displayName ?? null,
+        photo: user.photoURL ?? null,
+        profileComplete: false,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true },
+    );
+    console.log(`[Firestore] ✓ User synced: ${user.email || user.uid}`);
+  } catch (err) {
+    console.error("[Firestore] ✗ Error syncing user to Firestore:", err);
+    throw err;
+  }
 }
 
 export function subscribeUserProfile(

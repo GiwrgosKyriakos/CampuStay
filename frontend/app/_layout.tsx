@@ -22,11 +22,26 @@ function AppNavigator() {
   useEffect(() => {
     if (auth.isLoggedIn && auth.needsProfileSetup) {
       const timer = setTimeout(() => {
-        console.log("[App] Profile setup required, preserving stack navigation.");
+        console.log("[App] 🔄 Profile setup required, preserving stack navigation.");
       }, 100);
       return () => clearTimeout(timer);
     }
   }, [auth.isLoggedIn, auth.needsProfileSetup]);
+
+  // Log route transitions
+  useEffect(() => {
+    if (auth.isLoading) {
+      console.log("[App] 📊 Route: SPLASH (loading)");
+    } else if (!auth.isLoggedIn && !auth.isGuestMode) {
+      console.log("[App] 📊 Route: AUTH (login/register)");
+    } else if (auth.isLoggedIn && auth.needsProfileSetup) {
+      console.log("[App] 📊 Route: EDIT_PROFILE (setup required)");
+    } else if (auth.isLoggedIn) {
+      console.log("[App] 📊 Route: MAIN_TABS (home)");
+    } else if (auth.isGuestMode) {
+      console.log("[App] 📊 Route: MAIN_TABS (guest mode)");
+    }
+  }, [auth.isLoading, auth.isLoggedIn, auth.isGuestMode, auth.needsProfileSetup]);
 
   return (
     <Stack

@@ -168,6 +168,7 @@ export default function EditProfileScreen() {
     setError(null);
     setSubmitting(true);
     try {
+      console.log("[EditProfile] → Saving user profile...");
       const profile: UserProfile = {
         photos,
         age: age ? parseInt(age, 10) : null,
@@ -184,15 +185,23 @@ export default function EditProfileScreen() {
         linkedin: linkedin.trim(),
         twitter: twitter.trim(),
       };
-      if (userId) await saveUserProfile(userId, profile);
+      if (userId) {
+        console.log(`[EditProfile] → Calling saveUserProfile for user: ${userId.substring(0, 8)}...`);
+        await saveUserProfile(userId, profile);
+        console.log("[EditProfile] ✓ Profile saved successfully");
+      }
       
       // Clear profile setup flag if this was a post-login flow
       if (auth.needsProfileSetup) {
+        console.log("[EditProfile] → Clearing profile setup flag");
         auth.clearProfileSetup();
+        console.log("[EditProfile] ✓ Profile setup flag cleared");
       }
       
+      console.log("[EditProfile] → Navigating to roommates...");
       router.replace("/(tabs)/roommates");
-    } catch {
+    } catch (err) {
+      console.error("[EditProfile] ✗ Error saving profile:", err);
       setError("Failed to save your profile. Please try again.");
       setSubmitting(false);
     }

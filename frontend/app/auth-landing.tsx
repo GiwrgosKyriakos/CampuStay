@@ -17,9 +17,17 @@ export default function AuthLandingScreen() {
   const handleGoogleLogin = async () => {
     try {
       setGoogleLoading(true);
-      await auth.signInWithGoogle();
+      console.log("[AuthLanding] → User tapped Google Sign-In button");
+      const user = await auth.signInWithGoogle();
+      if (user) {
+        console.log("[AuthLanding] ✓ Google Sign-In successful, navigating to home...");
+        router.replace("/(tabs)/roommates");
+      } else {
+        console.warn("[AuthLanding] ⚠ Google Sign-In returned null user");
+      }
     } catch (err) {
-      console.error("Google login error:", err);
+      console.error("[AuthLanding] ✗ Google login error:", err);
+      // Optionally show error toast/alert here
     } finally {
       setGoogleLoading(false);
     }
