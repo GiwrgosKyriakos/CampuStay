@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback } from "react";
+import React, { useRef, useState, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -15,38 +15,51 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
-import { useMatches } from "@/src/store/matches";
+import { useAuth } from "@/src/context/auth";
+import {
+  subscribeChatMessages,
+  sendChatMessage,
+  getChatRoom,
+  type FirestoreChatMessage,
+  type FirestoreChatRoom,
+} from "@/src/services/firestore";
 
 const CURRENCY = "€";
-
-interface Message {
-  id: string;
-  text: string;
-  mine: boolean;
-}
 
 export default function ChatScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const matches = useMatches();
-  const profile = matches.find((m) => m.id === id);
-
+  const auth = useAuth();
+  const [chatRoom, setChatRoom] = useState<FirestoreChatRoom | null>(null);
+  const [messages, setMessages] = useState<FirestoreChatMessage[]>([]);
   const scrollRef = useRef<ScrollView>(null);
   const [text, setText] = useState("");
-  const [messages, setMessages] = useState<Message[]>([
-    { id: "welcome", text: "Hey there! 👋", mine: false },
-  ]);
 
-  const send = useCallback(() => {
+  useEffect(() => {
+    if (!id) return;
+    let unsubscribe: (() => void) | undefined;
+
+    (async () => {
+      const room = await getChatRoom(id);
+      if (room) {
+        setChatRoom(room);
+        unsubscribe = subscribeChatMessages(id, setMessages);
+      }
+    })();
+
+    return () => unsubscribe?.();
+  }, [id]);
+
+  const send = useCallback(async () => {
     const trimmed = text.trim();
-    if (!trimmed) return;
-    setMessages((prev) => [...prev, { id: `${Date.now()}`, text: trimmed, mine: true }]);
+    if (!trimmed || !auth.userId || !id) return;
     setText("");
+    await sendChatMessage(id, auth.userId, trimmed);
     requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
-  }, [text]);
+  }, [text, auth.userId, id]);
 
-  if (!profile) {
+  if (!chatRoom) {
     return (
       <View style={[styles.container, styles.center]} testID="chat-screen">
         <Text style={styles.fallback}>Conversation not found</Text>
@@ -56,6 +69,24 @@ export default function ChatScreen() {
       </View>
     );
   }
+
+  const otherParticipant = chatRoom.participants.find((participant) => participant.id !== auth.userId) ?? chatRoom.participants[0];
+
+  if (!chatRoom) {
+    return (
+      <View style={[styles.container, styles.center]} testID="chat-screen">
+        <Text style={styles.fallback}>Conversation not found</Text>
+        <Pressable style={styles.backPill} onPress={() => router.back()} testID="chat-back-button">
+          <Text style={styles.backPillText}>Go back</Text>
+        </Pressable>
+      </View>
+    );
+  }
+  const otherName = otherParticipant?.name ?? "Roommate";
+  const otherPhoto = otherParticipant?.photo ?? "";
+  const otherGender = otherParticipant?.gender ?? "N/A";
+  const otherAge = otherParticipant?.age ?? 0;
+  const otherUniversity = otherParticipant?.university ?? "";
 
   return (
     <View style={styles.container} testID="chat-screen">
@@ -70,30 +101,30 @@ export default function ChatScreen() {
           >
             <Ionicons name="chevron-back" size={24} color={colors.onSurface} />
           </Pressable>
-          <Image source={{ uri: profile.photo }} style={styles.headerAvatar} contentFit="cover" />
+          <Image source={{ uri: otherParticipant?.photo || "" }} style={styles.headerAvatar} contentFit="cover" />
           <View style={{ flex: 1 }}>
             <Text style={styles.headerName} numberOfLines={1}>
-              {profile.name}
+              {otherParticipant?.name ?? "Roommate"}
             </Text>
             <Text style={styles.headerUni} numberOfLines={1}>
-              {profile.university}
+              {otherParticipant?.university ?? ""}
             </Text>
           </View>
         </View>
         <View style={styles.detailRow}>
           <View style={styles.detailPill}>
             <Ionicons name="person-outline" size={13} color={colors.onSurfaceTertiary} />
-            <Text style={styles.detailText}>{profile.gender}</Text>
+            <Text style={styles.detailText}>{otherParticipant?.gender ?? "N/A"}</Text>
           </View>
           <View style={styles.detailPill}>
             <Ionicons name="calendar-outline" size={13} color={colors.onSurfaceTertiary} />
-            <Text style={styles.detailText}>{profile.age} yrs</Text>
+            <Text style={styles.detailText}>{otherParticipant?.age ?? 0} yrs</Text>
           </View>
           <View style={[styles.detailPill, styles.budgetPill]}>
             <Ionicons name="wallet-outline" size={13} color={colors.onBrandTertiary} />
             <Text style={[styles.detailText, { color: colors.onBrandTertiary }]}>
               {CURRENCY}
-              {profile.budget}/mo
+              {otherParticipant?.budget ?? 0}/mo
             </Text>
           </View>
         </View>
@@ -127,7 +158,7 @@ export default function ChatScreen() {
             style={styles.input}
             value={text}
             onChangeText={setText}
-            placeholder={`Message ${profile.name}...`}
+            placeholder={`Message ${otherParticipant?.name || "Roommate"}...`}
             placeholderTextColor={colors.onSurfaceTertiary}
             multiline
             testID="chat-input"

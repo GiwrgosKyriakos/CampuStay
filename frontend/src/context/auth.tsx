@@ -1,11 +1,15 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from "react";
 import { Platform } from "react-native";
 import * as Linking from "expo-linking";
-import * as WebBrowser from "expo-web-browser";
+import * as Google from "expo-auth-session/providers/google";
+import { makeRedirectUri } from "expo-auth-session";
+import { GoogleAuthProvider, signInWithCredential, onAuthStateChanged, User as FirebaseUser } from "firebase/auth";
 
 import { storage } from "@/src/utils/storage";
 import { setUserIdCache } from "@/src/utils/userId";
-import { apiLogin, apiRegister, apiGoogle, apiMe, apiLogout, AuthUser } from "@/src/api/auth";
+import { apiLogin, apiRegister, apiMe, apiLogout, AuthUser } from "@/src/api/auth";
+import { firebaseAuth } from "@/src/config/firebase";
+import { syncAuthUserToFirestore } from "@/src/services/firestore";
 
 const TOKEN_KEY = "auth_token";
 const GUEST_KEY = "auth_guest";
@@ -70,13 +74,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Bootstrap session on mount.
   useEffect(() => {
     let mounted = true;
+    
+    // Listen for Firebase auth state changes.
+    const unsubscribeAuth = onAuthStateChanged(firebaseAuth, async (firebaseUser: FirebaseUser | null) => {
+      if (!mounted) return;
+      
+      if (firebaseUser) {
+        console.log("[Auth] Firebase user detected:", firebaseUser.uid);
+        const idToken = await firebaseUser.getIdToken();
+        setUserIdCache(firebaseUser.uid);
+        await storage.setItem("roomie_user_id", firebaseUser.uid);
+        
+        const authUser: AuthUser = {
+          user_id: firebaseUser.uid,
+          email: firebaseUser.email,
+          name: firebaseUser.displayName,
+          picture: firebaseUser.photoURL,
+        };
+        
+        setToken(idToken);
+        setUser(authUser);
+        setStatus("authed");
+      } else {
+        console.log("[Auth] Firebase user cleared");
+        // Don't immediately logout; check localStorage/secured storage first
+      }
+    });
+
     (async () => {
       try {
         console.log("[Auth] Starting bootstrap...");
 
-        // Web: handle OAuth redirect (session_id in URL) first.
         if (Platform.OS === "web" && typeof window !== "undefined") {
-          console.log("[Auth] Checking for OAuth redirect on web...");
           const sid = parseSessionId(window.location.hash) || parseSessionId(window.location.search);
           if (sid) {
             console.log("[Auth] Found session_id in URL, logging in via Google...");
@@ -91,9 +120,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
         }
 
-        // Mobile cold-start deep link fallback.
         if (Platform.OS !== "web") {
-          console.log("[Auth] Checking for deep link on mobile...");
           const initial = await Linking.getInitialURL();
           const sid = parseSessionId(initial);
           if (sid) {
@@ -149,8 +176,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (mounted) setStatus("unauth");
       }
     })();
+    
     return () => {
       mounted = false;
+      unsubscribeAuth();
     };
   }, [loginWithGoogleSession]);
 
@@ -170,23 +199,54 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [persist],
   );
 
+  const [request, response, promptAsync] = Google.useAuthRequest({
+    expoClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ?? "YOUR_ANDROID_CLIENT_ID",
+    iosClientId: process.env.EXPO_PUBLIC_IOS_CLIENT_ID ?? "YOUR_IOS_CLIENT_ID",
+    androidClientId: process.env.EXPO_PUBLIC_ANDROID_CLIENT_ID ?? "YOUR_ANDROID_CLIENT_ID",
+    webClientId: process.env.EXPO_PUBLIC_WEB_CLIENT_ID ?? "YOUR_WEB_CLIENT_ID",
+    scopes: ["profile", "email"],
+    redirectUri: makeRedirectUri({ useProxy: true }),
+  });
+
   const signInWithGoogle = useCallback(async (): Promise<AuthUser | null> => {
-    const redirectUrl =
-      Platform.OS === "web" && typeof window !== "undefined"
-        ? window.location.origin + "/"
-        : Linking.createURL("auth");
-    const authUrl = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
-    if (Platform.OS === "web" && typeof window !== "undefined") {
-      window.location.href = authUrl;
+    if (!promptAsync) {
+      throw new Error("Google auth is not available yet.");
+    }
+
+    const result = await promptAsync({ useProxy: true });
+
+    if (result.type !== "success" || !result.authentication?.idToken) {
       return null;
     }
-    const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUrl);
-    if (result.type === "success" && result.url) {
-      const sid = parseSessionId(result.url);
-      if (sid) return loginWithGoogleSession(sid);
+
+    const credential = GoogleAuthProvider.credential(result.authentication.idToken);
+    const userCredential = await signInWithCredential(firebaseAuth, credential);
+    const firebaseUser = userCredential.user;
+    await syncAuthUserToFirestore(firebaseUser);
+
+    if (!firebaseUser.uid) {
+      throw new Error("Firebase user missing UID after Google sign-in.");
     }
-    return null;
-  }, [loginWithGoogleSession]);
+
+    const idToken = await firebaseUser.getIdToken();
+    setUserIdCache(firebaseUser.uid);
+    await storage.setItem("roomie_user_id", firebaseUser.uid);
+    setStatus("authed");
+    setUser({
+      user_id: firebaseUser.uid,
+      email: firebaseUser.email,
+      name: firebaseUser.displayName,
+      picture: firebaseUser.photoURL,
+    });
+    setToken(idToken);
+
+    return {
+      user_id: firebaseUser.uid,
+      email: firebaseUser.email,
+      name: firebaseUser.displayName,
+      picture: firebaseUser.photoURL,
+    };
+  }, [promptAsync]);
 
   const continueAsGuest = useCallback(async () => {
     await storage.setItem(GUEST_KEY, true);

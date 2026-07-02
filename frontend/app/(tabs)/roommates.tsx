@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState, useCallback, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { View, Text, StyleSheet, Pressable } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -6,35 +6,59 @@ import * as Haptics from "expo-haptics";
 import type { BottomSheetModal } from "@gorhom/bottom-sheet";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
-import { PROFILES } from "@/src/data/profiles";
+import type { RoommateProfile } from "@/src/data/profiles";
 import SwipeDeck, { SwipeDeckHandle } from "@/src/components/SwipeDeck";
 import FilterSheet, { Filters, DEFAULT_FILTERS } from "@/src/components/FilterSheet";
-import { matchesStore } from "@/src/store/matches";
+import { useAuth } from "@/src/context/auth";
+import { subscribeRoommateProfiles, sendSwipeAction } from "@/src/services/firestore";
+import type { FirestoreUserProfile } from "@/src/services/firestore";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 84;
 
 export default function RoommatesScreen() {
   const insets = useSafeAreaInsets();
+  const auth = useAuth();
   const deckRef = useRef<SwipeDeckHandle>(null);
   const sheetRef = useRef<BottomSheetModal>(null);
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [activeAction, setActiveAction] = useState<"left" | "right" | null>(null);
+  const [profiles, setProfiles] = useState<FirestoreUserProfile[]>([]);
   const actionTimeout = useRef<NodeJS.Timeout | null>(null);
 
-  const filtered = useMemo(
-    () =>
-      PROFILES.filter(
+  useEffect(() => {
+    if (!auth.userId) {
+      setProfiles([]);
+      return;
+    }
+    const unsubscribe = subscribeRoommateProfiles(auth.userId, setProfiles);
+    return unsubscribe;
+  }, [auth.userId]);
+
+  const filtered = useMemo<RoommateProfile[]>(() => {
+    return profiles
+      .filter(
         (p) =>
           (filters.gender === "All" || p.gender === filters.gender) &&
-          p.age >= filters.ageMin &&
-          p.age <= filters.ageMax &&
-          p.budget <= filters.budgetMax,
-      ),
-    [filters],
-  );
+          (p.age ?? 0) >= filters.ageMin &&
+          (p.age ?? 0) <= filters.ageMax &&
+          (p.budget ?? 0) <= filters.budgetMax,
+      )
+      .map((p) => ({
+        id: p.id,
+        name: p.name ?? "Roommate",
+        age: p.age ?? 18,
+        gender: p.gender ?? "Non-binary",
+        budget: p.budget ?? 0,
+        university: p.university ?? "Unknown",
+        program: p.program ?? "",
+        bio: p.bio ?? p.about ?? "",
+        tags: p.tags ?? [],
+        photo: p.photo ?? "",
+      }));
+  }, [filters, profiles]);
 
-  const deckKey = `${filters.gender}-${filters.ageMin}-${filters.ageMax}-${filters.budgetMax}`;
+  const deckKey = `${filters.gender}-${filters.ageMin}-${filters.ageMax}-${filters.budgetMax}-${profiles.length}`;
 
   const openSheet = useCallback(() => sheetRef.current?.present(), []);
   const applyFilters = useCallback((f: Filters) => {
@@ -42,8 +66,21 @@ export default function RoommatesScreen() {
     sheetRef.current?.dismiss();
   }, []);
 
-  const onLike = useCallback((p: (typeof PROFILES)[number]) => matchesStore.add(p), []);
-  const onNope = useCallback(() => {}, []);
+  const onLike = useCallback(
+    async (profile: RoommateProfile) => {
+      if (!auth.userId) return;
+      await sendSwipeAction(auth.userId, profile.id, "right");
+    },
+    [auth.userId],
+  );
+
+  const onNope = useCallback(
+    async (profile: RoommateProfile) => {
+      if (!auth.userId) return;
+      await sendSwipeAction(auth.userId, profile.id, "left");
+    },
+    [auth.userId],
+  );
 
   const triggerActionFeedback = useCallback((action: "left" | "right") => {
     setActiveAction(action);
@@ -63,7 +100,6 @@ export default function RoommatesScreen() {
     if (action === "right") deckRef.current?.swipeRight();
     else deckRef.current?.swipeLeft();
   };
-
   return (
     <View style={styles.container} testID="roommates-screen">
       <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>

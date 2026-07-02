@@ -1,34 +1,21 @@
-import { useSyncExternalStore } from "react";
-import type { RoommateProfile } from "@/src/data/profiles";
-
-let liked: RoommateProfile[] = [];
-const listeners = new Set<() => void>();
-
-function emit() {
-  liked = [...liked];
-  listeners.forEach((l) => l());
-}
-
-export const matchesStore = {
-  add(p: RoommateProfile) {
-    if (!liked.find((x) => x.id === p.id)) {
-      liked = [p, ...liked];
-      emit();
-    }
-  },
-  remove(id: string) {
-    liked = liked.filter((x) => x.id !== id);
-    emit();
-  },
-  subscribe(cb: () => void) {
-    listeners.add(cb);
-    return () => listeners.delete(cb);
-  },
-  get() {
-    return liked;
-  },
-};
+import { useEffect, useState } from "react";
+import { useAuth } from "@/src/context/auth";
+import { subscribeMatches } from "@/src/services/firestore";
+import type { FirestoreMatch } from "@/src/services/firestore";
 
 export function useMatches() {
-  return useSyncExternalStore(matchesStore.subscribe, matchesStore.get, matchesStore.get);
+  const auth = useAuth();
+  const [matches, setMatches] = useState<FirestoreMatch[]>([]);
+
+  useEffect(() => {
+    if (!auth.userId) {
+      setMatches([]);
+      return;
+    }
+
+    const unsubscribe = subscribeMatches(auth.userId, setMatches);
+    return unsubscribe;
+  }, [auth.userId]);
+
+  return matches;
 }

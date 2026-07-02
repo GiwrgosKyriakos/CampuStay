@@ -1,34 +1,29 @@
-const BASE = process.env.EXPO_PUBLIC_BACKEND_URL;
+import { getUserProfile as firestoreGetUserProfile, saveUserProfile as firestoreSaveUserProfile } from "@/src/services/firestore";
+import type { UserProfile } from "@/src/types/profile";
 
-export interface UserProfile {
-  photos: string[];
-  age: number | null;
-  about: string;
-  gender: string | null;
-  city: string | null;
-  has_place: boolean;
-  university: string | null;
-  year_of_study: string | null;
-  budget: number | null;
-  move_in: string | null;
-  instagram: string;
-  facebook: string;
-  linkedin: string;
-  twitter: string;
-}
+export type { UserProfile };
 
 export async function getUserProfile(userId: string): Promise<UserProfile | null> {
-  const res = await fetch(`${BASE}/api/profile/${userId}`);
-  if (!res.ok) throw new Error(`Failed to load profile (${res.status})`);
-  const data = await res.json();
-  return data.profile ?? null;
+  const firestoreProfile = await firestoreGetUserProfile(userId);
+  if (!firestoreProfile) return null;
+  return {
+    photos: firestoreProfile.photos,
+    age: firestoreProfile.age,
+    about: firestoreProfile.about,
+    gender: firestoreProfile.gender,
+    city: firestoreProfile.city,
+    has_place: firestoreProfile.has_place,
+    university: firestoreProfile.university,
+    year_of_study: firestoreProfile.year_of_study,
+    budget: firestoreProfile.budget,
+    move_in: firestoreProfile.move_in,
+    instagram: firestoreProfile.instagram,
+    facebook: firestoreProfile.facebook,
+    linkedin: firestoreProfile.linkedin,
+    twitter: firestoreProfile.twitter,
+  };
 }
 
 export async function saveUserProfile(userId: string, profile: UserProfile): Promise<void> {
-  const res = await fetch(`${BASE}/api/profile/${userId}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(profile),
-  });
-  if (!res.ok) throw new Error(`Failed to save profile (${res.status})`);
+  return firestoreSaveUserProfile(userId, profile);
 }
