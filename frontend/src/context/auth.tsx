@@ -80,39 +80,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!mounted) return;
       
       if (firebaseUser) {
-        console.log("[Auth] Firebase user detected:", firebaseUser.uid);
-        const idToken = await firebaseUser.getIdToken();
-        setUserIdCache(firebaseUser.uid);
-        await storage.setItem("roomie_user_id", firebaseUser.uid);
+        console.log("[Auth] 📱 Firebase auth state changed: User logged in");
+        console.log(`[Auth]   • UID: ${firebaseUser.uid}`);
+        console.log(`[Auth]   • Email: ${firebaseUser.email || "N/A"}`);
         
-        const authUser: AuthUser = {
-          user_id: firebaseUser.uid,
-          email: firebaseUser.email,
-          name: firebaseUser.displayName,
-          picture: firebaseUser.photoURL,
-        };
-        
-        setToken(idToken);
-        setUser(authUser);
-        setStatus("authed");
+        try {
+          const idToken = await firebaseUser.getIdToken();
+          setUserIdCache(firebaseUser.uid);
+          await storage.setItem("roomie_user_id", firebaseUser.uid);
+          
+          const authUser: AuthUser = {
+            user_id: firebaseUser.uid,
+            email: firebaseUser.email,
+            name: firebaseUser.displayName,
+            picture: firebaseUser.photoURL,
+          };
+          
+          setToken(idToken);
+          setUser(authUser);
+          setStatus("authed");
+          console.log("[Auth] ✓ Firebase user synced to local state");
+        } catch (err) {
+          console.error("[Auth] ✗ Error syncing Firebase user:", err);
+        }
       } else {
-        console.log("[Auth] Firebase user cleared");
-        // Don't immediately logout; check localStorage/secured storage first
+        console.log("[Auth] 📱 Firebase auth state changed: User logged out");
       }
     });
 
     (async () => {
       try {
-        console.log("[Auth] Starting bootstrap...");
+        console.log("[Auth] 🚀 Starting authentication bootstrap...");
 
         if (Platform.OS === "web" && typeof window !== "undefined") {
           const sid = parseSessionId(window.location.hash) || parseSessionId(window.location.search);
           if (sid) {
-            console.log("[Auth] Found session_id in URL, logging in via Google...");
+            console.log("[Auth] → Found session_id in URL hash/search, attempting legacy Google session login...");
             try {
               await loginWithGoogleSession(sid);
+              console.log("[Auth] ✓ Legacy Google session login successful");
+              return;
             } catch (err) {
-              console.error("[Auth] Google session login failed:", err);
+              console.error("[Auth] ✗ Legacy Google session login failed:", err);
             } finally {
               window.history.replaceState(null, "", window.location.pathname);
             }
@@ -122,32 +131,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (Platform.OS !== "web") {
           const initial = await Linking.getInitialURL();
-          const sid = parseSessionId(initial);
-          if (sid) {
-            console.log("[Auth] Found session_id in deep link, logging in via Google...");
-            try {
-              await loginWithGoogleSession(sid);
-            } catch (err) {
-              console.error("[Auth] Google session login from deep link failed:", err);
+          if (initial) {
+            const sid = parseSessionId(initial);
+            if (sid) {
+              console.log("[Auth] → Found session_id in deep link, attempting legacy Google session login...");
+              try {
+                await loginWithGoogleSession(sid);
+                console.log("[Auth] ✓ Legacy Google session login successful");
+                return;
+              } catch (err) {
+                console.error("[Auth] ✗ Legacy Google session login from deep link failed:", err);
+              }
+              return;
             }
-            return;
           }
         }
 
-        console.log("[Auth] Checking for stored token...");
+        console.log("[Auth] → Checking for stored legacy backend token...");
         const setupFlag = await storage.getItem(SETUP_KEY, false);
         if (mounted && setupFlag) {
-          console.log("[Auth] Profile setup flag found");
+          console.log("[Auth] ✓ Profile setup flag found");
           setNeedsProfileSetup(true);
         }
 
         const storedToken = await storage.secureGet(TOKEN_KEY, "");
         if (storedToken) {
-          console.log("[Auth] Found stored token, validating with server...");
+          console.log("[Auth] → Found stored backend token, validating with server...");
           try {
             const me = await apiMe(storedToken);
             if (mounted) {
-              console.log("[Auth] Token valid! User logged in:", me.user_id);
+              console.log(`[Auth] ✓ Backend token valid, user logged in: ${me.user_id}`);
               setToken(storedToken);
               setUser(me);
               setUserIdCache(me.user_id);
@@ -155,24 +168,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
             return;
           } catch (err) {
-            console.warn("[Auth] Stored token invalid, clearing:", err);
+            console.warn("[Auth] ⚠ Stored backend token invalid, clearing:", err);
             await storage.secureRemove(TOKEN_KEY);
           }
         }
 
-        console.log("[Auth] No valid token found, checking guest mode...");
+        console.log("[Auth] → No valid auth found, checking guest mode...");
         const guest = await storage.getItem(GUEST_KEY, false);
         if (mounted) {
           if (guest) {
-            console.log("[Auth] Guest mode enabled");
+            console.log("[Auth] ✓ Guest mode enabled");
             setStatus("guest");
           } else {
-            console.log("[Auth] User not authenticated, showing login screen");
+            console.log("[Auth] → No authentication found, showing login screen");
             setStatus("unauth");
           }
         }
       } catch (err) {
-        console.error("[Auth] Bootstrap error:", err);
+        console.error("[Auth] ✗ Bootstrap error:", err);
         if (mounted) setStatus("unauth");
       }
     })();
@@ -199,6 +212,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [persist],
   );
 
+  // Validate Google Client IDs are configured
+  useEffect(() => {
+    const webClientId = process.env.EXPO_PUBLIC_WEB_CLIENT_ID;
+    const androidClientId = process.env.EXPO_PUBLIC_ANDROID_CLIENT_ID;
+    const iosClientId = process.env.EXPO_PUBLIC_IOS_CLIENT_ID;
+    
+    console.log("[Auth] Google Auth Configuration:");
+    console.log(`  • Web Client ID: ${webClientId ? "✓ Configured" : "⚠ MISSING"}`);
+    console.log(`  • Android Client ID: ${androidClientId ? "✓ Configured" : "⚠ MISSING"}`);
+    console.log(`  • iOS Client ID: ${iosClientId ? "✓ Configured" : "⚠ MISSING"}`);
+    console.log(`  • Redirect URI: https://auth.expo.io/@gkyriakos92/frontend`);
+  }, []);
+
   const [request, response, promptAsync] = Google.useAuthRequest({
     expoClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ?? "YOUR_ANDROID_CLIENT_ID",
     iosClientId: process.env.EXPO_PUBLIC_IOS_CLIENT_ID ?? "YOUR_IOS_CLIENT_ID",
@@ -209,43 +235,68 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   });
 
   const signInWithGoogle = useCallback(async (): Promise<AuthUser | null> => {
-    if (!promptAsync) {
-      throw new Error("Google auth is not available yet.");
+    try {
+      if (!promptAsync) {
+        console.error("[Auth] ✗ Google auth not available yet");
+        throw new Error("Google auth is not available yet.");
+      }
+
+      console.log("[Auth] → Initiating Google Sign-In flow...");
+      const result = await promptAsync({ useProxy: true });
+
+      if (result.type !== "success") {
+        console.warn(`[Auth] ✗ Google Sign-In cancelled or failed: ${result.type}`);
+        return null;
+      }
+
+      if (!result.authentication?.idToken) {
+        console.error("[Auth] ✗ No ID token returned from Google");
+        return null;
+      }
+
+      console.log("[Auth] ✓ Google Sign-In successful, received ID token");
+      console.log("[Auth] → Exchanging Google ID token with Firebase...");
+
+      const credential = GoogleAuthProvider.credential(result.authentication.idToken);
+      const userCredential = await signInWithCredential(firebaseAuth, credential);
+      const firebaseUser = userCredential.user;
+
+      if (!firebaseUser.uid) {
+        console.error("[Auth] ✗ Firebase user missing UID after sign-in");
+        throw new Error("Firebase user missing UID after Google sign-in.");
+      }
+
+      console.log(`[Auth] ✓ Firebase login successful: User UID: ${firebaseUser.uid}`);
+      console.log(`[Auth] ✓ User email: ${firebaseUser.email || "N/A"}`);
+      console.log(`[Auth] ✓ Display name: ${firebaseUser.displayName || "N/A"}`);
+
+      console.log("[Auth] → Syncing user profile to Firestore...");
+      await syncAuthUserToFirestore(firebaseUser);
+      console.log("[Auth] ✓ User profile synced to Firestore");
+
+      const idToken = await firebaseUser.getIdToken();
+      console.log("[Auth] ✓ Retrieved Firebase ID token");
+
+      setUserIdCache(firebaseUser.uid);
+      await storage.setItem("roomie_user_id", firebaseUser.uid);
+      
+      const authUser: AuthUser = {
+        user_id: firebaseUser.uid,
+        email: firebaseUser.email,
+        name: firebaseUser.displayName,
+        picture: firebaseUser.photoURL,
+      };
+
+      setStatus("authed");
+      setUser(authUser);
+      setToken(idToken);
+
+      console.log("[Auth] ✓ Auth state updated, user authenticated");
+      return authUser;
+    } catch (err) {
+      console.error("[Auth] ✗ Google Sign-In error:", err);
+      throw err;
     }
-
-    const result = await promptAsync({ useProxy: true });
-
-    if (result.type !== "success" || !result.authentication?.idToken) {
-      return null;
-    }
-
-    const credential = GoogleAuthProvider.credential(result.authentication.idToken);
-    const userCredential = await signInWithCredential(firebaseAuth, credential);
-    const firebaseUser = userCredential.user;
-    await syncAuthUserToFirestore(firebaseUser);
-
-    if (!firebaseUser.uid) {
-      throw new Error("Firebase user missing UID after Google sign-in.");
-    }
-
-    const idToken = await firebaseUser.getIdToken();
-    setUserIdCache(firebaseUser.uid);
-    await storage.setItem("roomie_user_id", firebaseUser.uid);
-    setStatus("authed");
-    setUser({
-      user_id: firebaseUser.uid,
-      email: firebaseUser.email,
-      name: firebaseUser.displayName,
-      picture: firebaseUser.photoURL,
-    });
-    setToken(idToken);
-
-    return {
-      user_id: firebaseUser.uid,
-      email: firebaseUser.email,
-      name: firebaseUser.displayName,
-      picture: firebaseUser.photoURL,
-    };
   }, [promptAsync]);
 
   const continueAsGuest = useCallback(async () => {
