@@ -24,7 +24,7 @@
       "bundler": "metro",
       "output": "single",
       "favicon": "./assets/images/favicon.png",
-      "webClientId": "YOUR_WEB_CLIENT_ID"
+      "webClientId": "311068327323-cmdkalllbaojgsf9dq2bp6fpjs5c9ut6.apps.googleusercontent.com"
     },
     "plugins": [
       "expo-router",
