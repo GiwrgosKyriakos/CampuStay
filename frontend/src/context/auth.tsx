@@ -1,8 +1,11 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from "react";
 import { Platform } from "react-native";
 import * as Linking from "expo-linking";
+import Constants from "expo-constants";
 import * as Google from "expo-auth-session/providers/google";
 import { makeRedirectUri } from "expo-auth-session";
+import * as Crypto from "expo-crypto";
+import * as WebBrowser from "expo-web-browser";
 import { GoogleAuthProvider, signInWithCredential, onAuthStateChanged, User as FirebaseUser } from "firebase/auth";
 
 import { storage } from "@/src/utils/storage";
@@ -36,6 +39,8 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+WebBrowser.maybeCompleteAuthSession();
+
 function parseSessionId(url: string | null): string | null {
   if (!url) return null;
   const m = url.match(/[#?&]session_id=([^&]+)/);
@@ -62,13 +67,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setStatus("authed");
   }, []);
 
-  const loginWithGoogleSession = useCallback(
-    async (sessionId: string): Promise<AuthUser | null> => {
-      const { token: t, user: u } = await apiGoogle(sessionId);
-      await persist(t, u, true);
-      return u;
-    },
-    [persist],
+  const expoConfig = Constants.expoConfig;
+  const webClientIdFromConfig =
+    ((expoConfig?.web as Record<string, unknown> | undefined)?.webClientId as string | undefined) ??
+    process.env.EXPO_PUBLIC_WEB_CLIENT_ID;
+  const iosClientIdFromConfig =
+    ((expoConfig?.ios as Record<string, unknown> | undefined)?.iosClientId as string | undefined) ??
+    process.env.EXPO_PUBLIC_IOS_CLIENT_ID;
+  const androidClientIdFromConfig =
+    ((expoConfig?.android as Record<string, unknown> | undefined)?.androidClientId as string | undefined) ??
+    process.env.EXPO_PUBLIC_ANDROID_CLIENT_ID;
+  const redirectUri = makeRedirectUri({ useProxy: true });
+  const authNonce = useMemo(
+    () => (Crypto.randomUUID ? Crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`),
+    [],
   );
 
   // Bootstrap session on mount.
@@ -115,17 +127,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (Platform.OS === "web" && typeof window !== "undefined") {
           const sid = parseSessionId(window.location.hash) || parseSessionId(window.location.search);
           if (sid) {
-            console.log("[Auth] → Found session_id in URL hash/search, attempting legacy Google session login...");
-            try {
-              await loginWithGoogleSession(sid);
-              console.log("[Auth] ✓ Legacy Google session login successful");
-              return;
-            } catch (err) {
-              console.error("[Auth] ✗ Legacy Google session login failed:", err);
-            } finally {
-              window.history.replaceState(null, "", window.location.pathname);
-            }
-            return;
+            console.log("[Auth] ⚠ Detected legacy session_id in URL, clearing hash/search.");
+            window.history.replaceState(null, "", window.location.pathname);
           }
         }
 
@@ -134,15 +137,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (initial) {
             const sid = parseSessionId(initial);
             if (sid) {
-              console.log("[Auth] → Found session_id in deep link, attempting legacy Google session login...");
-              try {
-                await loginWithGoogleSession(sid);
-                console.log("[Auth] ✓ Legacy Google session login successful");
-                return;
-              } catch (err) {
-                console.error("[Auth] ✗ Legacy Google session login from deep link failed:", err);
-              }
-              return;
+              console.log("[Auth] ⚠ Detected legacy session_id in deep link. Firebase OAuth flow is active.");
             }
           }
         }
@@ -194,7 +189,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       mounted = false;
       unsubscribeAuth();
     };
-  }, [loginWithGoogleSession]);
+  }, []);
 
   const loginEmail = useCallback(
     async (email: string, password: string) => {
@@ -214,25 +209,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Validate Google Client IDs are configured
   useEffect(() => {
-    const webClientId = process.env.EXPO_PUBLIC_WEB_CLIENT_ID;
-    const androidClientId = process.env.EXPO_PUBLIC_ANDROID_CLIENT_ID;
-    const iosClientId = process.env.EXPO_PUBLIC_IOS_CLIENT_ID;
+    const webClientId = webClientIdFromConfig;
+    const androidClientId = androidClientIdFromConfig;
+    const iosClientId = iosClientIdFromConfig;
     
     console.log("[Auth] Google Auth Configuration:");
     console.log(`  • Web Client ID: ${webClientId ? "✓ Configured" : "⚠ MISSING"}`);
     console.log(`  • Android Client ID: ${androidClientId ? "✓ Configured" : "⚠ MISSING"}`);
     console.log(`  • iOS Client ID: ${iosClientId ? "✓ Configured" : "⚠ MISSING"}`);
-    console.log(`  • Redirect URI: https://auth.expo.io/@gkyriakos92/frontend`);
-  }, []);
+    console.log(`  • Redirect URI: ${redirectUri}`);
+  }, [webClientIdFromConfig, androidClientIdFromConfig, iosClientIdFromConfig, redirectUri]);
 
   const [request, response, promptAsync] = Google.useAuthRequest({
-    expoClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ?? "YOUR_ANDROID_CLIENT_ID",
-    iosClientId: process.env.EXPO_PUBLIC_IOS_CLIENT_ID ?? "YOUR_IOS_CLIENT_ID",
-    androidClientId: process.env.EXPO_PUBLIC_ANDROID_CLIENT_ID ?? "YOUR_ANDROID_CLIENT_ID",
-    webClientId: process.env.EXPO_PUBLIC_WEB_CLIENT_ID ?? "YOUR_WEB_CLIENT_ID",
+    expoClientId: webClientIdFromConfig ?? process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ?? "YOUR_WEB_CLIENT_ID",
+    iosClientId: iosClientIdFromConfig ?? "YOUR_IOS_CLIENT_ID",
+    androidClientId: androidClientIdFromConfig ?? "YOUR_ANDROID_CLIENT_ID",
+    webClientId: webClientIdFromConfig ?? "YOUR_WEB_CLIENT_ID",
     scopes: ["profile", "email"],
-    redirectUri: makeRedirectUri({ useProxy: true }),
+    redirectUri,
+    nonce: authNonce,
   });
+
+  useEffect(() => {
+    if (request) {
+      console.log("[Auth] Initializing Google Request...");
+    }
+  }, [request]);
+
+  useEffect(() => {
+    if (response) {
+      console.log(`[Auth] Google response received: ${response.type}`);
+    }
+  }, [response]);
 
   const signInWithGoogle = useCallback(async (): Promise<AuthUser | null> => {
     try {

@@ -7,18 +7,14 @@
     "icon": "./assets/images/icon.png",
     "scheme": "frontend",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true,
-      "iosClientId": "YOUR_IOS_CLIENT_ID"
+      "supportsTablet": true
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#000000"
-      },
-      "edgeToEdgeEnabled": true,
-      "androidClientId": "YOUR_ANDROID_CLIENT_ID"
+      }
     },
     "web": {
       "bundler": "metro",

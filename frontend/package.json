@@ -12,7 +12,7 @@
     "lint": "expo lint"
   },
   "dependencies": {
-    "@babel/runtime": "8.0.0",
+    "@babel/runtime": "7.29.7",
     "@expo/metro-runtime": "~57.0.2",
     "@expo/vector-icons": "15.1.1",
     "@gorhom/bottom-sheet": "5.2.14",
@@ -21,7 +21,7 @@
     "date-fns": "4.1.0",
     "dayjs": "1.11.13",
     "expo": "57.0.1",
-    "expo-auth-session": "57.0.1",
+    "expo-auth-session": "~57.0.1",
     "expo-blur": "~57.0.0",
     "expo-constants": "57.0.2",
     "expo-crypto": "~57.0.0",
@@ -53,11 +53,12 @@
     "react-native-worklets": "0.10.0"
   },
   "devDependencies": {
-    "@types/react": "19.1.10",
+    "@types/react": "~19.2.4",
+    "babel-preset-expo": "57.0.1",
     "eslint": "9.39.4",
-    "eslint-config-expo": "10.0.0",
+    "eslint-config-expo": "~57.0.0",
     "expo-doctor": "1.19.8",
-    "typescript": "5.9.3"
+    "typescript": "~6.0.3"
   },
   "resolutions": {
     "@eslint/plugin-kit": "0.3.4",
