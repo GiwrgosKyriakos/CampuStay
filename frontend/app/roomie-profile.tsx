@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -147,8 +148,15 @@ export default function RoomieProfileScreen() {
           ))}
 
           {guestLocked && (
-            <Pressable style={styles.guestBottomButton} onPress={() => router.push("/auth-landing")} testID="roomie-signin-button">
-              <Text style={styles.guestBottomButtonText}>Sign Up / Log In</Text>
+            <Pressable onPress={() => router.push("/auth-landing")} testID="roomie-signin-button">
+              <LinearGradient
+                colors={[colors.brand, colors.brandSecondary]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.guestBottomButton}
+              >
+                <Text style={styles.guestBottomButtonText}>Sign Up / Log In</Text>
+              </LinearGradient>
             </Pressable>
           )}
         </ScrollView>
@@ -226,11 +234,10 @@ const styles = StyleSheet.create({
   guestText: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary, marginTop: 4, lineHeight: 18 },
   guestBottomButton: {
     marginTop: spacing.lg,
-    backgroundColor: colors.brand,
     borderRadius: radius.pill,
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.lg,
     alignItems: "center",
     justifyContent: "center",
   },
-  guestBottomButtonText: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onBrand },
+  guestBottomButtonText: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onBrand },
 });
