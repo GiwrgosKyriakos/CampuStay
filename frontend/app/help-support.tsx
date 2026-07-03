@@ -45,6 +45,15 @@ export default function HelpSupportScreen() {
         <Text style={styles.subtitle}>Browse frequently asked questions or contact the support team directly.</Text>
       </View>
 
+      {auth.isGuest && (
+        <View style={styles.guestReadOnlyBanner} testID="help-guest-readonly-banner">
+          <Text style={styles.guestReadOnlyTitle}>Guest Mode: Read-only</Text>
+          <Text style={styles.guestReadOnlyText}>
+            You can browse help content, but contacting support requires signing in.
+          </Text>
+        </View>
+      )}
+
       {FAQ_ITEMS.map((item, index) => {
         const open = openIndex === index;
         return (
@@ -64,8 +73,9 @@ export default function HelpSupportScreen() {
       })}
 
       <Pressable
-        style={styles.contactButton}
-        onPress={() => Linking.openURL("mailto:support@unimates.com?subject=Support%20Request")}
+        style={[styles.contactButton, auth.isGuest && styles.contactButtonDisabled]}
+        onPress={() => !auth.isGuest && Linking.openURL("mailto:support@unimates.com?subject=Support%20Request")}
+        disabled={auth.isGuest}
         testID="contact-support-button"
       >
         <Text style={styles.contactButtonText}>Contact Support Team</Text>
@@ -97,6 +107,17 @@ const styles = StyleSheet.create({
   accordionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: spacing.sm },
   question: { flex: 1, fontFamily: fonts.semibold, fontSize: fontSize.lg, color: colors.onSurface },
   answer: { marginTop: spacing.sm, fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary, lineHeight: 20 },
+  guestReadOnlyBanner: {
+    marginBottom: spacing.md,
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.lg,
+    gap: spacing.xs,
+  },
+  guestReadOnlyTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize.lg, color: colors.onSurface },
+  guestReadOnlyText: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary, lineHeight: 18 },
   contactButton: {
     marginTop: spacing.xl,
     backgroundColor: colors.brand,
@@ -104,6 +125,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.lg,
     alignItems: "center",
   },
+  contactButtonDisabled: { opacity: 0.45 },
   contactButtonText: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onBrand },
   backButton: {
     marginTop: spacing.md,

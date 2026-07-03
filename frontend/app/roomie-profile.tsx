@@ -93,20 +93,6 @@ export default function RoomieProfileScreen() {
         </View>
       </View>
 
-      {guestLocked && (
-        <View style={styles.guestNotice} testID="roomie-guest-notice">
-          <View style={{ flex: 1 }}>
-            <Text style={styles.guestTitle}>Sign up first</Text>
-            <Text style={styles.guestText}>
-              Guest Mode keeps the Compatibility Quiz locked. Sign in to answer these questions and save your profile.
-            </Text>
-          </View>
-          <Pressable style={styles.guestButton} onPress={() => router.push("/auth-landing")} testID="roomie-signin-button">
-            <Text style={styles.guestButtonText}>Sign Up / Log In</Text>
-          </Pressable>
-        </View>
-      )}
-
       {loading ? (
         <View style={styles.center} testID="roomie-loading">
           <ActivityIndicator size="large" color={colors.brand} />
@@ -116,6 +102,17 @@ export default function RoomieProfileScreen() {
           contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + spacing["3xl"] }]}
           showsVerticalScrollIndicator={false}
         >
+          {guestLocked && (
+            <View style={styles.guestNotice} testID="roomie-guest-notice">
+              <View style={{ flex: 1 }}>
+                <Text style={styles.guestTitle}>Guest Mode: Read-only</Text>
+                <Text style={styles.guestText}>
+                  You can browse all Compatibility Quiz questions, but answers are locked until you sign in.
+                </Text>
+              </View>
+            </View>
+          )}
+
           {QUIZ_SECTIONS.map((section) => (
             <View key={section.category} style={styles.section}>
               <View style={styles.categoryRow}>
@@ -148,6 +145,12 @@ export default function RoomieProfileScreen() {
               ))}
             </View>
           ))}
+
+          {guestLocked && (
+            <Pressable style={styles.guestBottomButton} onPress={() => router.push("/auth-landing")} testID="roomie-signin-button">
+              <Text style={styles.guestBottomButtonText}>Sign Up / Log In</Text>
+            </Pressable>
+          )}
         </ScrollView>
       )}
     </View>
@@ -212,11 +215,7 @@ const styles = StyleSheet.create({
   optionText: { flex: 1, fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurface },
   optionTextSelected: { fontFamily: fonts.semibold, color: colors.onBrandTertiary },
   guestNotice: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    marginHorizontal: spacing.lg,
-    marginTop: spacing.md,
+    marginBottom: spacing.lg,
     padding: spacing.lg,
     borderRadius: radius.lg,
     backgroundColor: colors.surfaceSecondary,
@@ -225,11 +224,13 @@ const styles = StyleSheet.create({
   },
   guestTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize.lg, color: colors.onSurface },
   guestText: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary, marginTop: 4, lineHeight: 18 },
-  guestButton: {
+  guestBottomButton: {
+    marginTop: spacing.lg,
     backgroundColor: colors.brand,
     borderRadius: radius.pill,
-    paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  guestButtonText: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onBrand },
+  guestBottomButtonText: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onBrand },
 });

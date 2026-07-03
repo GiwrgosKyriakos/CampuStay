@@ -45,6 +45,7 @@ export default function PrivacySafetyScreen() {
 
   const persistPrivacy = useCallback(
     async (nextPrivacy: PrivacyPreferences) => {
+      if (auth.isGuest) return;
       setPrivacy(nextPrivacy);
       setSaving(true);
       setError(null);
@@ -57,42 +58,33 @@ export default function PrivacySafetyScreen() {
         setSaving(false);
       }
     },
-    [auth.userId],
+    [auth.isGuest, auth.userId],
   );
 
   const toggleVisibility = useCallback(
     (value: boolean) => {
+      if (auth.isGuest) return;
       persistPrivacy({ ...privacy, is_visible: value });
     },
-    [privacy, persistPrivacy],
+    [auth.isGuest, privacy, persistPrivacy],
   );
 
   const unblockProfile = useCallback(
     (id: string) => {
+      if (auth.isGuest) return;
       const nextPrivacy = {
         ...privacy,
         blocked_profiles: privacy.blocked_profiles.filter((p) => p.id !== id),
       };
       persistPrivacy(nextPrivacy);
     },
-    [privacy, persistPrivacy],
+    [auth.isGuest, privacy, persistPrivacy],
   );
 
   if (auth.isLoading || loading) {
     return (
       <View style={[styles.container, styles.center]}>
         <ActivityIndicator size="large" color={colors.brand} />
-      </View>
-    );
-  }
-
-  if (auth.isGuest) {
-    return (
-      <View style={[styles.container, styles.center, { paddingTop: insets.top + spacing.lg }]}> 
-        <Text style={styles.guestText}>Privacy settings are not available in Guest Mode.</Text>
-        <Pressable style={styles.guestButton} onPress={() => router.replace("/guest")}> 
-          <Text style={styles.guestButtonText}>Continue as guest</Text>
-        </Pressable>
       </View>
     );
   }
@@ -108,7 +100,15 @@ export default function PrivacySafetyScreen() {
         <Text style={styles.title}>Privacy & Safety</Text>
         <Text style={styles.subtitle}>Control who sees your profile and manage blocked accounts.</Text>
       </View>
-      <Text style={styles.subtitle}>Control who sees your profile and manage blocked accounts.</Text>
+
+      {auth.isGuest && (
+        <View style={styles.guestReadOnlyBanner} testID="privacy-guest-readonly-banner">
+          <Text style={styles.guestReadOnlyTitle}>Guest Mode: Read-only</Text>
+          <Text style={styles.guestReadOnlyText}>
+            You can view privacy settings, but changing preferences requires signing in.
+          </Text>
+        </View>
+      )}
 
       <View style={styles.toggleCard}>
         <View style={styles.toggleHeader}>
@@ -125,6 +125,7 @@ export default function PrivacySafetyScreen() {
         <Switch
           value={privacy.is_visible}
           onValueChange={toggleVisibility}
+          disabled={auth.isGuest}
           trackColor={{ false: colors.surfaceSecondary, true: colors.brand }}
           thumbColor={privacy.is_visible ? colors.surface : colors.surfaceSecondary}
         />
@@ -141,7 +142,12 @@ export default function PrivacySafetyScreen() {
                 <Text style={styles.blockedName}>{profile.name}</Text>
                 <Text style={styles.blockedId}>{profile.id}</Text>
               </View>
-              <Pressable style={styles.unblockButton} onPress={() => unblockProfile(profile.id)} testID={`unblock-${profile.id}`}>
+              <Pressable
+                style={[styles.unblockButton, auth.isGuest && styles.unblockButtonDisabled]}
+                onPress={() => unblockProfile(profile.id)}
+                disabled={auth.isGuest}
+                testID={`unblock-${profile.id}`}
+              >
                 <Text style={styles.unblockText}>Unblock</Text>
               </Pressable>
             </View>
@@ -208,16 +214,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
   },
+  unblockButtonDisabled: {
+    opacity: 0.45,
+  },
   unblockText: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onBrand },
   saveText: { fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.brand, marginTop: spacing.sm, textAlign: "center" },
   errorText: { fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.error, marginTop: spacing.sm, textAlign: "center" },
-  guestText: { fontFamily: fonts.semibold, fontSize: fontSize.lg, color: colors.onSurface, textAlign: "center" },
-  guestButton: {
-    marginTop: spacing.lg,
-    backgroundColor: colors.brand,
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.md,
+  guestReadOnlyBanner: {
+    marginBottom: spacing.lg,
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    gap: spacing.xs,
   },
-  guestButtonText: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onBrand },
+  guestReadOnlyTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize.lg, color: colors.onSurface },
+  guestReadOnlyText: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary, lineHeight: 18 },
 });
