@@ -73,8 +73,29 @@ export default function EditProfileScreen() {
   const [facebook, setFacebook] = useState("");
   const [linkedin, setLinkedin] = useState("");
   const [twitter, setTwitter] = useState("");
+  const guestLocked = auth.isGuest;
 
   useEffect(() => {
+    if (guestLocked) {
+      setUserId(null);
+      setName("");
+      setPhotos([]);
+      setAge("");
+      setAbout("");
+      setGender(null);
+      setCity(null);
+      setHasPlace(false);
+      setUniversity(null);
+      setYear(null);
+      setBudget("");
+      setMoveIn(null);
+      setInstagram("");
+      setFacebook("");
+      setLinkedin("");
+      setTwitter("");
+      setLoading(false);
+      return;
+    }
     let mounted = true;
     (async () => {
       try {
@@ -109,7 +130,7 @@ export default function EditProfileScreen() {
     return () => {
       mounted = false;
     };
-  }, [auth.user?.name]);
+  }, [auth.user?.name, guestLocked]);
 
   const addPhotos = useCallback(async () => {
     if (photos.length >= 3) return;
@@ -270,8 +291,22 @@ export default function EditProfileScreen() {
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
       >
+        {guestLocked && (
+          <View style={styles.guestNotice} testID="guest-edit-notice">
+            <View style={{ flex: 1 }}>
+              <Text style={styles.guestNoticeTitle}>Sign up first</Text>
+              <Text style={styles.guestNoticeText}>
+                Guest Mode keeps this screen read-only. Sign in to edit your profile, upload photos, and save changes.
+              </Text>
+            </View>
+            <Pressable style={styles.guestNoticeButton} onPress={() => router.push("/auth-landing")} testID="guest-edit-signin-button">
+              <Text style={styles.guestNoticeButtonText}>Sign Up / Log In</Text>
+            </Pressable>
+          </View>
+        )}
+
         {/* SECTION 1: Profile Photos */}
-        <View style={styles.card}>
+        <View style={[styles.card, guestLocked && styles.cardLocked]} pointerEvents={guestLocked ? "none" : "auto"}>
           <View style={styles.cardHeader}>
             <Ionicons name="image-outline" size={22} color={colors.onSurface} />
             <Text style={styles.cardTitle}>Profile Photos</Text>
@@ -322,7 +357,7 @@ export default function EditProfileScreen() {
         </View>
 
         {/* SECTION 2: Basic Information */}
-        <View style={styles.card}>
+        <View style={[styles.card, guestLocked && styles.cardLocked]} pointerEvents={guestLocked ? "none" : "auto"}>
           <View style={styles.cardHeader}>
             <Ionicons name="person-outline" size={22} color={colors.onSurface} />
             <Text style={styles.cardTitle}>Basic Information</Text>
@@ -335,6 +370,7 @@ export default function EditProfileScreen() {
             onChangeText={setName}
             placeholder={auth.user?.name || "Your name"}
             placeholderTextColor={colors.onSurfaceTertiary}
+            editable={!guestLocked}
             testID="name-input"
           />
 
@@ -347,6 +383,7 @@ export default function EditProfileScreen() {
             placeholderTextColor={colors.onSurfaceTertiary}
             keyboardType="number-pad"
             maxLength={2}
+            editable={!guestLocked}
             testID="age-input"
           />
 
@@ -359,6 +396,7 @@ export default function EditProfileScreen() {
             placeholderTextColor={colors.onSurfaceTertiary}
             multiline
             maxLength={ABOUT_LIMIT}
+            editable={!guestLocked}
             testID="about-input"
           />
           <Text style={styles.counter}>
@@ -386,12 +424,13 @@ export default function EditProfileScreen() {
           </View>
 
           <Text style={styles.label}>City</Text>
-          <Dropdown value={city} options={CITIES} placeholder="Select your city" onSelect={setCity} testID="city-dropdown" />
+          <Dropdown value={city} options={CITIES} placeholder="Select your city" onSelect={setCity} testID="city-dropdown" disabled={guestLocked} />
 
           <Pressable
             style={[styles.checkboxRow, hasPlace && styles.checkboxRowActive]}
             onPress={() => setHasPlace((v) => !v)}
             testID="has-place-checkbox"
+            disabled={guestLocked}
           >
             <View style={[styles.checkbox, hasPlace && styles.checkboxActive]}>
               {hasPlace && <Ionicons name="checkmark" size={16} color={colors.onBrand} />}
@@ -401,7 +440,7 @@ export default function EditProfileScreen() {
         </View>
 
         {/* SECTION 3: Education & Living */}
-        <View style={styles.card}>
+        <View style={[styles.card, guestLocked && styles.cardLocked]} pointerEvents={guestLocked ? "none" : "auto"}>
           <View style={styles.cardHeader}>
             <Ionicons name="book-outline" size={22} color={colors.onSurface} />
             <Text style={styles.cardTitle}>Education & Living</Text>
@@ -413,11 +452,12 @@ export default function EditProfileScreen() {
             options={UNIVERSITIES}
             placeholder="Select your university"
             onSelect={setUniversity}
+            disabled={guestLocked}
             testID="university-dropdown"
           />
 
           <Text style={styles.label}>Year of Study</Text>
-          <Dropdown value={year} options={YEARS} placeholder="Select your year" onSelect={setYear} testID="year-dropdown" />
+          <Dropdown value={year} options={YEARS} placeholder="Select your year" onSelect={setYear} disabled={guestLocked} testID="year-dropdown" />
 
           <Text style={styles.label}>Monthly Budget (€)</Text>
           <TextInput
@@ -428,6 +468,7 @@ export default function EditProfileScreen() {
             placeholderTextColor={colors.onSurfaceTertiary}
             keyboardType="number-pad"
             maxLength={5}
+            editable={!guestLocked}
             testID="budget-input"
           />
 
@@ -437,12 +478,13 @@ export default function EditProfileScreen() {
             options={MOVE_IN_OPTIONS}
             placeholder="Select move-in date"
             onSelect={setMoveIn}
+            disabled={guestLocked}
             testID="movein-dropdown"
           />
         </View>
 
         {/* SECTION 4: Social Media */}
-        <View style={styles.card}>
+        <View style={[styles.card, guestLocked && styles.cardLocked]} pointerEvents={guestLocked ? "none" : "auto"}>
           <View style={styles.cardHeader}>
             <Ionicons name="link-outline" size={22} color={colors.onSurface} />
             <Text style={styles.cardTitle}>Social Media</Text>
@@ -457,6 +499,7 @@ export default function EditProfileScreen() {
             placeholder="your_instagram"
             placeholderTextColor={colors.onSurfaceTertiary}
             autoCapitalize="none"
+            editable={!guestLocked}
             testID="instagram-input"
           />
 
@@ -469,6 +512,7 @@ export default function EditProfileScreen() {
             placeholderTextColor={colors.onSurfaceTertiary}
             autoCapitalize="none"
             keyboardType="url"
+            editable={!guestLocked}
             testID="facebook-input"
           />
 
@@ -481,6 +525,7 @@ export default function EditProfileScreen() {
             placeholderTextColor={colors.onSurfaceTertiary}
             autoCapitalize="none"
             keyboardType="url"
+            editable={!guestLocked}
             testID="linkedin-input"
           />
 
@@ -492,6 +537,7 @@ export default function EditProfileScreen() {
             placeholder="your_twitter"
             placeholderTextColor={colors.onSurfaceTertiary}
             autoCapitalize="none"
+            editable={!guestLocked}
             testID="twitter-input"
           />
 
@@ -514,20 +560,33 @@ export default function EditProfileScreen() {
               <Text style={styles.errorText}>{error}</Text>
             </View>
           )}
-          <Pressable onPress={submit} disabled={submitting} testID="complete-profile-button">
-            <LinearGradient
-              colors={[colors.brand, colors.brandSecondary]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={[styles.submitBtn, submitting && { opacity: 0.6 }]}
-            >
-              {submitting ? (
-                <ActivityIndicator color={colors.onBrand} />
-              ) : (
-                <Text style={styles.submitText}>✨ Complete Profile ✨</Text>
-              )}
-            </LinearGradient>
-          </Pressable>
+          {guestLocked ? (
+            <Pressable onPress={() => router.push("/auth-landing")} testID="guest-edit-footer-button">
+              <LinearGradient
+                colors={[colors.brand, colors.brandSecondary]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.submitBtn}
+              >
+                <Text style={styles.submitText}>Sign Up / Log In</Text>
+              </LinearGradient>
+            </Pressable>
+          ) : (
+            <Pressable onPress={submit} disabled={submitting} testID="complete-profile-button">
+              <LinearGradient
+                colors={[colors.brand, colors.brandSecondary]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={[styles.submitBtn, submitting && { opacity: 0.6 }]}
+              >
+                {submitting ? (
+                  <ActivityIndicator color={colors.onBrand} />
+                ) : (
+                  <Text style={styles.submitText}>✨ Complete Profile ✨</Text>
+                )}
+              </LinearGradient>
+            </Pressable>
+          )}
         </View>
       </KeyboardStickyView>
     </View>
@@ -568,6 +627,7 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.sm,
   },
+  cardLocked: { opacity: 0.5 },
   cardHeader: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginBottom: spacing.xs },
   cardTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize.xl, color: colors.onSurface },
   subtitle: { fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onSurfaceTertiary },
@@ -686,6 +746,25 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
   },
   infoText: { flex: 1, fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary, lineHeight: 18 },
+  guestNotice: {
+    flexDirection: "row",
+    gap: spacing.md,
+    alignItems: "center",
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+  },
+  guestNoticeTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize.lg, color: colors.onSurface },
+  guestNoticeText: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary, marginTop: 4, lineHeight: 18 },
+  guestNoticeButton: {
+    backgroundColor: colors.brand,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  guestNoticeButtonText: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onBrand },
   footer: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,

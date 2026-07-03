@@ -8,16 +8,25 @@ import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import { QUIZ_SECTIONS, TOTAL_QUESTIONS } from "@/src/data/quiz";
 import { getUserId } from "@/src/utils/userId";
 import { getRoomieProfile, saveRoomieProfile } from "@/src/api/roomieProfile";
+import { useAuth } from "@/src/context/auth";
 
 export default function RoomieProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const auth = useAuth();
   const [userId, setUserId] = useState<string | null>(null);
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const guestLocked = auth.isGuest;
 
   useEffect(() => {
+    if (guestLocked) {
+      setUserId(null);
+      setAnswers({});
+      setLoading(false);
+      return;
+    }
     let mounted = true;
     (async () => {
       try {
@@ -36,14 +45,19 @@ export default function RoomieProfileScreen() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [guestLocked]);
 
   const select = useCallback((qid: string, idx: number) => {
+    if (guestLocked) return;
     setAnswers((prev) => ({ ...prev, [qid]: idx }));
-  }, []);
+  }, [guestLocked]);
 
   const handleBack = useCallback(async () => {
     if (saving) return;
+    if (guestLocked) {
+      router.back();
+      return;
+    }
     setSaving(true);
     try {
       if (userId) await saveRoomieProfile(userId, answers);
@@ -52,7 +66,7 @@ export default function RoomieProfileScreen() {
     } finally {
       router.back();
     }
-  }, [answers, userId, saving, router]);
+  }, [answers, guestLocked, userId, saving, router]);
 
   const answeredCount = Object.keys(answers).length;
 
@@ -79,6 +93,20 @@ export default function RoomieProfileScreen() {
         </View>
       </View>
 
+      {guestLocked && (
+        <View style={styles.guestNotice} testID="roomie-guest-notice">
+          <View style={{ flex: 1 }}>
+            <Text style={styles.guestTitle}>Sign up first</Text>
+            <Text style={styles.guestText}>
+              Guest Mode keeps the Compatibility Quiz locked. Sign in to answer these questions and save your profile.
+            </Text>
+          </View>
+          <Pressable style={styles.guestButton} onPress={() => router.push("/auth-landing")} testID="roomie-signin-button">
+            <Text style={styles.guestButtonText}>Sign Up / Log In</Text>
+          </Pressable>
+        </View>
+      )}
+
       {loading ? (
         <View style={styles.center} testID="roomie-loading">
           <ActivityIndicator size="large" color={colors.brand} />
@@ -104,8 +132,9 @@ export default function RoomieProfileScreen() {
                     return (
                       <Pressable
                         key={idx}
-                        style={[styles.option, selected && styles.optionSelected]}
+                        style={[styles.option, selected && styles.optionSelected, guestLocked && styles.optionDisabled]}
                         onPress={() => select(q.id, idx)}
+                        disabled={guestLocked}
                         testID={`option-${q.id}-${idx}`}
                       >
                         <View style={[styles.radio, selected && styles.radioSelected]}>
@@ -168,6 +197,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   optionSelected: { borderColor: colors.brand, backgroundColor: colors.brandTertiary },
+  optionDisabled: { opacity: 0.45 },
   radio: {
     width: 22,
     height: 22,
@@ -181,4 +211,25 @@ const styles = StyleSheet.create({
   radioInner: { width: 11, height: 11, borderRadius: 6, backgroundColor: colors.onBrandTertiary },
   optionText: { flex: 1, fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurface },
   optionTextSelected: { fontFamily: fonts.semibold, color: colors.onBrandTertiary },
+  guestNotice: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    padding: spacing.lg,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  guestTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize.lg, color: colors.onSurface },
+  guestText: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary, marginTop: 4, lineHeight: 18 },
+  guestButton: {
+    backgroundColor: colors.brand,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  guestButtonText: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onBrand },
 });

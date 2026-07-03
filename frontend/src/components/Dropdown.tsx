@@ -10,14 +10,15 @@ interface Props {
   placeholder: string;
   onSelect: (v: string) => void;
   testID?: string;
+  disabled?: boolean;
 }
 
-export default function Dropdown({ value, options, placeholder, onSelect, testID }: Props) {
+export default function Dropdown({ value, options, placeholder, onSelect, testID, disabled }: Props) {
   const [open, setOpen] = useState(false);
 
   return (
     <>
-      <Pressable style={styles.field} onPress={() => setOpen(true)} testID={testID}>
+      <Pressable style={[styles.field, disabled && styles.fieldDisabled]} onPress={() => !disabled && setOpen(true)} testID={testID} disabled={disabled}>
         <Text style={[styles.value, !value && styles.placeholder]} numberOfLines={1}>
           {value ?? placeholder}
         </Text>
@@ -67,6 +68,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     height: 52,
   },
+  fieldDisabled: { opacity: 0.45 },
   value: { flex: 1, fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onSurface },
   placeholder: { fontFamily: fonts.regular, color: colors.onSurfaceTertiary },
   backdrop: {

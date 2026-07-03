@@ -14,6 +14,10 @@ export default function DeleteAccountScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const handleDelete = async () => {
+    if (auth.isGuest) {
+      router.replace("/auth-landing");
+      return;
+    }
     if (!auth.userId) {
       setError("Unable to delete account - user ID not found.");
       return;
@@ -37,6 +41,17 @@ export default function DeleteAccountScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + spacing.lg }]} testID="delete-account-screen">
+      {auth.isGuest ? (
+        <View style={styles.content}>
+          <Text style={styles.heading}>Sign up first</Text>
+          <Text style={styles.warning}>
+            Guest Mode cannot delete an account because there is no signed-in profile to remove.
+          </Text>
+          <Pressable style={styles.signInButton} onPress={() => router.push("/auth-landing")} testID="delete-signin-button">
+            <Text style={styles.signInText}>Sign Up / Log In</Text>
+          </Pressable>
+        </View>
+      ) : (
       <View style={styles.content}>
         <Text style={styles.heading}>Are you sure you want to delete your account?</Text>
         <Text style={styles.warning}>
@@ -47,14 +62,17 @@ export default function DeleteAccountScreen() {
           <Text style={styles.credentialValue}>{userEmail}</Text>
         </View>
       </View>
+      )}
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
-      <Pressable style={[styles.deleteButton, loading && styles.disabled]} onPress={handleDelete} disabled={loading} testID="delete-permanently-button">
-        {loading ? (
-          <ActivityIndicator size="small" color={colors.onError} />
-        ) : (
-          <Text style={styles.deleteText}>Delete Permanently</Text>
-        )}
-      </Pressable>
+      {!auth.isGuest && (
+        <Pressable style={[styles.deleteButton, loading && styles.disabled]} onPress={handleDelete} disabled={loading} testID="delete-permanently-button">
+          {loading ? (
+            <ActivityIndicator size="small" color={colors.onError} />
+          ) : (
+            <Text style={styles.deleteText}>Delete Permanently</Text>
+          )}
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -84,4 +102,12 @@ const styles = StyleSheet.create({
   },
   deleteText: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onError },
   disabled: { opacity: 0.7 },
+  signInButton: {
+    backgroundColor: colors.brand,
+    borderRadius: radius.pill,
+    paddingVertical: spacing.lg,
+    alignItems: "center",
+    marginTop: spacing.md,
+  },
+  signInText: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onBrand },
 });

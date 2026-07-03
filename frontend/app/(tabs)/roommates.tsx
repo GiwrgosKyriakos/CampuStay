@@ -11,12 +11,14 @@ import SwipeDeck, { SwipeDeckHandle } from "@/src/components/SwipeDeck";
 import FilterSheet, { Filters, DEFAULT_FILTERS } from "@/src/components/FilterSheet";
 import { getUserId } from "@/src/utils/userId";
 import { getCandidates, postSwipe } from "@/src/api/discover";
+import { useAuth } from "@/src/context/auth";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 84;
 
 export default function RoommatesScreen() {
   const insets = useSafeAreaInsets();
+  const auth = useAuth();
   const deckRef = useRef<SwipeDeckHandle>(null);
   const userIdRef = useRef<string | null>(null);
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
@@ -29,7 +31,7 @@ export default function RoommatesScreen() {
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const uid = await getUserId();
+      const uid = auth.isGuest ? "guest" : await getUserId();
       userIdRef.current = uid;
       const list = await getCandidates(uid);
       setCandidates(list);
@@ -38,7 +40,7 @@ export default function RoommatesScreen() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [auth.isGuest]);
 
   useFocusEffect(
     useCallback(() => {
@@ -70,11 +72,13 @@ export default function RoommatesScreen() {
   }, []);
 
   const onLike = useCallback((p: RoommateProfile) => {
+    if (auth.isGuest) return;
     if (userIdRef.current) postSwipe(userIdRef.current, p.id, "right");
-  }, []);
+  }, [auth.isGuest]);
   const onNope = useCallback((p: RoommateProfile) => {
+    if (auth.isGuest) return;
     if (userIdRef.current) postSwipe(userIdRef.current, p.id, "left");
-  }, []);
+  }, [auth.isGuest]);
 
   const triggerActionFeedback = useCallback((action: "left" | "right") => {
     setActiveAction(action);

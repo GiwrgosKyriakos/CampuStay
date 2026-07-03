@@ -27,6 +27,7 @@ interface AuthContextValue {
   signInWithGoogle: () => Promise<AuthUser | null>;
   continueAsGuest: () => Promise<void>;
   logout: () => Promise<void>;
+  enterGuestMode: () => Promise<void>;
   clearProfileSetup: () => void;
 }
 
@@ -43,6 +44,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [needsProfileSetup, setNeedsProfileSetup] = useState(false);
+
+  const enterGuestMode = useCallback(async () => {
+    await storage.setItem(GUEST_KEY, true);
+    await storage.secureRemove(TOKEN_KEY);
+    await storage.removeItem(SETUP_KEY);
+    await storage.removeItem("roomie_user_id");
+    setUserIdCache(null);
+    setToken(null);
+    setUser(null);
+    setNeedsProfileSetup(false);
+    setStatus("guest");
+  }, []);
 
   const persist = useCallback(async (newToken: string, newUser: AuthUser, markSetup: boolean) => {
     await storage.secureSet(TOKEN_KEY, newToken);
@@ -189,12 +202,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [loginWithGoogleSession]);
 
   const continueAsGuest = useCallback(async () => {
-    await storage.setItem(GUEST_KEY, true);
-    await storage.secureRemove(TOKEN_KEY);
-    setToken(null);
-    setUser(null);
-    setStatus("guest");
-  }, []);
+    await enterGuestMode();
+  }, [enterGuestMode]);
 
   const clearProfileSetup = useCallback(() => {
     setNeedsProfileSetup(false);
@@ -203,14 +212,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(async () => {
     if (token) await apiLogout(token);
-    await storage.secureRemove(TOKEN_KEY);
-    await storage.removeItem(GUEST_KEY);
-    await storage.removeItem(SETUP_KEY);
-    setToken(null);
-    setUser(null);
-    setNeedsProfileSetup(false);
-    setStatus("unauth");
-  }, [token]);
+    await enterGuestMode();
+  }, [enterGuestMode, token]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -227,9 +230,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signInWithGoogle,
       continueAsGuest,
       logout,
+      enterGuestMode,
       clearProfileSetup,
     }),
-    [status, user, token, needsProfileSetup, loginEmail, registerEmail, signInWithGoogle, continueAsGuest, logout, clearProfileSetup],
+    [status, user, token, needsProfileSetup, loginEmail, registerEmail, signInWithGoogle, continueAsGuest, logout, enterGuestMode, clearProfileSetup],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

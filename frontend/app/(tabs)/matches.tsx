@@ -9,16 +9,26 @@ import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import type { RoommateProfile } from "@/src/data/profiles";
 import { getUserId } from "@/src/utils/userId";
 import { getMyMatches } from "@/src/api/discover";
+import { useAuth } from "@/src/context/auth";
 
 const TAB_BAR_SPACE = 100;
 
 export default function MatchesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const auth = useAuth();
   const [matches, setMatches] = useState<RoommateProfile[]>([]);
+
+  React.useEffect(() => {
+    if (auth.isGuest) setMatches([]);
+  }, [auth.isGuest]);
 
   useFocusEffect(
     useCallback(() => {
+      if (auth.isGuest) {
+        setMatches([]);
+        return;
+      }
       (async () => {
         try {
           const uid = await getUserId();
@@ -27,7 +37,7 @@ export default function MatchesScreen() {
           setMatches([]);
         }
       })();
-    }, []),
+    }, [auth.isGuest]),
   );
 
   return (
@@ -35,13 +45,26 @@ export default function MatchesScreen() {
       <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
         <Text style={styles.title}>Matches</Text>
         <Text style={styles.subtitle}>
-          {matches.length > 0
+          {auth.isGuest
+            ? "Sign in to see your matches"
+            : matches.length > 0
             ? `${matches.length} roommate${matches.length > 1 ? "s" : ""} you liked`
             : "People you like will show up here"}
         </Text>
       </View>
 
-      {matches.length === 0 ? (
+      {auth.isGuest ? (
+        <View style={styles.empty} testID="matches-empty">
+          <View style={styles.emptyIcon}>
+            <Ionicons name="lock-closed-outline" size={42} color={colors.onBrandTertiary} />
+          </View>
+          <Text style={styles.emptyTitle}>Sign in to see your matches</Text>
+          <Text style={styles.emptySub}>Your likes, matches, and chats appear here after you log in.</Text>
+          <Pressable style={styles.ctaBtn} onPress={() => router.push("/auth-landing")} testID="matches-signin-button">
+            <Text style={styles.ctaText}>Sign Up / Log In</Text>
+          </Pressable>
+        </View>
+      ) : matches.length === 0 ? (
         <View style={styles.empty} testID="matches-empty">
           <View style={styles.emptyIcon}>
             <Ionicons name="chatbubbles-outline" size={42} color={colors.onBrandTertiary} />
@@ -109,4 +132,12 @@ const styles = StyleSheet.create({
   },
   emptyTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface },
   emptySub: { fontFamily: fonts.regular, fontSize: fontSize.lg, color: colors.onSurfaceTertiary, textAlign: "center" },
+  ctaBtn: {
+    marginTop: spacing.md,
+    backgroundColor: colors.brand,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.md,
+    borderRadius: radius.pill,
+  },
+  ctaText: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onBrand },
 });

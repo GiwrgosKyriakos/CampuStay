@@ -24,6 +24,6 @@ export async function getUserId(): Promise<string> {
 
 // Used by the auth layer to bind the active account's id so profile/quiz
 // screens (which read getUserId) target the logged-in user.
-export function setUserIdCache(id: string): void {
+export function setUserIdCache(id: string | null): void {
   cached = id;
 }

@@ -33,6 +33,13 @@ export default function ProfileScreen() {
   const [matchCount, setMatchCount] = useState(0);
   const [updatingPhoto, setUpdatingPhoto] = useState(false);
 
+  React.useEffect(() => {
+    if (auth.isGuest) {
+      setProfile(null);
+      setMatchCount(0);
+    }
+  }, [auth.isGuest]);
+
   useFocusEffect(
     useCallback(() => {
       if (auth.isGuest) return;
@@ -52,11 +59,11 @@ export default function ProfileScreen() {
     }, [auth.isGuest]),
   );
 
-  const displayName = profile?.name || auth.user?.name || "Your Profile";
-  const photoUri = profile?.photos?.[0] || auth.user?.picture || PLACEHOLDER_PHOTO;
-  const university = profile?.university || "Add your university";
-  const program = profile?.year_of_study || "Complete your profile";
-  const age = profile?.age ?? null;
+  const displayName = auth.isGuest ? "Your Name" : profile?.name || auth.user?.name || "Your Profile";
+  const photoUri = auth.isGuest ? PLACEHOLDER_PHOTO : profile?.photos?.[0] || auth.user?.picture || PLACEHOLDER_PHOTO;
+  const university = auth.isGuest ? "Add your university" : profile?.university || "Add your university";
+  const program = auth.isGuest ? "Complete your profile" : profile?.year_of_study || "Complete your profile";
+  const age = auth.isGuest ? null : profile?.age ?? null;
   const budget = profile?.budget ?? null;
 
   const updatePhoto = useCallback(async () => {
@@ -117,14 +124,18 @@ export default function ProfileScreen() {
         <View style={[styles.hero, { paddingTop: spacing.xl }]}>
           <View style={styles.avatarWrap}>
             <Pressable
-              onPress={updatePhoto}
-              disabled={updatingPhoto}
+              onPress={auth.isGuest ? () => router.push("/auth-landing") : updatePhoto}
+              disabled={updatingPhoto && !auth.isGuest}
               testID="profile-avatar-button"
               style={({ pressed }) => [styles.avatarButton, pressed && !auth.isGuest && styles.avatarButtonPressed]}
             >
               <Image source={{ uri: photoUri }} style={styles.avatar} contentFit="cover" />
               <View style={styles.editBadge}>
-                <Ionicons name={updatingPhoto ? "cloud-upload-outline" : "pencil"} size={14} color={colors.onBrand} />
+                <Ionicons
+                  name={auth.isGuest ? "log-in-outline" : updatingPhoto ? "cloud-upload-outline" : "pencil"}
+                  size={14}
+                  color={colors.onBrand}
+                />
               </View>
             </Pressable>
           </View>
@@ -137,7 +148,7 @@ export default function ProfileScreen() {
         {!auth.isGuest ? (
           <View style={styles.statsCard}>
             <View style={styles.statItem}>
-              <Text style={styles.statNum}>{matchCount}</Text>
+              <Text style={styles.statNum}>{auth.isGuest ? "—" : matchCount}</Text>
               <Text style={styles.statLabel}>Matches</Text>
             </View>
             <View style={styles.statDivider} />
@@ -209,7 +220,7 @@ export default function ProfileScreen() {
             testID="guest-signup-button"
             onPress={() => router.navigate("auth-landing" as any)}
           >
-            <Text style={styles.guestSignUpText}>Εγγραφή / Σύνδεση</Text>
+            <Text style={styles.guestSignUpText}>Sign Up / Log In</Text>
           </Pressable>
         )}
       </ScrollView>
