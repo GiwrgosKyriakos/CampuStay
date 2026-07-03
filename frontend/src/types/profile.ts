@@ -1,4 +1,5 @@
 export interface UserProfile {
+  name?: string | null;
   photos: string[];
   age: number | null;
   about: string;

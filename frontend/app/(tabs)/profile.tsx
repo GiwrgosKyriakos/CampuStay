@@ -4,11 +4,12 @@ import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
+import * as ImagePicker from "expo-image-picker";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import { useAuth } from "@/src/context/auth";
 import { getUserId } from "@/src/utils/userId";
-import { getUserProfile, UserProfile } from "@/src/api/userProfile";
+import { getUserProfile, saveUserProfile, UserProfile } from "@/src/api/userProfile";
 import { getMyMatches } from "@/src/api/discover";
 
 const CURRENCY = "€";
@@ -30,6 +31,7 @@ export default function ProfileScreen() {
   const auth = useAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [matchCount, setMatchCount] = useState(0);
+  const [updatingPhoto, setUpdatingPhoto] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -50,12 +52,61 @@ export default function ProfileScreen() {
     }, [auth.isGuest]),
   );
 
-  const displayName = auth.user?.name || "Your Profile";
+  const displayName = profile?.name || auth.user?.name || "Your Profile";
   const photoUri = profile?.photos?.[0] || auth.user?.picture || PLACEHOLDER_PHOTO;
   const university = profile?.university || "Add your university";
   const program = profile?.year_of_study || "Complete your profile";
-  const gender = profile?.gender || "—";
+  const age = profile?.age ?? null;
   const budget = profile?.budget ?? null;
+
+  const updatePhoto = useCallback(async () => {
+    if (auth.isGuest) return;
+
+    if (!profile) {
+      router.push("/edit-profile");
+      return;
+    }
+
+    try {
+      setUpdatingPhoto(true);
+      const permission = await ImagePicker.getMediaLibraryPermissionsAsync();
+      let status = permission.status;
+      if (status !== "granted" && permission.canAskAgain) {
+        const requested = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        status = requested.status;
+      }
+      if (status !== "granted") {
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+        base64: true,
+      });
+
+      if (result.canceled) return;
+      const asset = result.assets[0];
+      if (!asset?.base64) return;
+
+      const uid = await getUserId();
+      const nextProfile: UserProfile = {
+        ...(profile as UserProfile),
+        name: profile.name ?? auth.user?.name ?? "",
+        photos: [
+          `data:image/jpeg;base64,${asset.base64}`,
+          ...(profile.photos ?? []).slice(1),
+        ],
+      };
+
+      await saveUserProfile(uid, nextProfile);
+      setProfile(nextProfile);
+    } finally {
+      setUpdatingPhoto(false);
+    }
+  }, [auth.isGuest, auth.user?.name, profile, router]);
 
   return (
     <View style={styles.container} testID="profile-screen">
@@ -65,18 +116,21 @@ export default function ProfileScreen() {
       >
         <View style={[styles.hero, { paddingTop: spacing.xl }]}>
           <View style={styles.avatarWrap}>
-            <Image source={{ uri: photoUri }} style={styles.avatar} contentFit="cover" />
             <Pressable
-              style={styles.editBadge}
-              testID="edit-photo-button"
-              onPress={() => !auth.isGuest && router.push("/edit-profile")}
+              onPress={updatePhoto}
+              disabled={updatingPhoto}
+              testID="profile-avatar-button"
+              style={({ pressed }) => [styles.avatarButton, pressed && !auth.isGuest && styles.avatarButtonPressed]}
             >
-              <Ionicons name="pencil" size={14} color={colors.onBrand} />
+              <Image source={{ uri: photoUri }} style={styles.avatar} contentFit="cover" />
+              <View style={styles.editBadge}>
+                <Ionicons name={updatingPhoto ? "cloud-upload-outline" : "pencil"} size={14} color={colors.onBrand} />
+              </View>
             </Pressable>
           </View>
           <Text style={styles.name}>{displayName}</Text>
           <Text style={styles.sub}>
-            {program} · {university}
+            {age != null ? `Age ${age}` : "Add your age"} · {program} · {university}
           </Text>
         </View>
 
@@ -88,8 +142,8 @@ export default function ProfileScreen() {
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statItem}>
-              <Text style={styles.statNum}>{gender}</Text>
-              <Text style={styles.statLabel}>Gender</Text>
+              <Text style={styles.statNum}>{age != null ? age : "—"}</Text>
+              <Text style={styles.statLabel}>Age</Text>
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statItem}>
@@ -167,6 +221,8 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
   hero: { alignItems: "center", paddingBottom: spacing.xl, gap: spacing.xs },
   avatarWrap: { marginBottom: spacing.sm },
+  avatarButton: { alignItems: "center", justifyContent: "center" },
+  avatarButtonPressed: { transform: [{ scale: 0.98 }] },
   avatar: {
     width: 112,
     height: 112,

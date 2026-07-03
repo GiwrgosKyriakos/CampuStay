@@ -58,6 +58,7 @@ export default function EditProfileScreen() {
   const [error, setError] = useState<string | null>(null);
   const [permBlocked, setPermBlocked] = useState(false);
 
+  const [name, setName] = useState("");
   const [photos, setPhotos] = useState<string[]>([]);
   const [age, setAge] = useState("");
   const [about, setAbout] = useState("");
@@ -82,6 +83,7 @@ export default function EditProfileScreen() {
         if (mounted) {
           setUserId(id);
           if (p) {
+            setName(p.name ?? auth.user?.name ?? "");
             setPhotos(p.photos ?? []);
             setAge(p.age != null ? String(p.age) : "");
             setAbout(p.about ?? "");
@@ -107,7 +109,7 @@ export default function EditProfileScreen() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [auth.user?.name]);
 
   const addPhotos = useCallback(async () => {
     if (photos.length >= 3) return;
@@ -170,6 +172,7 @@ export default function EditProfileScreen() {
     try {
       console.log("[EditProfile] → Saving user profile...");
       const profile: UserProfile = {
+        name: name.trim() || auth.user?.name || "",
         photos,
         age: age ? parseInt(age, 10) : null,
         about,
@@ -196,10 +199,12 @@ export default function EditProfileScreen() {
         console.log("[EditProfile] → Clearing profile setup flag");
         auth.clearProfileSetup();
         console.log("[EditProfile] ✓ Profile setup flag cleared");
+        console.log("[EditProfile] → Navigating to roommates...");
+        router.replace("/(tabs)/roommates");
+      } else {
+        console.log("[EditProfile] → Returning to previous screen...");
+        router.back();
       }
-      
-      console.log("[EditProfile] → Navigating to roommates...");
-      router.replace("/(tabs)/roommates");
     } catch (err) {
       console.error("[EditProfile] ✗ Error saving profile:", err);
       setError("Failed to save your profile. Please try again.");
@@ -207,6 +212,7 @@ export default function EditProfileScreen() {
     }
   }, [
     submitting,
+    name,
     photos,
     about,
     instagram,
@@ -321,6 +327,16 @@ export default function EditProfileScreen() {
             <Ionicons name="person-outline" size={22} color={colors.onSurface} />
             <Text style={styles.cardTitle}>Basic Information</Text>
           </View>
+
+          <Text style={styles.label}>Display Name</Text>
+          <TextInput
+            style={styles.input}
+            value={name}
+            onChangeText={setName}
+            placeholder={auth.user?.name || "Your name"}
+            placeholderTextColor={colors.onSurfaceTertiary}
+            testID="name-input"
+          />
 
           <Text style={styles.label}>Age</Text>
           <TextInput

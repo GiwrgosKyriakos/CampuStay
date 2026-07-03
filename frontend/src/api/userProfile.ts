@@ -1,6 +1,7 @@
 const BASE = process.env.EXPO_PUBLIC_BACKEND_URL;
 
 export interface UserProfile {
+  name: string | null;
   photos: string[];
   age: number | null;
   about: string;

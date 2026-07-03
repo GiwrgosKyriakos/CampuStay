@@ -89,6 +89,7 @@ async def save_roomie_profile(user_id: str, payload: RoomieProfileIn):
 
 # ---- Full User Profile (edit/complete profile) ----
 class FullProfileIn(BaseModel):
+    name: Optional[str] = None
     photos: List[str] = []
     age: Optional[int] = None
     about: Optional[str] = None
