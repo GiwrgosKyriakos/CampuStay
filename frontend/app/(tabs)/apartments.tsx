@@ -234,7 +234,17 @@ export default function ApartmentsScreen({ route, navigation }: any) {
         showsVerticalScrollIndicator={false}
       >
         {filteredApartments.map((apt) => (
-          <View key={apt.id} style={styles.card} testID={`apartment-card-${apt.id}`}>
+          <Pressable
+            key={apt.id}
+            style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+            onPress={() =>
+              router.push({
+                pathname: "/apartment-detail",
+                params: { data: JSON.stringify(apt) },
+              } as any)
+            }
+            testID={`apartment-card-${apt.id}`}
+          >
             <Image source={{ uri: apt.image }} style={styles.photo} contentFit="cover" transition={150} />
             <LinearGradient
               colors={["transparent", "rgba(26,26,26,0.95)"]}
@@ -269,7 +279,7 @@ export default function ApartmentsScreen({ route, navigation }: any) {
                 ))}
               </View>
             </View>
-          </View>
+          </Pressable>
         ))}
         {filteredApartments.length === 0 && (
           <View style={styles.emptyState} testID="apartments-empty-state">
@@ -357,6 +367,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     backgroundColor: colors.surfaceTertiary,
   },
+  cardPressed: { opacity: 0.88 },
   photo: { ...StyleSheet.absoluteFillObject },
   rentBadge: {
     position: "absolute",
