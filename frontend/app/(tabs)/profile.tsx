@@ -16,6 +16,7 @@ const CURRENCY = "€";
 const TAB_BAR_SPACE = 100;
 const PLACEHOLDER_PHOTO =
   "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?crop=entropy&cs=srgb&fm=jpg&w=900&q=85";
+const GUEST_ACCESSIBLE_ROUTES = new Set(["/roomie-profile", "/edit-profile"]);
 
 const NAV_SETTINGS: { icon: keyof typeof Ionicons.glyphMap; label: string; route: string; testID: string }[] = [
   { icon: "sparkles", label: "Compatibility Quiz", route: "/roomie-profile", testID: "setting-compatibility-quiz" },
@@ -65,6 +66,7 @@ export default function ProfileScreen() {
   const program = auth.isGuest ? "Complete your profile" : profile?.year_of_study || "Complete your profile";
   const age = auth.isGuest ? null : profile?.age ?? null;
   const budget = profile?.budget ?? null;
+  const canAccessRoute = useCallback((route: string) => !auth.isGuest || GUEST_ACCESSIBLE_ROUTES.has(route), [auth.isGuest]);
 
   const updatePhoto = useCallback(async () => {
     if (auth.isGuest) return;
@@ -129,7 +131,13 @@ export default function ProfileScreen() {
               testID="profile-avatar-button"
               style={({ pressed }) => [styles.avatarButton, pressed && !auth.isGuest && styles.avatarButtonPressed]}
             >
-              <Image source={{ uri: photoUri }} style={styles.avatar} contentFit="cover" />
+              {auth.isGuest ? (
+                <View style={styles.guestAvatar}>
+                  <Ionicons name="person" size={56} color={colors.onSurfaceTertiary} />
+                </View>
+              ) : (
+                <Image source={{ uri: photoUri }} style={styles.avatar} contentFit="cover" />
+              )}
               <View style={styles.editBadge}>
                 <Ionicons
                   name={auth.isGuest ? "log-in-outline" : updatingPhoto ? "cloud-upload-outline" : "pencil"}
@@ -180,13 +188,13 @@ export default function ProfileScreen() {
               key={s.label}
               style={[styles.row, i < NAV_SETTINGS.length - 1 && styles.rowBorder]}
               testID={s.testID}
-              onPress={() => !auth.isGuest && router.push(s.route as any)}
+              onPress={() => canAccessRoute(s.route) && router.push(s.route as any)}
             >
               <View style={styles.rowIcon}>
                 <Ionicons name={s.icon} size={20} color={colors.onSurface} />
               </View>
-              <Text style={[styles.rowLabel, auth.isGuest && styles.rowDisabled]}>{s.label}</Text>
-              <Ionicons name="chevron-forward" size={18} color={auth.isGuest ? colors.border : colors.onSurfaceTertiary} />
+              <Text style={[styles.rowLabel, !canAccessRoute(s.route) && styles.rowDisabled]}>{s.label}</Text>
+              <Ionicons name="chevron-forward" size={18} color={!canAccessRoute(s.route) ? colors.border : colors.onSurfaceTertiary} />
             </Pressable>
           ))}
         </View>
@@ -240,6 +248,16 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     borderWidth: 3,
     borderColor: colors.brand,
+  },
+  guestAvatar: {
+    width: 112,
+    height: 112,
+    borderRadius: radius.pill,
+    borderWidth: 3,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceTertiary,
+    alignItems: "center",
+    justifyContent: "center",
   },
   editBadge: {
     position: "absolute",

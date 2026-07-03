@@ -339,6 +339,12 @@ export default function EditProfileScreen() {
           </View>
           <Text style={styles.subtitle}>Upload Photos * (1-3 photos)</Text>
 
+          {guestLocked && (
+            <View style={styles.guestAvatarPlaceholder} testID="guest-profile-photo-placeholder">
+              <Ionicons name="person" size={48} color={colors.onSurfaceTertiary} />
+            </View>
+          )}
+
           {photos.length > 0 && (
             <View style={styles.photoRow}>
               {photos.map((uri, idx) => (
@@ -347,6 +353,7 @@ export default function EditProfileScreen() {
                   <Pressable
                     style={styles.photoRemove}
                     onPress={() => removePhoto(idx)}
+                    disabled={guestLocked}
                     testID={`remove-photo-${idx}`}
                     hitSlop={6}
                   >
@@ -358,7 +365,7 @@ export default function EditProfileScreen() {
           )}
 
           {photos.length < 3 && (
-            <Pressable onPress={addPhotos} testID="add-photos-button">
+            <Pressable onPress={addPhotos} disabled={guestLocked} testID="add-photos-button">
               <LinearGradient
                 colors={[colors.brand, colors.brandSecondary]}
                 start={{ x: 0, y: 0 }}
@@ -438,6 +445,7 @@ export default function EditProfileScreen() {
                   key={g}
                   style={[styles.radioPill, active && styles.radioPillActive]}
                   onPress={() => setGender(g)}
+                  disabled={guestLocked}
                   testID={`gender-${g}`}
                 >
                   <View style={[styles.radioDot, active && styles.radioDotActive]}>
@@ -726,6 +734,17 @@ const styles = StyleSheet.create({
   photoRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.sm },
   photoThumb: { width: 90, height: 90, borderRadius: radius.md, overflow: "hidden", backgroundColor: colors.surfaceTertiary },
   photoImg: { width: "100%", height: "100%" },
+  guestAvatarPlaceholder: {
+    width: 90,
+    height: 90,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceTertiary,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: spacing.sm,
+  },
   photoRemove: {
     position: "absolute",
     top: 4,

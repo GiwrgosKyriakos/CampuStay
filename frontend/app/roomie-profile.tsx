@@ -133,7 +133,7 @@ export default function RoomieProfileScreen() {
                       <Pressable
                         key={idx}
                         style={[styles.option, selected && styles.optionSelected, guestLocked && styles.optionDisabled]}
-                        onPress={() => select(q.id, idx)}
+                        onPress={guestLocked ? undefined : () => select(q.id, idx)}
                         disabled={guestLocked}
                         testID={`option-${q.id}-${idx}`}
                       >
