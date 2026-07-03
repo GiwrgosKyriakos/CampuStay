@@ -37,8 +37,7 @@ const UNIVERSITIES = [
 const YEARS = ["1st Year", "2nd Year", "3rd Year", "4th Year", "Master/PhD"];
 const GENDERS = ["Male", "Female", "Prefer Not To Say"];
 const ABOUT_LIMIT = 250;
-const HOUSING_PROMPT_MESSAGE =
-  "Awesome! Let's get your place noticed. Don't forget to create a listing for your house by tapping the orange '+' button in the Apartments section later to attract the perfect roommates!";
+const HOUSING_PROMPT_MESSAGE = "Create your listing now!";
 
 const MOVE_IN_OPTIONS = (() => {
   const out: string[] = ["As soon as possible"];
@@ -487,9 +486,15 @@ export default function EditProfileScreen() {
             pointerEvents={hasPlace ? "auto" : "none"}
             testID="housing-listing-prompt"
           >
-            <View style={styles.housingPromptCard}>
-              <Text style={styles.housingPromptText}>{HOUSING_PROMPT_MESSAGE}</Text>
-            </View>
+            <Pressable
+              style={({ pressed }) => [styles.housingPromptCard, pressed && styles.housingPromptCardPressed]}
+              onPress={() => router.push("/create-listing" as any)}
+              testID="housing-listing-prompt-button"
+            >
+              <Text style={styles.housingPromptText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.95}>
+                {HOUSING_PROMPT_MESSAGE}
+              </Text>
+            </Pressable>
           </Animated.View>
 
           <Pressable
@@ -810,13 +815,18 @@ const styles = StyleSheet.create({
   housingPromptCard: {
     backgroundColor: "#FF8A1E",
     borderRadius: radius.md,
-    padding: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+  },
+  housingPromptCardPressed: {
+    opacity: 0.88,
   },
   housingPromptText: {
     fontFamily: fonts.semibold,
-    fontSize: fontSize.base,
+    fontSize: fontSize.sm,
     color: colors.onBrand,
-    lineHeight: 22,
+    lineHeight: 20,
+    textAlign: "center",
   },
   infoBox: {
     flexDirection: "row",
