@@ -8,6 +8,7 @@ export interface UserProfile {
   gender: string | null;
   city: string | null;
   has_place: boolean;
+  looking_for_apartment: boolean;
   university: string | null;
   year_of_study: string | null;
   budget: number | null;

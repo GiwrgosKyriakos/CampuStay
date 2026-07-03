@@ -65,6 +65,7 @@ export default function EditProfileScreen() {
   const [gender, setGender] = useState<string | null>(null);
   const [city, setCity] = useState<string | null>(null);
   const [hasPlace, setHasPlace] = useState(false);
+  const [lookingForApartment, setLookingForApartment] = useState(false);
   const [university, setUniversity] = useState<string | null>(null);
   const [year, setYear] = useState<string | null>(null);
   const [budget, setBudget] = useState("");
@@ -85,6 +86,7 @@ export default function EditProfileScreen() {
       setGender(null);
       setCity(null);
       setHasPlace(false);
+      setLookingForApartment(false);
       setUniversity(null);
       setYear(null);
       setBudget("");
@@ -111,6 +113,7 @@ export default function EditProfileScreen() {
             setGender(p.gender ?? null);
             setCity(p.city ?? null);
             setHasPlace(!!p.has_place);
+            setLookingForApartment(!!p.looking_for_apartment);
             setUniversity(p.university ?? null);
             setYear(p.year_of_study ?? null);
             setBudget(p.budget != null ? String(p.budget) : "");
@@ -173,6 +176,16 @@ export default function EditProfileScreen() {
     setPhotos((prev) => prev.filter((_, i) => i !== idx));
   }, []);
 
+  const selectHousingOption = useCallback((option: "has_place" | "looking") => {
+    if (option === "has_place") {
+      setHasPlace(true);
+      setLookingForApartment(false);
+      return;
+    }
+    setLookingForApartment(true);
+    setHasPlace(false);
+  }, []);
+
   const submit = useCallback(async () => {
     if (submitting) return;
     if (photos.length < 1) {
@@ -200,6 +213,7 @@ export default function EditProfileScreen() {
         gender,
         city,
         has_place: hasPlace,
+        looking_for_apartment: lookingForApartment,
         university,
         year_of_study: year,
         budget: budget ? parseInt(budget, 10) : null,
@@ -244,6 +258,7 @@ export default function EditProfileScreen() {
     gender,
     city,
     hasPlace,
+    lookingForApartment,
     university,
     year,
     budget,
@@ -428,7 +443,7 @@ export default function EditProfileScreen() {
 
           <Pressable
             style={[styles.checkboxRow, hasPlace && styles.checkboxRowActive]}
-            onPress={() => setHasPlace((v) => !v)}
+            onPress={() => selectHousingOption("has_place")}
             testID="has-place-checkbox"
             disabled={guestLocked}
           >
@@ -436,6 +451,18 @@ export default function EditProfileScreen() {
               {hasPlace && <Ionicons name="checkmark" size={16} color={colors.onBrand} />}
             </View>
             <Text style={styles.checkboxText}>I have a house/apartment to share 🏠</Text>
+          </Pressable>
+
+          <Pressable
+            style={[styles.checkboxRow, lookingForApartment && styles.checkboxRowActive]}
+            onPress={() => selectHousingOption("looking")}
+            testID="looking-apartment-checkbox"
+            disabled={guestLocked}
+          >
+            <View style={[styles.checkbox, lookingForApartment && styles.checkboxActive]}>
+              {lookingForApartment && <Ionicons name="checkmark" size={16} color={colors.onBrand} />}
+            </View>
+            <Text style={styles.checkboxText}>Currently looking for an apartment</Text>
           </Pressable>
         </View>
 

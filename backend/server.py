@@ -96,6 +96,7 @@ class FullProfileIn(BaseModel):
     gender: Optional[str] = None
     city: Optional[str] = None
     has_place: bool = False
+    looking_for_apartment: bool = False
     university: Optional[str] = None
     year_of_study: Optional[str] = None
     budget: Optional[int] = None
