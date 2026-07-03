@@ -276,7 +276,7 @@ export default function ApartmentsScreen() {
           onPress={() => router.push("/create-listing" as any)}
           testID="apartments-create-fab"
         >
-          <Text style={styles.fabText}>+ 🍊</Text>
+          <Text style={styles.fabText}>+</Text>
         </Pressable>
       )}
     </View>
