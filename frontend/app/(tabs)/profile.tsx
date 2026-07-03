@@ -1,7 +1,6 @@
 import React, { useState, useCallback } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
 import { Image } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
@@ -17,7 +16,8 @@ const TAB_BAR_SPACE = 100;
 const PLACEHOLDER_PHOTO =
   "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?crop=entropy&cs=srgb&fm=jpg&w=900&q=85";
 
-const NAV_SETTINGS: { icon: keyof typeof Ionicons.glyphMap; label: string; route: string }[] = [
+const NAV_SETTINGS: { icon: keyof typeof Ionicons.glyphMap; label: string; route: string; testID: string }[] = [
+  { icon: "sparkles", label: "Compatibility Quiz", route: "/roomie-profile", testID: "setting-compatibility-quiz" },
   { icon: "create-outline", label: "Edit profile", route: "/edit-profile" },
   { icon: "notifications-outline", label: "Notifications", route: "/notifications" },
   { icon: "shield-checkmark-outline", label: "Privacy & safety", route: "/privacy-safety" },
@@ -63,28 +63,6 @@ export default function ProfileScreen() {
         contentContainerStyle={{ paddingBottom: TAB_BAR_SPACE + insets.bottom }}
         showsVerticalScrollIndicator={false}
       >
-        <Pressable
-          style={[styles.roomieWrap, { marginTop: insets.top + spacing.md }]}
-          onPress={() => router.push("/roomie-profile")}
-          testID="roomie-profile-row"
-        >
-          <LinearGradient
-            colors={[colors.brand, colors.brandSecondary]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.roomieCard}
-          >
-            <View style={styles.roomieIcon}>
-              <Ionicons name="sparkles" size={22} color={colors.onBrand} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.roomieTitle}>Roomie Profile</Text>
-              <Text style={styles.roomieSub}>Complete your compatibility quiz</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={22} color={colors.onBrand} />
-          </LinearGradient>
-        </Pressable>
-
         <View style={[styles.hero, { paddingTop: spacing.xl }]}>
           <View style={styles.avatarWrap}>
             <Image source={{ uri: photoUri }} style={styles.avatar} contentFit="cover" />
@@ -136,7 +114,7 @@ export default function ProfileScreen() {
             <Pressable
               key={s.label}
               style={[styles.row, i < NAV_SETTINGS.length - 1 && styles.rowBorder]}
-              testID={`setting-${s.label}`}
+              testID={s.testID}
               onPress={() => !auth.isGuest && router.push(s.route as any)}
             >
               <View style={styles.rowIcon}>
@@ -187,23 +165,6 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
-  roomieWrap: { marginHorizontal: spacing.lg, borderRadius: radius.lg, overflow: "hidden" },
-  roomieCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    padding: spacing.lg,
-  },
-  roomieIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: radius.pill,
-    backgroundColor: "rgba(255,255,255,0.3)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  roomieTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize.xl, color: colors.onBrand },
-  roomieSub: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onBrand, opacity: 0.8 },
   hero: { alignItems: "center", paddingBottom: spacing.xl, gap: spacing.xs },
   avatarWrap: { marginBottom: spacing.sm },
   avatar: {
