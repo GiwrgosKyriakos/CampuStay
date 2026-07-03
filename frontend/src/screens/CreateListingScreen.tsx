@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import { useNavigation } from "@react-navigation/native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import Dropdown from "@/src/components/Dropdown";
@@ -46,6 +47,7 @@ const PHOTO_SLOTS = 6;
 
 export default function CreateListingScreen() {
   const router = useRouter();
+  const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
 
   const [monthlyRent, setMonthlyRent] = useState("");
@@ -94,6 +96,23 @@ export default function CreateListingScreen() {
       Alert.alert("Missing details", "Please complete Monthly Rent, City, Area, and Size before publishing.");
       return;
     }
+
+    const firstPhoto = photos.find((slot) => !!slot);
+    const data = {
+      id: `a${Date.now()}`,
+      title: `${area.trim()} apartment`,
+      area: area.trim(),
+      city,
+      rent: Number(monthlyRent),
+      rooms: 1,
+      size: Number(sizeSqm),
+      image: firstPhoto
+        ? `https://dummyimage.com/1200x800/${firstPhoto.color.replace("#", "")}/0a0a0a&text=Listing+Photo`
+        : "https://images.unsplash.com/photo-1564078516393-cf04bd966897?crop=entropy&cs=srgb&fm=jpg&w=1200&q=85",
+      tags: selectedAmenities.length ? selectedAmenities : ["New listing"],
+    };
+
+    navigation.navigate("apartments", { newListing: data });
 
     Alert.alert(
       "Listing published",

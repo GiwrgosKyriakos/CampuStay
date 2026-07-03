@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Switch } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
@@ -77,10 +77,11 @@ const APARTMENTS: Apartment[] = [
   },
 ];
 
-export default function ApartmentsScreen() {
+export default function ApartmentsScreen({ route, navigation }: any) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const auth = useAuth();
+  const [apartments, setApartments] = useState<Apartment[]>(APARTMENTS);
   const [showFilters, setShowFilters] = useState(false);
   const [rentMin, setRentMin] = useState("");
   const [rentMax, setRentMax] = useState("");
@@ -115,6 +116,13 @@ export default function ApartmentsScreen() {
     }, [auth.isGuest]),
   );
 
+  useEffect(() => {
+    const newListing = route?.params?.newListing;
+    if (!newListing) return;
+    setApartments((prev) => [newListing, ...prev]);
+    navigation?.setParams?.({ newListing: undefined });
+  }, [navigation, route?.params?.newListing]);
+
   const filteredApartments = useMemo(() => {
     const minRent = rentMin ? Number(rentMin) : null;
     const maxRent = rentMax ? Number(rentMax) : null;
@@ -122,7 +130,7 @@ export default function ApartmentsScreen() {
     const maxSize = sizeMax ? Number(sizeMax) : null;
     const query = cityQuery.trim().toLowerCase();
 
-    return APARTMENTS.filter((apt) => {
+    return apartments.filter((apt) => {
       const cityMatch =
         query.length === 0 ||
         apt.city.toLowerCase().includes(query) ||
@@ -138,7 +146,7 @@ export default function ApartmentsScreen() {
 
       return cityMatch && rentMatch && sizeMatch && petMatch && metroMatch;
     });
-  }, [cityQuery, nearMetro, petFriendly, rentMax, rentMin, sizeMax, sizeMin]);
+  }, [apartments, cityQuery, nearMetro, petFriendly, rentMax, rentMin, sizeMax, sizeMin]);
 
   return (
     <View style={styles.container} testID="apartments-screen">
