@@ -18,6 +18,9 @@ import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import type { RoommateProfile } from "@/src/data/profiles";
 import { getUserPublic } from "@/src/api/discover";
+import { getUserId } from "@/src/utils/userId";
+import { db } from "@/src/config/firebase";
+import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp } from "firebase/firestore";
 
 const CURRENCY = "€";
 
@@ -31,6 +34,7 @@ export default function ChatScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [profile, setProfile] = useState<RoommateProfile | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
 
@@ -44,19 +48,49 @@ export default function ChatScreen() {
     })();
   }, [id]);
 
+  useEffect(() => {
+    getUserId().then(setCurrentUserId);
+  }, []);
+
   const scrollRef = useRef<ScrollView>(null);
   const [text, setText] = useState("");
-  const [messages, setMessages] = useState<Message[]>([
-    { id: "welcome", text: "Hey there! 👋", mine: false },
-  ]);
+  const [messages, setMessages] = useState<Message[]>([]);
 
-  const send = useCallback(() => {
+  useEffect(() => {
+    if (!currentUserId || !id) return;
+    const chatId = [currentUserId, id].sort().join("_");
+    const q = query(
+      collection(db, "chats", chatId, "messages"),
+      orderBy("createdAt", "asc"),
+    );
+    const unsub = onSnapshot(q, (snapshot) => {
+      const fetched: Message[] = snapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          text: data.text ?? "",
+          mine: data.senderId === currentUserId,
+        };
+      });
+      setMessages(fetched);
+      requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: false }));
+    });
+    return unsub;
+  }, [currentUserId, id]);
+
+  const send = useCallback(async () => {
     const trimmed = text.trim();
-    if (!trimmed) return;
-    setMessages((prev) => [...prev, { id: `${Date.now()}`, text: trimmed, mine: true }]);
+    if (!trimmed || !currentUserId || !id) return;
+    const chatId = [currentUserId, id].sort().join("_");
     setText("");
     requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
-  }, [text]);
+    await addDoc(collection(db, "chats", chatId, "messages"), {
+      text: trimmed,
+      senderId: currentUserId,
+      receiverId: id,
+      createdAt: serverTimestamp(),
+    });
+  }, [text, currentUserId, id]);
 
   if (!profile) {
     return (
