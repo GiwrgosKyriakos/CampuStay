@@ -405,5 +405,5 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 6 },
     elevation: 8,
   },
-  fabText: { fontFamily: fonts.displayExtra, fontSize: fontSize.lg, color: colors.onBrand },
+  fabText: { fontFamily: fonts.displayExtra, fontSize: 32, color: colors.onBrand },
 });
