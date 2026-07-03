@@ -1,0 +1,46 @@
+{
+  "summary": "All 7 review-request bullets PASS end-to-end. Backend: 41/41 pytest (auth 12 + user-profile 8 + roomie-profile 8 + new test_discover 13). Frontend (390x844): full authed flow verified — Phone/Email register redirects to edit-profile; after seeding a full profile + 2 right-swipes via API against the same user_id retrieved from AsyncStorage, the Profile tab correctly renders (a) '2' Matches, (b) 'Female' Gender, (c) '€700' Max budget, (d) 'MSc CS · TU Berlin' subtitle, (e) profile photos[0] as avatar; Matches tab lists Sofia + Liam; tapping the chat-row-demo_1 opens chat with Sofia's header (name + 'TU Berlin' + Female + budget pills); chat input + send button work. Backend endpoints all conform to spec: (1) /api/auth/register→{token,user} + /api/auth/me returns user; (2) /api/candidates/{uid} returns 8 demo candidates (Sofia is Female with a female Unsplash photo), excludes self and already-swiped ids; (3) POST /api/swipe persists and right-swipe on a demo returns matched:false (demo doesn't reciprocate); (4) /api/my-matches/{uid} returns only right-swiped users, filters left-swipes; (5) /api/user-public/{demo_1} returns Sofia's public profile (name/photo/gender/age/budget/university), 404 for unknown id; (6) PUT then GET /api/profile/{uid} round-trips all fields (photos, age, gender, university, year_of_study, budget) with no mongo _id leak; (7) after swiping every demo user, /api/candidates/{uid} returns an array with no demo ids left (empty state confirmed). No firebase/firestore/expo-auth-session references remain in src/ or app/. No mock PROFILES array remains. No pageerrors or red screen during the flow.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {
+        "component": "RN-web deprecation warnings (carry-over from iteration_5, non-blocking)",
+        "issue": "Console still shows '\"shadow*\" style props are deprecated. Use boxShadow.' and 'props.pointerEvents is deprecated. Use style.pointerEvents' on web preview. Cosmetic only. Reference: /app/frontend/app/(tabs)/roommates.tsx:169-172 (shadow*), /app/frontend/src/components/SwipeDeck.tsx (pointerEvents prop)."
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_6.json",
+    "/app/test_reports/pytest/iteration_6.xml",
+    "/app/backend/tests/test_discover.py",
+    "/app/backend/tests/test_auth.py",
+    "/app/backend/tests/test_user_profile.py",
+    "/app/backend/tests/test_roomie_profile.py"
+  ],
+  "action_items": [
+    "(Optional, low-pri) Migrate shadow* → boxShadow and pointerEvents prop → style.pointerEvents to silence RN-web deprecation warnings on web preview."
+  ],
+  "critical_code_review_comments": [
+    "backend/server.py demo seeding is idempotent (upserts) and runs on FastAPI startup — the 8 demo profiles are guaranteed to exist after boot. Sofia (demo_1) is now correctly seeded with gender=Female + Unsplash photo-1438761681033-6461ffad8d80 (female subject); mock PROFILES array in the frontend has been removed as promised.",
+    "GET /api/candidates/{uid} properly excludes (a) user themselves, (b) any id present in db.swipes for that user_id, and (c) profiles missing age/gender/photo — so partially-set-up real users don't leak into the deck.",
+    "POST /api/swipe uses (user_id, target_id) upsert so a user can change their mind and the swipe row is idempotent; mutual-match detection is one-shot query for a reciprocal right-swipe. Correct for review bullet #3.",
+    "GET /api/my-matches/{uid} sorts by created_at desc — chronological match list. Same build_candidate() shape as /candidates so the frontend RoommateProfile type reuse is safe.",
+    "GET /api/user-public/{uid} returns build_candidate() — a public projection (no email/password/session). Good separation for chat header.",
+    "profile tab (app/(tabs)/profile.tsx) uses useFocusEffect + Promise.all([getUserProfile, getMyMatches]) — refreshes on every tab focus so an updated profile or new match is reflected without a full reload. Guest mode gracefully renders a banner instead. Reads exactly the fields the review-request called out: photos[0], university, year_of_study, gender, budget, matches count.",
+    "roommates.tsx onLike/onNope fires postSwipe() but does NOT await — this is intentional (optimistic UX) and OK because the deck removes the card locally. Backend persistence was verified independently. If a swipe fetch fails silently, the local deck still advances but the DB won't record it → the same user could reappear on next mount. Non-blocking; acceptable trade-off for demo/hackathon UX."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_discover.py (new, 13 discovery/swipe/match/user-public/profile cases)",
+    "/app/test_reports/iteration_6.json (new)",
+    "/app/test_reports/pytest/iteration_6.xml (new)"
+  ],
+  "success_rate": { "backend": "100% (41/41)", "frontend": "100% (all 7 review-request bullets verified through UI + API)" },
+  "seed_data_creation": "test_discover.py registers no users; it uses ephemeral UUID user_ids and only reads/writes db.swipes and db.user_profiles for those synthetic ids. Demo users are auto-seeded on backend startup. UI test created one TEST_<uuid>@example.com account (namespaced, safe to leave).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend base URL: EXPO_PUBLIC_BACKEND_URL in /app/frontend/.env. Key endpoints: /api/candidates/{uid}, POST /api/swipe {user_id,target_id,direction}, /api/my-matches/{uid}, /api/user-public/{uid}, /api/profile/{uid} (GET/PUT). Demo user ids: demo_1..demo_8. AsyncStorage on web persists to localStorage with keys: auth_token, roomie_user_id, post_login_setup, auth_guest. Post-register the app sets post_login_setup=true so index.tsx routes to /edit-profile; clear that key (or complete profile) to route to (tabs)/roommates. To seed a fully-set-up user for Profile-tab tests: (1) UI-register to obtain a valid user_id in AsyncStorage, (2) PUT /api/profile/{user_id} with the desired fields, (3) POST /api/swipe rights to build match count, (4) remove post_login_setup and reload. Verified testIDs: profile-screen, tab-profile, tab-matches, tab-roommates, matches-screen, chat-row-demo_<n>, chat-screen, chat-input, chat-send-button, chat-back-button, roommates-screen, like-button, nope-button, filter-open-button, edit-profile-screen.",
+  "rca_of_issue": "N/A — review-request items are all working. Prior mock PROFILES array was removed, Firebase/firestore/expo-auth-session refs are gone, Sofia's gender/photo now matches (Female + female Unsplash image), and Profile tab reads real backend data (verified '2' matches, '€700' budget, 'Female', 'MSc CS · TU Berlin' on-screen)."
+}

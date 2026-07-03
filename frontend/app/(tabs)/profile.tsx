@@ -1,28 +1,21 @@
-import React from "react";
+import React, { useState, useCallback } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
-import { useMatches } from "@/src/store/matches";
 import { useAuth } from "@/src/context/auth";
+import { getUserId } from "@/src/utils/userId";
+import { getUserProfile, UserProfile } from "@/src/api/userProfile";
+import { getMyMatches } from "@/src/api/discover";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 100;
-
-const ME = {
-  name: "Alex Mercer",
-  age: 23,
-  gender: "Non-binary",
-  budget: 700,
-  university: "TU Berlin",
-  program: "MSc Data Science",
-  photo:
-    "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?crop=entropy&cs=srgb&fm=jpg&w=900&q=85",
-};
+const PLACEHOLDER_PHOTO =
+  "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?crop=entropy&cs=srgb&fm=jpg&w=900&q=85";
 
 const NAV_SETTINGS: { icon: keyof typeof Ionicons.glyphMap; label: string; route: string }[] = [
   { icon: "create-outline", label: "Edit profile", route: "/edit-profile" },
@@ -34,8 +27,35 @@ const NAV_SETTINGS: { icon: keyof typeof Ionicons.glyphMap; label: string; route
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const matches = useMatches();
   const auth = useAuth();
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [matchCount, setMatchCount] = useState(0);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (auth.isGuest) return;
+      (async () => {
+        try {
+          const uid = await getUserId();
+          const [p, m] = await Promise.all([
+            getUserProfile(uid).catch(() => null),
+            getMyMatches(uid).catch(() => []),
+          ]);
+          setProfile(p);
+          setMatchCount(m.length);
+        } catch {
+          /* keep placeholders */
+        }
+      })();
+    }, [auth.isGuest]),
+  );
+
+  const displayName = auth.user?.name || "Your Profile";
+  const photoUri = profile?.photos?.[0] || auth.user?.picture || PLACEHOLDER_PHOTO;
+  const university = profile?.university || "Add your university";
+  const program = profile?.year_of_study || "Complete your profile";
+  const gender = profile?.gender || "—";
+  const budget = profile?.budget ?? null;
 
   return (
     <View style={styles.container} testID="profile-screen">
@@ -67,35 +87,36 @@ export default function ProfileScreen() {
 
         <View style={[styles.hero, { paddingTop: spacing.xl }]}>
           <View style={styles.avatarWrap}>
-            <Image source={{ uri: ME.photo }} style={styles.avatar} contentFit="cover" />
-            <Pressable style={styles.editBadge} testID="edit-photo-button">
+            <Image source={{ uri: photoUri }} style={styles.avatar} contentFit="cover" />
+            <Pressable
+              style={styles.editBadge}
+              testID="edit-photo-button"
+              onPress={() => !auth.isGuest && router.push("/edit-profile")}
+            >
               <Ionicons name="pencil" size={14} color={colors.onBrand} />
             </Pressable>
           </View>
-          <Text style={styles.name}>
-            {ME.name}, {ME.age}
-          </Text>
+          <Text style={styles.name}>{displayName}</Text>
           <Text style={styles.sub}>
-            {ME.program} · {ME.university}
+            {program} · {university}
           </Text>
         </View>
 
         {!auth.isGuest ? (
           <View style={styles.statsCard}>
             <View style={styles.statItem}>
-              <Text style={styles.statNum}>{matches.length}</Text>
+              <Text style={styles.statNum}>{matchCount}</Text>
               <Text style={styles.statLabel}>Matches</Text>
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statItem}>
-              <Text style={styles.statNum}>{ME.gender}</Text>
+              <Text style={styles.statNum}>{gender}</Text>
               <Text style={styles.statLabel}>Gender</Text>
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statItem}>
               <Text style={styles.statNum}>
-                {CURRENCY}
-                {ME.budget}
+                {budget != null ? `${CURRENCY}${budget}` : "—"}
               </Text>
               <Text style={styles.statLabel}>Max budget</Text>
             </View>
