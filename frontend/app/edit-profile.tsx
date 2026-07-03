@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
+  Animated,
   View,
   Text,
   StyleSheet,
@@ -36,6 +37,8 @@ const UNIVERSITIES = [
 const YEARS = ["1st Year", "2nd Year", "3rd Year", "4th Year", "Master/PhD"];
 const GENDERS = ["Male", "Female", "Prefer Not To Say"];
 const ABOUT_LIMIT = 250;
+const HOUSING_PROMPT_MESSAGE =
+  "Awesome! Let's get your place noticed. Don't forget to create a listing for your house by tapping the orange '+' button in the Apartments section later to attract the perfect roommates!";
 
 const MOVE_IN_OPTIONS = (() => {
   const out: string[] = ["As soon as possible"];
@@ -75,6 +78,15 @@ export default function EditProfileScreen() {
   const [linkedin, setLinkedin] = useState("");
   const [twitter, setTwitter] = useState("");
   const guestLocked = auth.isGuest;
+  const housingPromptAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(housingPromptAnim, {
+      toValue: hasPlace ? 1 : 0,
+      duration: 220,
+      useNativeDriver: false,
+    }).start();
+  }, [hasPlace, housingPromptAnim]);
 
   useEffect(() => {
     if (guestLocked) {
@@ -453,6 +465,33 @@ export default function EditProfileScreen() {
             <Text style={styles.checkboxText}>I have a house/apartment to share 🏠</Text>
           </Pressable>
 
+          <Animated.View
+            style={[
+              styles.housingPromptWrap,
+              {
+                opacity: housingPromptAnim,
+                maxHeight: housingPromptAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0, 180],
+                }),
+                transform: [
+                  {
+                    translateY: housingPromptAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [-8, 0],
+                    }),
+                  },
+                ],
+              },
+            ]}
+            pointerEvents={hasPlace ? "auto" : "none"}
+            testID="housing-listing-prompt"
+          >
+            <View style={styles.housingPromptCard}>
+              <Text style={styles.housingPromptText}>{HOUSING_PROMPT_MESSAGE}</Text>
+            </View>
+          </Animated.View>
+
           <Pressable
             style={[styles.checkboxRow, lookingForApartment && styles.checkboxRowActive]}
             onPress={() => selectHousingOption("looking")}
@@ -764,6 +803,21 @@ const styles = StyleSheet.create({
   },
   checkboxActive: { backgroundColor: colors.brand, borderColor: colors.brand },
   checkboxText: { flex: 1, fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onSurface },
+  housingPromptWrap: {
+    overflow: "hidden",
+    marginTop: spacing.sm,
+  },
+  housingPromptCard: {
+    backgroundColor: "#FF8A1E",
+    borderRadius: radius.md,
+    padding: spacing.md,
+  },
+  housingPromptText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.base,
+    color: colors.onBrand,
+    lineHeight: 22,
+  },
   infoBox: {
     flexDirection: "row",
     gap: spacing.sm,
