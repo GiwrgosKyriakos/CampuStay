@@ -4,7 +4,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useFocusEffect } from "expo-router";
-import type { BottomSheetModal } from "@gorhom/bottom-sheet";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import type { RoommateProfile } from "@/src/data/profiles";
@@ -19,9 +18,9 @@ const TAB_BAR_SPACE = 84;
 export default function RoommatesScreen() {
   const insets = useSafeAreaInsets();
   const deckRef = useRef<SwipeDeckHandle>(null);
-  const sheetRef = useRef<BottomSheetModal>(null);
   const userIdRef = useRef<string | null>(null);
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
+  const [sheetVisible, setSheetVisible] = useState(false);
   const [activeAction, setActiveAction] = useState<"left" | "right" | null>(null);
   const [candidates, setCandidates] = useState<RoommateProfile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -64,10 +63,10 @@ export default function RoommatesScreen() {
 
   const deckKey = `${filters.gender}-${filters.ageMin}-${filters.ageMax}-${filters.budgetMax}-${candidates.length}`;
 
-  const openSheet = useCallback(() => sheetRef.current?.present(), []);
-  const applyFilters = useCallback((f: Filters) => {
-    setFilters(f);
-    sheetRef.current?.dismiss();
+  const openSheet = useCallback(() => setSheetVisible(true), []);
+  const closeSheet = useCallback(() => setSheetVisible(false), []);
+  const handleFiltersChange = useCallback((nextFilters: Filters) => {
+    setFilters(nextFilters);
   }, []);
 
   const onLike = useCallback((p: RoommateProfile) => {
@@ -139,7 +138,13 @@ export default function RoommatesScreen() {
 
       <View style={{ height: TAB_BAR_SPACE + insets.bottom }} />
 
-      <FilterSheet ref={sheetRef} current={filters} currency={CURRENCY} onApply={applyFilters} />
+      <FilterSheet
+        current={filters}
+        currency={CURRENCY}
+        visible={sheetVisible}
+        onChange={handleFiltersChange}
+        onClose={closeSheet}
+      />
     </View>
   );
 }
