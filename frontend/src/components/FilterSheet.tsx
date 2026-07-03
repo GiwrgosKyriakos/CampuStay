@@ -10,6 +10,7 @@ import {
   TouchableWithoutFeedback,
   View,
 } from "react-native";
+import Slider from "@react-native-community/slider";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
@@ -48,6 +49,7 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
   const insets = useSafeAreaInsets();
   const [draft, setDraft] = useState<Filters>(current);
   const [mounted, setMounted] = useState(visible);
+  const [sliderInteracting, setSliderInteracting] = useState(false);
   const translateY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
   const backdropOpacity = useRef(new Animated.Value(0)).current;
   const dragStart = useRef(0);
@@ -105,21 +107,32 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
 
   const set = (patch: Partial<Filters>) => setDraft((d) => ({ ...d, ...patch }));
 
-  useEffect(() => {
-    onChange(draft);
-  }, [draft, onChange]);
-
   const close = useCallback(() => {
     if (!visible) {
       return;
     }
+    onChange(draft);
     onClose();
-  }, [onClose, visible]);
+  }, [draft, onChange, onClose, visible]);
+
+  const setAndCommit = useCallback(
+    (patch: Partial<Filters>) => {
+      setDraft((prev) => {
+        const next = { ...prev, ...patch };
+        onChange(next);
+        return next;
+      });
+    },
+    [onChange],
+  );
 
   const sheetPanResponder = useMemo(
     () =>
       PanResponder.create({
-        onMoveShouldSetPanResponder: (_, gestureState) => gestureState.dy > 4 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx),
+        onMoveShouldSetPanResponder: (_, gestureState) => {
+          if (sliderInteracting) return false;
+          return gestureState.dy > 4 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx);
+        },
         onPanResponderGrant: () => {
           translateY.stopAnimation((value) => {
             dragStart.current = value;
@@ -145,7 +158,7 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
           }).start();
         },
       }),
-    [close, translateY],
+    [close, sliderInteracting, translateY],
   );
 
   if (!mounted) {
@@ -183,7 +196,7 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
                 return (
                   <Pressable
                     key={g}
-                    onPress={() => set({ gender: g })}
+                    onPress={() => setAndCommit({ gender: g })}
                     style={[styles.chip, active && styles.chipActive]}
                     testID={`filter-gender-${g}`}
                   >
@@ -208,6 +221,8 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
               lowerBound={18}
               upperBound={draft.ageMax}
               onChange={(value) => set({ ageMin: value })}
+              onCommit={(value) => setAndCommit({ ageMin: value })}
+              onInteractionChange={setSliderInteracting}
               testID="filter-age-min-slider"
             />
             <PreferenceSlider
@@ -219,6 +234,8 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
               lowerBound={draft.ageMin}
               upperBound={40}
               onChange={(value) => set({ ageMax: value })}
+              onCommit={(value) => setAndCommit({ ageMax: value })}
+              onInteractionChange={setSliderInteracting}
               testID="filter-age-max-slider"
             />
 
@@ -238,6 +255,8 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
               lowerBound={300}
               upperBound={1500}
               onChange={(value) => set({ budgetMax: value })}
+              onCommit={(value) => setAndCommit({ budgetMax: value })}
+              onInteractionChange={setSliderInteracting}
               valueFormatter={(value) => `${currency}${value}/mo`}
               testID="filter-budget-slider"
             />
@@ -245,7 +264,10 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
             <View style={styles.actions}>
               <Pressable
                 style={styles.resetBtn}
-                onPress={() => setDraft(DEFAULT_FILTERS)}
+                onPress={() => {
+                  setDraft(DEFAULT_FILTERS);
+                  onChange(DEFAULT_FILTERS);
+                }}
                 testID="filter-reset-button"
               >
                 <Text style={styles.resetText}>Reset</Text>
@@ -272,6 +294,8 @@ interface PreferenceSliderProps {
   lowerBound?: number;
   upperBound?: number;
   onChange: (value: number) => void;
+  onCommit: (value: number) => void;
+  onInteractionChange?: (active: boolean) => void;
   valueFormatter?: (value: number) => string;
   testID?: string;
 }
@@ -285,10 +309,19 @@ function PreferenceSlider({
   lowerBound = minimum,
   upperBound = maximum,
   onChange,
+  onCommit,
+  onInteractionChange,
   valueFormatter,
   testID,
 }: PreferenceSliderProps) {
-  const [trackWidth, setTrackWidth] = useState(1);
+  const [liveValue, setLiveValue] = useState(value);
+  const draggingRef = useRef(false);
+
+  useEffect(() => {
+    if (!draggingRef.current) {
+      setLiveValue(value);
+    }
+  }, [value]);
 
   const clampValue = useCallback(
     (next: number) => {
@@ -298,33 +331,7 @@ function PreferenceSlider({
     [lowerBound, step, upperBound],
   );
 
-  const setFromX = useCallback(
-    (x: number) => {
-      const width = trackWidth || 1;
-      const raw = minimum + (x / width) * (maximum - minimum);
-      onChange(clampValue(raw));
-    },
-    [clampValue, maximum, minimum, onChange, trackWidth],
-  );
-
-  const panResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: () => true,
-        onPanResponderGrant: (event) => {
-          setFromX(event.nativeEvent.locationX);
-        },
-        onPanResponderMove: (event) => {
-          setFromX(event.nativeEvent.locationX);
-        },
-      }),
-    [setFromX],
-  );
-
-  const progress = trackWidth > 0 ? (value - minimum) / (maximum - minimum) : 0;
-  const thumbLeft = Math.min(trackWidth, Math.max(0, progress * trackWidth));
-  const labelText = valueFormatter ? valueFormatter(value) : `${value}`;
+  const labelText = valueFormatter ? valueFormatter(liveValue) : `${liveValue}`;
 
   return (
     <View style={styles.sliderBlock} testID={testID}>
@@ -332,15 +339,33 @@ function PreferenceSlider({
         <Text style={styles.subLabel}>{label}</Text>
         <Text style={styles.sliderValue}>{labelText}</Text>
       </View>
-      <View
-        style={styles.trackWrap}
-        onLayout={(event) => setTrackWidth(event.nativeEvent.layout.width)}
-        {...panResponder.panHandlers}
-      >
-        <View style={styles.track} />
-        <View style={[styles.trackFill, { width: thumbLeft + 8 }]} />
-        <View style={[styles.thumb, { left: thumbLeft }]} pointerEvents="none" />
-      </View>
+      <Slider
+        style={styles.sliderControl}
+        minimumValue={minimum}
+        maximumValue={maximum}
+        step={step}
+        minimumTrackTintColor={colors.brand}
+        maximumTrackTintColor={colors.surfaceTertiary}
+        thumbTintColor={colors.onBrand}
+        value={liveValue}
+        onSlidingStart={() => {
+          draggingRef.current = true;
+          onInteractionChange?.(true);
+        }}
+        onValueChange={(next) => {
+          const clamped = clampValue(next);
+          setLiveValue(clamped);
+          onChange(clamped);
+        }}
+        onSlidingComplete={(next) => {
+          const clamped = clampValue(next);
+          draggingRef.current = false;
+          setLiveValue(clamped);
+          onChange(clamped);
+          onCommit(clamped);
+          onInteractionChange?.(false);
+        }}
+      />
     </View>
   );
 }
@@ -387,34 +412,9 @@ const styles = StyleSheet.create({
   chipText: { fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onSurfaceTertiary },
   chipTextActive: { color: colors.onBrand },
   sliderBlock: { gap: spacing.sm, marginTop: spacing.sm },
-  trackWrap: { height: 34, justifyContent: "center" },
-  track: {
-    height: 8,
-    borderRadius: 999,
-    backgroundColor: colors.surfaceTertiary,
-  },
-  trackFill: {
-    position: "absolute",
-    left: 0,
-    height: 8,
-    borderRadius: 999,
-    backgroundColor: colors.brand,
-  },
-  thumb: {
-    position: "absolute",
-    top: 4,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    marginLeft: -9,
-    backgroundColor: colors.onBrand,
-    borderWidth: 2,
-    borderColor: colors.brand,
-    shadowColor: "#000",
-    shadowOpacity: 0.14,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
+  sliderControl: {
+    height: 34,
+    marginHorizontal: -8,
   },
   actions: { flexDirection: "row", gap: spacing.md, marginTop: spacing.xl },
   resetBtn: {
