@@ -365,6 +365,118 @@ async def auth_logout(authorization: Optional[str] = Header(None)):
     return {"ok": True}
 
 
+# ---- Discovery: backend-driven roommate deck + swipes/matches ----
+def build_candidate(user: dict, profile: dict) -> dict:
+    photos = profile.get("photos") or []
+    photo = photos[0] if photos else (user.get("picture") or profile.get("photo"))
+    program = profile.get("program") or profile.get("year_of_study") or "Student"
+    email = user.get("email") or "roomie@app"
+    return {
+        "id": user["user_id"],
+        "name": user.get("name") or email.split("@")[0],
+        "age": profile.get("age") or 20,
+        "gender": profile.get("gender") or "Prefer Not To Say",
+        "budget": profile.get("budget") or 0,
+        "university": profile.get("university") or "",
+        "program": program,
+        "bio": profile.get("about") or "",
+        "tags": profile.get("tags") or [],
+        "photo": photo,
+    }
+
+
+DEMO_CANDIDATES = [
+    {"id": "demo_1", "email": "sofia@demo.roomie", "name": "Sofia", "age": 22, "gender": "Female", "budget": 650, "university": "TU Berlin", "program": "MSc Architecture", "bio": "Early riser, plant mom, makes a mean pasta. Looking for a chill, tidy flatmate.", "tags": ["Non-smoker", "Pet-friendly", "Early bird"], "photo": "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?crop=entropy&cs=srgb&fm=jpg&w=800&q=80"},
+    {"id": "demo_2", "email": "liam@demo.roomie", "name": "Liam", "age": 24, "gender": "Male", "budget": 800, "university": "LMU Munich", "program": "PhD Physics", "bio": "Coffee-fueled researcher. Quiet weekdays, board games on weekends.", "tags": ["Non-smoker", "Quiet", "Gamer"], "photo": "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?crop=entropy&cs=srgb&fm=jpg&w=800&q=80"},
+    {"id": "demo_3", "email": "noah@demo.roomie", "name": "Noah", "age": 21, "gender": "Male", "budget": 550, "university": "RWTH Aachen", "program": "BSc Computer Science", "bio": "Into climbing, lo-fi beats, and late-night coding. Easy to live with.", "tags": ["Sporty", "Night owl", "Vegetarian"], "photo": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?crop=entropy&cs=srgb&fm=jpg&w=800&q=80"},
+    {"id": "demo_4", "email": "emma@demo.roomie", "name": "Emma", "age": 23, "gender": "Female", "budget": 720, "university": "Uni Heidelberg", "program": "MA Psychology", "bio": "Loves Sunday brunches, yoga, and a clean kitchen. Good vibes only.", "tags": ["Non-smoker", "Tidy", "Yoga"], "photo": "https://images.unsplash.com/photo-1494790108377-be9c29b29330?crop=entropy&cs=srgb&fm=jpg&w=800&q=80"},
+    {"id": "demo_5", "email": "aisha@demo.roomie", "name": "Aisha", "age": 20, "gender": "Female", "budget": 600, "university": "Uni Hamburg", "program": "BA Media Studies", "bio": "Film nerd & weekend baker. I'll share the cookies if you share the remote.", "tags": ["Foodie", "Creative", "Social"], "photo": "https://images.unsplash.com/photo-1544005313-94ddf0286df2?crop=entropy&cs=srgb&fm=jpg&w=800&q=80"},
+    {"id": "demo_6", "email": "marco@demo.roomie", "name": "Marco", "age": 25, "gender": "Male", "budget": 900, "university": "ETH Zürich", "program": "MSc Mechanical Eng.", "bio": "Cyclist, cook, and casual guitar player. Respect for shared spaces is key.", "tags": ["Sporty", "Tidy", "Musician"], "photo": "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?crop=entropy&cs=srgb&fm=jpg&w=800&q=80"},
+    {"id": "demo_7", "email": "kai@demo.roomie", "name": "Kai", "age": 22, "gender": "Non-binary", "budget": 680, "university": "Uni Köln", "program": "MA Sociology", "bio": "Big on community dinners and houseplants. Calm, friendly, and reliable.", "tags": ["Pet-friendly", "Plant lover", "Calm"], "photo": "https://images.unsplash.com/photo-1531123897727-8f129e1688ce?crop=entropy&cs=srgb&fm=jpg&w=800&q=80"},
+    {"id": "demo_8", "email": "lena@demo.roomie", "name": "Lena", "age": 24, "gender": "Female", "budget": 750, "university": "FU Berlin", "program": "PhD Biology", "bio": "Lab by day, vinyl & wine by night. Looking for a long-term, drama-free home.", "tags": ["Non-smoker", "Music", "Quiet"], "photo": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?crop=entropy&cs=srgb&fm=jpg&w=800&q=80"},
+]
+
+
+async def seed_demo_users():
+    for c in DEMO_CANDIDATES:
+        uid = c["id"]
+        await db.users.update_one(
+            {"user_id": uid},
+            {"$set": {"user_id": uid, "email": c["email"], "name": c["name"], "picture": None, "provider": "demo"}},
+            upsert=True,
+        )
+        await db.user_profiles.update_one(
+            {"user_id": uid},
+            {"$set": {
+                "user_id": uid, "age": c["age"], "gender": c["gender"], "budget": c["budget"],
+                "university": c["university"], "program": c["program"], "about": c["bio"],
+                "tags": c["tags"], "photos": [c["photo"]], "has_place": False,
+            }},
+            upsert=True,
+        )
+
+
+class SwipeIn(BaseModel):
+    user_id: str
+    target_id: str
+    direction: str
+
+
+@api_router.get("/candidates/{user_id}")
+async def get_candidates(user_id: str):
+    swiped = set()
+    async for s in db.swipes.find({"user_id": user_id}, {"target_id": 1}):
+        swiped.add(s["target_id"])
+    out = []
+    async for p in db.user_profiles.find({
+        "age": {"$ne": None}, "gender": {"$ne": None}, "photos.0": {"$exists": True},
+    }):
+        uid = p.get("user_id")
+        if not uid or uid == user_id or uid in swiped:
+            continue
+        u = await db.users.find_one({"user_id": uid})
+        if not u:
+            continue
+        out.append(build_candidate(u, p))
+    return {"candidates": out}
+
+
+@api_router.post("/swipe")
+async def swipe(body: SwipeIn):
+    now = datetime.now(timezone.utc).isoformat()
+    await db.swipes.update_one(
+        {"user_id": body.user_id, "target_id": body.target_id},
+        {"$set": {"user_id": body.user_id, "target_id": body.target_id, "direction": body.direction, "created_at": now}},
+        upsert=True,
+    )
+    matched = False
+    if body.direction == "right":
+        rev = await db.swipes.find_one({"user_id": body.target_id, "target_id": body.user_id, "direction": "right"})
+        matched = rev is not None
+    return {"ok": True, "matched": matched}
+
+
+@api_router.get("/my-matches/{user_id}")
+async def my_matches(user_id: str):
+    out = []
+    async for s in db.swipes.find({"user_id": user_id, "direction": "right"}).sort("created_at", -1):
+        uid = s["target_id"]
+        u = await db.users.find_one({"user_id": uid})
+        p = await db.user_profiles.find_one({"user_id": uid})
+        if u and p:
+            out.append(build_candidate(u, p))
+    return {"matches": out}
+
+
+@api_router.get("/user-public/{user_id}")
+async def user_public(user_id: str):
+    u = await db.users.find_one({"user_id": user_id})
+    p = await db.user_profiles.find_one({"user_id": user_id})
+    if not u or not p:
+        raise HTTPException(status_code=404, detail="Not found")
+    return {"user": build_candidate(u, p)}
+
+
 # Include the router in the main app
 app.include_router(api_router)
 app.add_middleware(
@@ -381,6 +493,15 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+@app.on_event("startup")
+async def _startup_seed():
+    try:
+        await seed_demo_users()
+        logger.info("Demo roommate candidates seeded.")
+    except Exception as e:
+        logger.warning(f"Demo seed failed: {e}")
+
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

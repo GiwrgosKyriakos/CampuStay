@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback } from "react";
+import React, { useRef, useState, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   Pressable,
   TextInput,
   ScrollView,
+  ActivityIndicator,
   Platform,
 } from "react-native";
 import { Image } from "expo-image";
@@ -15,7 +16,8 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
-import { useMatches } from "@/src/store/matches";
+import type { RoommateProfile } from "@/src/data/profiles";
+import { getUserPublic } from "@/src/api/discover";
 
 const CURRENCY = "€";
 
@@ -29,8 +31,18 @@ export default function ChatScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const matches = useMatches();
-  const profile = matches.find((m) => m.id === id);
+  const [profile, setProfile] = useState<RoommateProfile | null>(null);
+  const [loadingProfile, setLoadingProfile] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        if (id) setProfile(await getUserPublic(id));
+      } finally {
+        setLoadingProfile(false);
+      }
+    })();
+  }, [id]);
 
   const scrollRef = useRef<ScrollView>(null);
   const [text, setText] = useState("");
@@ -49,10 +61,16 @@ export default function ChatScreen() {
   if (!profile) {
     return (
       <View style={[styles.container, styles.center]} testID="chat-screen">
-        <Text style={styles.fallback}>Conversation not found</Text>
-        <Pressable style={styles.backPill} onPress={() => router.back()} testID="chat-back-button">
-          <Text style={styles.backPillText}>Go back</Text>
-        </Pressable>
+        {loadingProfile ? (
+          <ActivityIndicator size="large" color={colors.brand} />
+        ) : (
+          <>
+            <Text style={styles.fallback}>Conversation not found</Text>
+            <Pressable style={styles.backPill} onPress={() => router.back()} testID="chat-back-button">
+              <Text style={styles.backPillText}>Go back</Text>
+            </Pressable>
+          </>
+        )}
       </View>
     );
   }

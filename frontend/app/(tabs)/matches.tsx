@@ -1,19 +1,34 @@
-import React from "react";
+import React, { useState, useCallback } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
-import { useMatches } from "@/src/store/matches";
+import type { RoommateProfile } from "@/src/data/profiles";
+import { getUserId } from "@/src/utils/userId";
+import { getMyMatches } from "@/src/api/discover";
 
 const TAB_BAR_SPACE = 100;
 
 export default function MatchesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const matches = useMatches();
+  const [matches, setMatches] = useState<RoommateProfile[]>([]);
+
+  useFocusEffect(
+    useCallback(() => {
+      (async () => {
+        try {
+          const uid = await getUserId();
+          setMatches(await getMyMatches(uid));
+        } catch {
+          setMatches([]);
+        }
+      })();
+    }, []),
+  );
 
   return (
     <View style={styles.container} testID="matches-screen">
