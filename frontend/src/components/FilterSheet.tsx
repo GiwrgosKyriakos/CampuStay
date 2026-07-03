@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   Dimensions,
@@ -109,12 +109,12 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
     onChange(draft);
   }, [draft, onChange]);
 
-  const close = () => {
+  const close = useCallback(() => {
     if (!visible) {
       return;
     }
     onClose();
-  };
+  }, [onClose, visible]);
 
   const sheetPanResponder = useMemo(
     () =>
@@ -290,16 +290,22 @@ function PreferenceSlider({
 }: PreferenceSliderProps) {
   const [trackWidth, setTrackWidth] = useState(1);
 
-  const clampValue = (next: number) => {
-    const snapped = Math.round(next / step) * step;
-    return Math.min(upperBound, Math.max(lowerBound, snapped));
-  };
+  const clampValue = useCallback(
+    (next: number) => {
+      const snapped = Math.round(next / step) * step;
+      return Math.min(upperBound, Math.max(lowerBound, snapped));
+    },
+    [lowerBound, step, upperBound],
+  );
 
-  const setFromX = (x: number) => {
-    const width = trackWidth || 1;
-    const raw = minimum + (x / width) * (maximum - minimum);
-    onChange(clampValue(raw));
-  };
+  const setFromX = useCallback(
+    (x: number) => {
+      const width = trackWidth || 1;
+      const raw = minimum + (x / width) * (maximum - minimum);
+      onChange(clampValue(raw));
+    },
+    [clampValue, maximum, minimum, onChange, trackWidth],
+  );
 
   const panResponder = useMemo(
     () =>
@@ -313,7 +319,7 @@ function PreferenceSlider({
           setFromX(event.nativeEvent.locationX);
         },
       }),
-    [maximum, minimum, step, trackWidth, upperBound, lowerBound],
+    [setFromX],
   );
 
   const progress = trackWidth > 0 ? (value - minimum) / (maximum - minimum) : 0;
