@@ -609,7 +609,7 @@ export default function EditProfileScreen() {
                 {submitting ? (
                   <ActivityIndicator color={colors.onBrand} />
                 ) : (
-                  <Text style={styles.submitText}>✨ Complete Profile ✨</Text>
+                  <Text style={styles.submitText}> Complete Profile </Text>
                 )}
               </LinearGradient>
             </Pressable>
