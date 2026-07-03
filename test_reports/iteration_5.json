@@ -1,0 +1,44 @@
+{
+  "summary": "Post-revert verification (Firebase migration reverted) PASSED end-to-end. Backend: 28/28 pytest cases pass (auth 12, roomie-profile 8, user-profile 8). Frontend on 390x844 mobile viewport: (1) App loads without bundler/runtime crash — no red screen, no pageerror; (2) Auth gating works — logged-out users land on auth-landing-screen with orange 'Continue with Google', 'Phone or Email', 'Continue as Guest' visible; (3) Guest mode → 'Continue as Guest' navigates to (tabs)/roommates showing roommates-screen + Tinder-style swipe-card-top with orange info pills; like-button advances deck; tab-matches navigation works; filter-open-button opens FilterSheet (filter-sheet-title visible); (4) Email register — Phone or Email → auth-email-initial → email-register-option → filled unique email/password/confirm → submit-button → edit-profile-screen rendered ('Complete Your Profile' with orange Add Photos & Complete Profile CTAs). No firebase/firestore/expo-auth-session imports observed in active code (revert confirmed via /app/frontend/app/index.tsx, _layout.tsx, auth-landing.tsx, auth-email.tsx, src/context/auth.tsx). Backend auth endpoints all behave per spec: register→{token,user}, duplicate=400, short-pw=400, invalid-email=422, login-ok, wrong-pw=401, unknown-email=401, /auth/me with Bearer=200, without/invalid Bearer=401, logout invalidates session token, google with invalid session_id=401. Profile/quiz round-trip (GET/PUT /api/profile/{id} and /api/roomie-profile/{id}) still work with no _id leak. Only carry-over noise: RN-web deprecation warnings ('shadow*', 'pointerEvents', React-19 element.ref) — non-blocking, already documented in iteration_4.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {
+        "component": "RN-web shadow*/pointerEvents/React-19 ref warnings (carry-over)",
+        "issue": "Console shows: '\"shadow*\" style props are deprecated. Use boxShadow.', 'props.pointerEvents is deprecated. Use style.pointerEvents', and 'Accessing element.ref was removed in React 19. ref is now a regular prop.' Cosmetic on web; not a regression from the revert. Reference: /app/frontend/app/(tabs)/roommates.tsx (shadow*), /app/frontend/src/components/SwipeDeck.tsx:177 (pointerEvents='none')."
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_5.json",
+    "/app/test_reports/pytest/iteration_5.xml",
+    "/app/backend/tests/test_auth.py",
+    "/app/backend/tests/test_user_profile.py",
+    "/app/backend/tests/test_roomie_profile.py"
+  ],
+  "action_items": [
+    "(Optional, low-pri) Migrate shadow* → boxShadow and pointerEvents prop → style.pointerEvents to silence RN-web deprecation warnings.",
+    "(Optional, cosmetic) In mock data /app/frontend/src/data/profiles.ts, the first profile card 'Sofia' currently renders a male-appearing photo while gender pill says 'Female' — image/name mismatch noticed in screenshot. Non-blocking (mock data), but worth aligning."
+  ],
+  "critical_code_review_comments": [
+    "_layout.tsx now uses a plain <Stack> (no fragment child) — 'Cannot convert Symbol value to string' crash resolved. AuthProvider correctly wraps AppContent above the navigator.",
+    "index.tsx auth-gate is clean: isLoading→null, isLoggedIn→edit-profile OR (tabs)/roommates based on needsProfileSetup, isGuestMode→(tabs)/roommates, else→/auth-landing. No fragment/children issue.",
+    "src/context/auth.tsx: session bootstrap validates stored opaque token via /api/auth/me and clears if invalid — good. On web, OAuth redirect is handled by parsing window.location.hash/search for session_id and then window.history.replaceState — proper cleanup. registerEmail/loginEmail set needsProfileSetup=true which drives post-login navigation to /edit-profile — matches auth-email.tsx explicit router.replace('/edit-profile').",
+    "backend/server.py auth endpoints correctly return 401 for missing/invalid Bearer, 400 for duplicate email + short password, 422 for invalid email; passlib bcrypt used for password hashing; secrets.token_urlsafe(32) for opaque session tokens stored in db.user_sessions with 7-day expiry. _public_user() correctly strips password_hash before returning user objects.",
+    "No firebase/firestore/expo-auth-session imports present in the files_of_reference — revert is complete."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_auth.py (new, 12 auth cases)",
+    "/app/test_reports/iteration_5.json (new)",
+    "/app/test_reports/pytest/iteration_5.xml (new)"
+  ],
+  "success_rate": { "backend": "100% (28/28)", "frontend": "100% (all 7 review-request bullets verified)" },
+  "seed_data_creation": "Auth tests register throwaway TEST_<uuid>@example.com users per test; last register in frontend flow used test+<timestamp>@example.com — safe to leave (namespaced).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend base URL comes from EXPO_PUBLIC_BACKEND_URL in /app/frontend/.env. Auth: opaque Bearer session tokens stored in db.user_sessions (7-day expiry). Verified testIDs: auth-landing-screen, google-login-button, email-login-button, guest-mode-button, auth-email-initial, email-login-option, email-register-option, email-input, password-input, confirm-password-input, submit-button, back-button, forgot-password-button, edit-profile-screen, roommates-screen, swipe-card-top, like-button, nope-button, filter-open-button, filter-sheet-title, tab-roommates/tab-matches/tab-apartments/tab-profile. To reset to logged-out state on web preview: localStorage.clear() then reload. Guest key = 'auth_guest', token key = 'auth_token', setup key = 'post_login_setup'. Emergent Google OAuth cannot be automated (real Google login needed) — only verify button exists & non-crashing.",
+  "rca_of_issue": "N/A — the reported symptoms (bundler crash from missing babel-preset-expo + 'Cannot convert Symbol value to string' from a fragment-inside-Stack in _layout.tsx + broken Firebase migration) were fixed pre-testing by the main agent (deps reinstalled, 7 firebase-migration files reverted, _layout simplified to plain <Stack>, auth gating moved to index.tsx, explicit router.replace('/edit-profile') added after login/register). This iteration confirms all 7 review bullets pass."
+}

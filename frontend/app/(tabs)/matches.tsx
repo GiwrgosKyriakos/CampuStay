@@ -7,7 +7,6 @@ import { useRouter } from "expo-router";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import { useMatches } from "@/src/store/matches";
-import { useAuth } from "@/src/context/auth";
 
 const TAB_BAR_SPACE = 100;
 
@@ -40,30 +39,25 @@ export default function MatchesScreen() {
           contentContainerStyle={[styles.list, { paddingBottom: TAB_BAR_SPACE + insets.bottom }]}
           showsVerticalScrollIndicator={false}
         >
-          {matches.map((match) => {
-            const currentId = auth.userId;
-            const other = match.participants.find((participant) => participant.id !== currentId) ?? match.participants[0];
-            if (!other) return null;
-            return (
-              <Pressable
-                key={match.id}
-                style={styles.row}
-                testID={`chat-row-${match.chatRoomId}`}
-                onPress={() => router.push({ pathname: "/chat/[id]", params: { id: match.chatRoomId } })}
-              >
-                <Image source={{ uri: other.photo ?? "" }} style={styles.avatar} contentFit="cover" transition={150} />
-                <View style={styles.rowText}>
-                  <Text style={styles.rowName} numberOfLines={1}>
-                    {other.name ?? "Roommate"}
-                  </Text>
-                  <Text style={styles.rowMsg} numberOfLines={1}>
-                    {match.lastMessage || "Say hello to your match"}
-                  </Text>
-                </View>
-                <Ionicons name="paper-plane-outline" size={22} color={colors.onSurfaceTertiary} />
-              </Pressable>
-            );
-          })}
+          {matches.map((p) => (
+            <Pressable
+              key={p.id}
+              style={styles.row}
+              testID={`chat-row-${p.id}`}
+              onPress={() => router.push({ pathname: "/chat/[id]", params: { id: p.id } })}
+            >
+              <Image source={{ uri: p.photo }} style={styles.avatar} contentFit="cover" transition={150} />
+              <View style={styles.rowText}>
+                <Text style={styles.rowName} numberOfLines={1}>
+                  {p.name}
+                </Text>
+                <Text style={styles.rowMsg} numberOfLines={1}>
+                  Hey there! 👋
+                </Text>
+              </View>
+              <Ionicons name="paper-plane-outline" size={22} color={colors.onSurfaceTertiary} />
+            </Pressable>
+          ))}
         </ScrollView>
       )}
     </View>

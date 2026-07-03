@@ -52,7 +52,7 @@ export default function AuthEmailScreen() {
     try {
       setLoading(true);
       await auth.loginEmail(email.trim(), password);
-      // Navigation is handled by the auth state change
+      router.replace("/edit-profile");
     } catch (err: any) {
       Alert.alert("Login Error", err.message || "Failed to log in. Please try again.");
     } finally {
@@ -79,7 +79,7 @@ export default function AuthEmailScreen() {
     try {
       setLoading(true);
       await auth.registerEmail(email.trim(), password);
-      // Navigation is handled by the auth state change
+      router.replace("/edit-profile");
     } catch (err: any) {
       Alert.alert("Registration Error", err.message || "Failed to register. Please try again.");
     } finally {

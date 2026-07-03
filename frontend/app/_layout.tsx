@@ -17,72 +17,13 @@ import { AuthProvider, useAuth } from "@/src/context/auth";
 LogBox.ignoreAllLogs(true);
 
 function AppNavigator() {
-  const auth = useAuth();
-
-  useEffect(() => {
-    if (auth.isLoggedIn && auth.needsProfileSetup) {
-      const timer = setTimeout(() => {
-        console.log("[App] 🔄 Profile setup required, preserving stack navigation.");
-      }, 100);
-      return () => clearTimeout(timer);
-    }
-  }, [auth.isLoggedIn, auth.needsProfileSetup]);
-
-  // Log route transitions
-  useEffect(() => {
-    if (auth.isLoading) {
-      console.log("[App] 📊 Route: SPLASH (loading)");
-    } else if (!auth.isLoggedIn && !auth.isGuestMode) {
-      console.log("[App] 📊 Route: AUTH (login/register)");
-    } else if (auth.isLoggedIn && auth.needsProfileSetup) {
-      console.log("[App] 📊 Route: EDIT_PROFILE (setup required)");
-    } else if (auth.isLoggedIn) {
-      console.log("[App] 📊 Route: MAIN_TABS (home)");
-    } else if (auth.isGuestMode) {
-      console.log("[App] 📊 Route: MAIN_TABS (guest mode)");
-    }
-  }, [auth.isLoading, auth.isLoggedIn, auth.isGuestMode, auth.needsProfileSetup]);
-
   return (
     <Stack
       screenOptions={{
         headerShown: false,
         contentStyle: { backgroundColor: colors.surface },
       }}
-    >
-      {auth.isLoading ? (
-        <Stack.Screen name="splash" />
-      ) : !auth.isLoggedIn && !auth.isGuestMode ? (
-        <>
-          <Stack.Screen name="auth-landing" />
-          <Stack.Screen name="auth-email" />
-        </>
-      ) : (
-        <>
-          {auth.isLoggedIn && auth.needsProfileSetup ? (
-            <Stack.Screen
-              name="edit-profile"
-              options={{
-                gestureEnabled: false,
-                headerLeft: () => null,
-              }}
-            />
-          ) : (
-            <Stack.Screen name="(tabs)" />
-          )}
-
-          <Stack.Screen name="auth-landing" />
-          <Stack.Screen name="auth-email" />
-          <Stack.Screen name="edit-profile" />
-          <Stack.Screen name="roomie-profile" />
-          <Stack.Screen name="delete-account" />
-          <Stack.Screen name="notifications" />
-          <Stack.Screen name="privacy-safety" />
-          <Stack.Screen name="help-support" />
-          <Stack.Screen name="chat/[id]" />
-        </>
-      )}
-    </Stack>
+    />
   );
 }
 

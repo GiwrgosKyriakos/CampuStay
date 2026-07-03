@@ -1,17 +1,17 @@
-import { useEffect } from "react";
-import { Redirect, useRouter } from "expo-router";
+import { Redirect } from "expo-router";
 
 import { useAuth } from "@/src/context/auth";
 
 export default function Index() {
-  const auth = useAuth();
-  const router = useRouter();
+  const { isLoading, isLoggedIn, isGuestMode, needsProfileSetup } = useAuth();
 
-  useEffect(() => {
-    if (!auth.isLoading) {
-      router.replace("/(tabs)/roommates");
-    }
-  }, [auth.isLoading, router]);
+  if (isLoading) return null;
 
-  return !auth.isLoading ? <Redirect href="/(tabs)/roommates" /> : null;
+  if (isLoggedIn) {
+    return <Redirect href={needsProfileSetup ? "/edit-profile" : "/(tabs)/roommates"} />;
+  }
+  if (isGuestMode) {
+    return <Redirect href="/(tabs)/roommates" />;
+  }
+  return <Redirect href="/auth-landing" />;
 }
