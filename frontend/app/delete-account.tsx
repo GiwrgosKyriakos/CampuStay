@@ -6,6 +6,7 @@ import { useRouter } from "expo-router";
 import { useAuth } from "@/src/context/auth";
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import { GuestModeStickyFooter, GuestModeTopBanner } from "@/src/components/GuestModeLayout";
+import { deleteAccountDeep } from "@/src/api/accountDeletion";
 
 export default function DeleteAccountScreen() {
   const auth = useAuth();
@@ -27,8 +28,7 @@ export default function DeleteAccountScreen() {
     setLoading(true);
     setError(null);
     try {
-      // TODO: Implement deleteAccount API call
-      // await deleteAccount(auth.userId);
+      await deleteAccountDeep(auth.userId);
       await auth.logout();
       router.replace("/guest");
     } catch {
@@ -63,7 +63,8 @@ export default function DeleteAccountScreen() {
         <View style={styles.content}>
           <Text style={styles.heading}>Are you sure you want to delete your account?</Text>
           <Text style={styles.warning}>
-            This action is permanent. All your profile data, matches, quiz responses, and chats will be wiped from our databases forever.
+            This action is permanent. Your profile data, quiz responses, likes, and swipes will be permanently removed.
+            Existing chats remain visible to your conversation partners as "Noone (Deleted account)".
           </Text>
           <View style={styles.credentialBox}>
             <Text style={styles.credentialLabel}>Registered Email</Text>

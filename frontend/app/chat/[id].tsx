@@ -21,6 +21,7 @@ import { getUserPublic } from "@/src/api/discover";
 import { getUserId } from "@/src/utils/userId";
 import { db } from "@/src/config/firebase";
 import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc } from "firebase/firestore";
+import { DELETED_ACCOUNT_LABEL } from "@/src/api/accountDeletion";
 
 const CURRENCY = "€";
 
@@ -39,6 +40,8 @@ interface FirestoreMessageDoc {
 
 interface FirestoreChatDoc {
   status?: "pending" | "active";
+  deletedUsers?: Record<string, boolean>;
+  participantDisplayNames?: Record<string, string>;
 }
 
 type MessageGroupPosition = "first" | "middle" | "last" | "single";
@@ -106,6 +109,7 @@ export default function ChatScreen() {
   const [text, setText] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [chatStatus, setChatStatus] = useState<"pending" | "active">("active");
+  const [chatDeletedUsers, setChatDeletedUsers] = useState<Record<string, boolean>>({});
 
   const createdAtToMillis = useCallback((value: any): number => {
     if (typeof value === "number") return value;
@@ -126,10 +130,12 @@ export default function ChatScreen() {
     const unsubChat = onSnapshot(chatRef, (snapshot) => {
       if (!snapshot.exists()) {
         setChatStatus("active");
+        setChatDeletedUsers({});
         return;
       }
       const data = snapshot.data() as FirestoreChatDoc;
       setChatStatus(data.status === "pending" ? "pending" : "active");
+      setChatDeletedUsers(data.deletedUsers ?? {});
     });
 
     const q = query(
@@ -163,7 +169,8 @@ export default function ChatScreen() {
 
   const send = useCallback(async () => {
     const trimmed = text.trim();
-    if (!trimmed || !currentUserId || !id || !chatRoomId || chatStatus === "pending") return;
+    const counterpartDeleted = !!(id && chatDeletedUsers[id]);
+    if (!trimmed || !currentUserId || !id || !chatRoomId || chatStatus === "pending" || counterpartDeleted) return;
 
     const optimisticMessage: Message = {
       id: `temp-${Date.now()}`,
@@ -188,30 +195,38 @@ export default function ChatScreen() {
     }
   }, [chatRoomId, chatStatus, currentUserId, id, sortMessages, text]);
 
-  if (!profile) {
+  if (!profile && loadingProfile) {
     return (
       <View style={[styles.container, styles.center]} testID="chat-screen">
-        {loadingProfile ? (
-          <ActivityIndicator size="large" color={colors.brand} />
-        ) : (
-          <>
-            <Text style={styles.fallback}>Conversation not found</Text>
-            <Pressable style={styles.backPill} onPress={() => router.back()} testID="chat-back-button">
-              <Text style={styles.backPillText}>Go back</Text>
-            </Pressable>
-          </>
-        )}
+        <ActivityIndicator size="large" color={colors.brand} />
       </View>
     );
   }
 
-  const deletedCounterpart = isDeletedCounterpart(profile);
-  const displayName = deletedCounterpart ? "Deleted Account" : profile.name;
-  const displayUniversity = deletedCounterpart ? "" : profile.university;
-  const displayGender = deletedCounterpart ? "N/A" : profile.gender;
-  const displayAge = deletedCounterpart ? "—" : `${profile.age} yrs`;
-  const displayBudget = deletedCounterpart ? "—" : `${CURRENCY}${profile.budget}/mo`;
-  const showAvatarImage = !deletedCounterpart && !!profile.photo?.trim();
+  const deletedProfileFallback: RoommateProfile = {
+    id,
+    name: DELETED_ACCOUNT_LABEL,
+    age: 0,
+    gender: "Non-binary",
+    budget: 0,
+    university: "",
+    program: "",
+    bio: "",
+    tags: [],
+    photo: "",
+    deleted: true,
+  };
+
+  const activeProfile = profile ?? deletedProfileFallback;
+
+  const deletedCounterpart = isDeletedCounterpart(activeProfile) || !!(id && chatDeletedUsers[id]);
+  const displayName = deletedCounterpart ? DELETED_ACCOUNT_LABEL : activeProfile.name;
+  const displayUniversity = deletedCounterpart ? "" : activeProfile.university;
+  const displayGender = deletedCounterpart ? "N/A" : activeProfile.gender;
+  const displayAge = deletedCounterpart ? "—" : `${activeProfile.age} yrs`;
+  const displayBudget = deletedCounterpart ? "—" : `${CURRENCY}${activeProfile.budget}/mo`;
+  const showAvatarImage = !deletedCounterpart && !!activeProfile.photo?.trim();
+  const inputBlocked = chatStatus === "pending" || deletedCounterpart;
 
   return (
     <View style={styles.container} testID="chat-screen">
@@ -227,7 +242,7 @@ export default function ChatScreen() {
             <Ionicons name="chevron-back" size={24} color={colors.onSurface} />
           </Pressable>
           {showAvatarImage ? (
-            <Image source={{ uri: profile.photo }} style={styles.headerAvatar} contentFit="cover" />
+            <Image source={{ uri: activeProfile.photo }} style={styles.headerAvatar} contentFit="cover" />
           ) : (
             <View style={styles.headerAvatarFallback} testID="chat-header-avatar-fallback">
               <Ionicons name="person" size={22} color={colors.onSurfaceTertiary} />
@@ -332,17 +347,23 @@ export default function ChatScreen() {
             style={styles.input}
             value={text}
             onChangeText={setText}
-            placeholder={chatStatus === "pending" ? "Waiting for acceptance..." : `Message ${displayName}...`}
+            placeholder={
+              deletedCounterpart
+                ? "This user deleted their account"
+                : chatStatus === "pending"
+                ? "Waiting for acceptance..."
+                : `Message ${displayName}...`
+            }
             placeholderTextColor={colors.onSurfaceTertiary}
             multiline
             testID="chat-input"
             onSubmitEditing={send}
-            editable={chatStatus !== "pending"}
+            editable={!inputBlocked}
           />
           <Pressable
-            style={[styles.sendBtn, (!text.trim() || chatStatus === "pending") && styles.sendBtnDisabled]}
+            style={[styles.sendBtn, (!text.trim() || inputBlocked) && styles.sendBtnDisabled]}
             onPress={send}
-            disabled={!text.trim() || chatStatus === "pending"}
+            disabled={!text.trim() || inputBlocked}
             testID="chat-send-button"
           >
             <Ionicons name="paper-plane" size={20} color={colors.onBrand} />

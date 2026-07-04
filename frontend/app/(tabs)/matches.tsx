@@ -11,6 +11,7 @@ import type { RoommateProfile } from "@/src/data/profiles";
 import { getUserId } from "@/src/utils/userId";
 import { useAuth } from "@/src/context/auth";
 import { db } from "@/src/config/firebase";
+import { DELETED_ACCOUNT_LABEL } from "@/src/api/accountDeletion";
 
 const TAB_BAR_SPACE = 100;
 
@@ -44,6 +45,8 @@ interface FirestoreChatDoc {
   users?: string[];
   status?: "pending" | "active";
   initiatedBy?: string | null;
+  deletedUsers?: Record<string, boolean>;
+  participantDisplayNames?: Record<string, string>;
 }
 
 interface FirestoreLastMessageDoc {
@@ -71,10 +74,16 @@ function isMessageRead(msg: FirestoreLastMessageDoc | null, currentUserId: strin
   return false;
 }
 
-function buildDeletedCandidate(uid: string, chatRoomId: string, status?: "pending" | "active", initiatedBy?: string | null): ChatListItem {
+function buildDeletedCandidate(
+  uid: string,
+  chatRoomId: string,
+  status?: "pending" | "active",
+  initiatedBy?: string | null,
+  label?: string,
+): ChatListItem {
   return {
     id: uid,
-    name: "Deleted Account",
+    name: label || DELETED_ACCOUNT_LABEL,
     age: 0,
     gender: "Non-binary",
     budget: 0,
@@ -104,7 +113,7 @@ function mapUserToChatItem(
 
   return {
     id: uid,
-    name: data.name?.trim() || "Deleted Account",
+    name: data.name?.trim() || DELETED_ACCOUNT_LABEL,
     age: typeof data.age === "number" ? data.age : 0,
     gender: (data.gender as RoommateProfile["gender"]) || "Non-binary",
     budget: typeof data.maxBudget === "number" ? data.maxBudget : typeof data.budget === "number" ? data.budget : 0,
@@ -213,6 +222,18 @@ export default function MatchesScreen() {
                   return null;
                 }
 
+                const tombstonedLabel = chatData.participantDisplayNames?.[counterpartUid];
+                const isTombstoned = chatData.deletedUsers?.[counterpartUid] === true || tombstonedLabel === DELETED_ACCOUNT_LABEL;
+                if (isTombstoned) {
+                  return buildDeletedCandidate(
+                    counterpartUid,
+                    chatDoc.id,
+                    chatData.status ?? "active",
+                    chatData.initiatedBy ?? null,
+                    DELETED_ACCOUNT_LABEL,
+                  );
+                }
+
                 const userSnap = await getDoc(doc(db, "users", counterpartUid));
                 const userData = userSnap.exists() ? (userSnap.data() as FirestoreUserDoc) : null;
 
@@ -302,7 +323,7 @@ export default function MatchesScreen() {
         >
           {matches.map((p) => {
             const isDeleted = isDeletedCounterpart(p);
-            const displayName = isDeleted ? "Deleted Account" : p.name;
+            const displayName = isDeleted ? DELETED_ACCOUNT_LABEL : p.name;
             const hasAvatar = !isDeleted && !!p.photo?.trim();
             const chatStatus = p.chat_status ?? "active";
             const isPending = chatStatus === "pending";
