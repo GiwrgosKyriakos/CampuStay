@@ -128,7 +128,7 @@ export default function ProfileScreen() {
         contentContainerStyle={{ paddingBottom: TAB_BAR_SPACE + insets.bottom }}
         showsVerticalScrollIndicator={false}
       >
-        <View style={[styles.hero, { paddingTop: spacing.xl }]}>
+        <View style={[styles.hero, { paddingTop: spacing.xl }]}> 
           <View style={styles.avatarWrap}>
             <Pressable
               onPress={auth.isGuest ? () => router.push("/auth-landing") : updatePhoto}
@@ -153,9 +153,11 @@ export default function ProfileScreen() {
             </Pressable>
           </View>
           <Text style={styles.name}>{displayName}</Text>
-          <Text style={styles.sub}>
-            {age != null ? `Age ${age}` : "Add your age"} · {program} · {university}
-          </Text>
+          <View style={styles.subInfoWrap}>
+            <Text style={styles.subInfoText}>{age != null ? `Age ${age}` : "Add your age"}</Text>
+            <Text style={styles.subInfoText}>{program}</Text>
+            <Text style={styles.subInfoText}>{university}</Text>
+          </View>
         </View>
 
         {!auth.isGuest ? (
@@ -163,11 +165,6 @@ export default function ProfileScreen() {
             <View style={styles.statItem}>
               <Text style={styles.statNum}>{auth.isGuest ? "—" : matchCount}</Text>
               <Text style={styles.statLabel}>Matches</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={styles.statNum}>{age != null ? age : "—"}</Text>
-              <Text style={styles.statLabel}>Age</Text>
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statItem}>
@@ -260,8 +257,8 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
-  hero: { alignItems: "center", paddingBottom: spacing.xl, gap: spacing.xs },
-  avatarWrap: { marginBottom: spacing.sm },
+  hero: { alignItems: "center", paddingBottom: spacing.xl, gap: spacing.sm },
+  avatarWrap: { marginTop: spacing.sm, marginBottom: spacing.sm },
   avatarButton: { alignItems: "center", justifyContent: "center" },
   avatarButtonPressed: { transform: [{ scale: 0.98 }] },
   avatar: {
@@ -295,21 +292,35 @@ const styles = StyleSheet.create({
     borderColor: colors.surface,
   },
   name: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface },
-  sub: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary },
+  subInfoWrap: {
+    width: "100%",
+    paddingHorizontal: 20,
+    alignItems: "center",
+    gap: 2,
+  },
+  subInfoText: {
+    fontFamily: fonts.regular,
+    fontSize: fontSize.base,
+    color: colors.onSurfaceTertiary,
+    textAlign: "center",
+    lineHeight: 20,
+  },
   statsCard: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
     marginHorizontal: spacing.lg,
     backgroundColor: colors.surfaceSecondary,
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
     paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.lg,
   },
   statItem: { flex: 1, alignItems: "center", gap: 2 },
   statNum: { fontFamily: fonts.displayExtra, fontSize: fontSize.xl, color: colors.onSurface },
   statLabel: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
-  statDivider: { width: 1, height: 36, backgroundColor: colors.divider },
+  statDivider: { width: 1, height: 36, backgroundColor: colors.divider, marginHorizontal: spacing.md },
   section: {
     marginTop: spacing.xl,
     marginHorizontal: spacing.lg,
