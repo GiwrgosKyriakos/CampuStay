@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from "react";
+import * as AuthSession from "expo-auth-session";
 import * as Google from "expo-auth-session/providers/google";
 import * as WebBrowser from "expo-web-browser";
 import {
@@ -65,11 +66,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [needsProfileSetup, setNeedsProfileSetup] = useState(false);
 
+  const proxyProjectName = process.env.EXPO_PUBLIC_EXPO_PROXY_PROJECT ?? "@gkyriakos92/frontend";
+  const redirectUri = AuthSession.makeRedirectUri({
+    useProxy: true,
+    projectNameForProxy: proxyProjectName,
+  });
+
   const [request, , promptAsync] = Google.useIdTokenAuthRequest({
     expoClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ?? process.env.EXPO_PUBLIC_WEB_CLIENT_ID,
     webClientId: process.env.EXPO_PUBLIC_WEB_CLIENT_ID,
     iosClientId: process.env.EXPO_PUBLIC_IOS_CLIENT_ID,
     androidClientId: process.env.EXPO_PUBLIC_ANDROID_CLIENT_ID,
+    redirectUri,
     selectAccount: true,
   });
 
@@ -163,10 +171,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error("Google authentication is not ready yet.");
     }
 
-    const result = await promptAsync({
-      useProxy: true,
-      showInRecents: true,
-    });
+    const result = await promptAsync({ showInRecents: true });
 
     if (result.type !== "success") {
       return null;
