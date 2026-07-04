@@ -4,19 +4,21 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import { QUIZ_SECTIONS, TOTAL_QUESTIONS } from "@/src/data/quiz";
 import { getUserId } from "@/src/utils/userId";
 import { getRoomieProfile, saveRoomieProfile } from "@/src/api/roomieProfile";
 import { useAuth } from "@/src/context/auth";
+import { db } from "@/src/config/firebase";
 
 export default function RoomieProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const auth = useAuth();
   const [userId, setUserId] = useState<string | null>(null);
-  const [answers, setAnswers] = useState<Record<string, number>>({});
+  const [answers, setAnswers] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const guestLocked = auth.isGuest;
@@ -48,10 +50,31 @@ export default function RoomieProfileScreen() {
     };
   }, [guestLocked]);
 
-  const select = useCallback((qid: string, idx: number) => {
+  const persistSingleAnswer = useCallback(async (uid: string, qid: string, selectedOption: string) => {
+    const quizRef = doc(db, "quiz_answers", uid);
+    await setDoc(
+      quizRef,
+      {
+        [`answers.${qid}`]: selectedOption,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true },
+    );
+  }, []);
+
+  const select = useCallback((qid: string, selectedOption: string) => {
     if (guestLocked) return;
-    setAnswers((prev) => ({ ...prev, [qid]: idx }));
-  }, [guestLocked]);
+
+    // Optimistic local update so UI reflects selection immediately.
+    setAnswers((prev) => ({ ...prev, [qid]: selectedOption }));
+
+    // Persist asynchronously without blocking touch interactions.
+    if (userId) {
+      void persistSingleAnswer(userId, qid, selectedOption).catch((err) => {
+        console.error("[RoomieProfile] Failed to persist quiz answer:", err);
+      });
+    }
+  }, [guestLocked, persistSingleAnswer, userId]);
 
   const handleBack = useCallback(async () => {
     if (saving) return;
@@ -126,12 +149,12 @@ export default function RoomieProfileScreen() {
                     {q.emoji}  {q.question}
                   </Text>
                   {q.options.map((opt, idx) => {
-                    const selected = answers[q.id] === idx;
+                    const selected = answers[q.id] === opt;
                     return (
                       <Pressable
                         key={idx}
                         style={[styles.option, selected && styles.optionSelected, guestLocked && styles.optionDisabled]}
-                        onPress={guestLocked ? undefined : () => select(q.id, idx)}
+                        onPress={guestLocked ? undefined : () => select(q.id, opt)}
                         disabled={guestLocked}
                         testID={`option-${q.id}-${idx}`}
                       >

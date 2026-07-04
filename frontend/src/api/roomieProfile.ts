@@ -4,12 +4,12 @@ import { db } from "@/src/config/firebase";
 
 export interface RoomieProfileResponse {
   user_id: string;
-  answers: Record<string, number>;
+  answers: Record<string, string>;
   updated_at: string | null;
 }
 
 interface FirestoreQuizDocument {
-  answers: Record<string, number>;
+  answers: Record<string, string>;
   updatedAt?: ReturnType<typeof serverTimestamp>;
 }
 
@@ -40,7 +40,7 @@ export async function getRoomieProfile(userId: string): Promise<RoomieProfileRes
 
 export async function saveRoomieProfile(
   userId: string,
-  answers: Record<string, number>,
+  answers: Record<string, string>,
 ): Promise<RoomieProfileResponse> {
   try {
     const ref = doc(db, "quiz_answers", userId);
