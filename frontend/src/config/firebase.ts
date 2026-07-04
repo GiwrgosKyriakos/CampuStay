@@ -1,18 +1,17 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
-import { getAnalytics } from "firebase/analytics";
+import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyCW3slt0r-STJr5-EKFLozoNx8wJEfyRUM",
-  authDomain: "campustay-da4b5.firebaseapp.com",
-  projectId: "campustay-da4b5",
-  storageBucket: "campustay-da4b5.firebasestorage.app",
-  messagingSenderId: "311068327323",
-  appId: "1:311068327323:web:3e9ecbd42acedd39f1353e",
-  measurementId: "G-D9ZH9Z7QMQ"
+  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
+  measurementId: process.env.EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID,
 };
 
-const app = initializeApp(firebaseConfig);
-const analytics = getAnalytics(app);
-
+export const app = initializeApp(firebaseConfig);
+export const firebaseAuth = getAuth(app);
 export const db = getFirestore(app);

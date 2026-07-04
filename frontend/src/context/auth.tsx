@@ -1,18 +1,32 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from "react";
-import { Platform } from "react-native";
-import * as Linking from "expo-linking";
+import * as Google from "expo-auth-session/providers/google";
 import * as WebBrowser from "expo-web-browser";
+import {
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  signInWithCredential,
+  signInWithEmailAndPassword,
+  signOut,
+  GoogleAuthProvider,
+  type User as FirebaseUser,
+} from "firebase/auth";
 
 import { storage } from "@/src/utils/storage";
 import { setUserIdCache } from "@/src/utils/userId";
-import { apiLogin, apiRegister, apiGoogle, apiMe, apiLogout, AuthUser } from "@/src/api/auth";
-import { userProfileExists } from "@/src/api/userProfile";
+import { firebaseAuth } from "@/src/config/firebase";
 
 const TOKEN_KEY = "auth_token";
 const GUEST_KEY = "auth_guest";
 const SETUP_KEY = "post_login_setup";
 
 type Status = "loading" | "authed" | "guest" | "unauth";
+
+export interface AuthUser {
+  user_id: string;
+  email: string | null;
+  name: string | null;
+  picture: string | null;
+}
 
 interface AuthContextValue {
   isLoading: boolean;
@@ -34,10 +48,15 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-function parseSessionId(url: string | null): string | null {
-  if (!url) return null;
-  const m = url.match(/[#?&]session_id=([^&]+)/);
-  return m ? decodeURIComponent(m[1]) : null;
+WebBrowser.maybeCompleteAuthSession();
+
+function mapFirebaseUser(firebaseUser: FirebaseUser): AuthUser {
+  return {
+    user_id: firebaseUser.uid,
+    email: firebaseUser.email,
+    name: firebaseUser.displayName,
+    picture: firebaseUser.photoURL,
+  };
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -45,6 +64,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [needsProfileSetup, setNeedsProfileSetup] = useState(false);
+
+  const [request, , promptAsync] = Google.useIdTokenAuthRequest({
+    expoClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ?? process.env.EXPO_PUBLIC_WEB_CLIENT_ID,
+    webClientId: process.env.EXPO_PUBLIC_WEB_CLIENT_ID,
+    iosClientId: process.env.EXPO_PUBLIC_IOS_CLIENT_ID,
+    androidClientId: process.env.EXPO_PUBLIC_ANDROID_CLIENT_ID,
+    selectAccount: true,
+  });
 
   const enterGuestMode = useCallback(async () => {
     await storage.setItem(GUEST_KEY, true);
@@ -58,158 +85,107 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setStatus("guest");
   }, []);
 
-  const resolveNeedsProfileSetup = useCallback(async (userId: string): Promise<boolean> => {
-    try {
-      const exists = await userProfileExists(userId);
-      const needsSetup = !exists;
-      if (needsSetup) await storage.setItem(SETUP_KEY, true);
-      else await storage.removeItem(SETUP_KEY);
-      return needsSetup;
-    } catch {
-      // Fallback to last known setup state if profile lookup fails.
-      return await storage.getItem(SETUP_KEY, false);
-    }
-  }, []);
-
   const persist = useCallback(async (newToken: string, newUser: AuthUser) => {
     await storage.secureSet(TOKEN_KEY, newToken);
     await storage.setItem("roomie_user_id", newUser.user_id);
     setUserIdCache(newUser.user_id);
     await storage.removeItem(GUEST_KEY);
-
-    const needsSetup = await resolveNeedsProfileSetup(newUser.user_id);
+    const needsSetup = await storage.getItem(SETUP_KEY, false);
 
     setToken(newToken);
     setUser(newUser);
     setNeedsProfileSetup(needsSetup);
     setStatus("authed");
-  }, [resolveNeedsProfileSetup]);
-
-  const loginWithGoogleSession = useCallback(
-    async (sessionId: string): Promise<AuthUser | null> => {
-      const { token: t, user: u } = await apiGoogle(sessionId);
-      await persist(t, u);
-      return u;
-    },
-    [persist],
-  );
+  }, []);
 
   // Bootstrap session on mount.
   useEffect(() => {
     let mounted = true;
+    const unsubscribe = onAuthStateChanged(firebaseAuth, async (firebaseUser) => {
+      if (!mounted) return;
+
+      if (firebaseUser) {
+        try {
+          const idToken = await firebaseUser.getIdToken();
+          await persist(idToken, mapFirebaseUser(firebaseUser));
+        } catch (err) {
+          console.error("[Auth] Failed to sync Firebase session:", err);
+          setStatus("unauth");
+        }
+        return;
+      }
+
+      setToken(null);
+      setUser(null);
+      setUserIdCache(null);
+
+      const guest = await storage.getItem(GUEST_KEY, false);
+      setStatus(guest ? "guest" : "unauth");
+    });
+
     (async () => {
       try {
-        console.log("[Auth] Starting bootstrap...");
-
-        // Web: handle OAuth redirect (session_id in URL) first.
-        if (Platform.OS === "web" && typeof window !== "undefined") {
-          console.log("[Auth] Checking for OAuth redirect on web...");
-          const sid = parseSessionId(window.location.hash) || parseSessionId(window.location.search);
-          if (sid) {
-            console.log("[Auth] Found session_id in URL, logging in via Google...");
-            try {
-              await loginWithGoogleSession(sid);
-            } catch (err) {
-              console.error("[Auth] Google session login failed:", err);
-            } finally {
-              window.history.replaceState(null, "", window.location.pathname);
-            }
-            return;
-          }
-        }
-
-        // Mobile cold-start deep link fallback.
-        if (Platform.OS !== "web") {
-          console.log("[Auth] Checking for deep link on mobile...");
-          const initial = await Linking.getInitialURL();
-          const sid = parseSessionId(initial);
-          if (sid) {
-            console.log("[Auth] Found session_id in deep link, logging in via Google...");
-            try {
-              await loginWithGoogleSession(sid);
-            } catch (err) {
-              console.error("[Auth] Google session login from deep link failed:", err);
-            }
-            return;
-          }
-        }
-
-        console.log("[Auth] Checking for stored token...");
-        const storedToken = await storage.secureGet(TOKEN_KEY, "");
-        if (storedToken) {
-          console.log("[Auth] Found stored token, validating with server...");
-          try {
-            const me = await apiMe(storedToken);
-            const needsSetup = await resolveNeedsProfileSetup(me.user_id);
-            if (mounted) {
-              console.log("[Auth] Token valid! User logged in:", me.user_id);
-              setToken(storedToken);
-              setUser(me);
-              setUserIdCache(me.user_id);
-              setNeedsProfileSetup(needsSetup);
-              setStatus("authed");
-            }
-            return;
-          } catch (err) {
-            console.warn("[Auth] Stored token invalid, clearing:", err);
-            await storage.secureRemove(TOKEN_KEY);
-          }
-        }
-
-        console.log("[Auth] No valid token found, checking guest mode...");
-        const guest = await storage.getItem(GUEST_KEY, false);
+        const setup = await storage.getItem(SETUP_KEY, false);
         if (mounted) {
-          if (guest) {
-            console.log("[Auth] Guest mode enabled");
-            setStatus("guest");
-          } else {
-            console.log("[Auth] User not authenticated, showing login screen");
-            setStatus("unauth");
-          }
+          setNeedsProfileSetup(setup);
         }
       } catch (err) {
-        console.error("[Auth] Bootstrap error:", err);
-        if (mounted) setStatus("unauth");
+        console.error("[Auth] Bootstrap failed:", err);
       }
     })();
+
     return () => {
       mounted = false;
+      unsubscribe();
     };
-  }, [loginWithGoogleSession, resolveNeedsProfileSetup]);
+  }, [persist]);
 
   const loginEmail = useCallback(
     async (email: string, password: string) => {
-      const { token: t, user: u } = await apiLogin(email.trim(), password);
-      await persist(t, u);
+      const userCredential = await signInWithEmailAndPassword(firebaseAuth, email.trim(), password);
+      const idToken = await userCredential.user.getIdToken();
+      await persist(idToken, mapFirebaseUser(userCredential.user));
     },
     [persist],
   );
 
   const registerEmail = useCallback(
     async (email: string, password: string) => {
-      const { token: t, user: u } = await apiRegister(email.trim(), password);
-      await persist(t, u);
+      const userCredential = await createUserWithEmailAndPassword(firebaseAuth, email.trim(), password);
+      const idToken = await userCredential.user.getIdToken();
+      await persist(idToken, mapFirebaseUser(userCredential.user));
     },
     [persist],
   );
 
   const signInWithGoogle = useCallback(async (): Promise<AuthUser | null> => {
-    const redirectUrl =
-      Platform.OS === "web" && typeof window !== "undefined"
-        ? window.location.origin + "/"
-        : Linking.createURL("auth");
-    const authUrl = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
-    if (Platform.OS === "web" && typeof window !== "undefined") {
-      window.location.href = authUrl;
+    if (!request) {
+      throw new Error("Google authentication is not ready yet.");
+    }
+
+    const result = await promptAsync({
+      useProxy: true,
+      showInRecents: true,
+    });
+
+    if (result.type !== "success") {
       return null;
     }
-    const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUrl);
-    if (result.type === "success" && result.url) {
-      const sid = parseSessionId(result.url);
-      if (sid) return loginWithGoogleSession(sid);
+
+    const idToken = result.authentication?.idToken ?? result.params?.id_token;
+    if (!idToken) {
+      throw new Error("Google sign-in did not return an ID token.");
     }
-    return null;
-  }, [loginWithGoogleSession]);
+
+    const credential = GoogleAuthProvider.credential(idToken);
+    const userCredential = await signInWithCredential(firebaseAuth, credential);
+    const firebaseUser = userCredential.user;
+    const firebaseToken = await firebaseUser.getIdToken();
+    const mappedUser = mapFirebaseUser(firebaseUser);
+
+    await persist(firebaseToken, mappedUser);
+    return mappedUser;
+  }, [promptAsync, request, persist]);
 
   const continueAsGuest = useCallback(async () => {
     await enterGuestMode();
@@ -221,9 +197,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
-    if (token) await apiLogout(token);
+    await signOut(firebaseAuth);
     await enterGuestMode();
-  }, [enterGuestMode, token]);
+  }, [enterGuestMode]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
