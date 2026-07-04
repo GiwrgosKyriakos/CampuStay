@@ -34,9 +34,9 @@ export default function RoomieProfileScreen() {
     (async () => {
       try {
         const id = await getUserId();
+        if (mounted) setUserId(id);
         const data = await getRoomieProfile(id);
         if (mounted) {
-          setUserId(id);
           setAnswers(data.answers ?? {});
         }
       } catch {
@@ -50,31 +50,29 @@ export default function RoomieProfileScreen() {
     };
   }, [guestLocked]);
 
-  const persistSingleAnswer = useCallback(async (uid: string, qid: string, selectedOption: string) => {
-    const quizRef = doc(db, "quiz_answers", uid);
-    await setDoc(
-      quizRef,
-      {
-        [`answers.${qid}`]: selectedOption,
-        updatedAt: serverTimestamp(),
-      },
-      { merge: true },
-    );
-  }, []);
-
   const select = useCallback((qid: string, selectedOption: string) => {
     if (guestLocked) return;
 
-    // Optimistic local update so UI reflects selection immediately.
-    setAnswers((prev) => ({ ...prev, [qid]: selectedOption }));
+    // Optimistic local update so UI reflects selection immediately, then persist in background.
+    setAnswers((prev) => {
+      const updatedAnswers = { ...prev, [qid]: selectedOption };
 
-    // Persist asynchronously without blocking touch interactions.
-    if (userId) {
-      void persistSingleAnswer(userId, qid, selectedOption).catch((err) => {
-        console.error("[RoomieProfile] Failed to persist quiz answer:", err);
-      });
-    }
-  }, [guestLocked, persistSingleAnswer, userId]);
+      if (userId) {
+        void setDoc(
+          doc(db, "quiz_answers", userId),
+          {
+            answers: updatedAnswers,
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true },
+        ).catch((err) => {
+          console.error("[RoomieProfile] Failed to persist quiz answer:", err);
+        });
+      }
+
+      return updatedAnswers;
+    });
+  }, [guestLocked, userId]);
 
   const handleBack = useCallback(async () => {
     if (saving) return;

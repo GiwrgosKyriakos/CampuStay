@@ -5,13 +5,14 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
+import { doc, getDoc } from "firebase/firestore";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import { useAuth } from "@/src/context/auth";
 import { getUserId } from "@/src/utils/userId";
 import { getUserProfile, saveUserProfile, UserProfile } from "@/src/api/userProfile";
 import { getMyMatches } from "@/src/api/discover";
-import { getRoomieProfile } from "@/src/api/roomieProfile";
+import { db } from "@/src/config/firebase";
 import { TOTAL_QUESTIONS } from "@/src/data/quiz";
 
 const CURRENCY = "€";
@@ -50,14 +51,16 @@ export default function ProfileScreen() {
       (async () => {
         try {
           const uid = await getUserId();
-          const [p, m, quiz] = await Promise.all([
+          const [p, m, quizDoc] = await Promise.all([
             getUserProfile(uid).catch(() => null),
             getMyMatches(uid).catch(() => []),
-            getRoomieProfile(uid).catch(() => ({ answers: {} })),
+            getDoc(doc(db, "quiz_answers", uid)).catch(() => null),
           ]);
+          const quizData = quizDoc?.exists() ? (quizDoc.data() as { answers?: Record<string, string> }) : null;
+          const answeredCount = Object.keys(quizData?.answers || {}).length;
           setProfile(p);
           setMatchCount(m.length);
-          setQuizAnsweredCount(Object.keys(quiz.answers ?? {}).length);
+          setQuizAnsweredCount(answeredCount);
         } catch {
           /* keep placeholders */
         }
