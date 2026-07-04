@@ -4,7 +4,7 @@ import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { collection, doc, getDoc, onSnapshot, query, updateDoc, where } from "firebase/firestore";
+import { collection, doc, getDoc, limit, onSnapshot, orderBy, query, updateDoc, where } from "firebase/firestore";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import type { RoommateProfile } from "@/src/data/profiles";
@@ -44,6 +44,31 @@ interface FirestoreChatDoc {
   users?: string[];
   status?: "pending" | "active";
   initiatedBy?: string | null;
+}
+
+interface FirestoreLastMessageDoc {
+  text?: string;
+  senderId?: string;
+  isRead?: boolean;
+  read?: boolean;
+  readAt?: unknown;
+  readBy?: string[];
+  seenBy?: string[];
+}
+
+interface LastMessageMeta {
+  text: string;
+  senderId: string;
+  isRead: boolean;
+}
+
+function isMessageRead(msg: FirestoreLastMessageDoc | null, currentUserId: string): boolean {
+  if (!msg) return true;
+  if (msg.isRead === true || msg.read === true) return true;
+  if (msg.readAt != null) return true;
+  if (Array.isArray(msg.readBy) && msg.readBy.includes(currentUserId)) return true;
+  if (Array.isArray(msg.seenBy) && msg.seenBy.includes(currentUserId)) return true;
+  return false;
 }
 
 function buildDeletedCandidate(uid: string, chatRoomId: string, status?: "pending" | "active", initiatedBy?: string | null): ChatListItem {
@@ -100,8 +125,10 @@ export default function MatchesScreen() {
   const router = useRouter();
   const auth = useAuth();
   const [matches, setMatches] = useState<ChatListItem[]>([]);
+  const [lastMessageByChat, setLastMessageByChat] = useState<Record<string, LastMessageMeta>>({});
   const [acceptingChatId, setAcceptingChatId] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string>("");
+  const messageUnsubsRef = React.useRef<Record<string, () => void>>({});
 
   React.useEffect(() => {
     if (auth.isGuest) setMatches([]);
@@ -111,6 +138,7 @@ export default function MatchesScreen() {
     if (auth.isGuest) {
       setCurrentUserId("");
       setMatches([]);
+      setLastMessageByChat({});
       return;
     }
 
@@ -125,6 +153,56 @@ export default function MatchesScreen() {
 
         const chatsQ = query(collection(db, "chats"), where("users", "array-contains", uid));
         unsub = onSnapshot(chatsQ, (snapshot) => {
+          const activeChatIds = new Set(snapshot.docs.map((d) => d.id));
+
+          // Keep per-room last-message listeners in sync with current chat rooms.
+          Object.entries(messageUnsubsRef.current).forEach(([chatId, off]) => {
+            if (!activeChatIds.has(chatId)) {
+              off();
+              delete messageUnsubsRef.current[chatId];
+              setLastMessageByChat((prev) => {
+                if (!(chatId in prev)) return prev;
+                const next = { ...prev };
+                delete next[chatId];
+                return next;
+              });
+            }
+          });
+
+          snapshot.docs.forEach((chatDoc) => {
+            const chatId = chatDoc.id;
+            if (messageUnsubsRef.current[chatId]) return;
+
+            const lastMessageQ = query(
+              collection(db, "chats", chatId, "messages"),
+              orderBy("createdAt", "desc"),
+              limit(1),
+            );
+
+            messageUnsubsRef.current[chatId] = onSnapshot(lastMessageQ, (messageSnap) => {
+              const lastDoc = messageSnap.docs[0];
+              if (!lastDoc) {
+                setLastMessageByChat((prev) => {
+                  if (!(chatId in prev)) return prev;
+                  const next = { ...prev };
+                  delete next[chatId];
+                  return next;
+                });
+                return;
+              }
+
+              const data = lastDoc.data() as FirestoreLastMessageDoc;
+              setLastMessageByChat((prev) => ({
+                ...prev,
+                [chatId]: {
+                  text: data.text?.trim() || "",
+                  senderId: data.senderId || "",
+                  isRead: isMessageRead(data, uid),
+                },
+              }));
+            });
+          });
+
           void (async () => {
             const rows = await Promise.all(
               snapshot.docs.map(async (chatDoc) => {
@@ -161,6 +239,8 @@ export default function MatchesScreen() {
     return () => {
       mounted = false;
       if (unsub) unsub();
+      Object.values(messageUnsubsRef.current).forEach((off) => off());
+      messageUnsubsRef.current = {};
     };
   }, [auth.isGuest]);
 
@@ -228,6 +308,15 @@ export default function MatchesScreen() {
             const isPending = chatStatus === "pending";
             const isInitiator = isPending && p.chat_initiated_by === currentUserId;
             const isReceiver = isPending && p.chat_initiated_by !== currentUserId;
+            const lastMessage = lastMessageByChat[p.chatRoomId];
+            const defaultPreview = isInitiator ? "Pending approval" : "Start the conversation";
+            const lastPreviewText = lastMessage?.text || defaultPreview;
+            const unreadFromCounterparty =
+              !isPending &&
+              !!lastMessage &&
+              lastMessage.senderId !== currentUserId &&
+              !lastMessage.isRead;
+            const previewIsFaded = !unreadFromCounterparty;
 
             return (
               <Pressable
@@ -248,15 +337,13 @@ export default function MatchesScreen() {
                   <Text style={styles.rowName} numberOfLines={1}>
                     {displayName}
                   </Text>
-                  {isInitiator ? (
-                    <Text style={styles.rowMsg} numberOfLines={1}>
-                      Pending approval
-                    </Text>
-                  ) : (
-                    <Text style={styles.rowMsg} numberOfLines={1}>
-                      Hey there! 👋
-                    </Text>
-                  )}
+                  <Text
+                    style={[styles.rowMsg, previewIsFaded ? styles.rowMsgFaded : styles.rowMsgUnread]}
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                  >
+                    {lastPreviewText}
+                  </Text>
                 </View>
                 {isReceiver && acceptingChatId !== p.chatRoomId ? (
                   <Pressable
@@ -268,6 +355,8 @@ export default function MatchesScreen() {
                   </Pressable>
                 ) : isReceiver && acceptingChatId === p.chatRoomId ? (
                   <ActivityIndicator size="small" color={colors.brand} />
+                ) : unreadFromCounterparty ? (
+                  <View style={styles.unreadDot} testID={`chat-unread-dot-${p.id}`} />
                 ) : (
                   <Ionicons name="paper-plane-outline" size={22} color={colors.onSurfaceTertiary} />
                 )}
@@ -308,6 +397,14 @@ const styles = StyleSheet.create({
   rowText: { flex: 1, gap: 3 },
   rowName: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface },
   rowMsg: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary },
+  rowMsgFaded: { color: colors.onSurfaceTertiary, opacity: 0.55 },
+  rowMsgUnread: { color: colors.onSurface, fontFamily: fonts.semibold },
+  unreadDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: colors.brand,
+  },
   acceptBtn: {
     backgroundColor: colors.brandTertiary,
     paddingHorizontal: spacing.md,
