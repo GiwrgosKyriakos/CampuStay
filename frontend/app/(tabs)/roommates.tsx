@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useFocusEffect, useRouter } from "expo-router";
+import { doc, onSnapshot } from "firebase/firestore";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import type { RoommateProfile } from "@/src/data/profiles";
@@ -11,8 +12,8 @@ import SwipeDeck, { SwipeDeckHandle } from "@/src/components/SwipeDeck";
 import FilterSheet, { Filters, DEFAULT_FILTERS } from "@/src/components/FilterSheet";
 import { getUserId } from "@/src/utils/userId";
 import { getCandidates, postSwipe } from "@/src/api/discover";
-import { getRoomieProfile } from "@/src/api/roomieProfile";
 import { useAuth } from "@/src/context/auth";
+import { db } from "@/src/config/firebase";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 84;
@@ -62,21 +63,27 @@ export default function RoommatesScreen() {
         return;
       }
 
-      let mounted = true;
-      (async () => {
-        try {
-          const uid = await getUserId();
-          const quiz = await getRoomieProfile(uid).catch(() => ({ answers: {} }));
-          if (mounted) setQuizAnsweredCount(Object.keys(quiz.answers ?? {}).length);
-        } catch {
-          if (mounted) setQuizAnsweredCount(0);
-        }
-      })();
+      if (!auth.userId) {
+        setQuizAnsweredCount(0);
+        return;
+      }
+
+      const ref = doc(db, "quiz_answers", auth.userId);
+      const unsubscribe = onSnapshot(
+        ref,
+        (snapshot) => {
+          const data = snapshot.exists() ? (snapshot.data() as { answers?: Record<string, string> }) : null;
+          setQuizAnsweredCount(Object.keys(data?.answers ?? {}).length);
+        },
+        () => {
+          setQuizAnsweredCount(0);
+        },
+      );
 
       return () => {
-        mounted = false;
+        unsubscribe();
       };
-    }, [auth.isGuest]),
+    }, [auth.isGuest, auth.userId]),
   );
 
   const filtered = useMemo(

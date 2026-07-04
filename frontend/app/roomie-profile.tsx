@@ -3,13 +3,11 @@ import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator } from
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { doc, onSnapshot, setDoc, serverTimestamp } from "firebase/firestore";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import { GuestModeStickyFooter, GuestModeTopBanner } from "@/src/components/GuestModeLayout";
 import { QUIZ_SECTIONS, TOTAL_QUESTIONS } from "@/src/data/quiz";
-import { getUserId } from "@/src/utils/userId";
-import { getRoomieProfile, saveRoomieProfile } from "@/src/api/roomieProfile";
 import { useAuth } from "@/src/context/auth";
 import { db } from "@/src/config/firebase";
 
@@ -20,7 +18,6 @@ export default function RoomieProfileScreen() {
   const [userId, setUserId] = useState<string | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const guestLocked = auth.isGuest;
 
   useEffect(() => {
@@ -30,25 +27,34 @@ export default function RoomieProfileScreen() {
       setLoading(false);
       return;
     }
-    let mounted = true;
-    (async () => {
-      try {
-        const id = await getUserId();
-        if (mounted) setUserId(id);
-        const data = await getRoomieProfile(id);
-        if (mounted) {
-          setAnswers(data.answers ?? {});
-        }
-      } catch {
-        // network/back-end unavailable — start with empty answers
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    })();
+
+    if (!auth.userId) {
+      setLoading(true);
+      return;
+    }
+
+    setLoading(true);
+    setUserId(auth.userId);
+    const ref = doc(db, "quiz_answers", auth.userId);
+
+    const unsubscribe = onSnapshot(
+      ref,
+      (snapshot) => {
+        const data = snapshot.exists() ? (snapshot.data() as { answers?: Record<string, string> }) : null;
+        setAnswers(data?.answers ?? {});
+        setLoading(false);
+      },
+      () => {
+        // If listener fails, render fallback state rather than blocking the screen.
+        setAnswers({});
+        setLoading(false);
+      },
+    );
+
     return () => {
-      mounted = false;
+      unsubscribe();
     };
-  }, [guestLocked]);
+  }, [auth.userId, guestLocked]);
 
   const select = useCallback((qid: string, selectedOption: string) => {
     if (guestLocked) return;
@@ -74,44 +80,34 @@ export default function RoomieProfileScreen() {
     });
   }, [guestLocked, userId]);
 
-  const handleBack = useCallback(async () => {
-    if (saving) return;
-    if (guestLocked) {
-      router.back();
-      return;
-    }
-    setSaving(true);
-    try {
-      if (userId) await saveRoomieProfile(userId, answers);
-    } catch {
-      // swallow — still navigate back
-    } finally {
-      router.back();
-    }
-  }, [answers, guestLocked, userId, saving, router]);
+  const handleBack = useCallback(() => {
+    router.back();
+  }, [router]);
 
   const answeredCount = Object.keys(answers).length;
+  const progressPct = Math.min(100, Math.round((answeredCount / TOTAL_QUESTIONS) * 100));
 
   return (
     <View style={styles.container} testID="roomie-profile-screen">
-      <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
+      <View style={[styles.stickyHeader, { paddingTop: insets.top + spacing.sm }]}> 
         <View style={styles.headerRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.title}>Roomie Profile</Text>
-            <Text style={styles.subtitle}>
-              {answeredCount}/{TOTAL_QUESTIONS} answered
-            </Text>
+          <View style={[styles.headerSide, styles.headerLeft]}>
+            <Pressable style={styles.backBtn} onPress={handleBack} testID="roomie-back-button" hitSlop={8}>
+              <Ionicons name="chevron-back" size={24} color={colors.onSurface} />
+            </Pressable>
           </View>
-          <Pressable style={styles.backBtn} onPress={handleBack} testID="roomie-back-button" hitSlop={8}>
-            {saving ? (
-              <ActivityIndicator size="small" color={colors.onSurface} />
-            ) : (
-              <>
-                <Text style={styles.backText}>Back</Text>
-                <Ionicons name="chevron-forward" size={18} color={colors.onSurface} />
-              </>
-            )}
-          </Pressable>
+
+          <View style={styles.headerCenter}>
+            <Text style={styles.title}>Roomie Profile</Text>
+          </View>
+
+          <View style={[styles.headerSide, styles.headerRight]}>
+            <Text style={styles.counter}>{answeredCount}/{TOTAL_QUESTIONS} answered</Text>
+          </View>
+        </View>
+
+        <View style={styles.progressTrack} testID="roomie-progress-track">
+          <View style={[styles.progressFill, { width: `${progressPct}%` }]} testID="roomie-progress-fill" />
         </View>
       </View>
 
@@ -184,28 +180,44 @@ export default function RoomieProfileScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  header: {
-    paddingHorizontal: spacing.lg,
+  stickyHeader: {
     paddingBottom: spacing.md,
     backgroundColor: colors.surfaceSecondary,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
   },
-  headerRow: { flexDirection: "row", alignItems: "center", gap: spacing.md },
-  title: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface },
-  subtitle: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onBrandTertiary, marginTop: 2 },
-  backBtn: {
+  headerRow: {
     flexDirection: "row",
+    justifyContent: "space-between",
     alignItems: "center",
-    gap: 2,
-    minWidth: 76,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
+    minHeight: 52,
+  },
+  headerSide: { width: 120 },
+  headerLeft: { alignItems: "flex-start" },
+  headerCenter: { flex: 1, alignItems: "center" },
+  headerRight: { alignItems: "flex-end" },
+  title: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface },
+  counter: { fontFamily: fonts.displayExtra, fontSize: fontSize.base, color: colors.onSurface },
+  backBtn: {
+    width: 40,
     height: 40,
-    justifyContent: "center",
-    paddingHorizontal: spacing.md,
     borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: colors.surfaceTertiary,
   },
-  backText: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface },
+  progressTrack: {
+    width: "100%",
+    height: 6,
+    backgroundColor: colors.surfaceTertiary,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: colors.border,
+  },
+  progressFill: {
+    height: "100%",
+    backgroundColor: colors.brand,
+  },
   scroll: { padding: spacing.lg, gap: spacing.xl },
   section: { gap: spacing.md },
   categoryRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: spacing.sm },
