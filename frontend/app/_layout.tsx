@@ -70,7 +70,7 @@ function AppContent() {
   }, [appReady]);
 
   useEffect(() => {
-    if (!appReady) return;
+    if (!authReady) return;
 
     const isAuthRoute = pathname === "/auth-landing" || pathname === "/auth-email";
     const isUnauthenticated = !auth.isLoggedIn && !auth.isGuestMode;
@@ -78,7 +78,7 @@ function AppContent() {
     if (isUnauthenticated && !isAuthRoute) {
       router.replace("/auth-landing");
     }
-  }, [appReady, auth.isGuestMode, auth.isLoggedIn, pathname, router]);
+  }, [authReady, auth.isGuestMode, auth.isLoggedIn, pathname, router]);
 
   if (!fontsReady || !authReady) {
     console.log("[App] Waiting for app readiness...", { fontsReady, authReady });

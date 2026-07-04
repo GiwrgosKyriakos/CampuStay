@@ -210,7 +210,7 @@ export default function EditProfileScreen() {
       console.log("[EditProfile] → Saving user profile...");
       const profile: UserProfile = {
         name: name.trim() || auth.user?.name || "",
-        photos,
+        photos: photos.filter((p) => p.trim().length > 0),
         age: age ? parseInt(age, 10) : null,
         about,
         gender,
@@ -271,9 +271,6 @@ export default function EditProfileScreen() {
     auth,
   ]);
 
-  const photosError = !!error && photos.length < 1;
-  const socialError = false;
-
   if (loading) {
     return (
       <View style={[styles.container, styles.center]} testID="edit-profile-screen">
@@ -322,7 +319,7 @@ export default function EditProfileScreen() {
             <Ionicons name="image-outline" size={22} color={colors.onSurface} />
             <Text style={styles.cardTitle}>Profile Photos</Text>
           </View>
-          <Text style={styles.subtitle}>Upload Photos * (1-3 photos)</Text>
+          <Text style={styles.subtitle}>Upload Photos (optional, up to 3)</Text>
 
           {guestLocked && (
             <View style={styles.guestAvatarPlaceholder} testID="guest-profile-photo-placeholder">
@@ -362,9 +359,7 @@ export default function EditProfileScreen() {
             </Pressable>
           )}
 
-          <Text style={[styles.footnote, photosError && styles.footnoteError]}>
-            At least 1 photo is required
-          </Text>
+          <Text style={styles.footnote}>A default avatar silhouette will be used if no photo is uploaded.</Text>
 
           {permBlocked && (
             <Pressable style={styles.settingsBtn} onPress={() => Linking.openSettings()} testID="open-settings-button">
@@ -561,7 +556,7 @@ export default function EditProfileScreen() {
             <Ionicons name="link-outline" size={22} color={colors.onSurface} />
             <Text style={styles.cardTitle}>Social Media</Text>
           </View>
-          <Text style={[styles.subtitle, socialError && styles.footnoteError]}>At least 1 link is required</Text>
+          <Text style={styles.subtitle}>All social links are optional</Text>
 
           <Text style={styles.label}>Instagram Username</Text>
           <TextInput

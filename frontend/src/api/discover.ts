@@ -71,7 +71,8 @@ export async function getCandidates(userId: string): Promise<RoommateProfile[]> 
   chatsSnap.forEach((chatDoc) => {
     const data = chatDoc.data() as { users?: string[]; status?: "pending" | "active" | string };
     const status = data.status;
-    if (status !== "pending" && status !== "active" && typeof status === "string") return;
+    const isActiveOrPending = status === "pending" || status === "active";
+    if (!isActiveOrPending) return;
     const users = Array.isArray(data.users) ? data.users : [];
     const counterpart = users.find((uid) => uid !== userId);
     if (typeof counterpart === "string" && counterpart) chattedWith.add(counterpart);
