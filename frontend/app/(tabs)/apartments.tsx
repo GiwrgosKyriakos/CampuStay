@@ -109,6 +109,7 @@ export default function ApartmentsScreen() {
   const [sizeMax, setSizeMax] = useState("");
   const [petFriendly, setPetFriendly] = useState(false);
   const [nearMetro, setNearMetro] = useState(false);
+  const [showOnlyLiked, setShowOnlyLiked] = useState(false);
   const [hideCreateFab, setHideCreateFab] = useState(false);
   const [likedApartmentIds, setLikedApartmentIds] = useState<Set<string>>(new Set());
 
@@ -223,13 +224,17 @@ export default function ApartmentsScreen() {
     const maxRent = rentMax ? Number(rentMax) : null;
     const minSize = sizeMin ? Number(sizeMin) : null;
     const maxSize = sizeMax ? Number(sizeMax) : null;
-    const query = cityQuery.trim().toLowerCase();
+    const locationQuery = cityQuery.trim().toLowerCase();
 
     return apartments.filter((apt) => {
+      if (showOnlyLiked && !likedApartmentIds.has(apt.id)) {
+        return false;
+      }
+
       const cityMatch =
-        query.length === 0 ||
-        apt.city.toLowerCase().includes(query) ||
-        apt.area.toLowerCase().includes(query);
+        locationQuery.length === 0 ||
+        apt.city.toLowerCase().includes(locationQuery) ||
+        apt.area.toLowerCase().includes(locationQuery);
       const rentMatch =
         (minRent == null || apt.rent >= minRent) &&
         (maxRent == null || apt.rent <= maxRent);
@@ -241,21 +246,30 @@ export default function ApartmentsScreen() {
 
       return cityMatch && rentMatch && sizeMatch && petMatch && metroMatch;
     });
-  }, [apartments, cityQuery, nearMetro, petFriendly, rentMax, rentMin, sizeMax, sizeMin]);
+  }, [apartments, cityQuery, likedApartmentIds, nearMetro, petFriendly, rentMax, rentMin, showOnlyLiked, sizeMax, sizeMin]);
 
   return (
     <View style={styles.container} testID="apartments-screen">
       <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
         <Text style={styles.title}>Apartments</Text>
         <Text style={styles.subtitle}>Available homes in your study city</Text>
-        <Pressable
-          style={[styles.filterToggle, showFilters && styles.filterToggleActive]}
-          onPress={() => setShowFilters((v) => !v)}
-          testID="apartments-filter-toggle"
-        >
-          <Ionicons name="options-outline" size={18} color={colors.onBrandTertiary} />
-          <Text style={styles.filterToggleText}>{showFilters ? "Hide Filters" : "Show Filters"}</Text>
-        </Pressable>
+        <View style={styles.headerControlsRow}>
+          <Pressable
+            style={[styles.filterToggle, showFilters && styles.filterToggleActive]}
+            onPress={() => setShowFilters((v) => !v)}
+            testID="apartments-filter-toggle"
+          >
+            <Ionicons name="options-outline" size={18} color={colors.onBrandTertiary} />
+            <Text style={styles.filterToggleText}>{showFilters ? "Hide Filters" : "Show Filters"}</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.likedToggle, showOnlyLiked && styles.likedToggleActive]}
+            onPress={() => setShowOnlyLiked((v) => !v)}
+            testID="apartments-liked-toggle"
+          >
+            <Text style={styles.likedToggleText}>🖤 Liked</Text>
+          </Pressable>
+        </View>
         {showFilters && (
           <View style={styles.filterPanel} testID="apartments-filter-panel">
             <Text style={styles.filterLabel}>Monthly Rent ({CURRENCY})</Text>
@@ -389,8 +403,12 @@ export default function ApartmentsScreen() {
         })}
         {filteredApartments.length === 0 && (
           <View style={styles.emptyState} testID="apartments-empty-state">
-            <Text style={styles.emptyTitle}>No apartments match these filters</Text>
-            <Text style={styles.emptySub}>Adjust your rent, area, size, or preference filters.</Text>
+            <Text style={styles.emptyTitle}>
+              {showOnlyLiked ? "No liked apartments yet" : "No apartments match these filters"}
+            </Text>
+            {!showOnlyLiked && (
+              <Text style={styles.emptySub}>Adjust your rent, area, size, or preference filters.</Text>
+            )}
           </View>
         )}
       </ScrollView>
@@ -412,8 +430,13 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md, gap: spacing.xs },
   title: { fontFamily: fonts.displayExtra, fontSize: fontSize["3xl"], color: colors.onSurface },
   subtitle: { fontFamily: fonts.regular, fontSize: fontSize.lg, color: colors.onSurfaceTertiary },
-  filterToggle: {
+  headerControlsRow: {
     marginTop: spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  filterToggle: {
     alignSelf: "flex-start",
     flexDirection: "row",
     alignItems: "center",
@@ -427,6 +450,27 @@ const styles = StyleSheet.create({
   },
   filterToggleActive: { backgroundColor: "#C8E9FF" },
   filterToggleText: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onBrandTertiary },
+  likedToggle: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FF8A1E",
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderWidth: 1,
+    borderColor: "#FF8A1E",
+  },
+  likedToggleActive: {
+    backgroundColor: "#FF8A1E",
+    borderColor: "#111111",
+  },
+  likedToggleText: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.base,
+    color: "#111111",
+  },
   filterPanel: {
     marginTop: spacing.sm,
     backgroundColor: colors.surfaceSecondary,
