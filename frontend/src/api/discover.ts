@@ -1,12 +1,81 @@
 import type { RoommateProfile } from "@/src/data/profiles";
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  serverTimestamp,
+  setDoc,
+  where,
+} from "firebase/firestore";
+
+import { db } from "@/src/config/firebase";
 
 const BASE = process.env.EXPO_PUBLIC_BACKEND_URL;
 
+interface FirestoreUserDoc {
+  name?: string | null;
+  age?: number | null;
+  gender?: string | null;
+  maxBudget?: number | null;
+  budget?: number | null;
+  university?: string | null;
+  year?: string | null;
+  year_of_study?: string | null;
+  about?: string;
+  bio?: string;
+  photoUrl?: string;
+  photos?: string[];
+  deleted?: boolean;
+}
+
+function normalizeCandidate(uid: string, data: FirestoreUserDoc): RoommateProfile {
+  const photos = Array.isArray(data.photos) ? data.photos : [];
+  const firstPhoto = data.photoUrl || photos[0] || "";
+
+  return {
+    id: uid,
+    name: data.name?.trim() || "Unknown",
+    age: typeof data.age === "number" ? data.age : 20,
+    gender: (data.gender as RoommateProfile["gender"]) || "Non-binary",
+    budget: typeof data.maxBudget === "number" ? data.maxBudget : typeof data.budget === "number" ? data.budget : 0,
+    university: data.university || "",
+    program: data.year || data.year_of_study || "Student",
+    bio: data.about || data.bio || "",
+    tags: [],
+    photo: firstPhoto,
+    deleted: !!data.deleted,
+  };
+}
+
+function buildChatRoomId(userA: string, userB: string): string {
+  return [userA, userB].sort().join("_");
+}
+
 export async function getCandidates(userId: string): Promise<RoommateProfile[]> {
-  const res = await fetch(`${BASE}/api/candidates/${userId}`);
-  if (!res.ok) throw new Error(`candidates ${res.status}`);
-  const data = await res.json();
-  return data.candidates as RoommateProfile[];
+  const swipesRef = collection(db, "swipes");
+  const usersRef = collection(db, "users");
+
+  const swipedSnap = await getDocs(query(swipesRef, where("fromUid", "==", userId)));
+  const swipedTo = new Set<string>();
+  swipedSnap.forEach((d) => {
+    const toUid = d.data()?.toUid;
+    if (typeof toUid === "string" && toUid) swipedTo.add(toUid);
+  });
+
+  const usersSnap = await getDocs(usersRef);
+  const candidates: RoommateProfile[] = [];
+
+  usersSnap.forEach((u) => {
+    const uid = u.id;
+    if (!uid || uid === userId || swipedTo.has(uid)) return;
+
+    const data = u.data() as FirestoreUserDoc;
+    candidates.push(normalizeCandidate(uid, data));
+  });
+
+  return candidates;
 }
 
 export async function postSwipe(
@@ -14,14 +83,42 @@ export async function postSwipe(
   targetId: string,
   direction: "left" | "right",
 ): Promise<boolean> {
-  const res = await fetch(`${BASE}/api/swipe`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ user_id: userId, target_id: targetId, direction }),
-  });
-  if (!res.ok) return false;
-  const data = await res.json();
-  return !!data.matched;
+  const swipeType = direction === "right" ? "like" : "dislike";
+  const swipeDocId = `${userId}_${targetId}`;
+
+  await setDoc(
+    doc(db, "swipes", swipeDocId),
+    {
+      fromUid: userId,
+      toUid: targetId,
+      type: swipeType,
+      timestamp: serverTimestamp(),
+    },
+    { merge: true },
+  );
+
+  if (direction === "right") {
+    const chatRoomId = buildChatRoomId(userId, targetId);
+    const chatRef = doc(db, "chats", chatRoomId);
+    const existingChat = await getDoc(chatRef);
+
+    if (!existingChat.exists()) {
+      await setDoc(
+        chatRef,
+        {
+          users: [userId, targetId],
+          status: "pending",
+          initiatedBy: userId,
+          createdAt: serverTimestamp(),
+          lastMessage: "",
+        },
+        { merge: true },
+      );
+    }
+  }
+
+  // Legacy return contract maintained for existing callers.
+  return direction === "right";
 }
 
 export async function getMyMatches(userId: string): Promise<RoommateProfile[]> {
