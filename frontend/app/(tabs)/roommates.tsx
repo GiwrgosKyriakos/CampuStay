@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, Pressable, ActivityIndicator } from "react-nati
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import type { RoommateProfile } from "@/src/data/profiles";
@@ -20,6 +20,7 @@ const TOTAL_QUESTIONS_PLACEHOLDER = 15;
 
 export default function RoommatesScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const auth = useAuth();
   const deckRef = useRef<SwipeDeckHandle>(null);
   const userIdRef = useRef<string | null>(null);
@@ -126,7 +127,7 @@ export default function RoommatesScreen() {
         <View style={styles.brandRow}>
           <View style={styles.brandTextWrap}>
             <Text style={styles.brand}>
-              Roomie<Text style={{ color: colors.brand }}>Swipe</Text>
+              Campu<Text style={styles.brandAccent}>Stay</Text>
             </Text>
           </View>
           {quizAnsweredCount === 0 && (
@@ -200,6 +201,7 @@ const styles = StyleSheet.create({
   brandRow: { flexDirection: "row", alignItems: "center" },
   brandTextWrap: { flex: 1 },
   brand: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface },
+  brandAccent: { color: colors.brand },
   quizPill: {
     backgroundColor: colors.brand,
     borderRadius: radius.pill,

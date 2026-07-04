@@ -42,7 +42,12 @@ export default function AuthLandingScreen() {
       {/* Hero Section */}
       <View style={[styles.hero, { paddingTop: insets.top + spacing.xl }]}>
         {/* Logo/Branding */}
-        <Text style={styles.logo}>Roomie</Text>
+        <View style={styles.logoWrap}>
+          <Image source={require("@/assets/campuStayLogo.png")} style={styles.logoImage} resizeMode="contain" />
+        </View>
+        <Text style={styles.logo}>
+          Campu<Text style={styles.logoAccent}>Stay</Text>
+        </Text>
         <Text style={styles.tagline}>Find your perfect roommate</Text>
       </View>
 
@@ -122,11 +127,27 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: spacing.lg,
   },
+  logoWrap: {
+    width: 132,
+    height: 132,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: spacing.sm,
+    borderRadius: 28,
+    overflow: "hidden",
+  },
+  logoImage: {
+    width: "100%",
+    height: "100%",
+  },
   logo: {
     fontFamily: fonts.displayExtra,
     fontSize: fontSize["4xl"],
     color: colors.onSurface,
     marginBottom: spacing.md,
+  },
+  logoAccent: {
+    color: colors.brand,
   },
   tagline: {
     fontFamily: fonts.semibold,
