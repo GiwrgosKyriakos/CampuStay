@@ -64,7 +64,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontFamily: fonts.semibold,
     fontSize: fontSize.base,
-    color: colors.onBrand,
+    color: colors.onSurface,
   },
   topBannerButton: {
     backgroundColor: colors.brand,
@@ -84,7 +84,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
-    backgroundColor: "rgba(17,17,17,0.9)",
+    backgroundColor: colors.surface,
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
