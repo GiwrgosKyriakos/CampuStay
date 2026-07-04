@@ -225,7 +225,7 @@ export default function ApartmentDetailScreen() {
           testID="apartment-detail-contact"
         >
           <Ionicons name="mail-outline" size={20} color={colors.onBrand} />
-          <Text style={styles.contactBtnText}>Contact Host / Landlord</Text>
+          <Text style={styles.contactBtnText}>Contact Host</Text>
         </Pressable>
       </View>
     </View>
