@@ -98,7 +98,7 @@ export default function RoomieProfileScreen() {
           </View>
 
           <View style={styles.headerCenter}>
-            <Text style={styles.title}>Roomie Profile</Text>
+            <Text style={styles.title}>Quiz</Text>
           </View>
 
           <View style={[styles.headerSide, styles.headerRight]}>
@@ -197,7 +197,7 @@ const styles = StyleSheet.create({
   headerCenter: { flex: 1, alignItems: "center" },
   headerRight: { alignItems: "flex-end" },
   title: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface },
-  counter: { fontFamily: fonts.displayExtra, fontSize: fontSize.base, color: colors.onSurface },
+  counter: { fontFamily: fonts.displayExtra, fontSize: fontSize.sm, color: colors.brand },
   backBtn: {
     width: 40,
     height: 40,
