@@ -1,6 +1,7 @@
 import type { RoommateProfile } from "@/src/data/profiles";
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -56,6 +57,7 @@ function buildChatRoomId(userA: string, userB: string): string {
 export async function getCandidates(userId: string): Promise<RoommateProfile[]> {
   const swipesRef = collection(db, "swipes");
   const usersRef = collection(db, "users");
+  const chatsRef = collection(db, "chats");
 
   const swipedSnap = await getDocs(query(swipesRef, where("fromUid", "==", userId)));
   const swipedTo = new Set<string>();
@@ -64,12 +66,23 @@ export async function getCandidates(userId: string): Promise<RoommateProfile[]> 
     if (typeof toUid === "string" && toUid) swipedTo.add(toUid);
   });
 
+  const chatsSnap = await getDocs(query(chatsRef, where("users", "array-contains", userId)));
+  const chattedWith = new Set<string>();
+  chatsSnap.forEach((chatDoc) => {
+    const data = chatDoc.data() as { users?: string[]; status?: "pending" | "active" | string };
+    const status = data.status;
+    if (status !== "pending" && status !== "active" && typeof status === "string") return;
+    const users = Array.isArray(data.users) ? data.users : [];
+    const counterpart = users.find((uid) => uid !== userId);
+    if (typeof counterpart === "string" && counterpart) chattedWith.add(counterpart);
+  });
+
   const usersSnap = await getDocs(usersRef);
   const candidates: RoommateProfile[] = [];
 
   usersSnap.forEach((u) => {
     const uid = u.id;
-    if (!uid || uid === userId || swipedTo.has(uid)) return;
+    if (!uid || uid === userId || swipedTo.has(uid) || chattedWith.has(uid)) return;
 
     const data = u.data() as FirestoreUserDoc;
     candidates.push(normalizeCandidate(uid, data));
@@ -119,6 +132,18 @@ export async function postSwipe(
 
   // Legacy return contract maintained for existing callers.
   return direction === "right";
+}
+
+export async function resetDislikedSwipes(userId: string): Promise<void> {
+  const dislikesQ = query(
+    collection(db, "swipes"),
+    where("fromUid", "==", userId),
+    where("type", "==", "dislike"),
+  );
+  const dislikesSnap = await getDocs(dislikesQ);
+  if (dislikesSnap.empty) return;
+
+  await Promise.all(dislikesSnap.docs.map((swipeDoc) => deleteDoc(swipeDoc.ref)));
 }
 
 export async function getMyMatches(userId: string): Promise<RoommateProfile[]> {

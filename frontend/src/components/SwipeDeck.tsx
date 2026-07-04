@@ -17,6 +17,7 @@ import Animated, {
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import type { RoommateProfile } from "@/src/data/profiles";
+import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 
 const { width: SCREEN_W } = Dimensions.get("window");
 const SWIPE_THRESHOLD = SCREEN_W * 0.28;
@@ -130,14 +131,20 @@ const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck(
 
   const renderCard = (p: RoommateProfile) => (
     <View style={styles.card}>
-      <Image
-        source={{ uri: p.photo }}
-        style={styles.photo}
-        contentFit="cover"
-        transition={0}
-        cachePolicy="memory-disk"
-        recyclingKey={p.id}
-      />
+      {p.photo?.trim() ? (
+        <Image
+          source={{ uri: p.photo }}
+          style={styles.photo}
+          contentFit="cover"
+          transition={0}
+          cachePolicy="memory-disk"
+          recyclingKey={p.id}
+        />
+      ) : (
+        <View style={styles.photoFallbackWrap}>
+          <DefaultProfileAvatar size={120} iconSize={56} testID={`swipe-card-avatar-fallback-${p.id}`} />
+        </View>
+      )}
       <LinearGradient
         colors={["transparent", "rgba(26,26,26,0.2)", "rgba(26,26,26,0.92)"]}
         locations={[0.4, 0.62, 1]}
@@ -200,6 +207,11 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   photo: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
+  photoFallbackWrap: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   scrim: { ...StyleSheet.absoluteFillObject },
   cardBody: {
     position: "absolute",

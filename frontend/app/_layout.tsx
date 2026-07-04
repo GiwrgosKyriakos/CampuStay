@@ -1,4 +1,4 @@
-import { Stack } from "expo-router";
+import { Stack, usePathname, useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect, useState } from "react";
 import { LogBox } from "react-native";
@@ -29,6 +29,8 @@ function AppNavigator() {
 
 function AppContent() {
   const auth = useAuth();
+  const pathname = usePathname();
+  const router = useRouter();
   const [iconsLoaded, iconsError] = useIconFonts();
   const [fontsLoaded, fontsError] = useFonts({
     "Bricolage-Bold": require("../assets/fonts/BricolageGrotesque-Bold.ttf"),
@@ -66,6 +68,17 @@ function AppContent() {
       });
     }
   }, [appReady]);
+
+  useEffect(() => {
+    if (!appReady) return;
+
+    const isAuthRoute = pathname === "/auth-landing" || pathname === "/auth-email";
+    const isUnauthenticated = !auth.isLoggedIn && !auth.isGuestMode;
+
+    if (isUnauthenticated && !isAuthRoute) {
+      router.replace("/auth-landing");
+    }
+  }, [appReady, auth.isGuestMode, auth.isLoggedIn, pathname, router]);
 
   if (!fontsReady || !authReady) {
     console.log("[App] Waiting for app readiness...", { fontsReady, authReady });

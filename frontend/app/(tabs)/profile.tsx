@@ -14,12 +14,10 @@ import { getUserProfile, saveUserProfile, UserProfile } from "@/src/api/userProf
 import { getMyMatches } from "@/src/api/discover";
 import { db } from "@/src/config/firebase";
 import { TOTAL_QUESTIONS } from "@/src/data/quiz";
+import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 100;
-const PLACEHOLDER_PHOTO =
-  "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?crop=entropy&cs=srgb&fm=jpg&w=900&q=85";
-
 const NAV_SETTINGS: { icon: keyof typeof Ionicons.glyphMap; label: string; route: string; testID: string }[] = [
   { icon: "sparkles", label: "Compatibility Quiz", route: "/roomie-profile", testID: "setting-compatibility-quiz" },
   { icon: "create-outline", label: "Edit profile", route: "/edit-profile" },
@@ -68,7 +66,8 @@ export default function ProfileScreen() {
   );
 
   const displayName = auth.isGuest ? "Your Name" : profile?.name || auth.user?.name || "Your Profile";
-  const photoUri = auth.isGuest ? PLACEHOLDER_PHOTO : profile?.photos?.[0] || auth.user?.picture || PLACEHOLDER_PHOTO;
+  const photoUri = auth.isGuest ? "" : profile?.photos?.[0] || "";
+  const hasPhoto = !!photoUri.trim();
   const university = auth.isGuest ? "Add your university" : profile?.university || "Add your university";
   const program = auth.isGuest ? "Complete your profile" : profile?.year_of_study || "Complete your profile";
   const age = auth.isGuest ? null : profile?.age ?? null;
@@ -137,10 +136,8 @@ export default function ProfileScreen() {
               testID="profile-avatar-button"
               style={({ pressed }) => [styles.avatarButton, pressed && !auth.isGuest && styles.avatarButtonPressed]}
             >
-              {auth.isGuest ? (
-                <View style={styles.guestAvatar}>
-                  <Ionicons name="person" size={56} color={colors.onSurfaceTertiary} />
-                </View>
+              {auth.isGuest || !hasPhoto ? (
+                <DefaultProfileAvatar size={112} iconSize={56} style={styles.guestAvatar} />
               ) : (
                 <Image source={{ uri: photoUri }} style={styles.avatar} contentFit="cover" />
               )}

@@ -200,17 +200,8 @@ export default function EditProfileScreen() {
 
   const submit = useCallback(async () => {
     if (submitting) return;
-    if (photos.length < 1) {
-      setError("Please upload at least 1 photo.");
-      return;
-    }
     if (about.length > ABOUT_LIMIT) {
       setError(`About You must be ${ABOUT_LIMIT} characters or less.`);
-      return;
-    }
-    const hasSocial = [instagram, facebook, linkedin, twitter].some((s) => s.trim().length > 0);
-    if (!hasSocial) {
-      setError("Please add at least 1 social media link.");
       return;
     }
     setError(null);
@@ -281,8 +272,7 @@ export default function EditProfileScreen() {
   ]);
 
   const photosError = !!error && photos.length < 1;
-  const socialError =
-    !!error && ![instagram, facebook, linkedin, twitter].some((s) => s.trim().length > 0);
+  const socialError = false;
 
   if (loading) {
     return (

@@ -12,6 +12,7 @@ import { getUserId } from "@/src/utils/userId";
 import { useAuth } from "@/src/context/auth";
 import { db } from "@/src/config/firebase";
 import { DELETED_ACCOUNT_LABEL } from "@/src/api/accountDeletion";
+import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 
 const TAB_BAR_SPACE = 100;
 
@@ -350,9 +351,7 @@ export default function MatchesScreen() {
                 {hasAvatar ? (
                   <Image source={{ uri: p.photo }} style={styles.avatar} contentFit="cover" transition={150} />
                 ) : (
-                  <View style={styles.avatarFallback} testID={`chat-row-avatar-fallback-${p.id}`}>
-                    <Ionicons name="person" size={28} color={colors.onSurfaceTertiary} />
-                  </View>
+                  <DefaultProfileAvatar size={60} iconSize={28} testID={`chat-row-avatar-fallback-${p.id}`} />
                 )}
                 <View style={styles.rowText}>
                   <Text style={styles.rowName} numberOfLines={1}>
@@ -405,16 +404,6 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.divider,
   },
   avatar: { width: 60, height: 60, borderRadius: radius.pill, backgroundColor: colors.surfaceTertiary },
-  avatarFallback: {
-    width: 60,
-    height: 60,
-    borderRadius: radius.pill,
-    backgroundColor: colors.surfaceTertiary,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
   rowText: { flex: 1, gap: 3 },
   rowName: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface },
   rowMsg: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary },

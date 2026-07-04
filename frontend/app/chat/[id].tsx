@@ -22,6 +22,7 @@ import { getUserId } from "@/src/utils/userId";
 import { db } from "@/src/config/firebase";
 import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc } from "firebase/firestore";
 import { DELETED_ACCOUNT_LABEL } from "@/src/api/accountDeletion";
+import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 
 const CURRENCY = "€";
 
@@ -244,9 +245,7 @@ export default function ChatScreen() {
           {showAvatarImage ? (
             <Image source={{ uri: activeProfile.photo }} style={styles.headerAvatar} contentFit="cover" />
           ) : (
-            <View style={styles.headerAvatarFallback} testID="chat-header-avatar-fallback">
-              <Ionicons name="person" size={22} color={colors.onSurfaceTertiary} />
-            </View>
+            <DefaultProfileAvatar size={44} iconSize={22} testID="chat-header-avatar-fallback" />
           )}
           <View style={{ flex: 1 }}>
             <Text style={styles.headerName} numberOfLines={1}>
@@ -404,16 +403,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceTertiary,
   },
   headerAvatar: { width: 44, height: 44, borderRadius: radius.pill, backgroundColor: colors.surfaceTertiary },
-  headerAvatarFallback: {
-    width: 44,
-    height: 44,
-    borderRadius: radius.pill,
-    backgroundColor: colors.surfaceTertiary,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
   headerName: { fontFamily: fonts.displayExtra, fontSize: fontSize.xl, color: colors.onSurface },
   headerUni: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
   detailRow: { flexDirection: "row", gap: spacing.sm },

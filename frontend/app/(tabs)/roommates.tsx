@@ -11,7 +11,7 @@ import type { RoommateProfile } from "@/src/data/profiles";
 import SwipeDeck, { SwipeDeckHandle } from "@/src/components/SwipeDeck";
 import FilterSheet, { Filters, DEFAULT_FILTERS } from "@/src/components/FilterSheet";
 import { getUserId } from "@/src/utils/userId";
-import { getCandidates, postSwipe } from "@/src/api/discover";
+import { getCandidates, postSwipe, resetDislikedSwipes } from "@/src/api/discover";
 import { useAuth } from "@/src/context/auth";
 import { db } from "@/src/config/firebase";
 
@@ -121,6 +121,14 @@ export default function RoommatesScreen() {
     actionTimeout.current = setTimeout(() => setActiveAction(null), 220);
   }, []);
 
+  const handleDeckReset = useCallback(async () => {
+    const uid = userIdRef.current;
+    if (!auth.isGuest && uid) {
+      await resetDislikedSwipes(uid);
+    }
+    await load();
+  }, [auth.isGuest, load]);
+
   const press = (action: "left" | "right") => {
     Haptics.selectionAsync();
     triggerActionFeedback(action);
@@ -166,7 +174,7 @@ export default function RoommatesScreen() {
             onLike={onLike}
             onNope={onNope}
             onSwipeAction={triggerActionFeedback}
-            onEmptyReset={load}
+            onEmptyReset={handleDeckReset}
           />
         )}
       </View>
