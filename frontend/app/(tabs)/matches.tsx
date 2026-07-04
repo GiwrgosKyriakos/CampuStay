@@ -3,13 +3,14 @@ import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator } from
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter, useFocusEffect } from "expo-router";
+import { useRouter } from "expo-router";
+import { collection, doc, getDoc, onSnapshot, query, updateDoc, where } from "firebase/firestore";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import type { RoommateProfile } from "@/src/data/profiles";
 import { getUserId } from "@/src/utils/userId";
-import { getMyMatches, acceptChatRequest } from "@/src/api/discover";
 import { useAuth } from "@/src/context/auth";
+import { db } from "@/src/config/firebase";
 
 const TAB_BAR_SPACE = 100;
 
@@ -17,59 +18,165 @@ function isDeletedCounterpart(profile: RoommateProfile): boolean {
   return !!profile.deleted || !profile.name?.trim();
 }
 
+interface ChatListItem extends RoommateProfile {
+  chatRoomId: string;
+  chat_status?: "pending" | "active";
+  chat_initiated_by?: string | null;
+}
+
+interface FirestoreUserDoc {
+  name?: string | null;
+  age?: number | null;
+  gender?: string | null;
+  university?: string | null;
+  year?: string | null;
+  year_of_study?: string | null;
+  maxBudget?: number | null;
+  budget?: number | null;
+  about?: string;
+  bio?: string;
+  photoUrl?: string;
+  photos?: string[];
+  deleted?: boolean;
+}
+
+interface FirestoreChatDoc {
+  users?: string[];
+  status?: "pending" | "active";
+  initiatedBy?: string | null;
+}
+
+function buildDeletedCandidate(uid: string, chatRoomId: string, status?: "pending" | "active", initiatedBy?: string | null): ChatListItem {
+  return {
+    id: uid,
+    name: "Deleted Account",
+    age: 0,
+    gender: "Non-binary",
+    budget: 0,
+    university: "",
+    program: "",
+    bio: "",
+    tags: [],
+    photo: "",
+    deleted: true,
+    chatRoomId,
+    chat_status: status,
+    chat_initiated_by: initiatedBy ?? null,
+  };
+}
+
+function mapUserToChatItem(
+  uid: string,
+  chatRoomId: string,
+  status?: "pending" | "active",
+  initiatedBy?: string | null,
+  data?: FirestoreUserDoc | null,
+): ChatListItem {
+  if (!data) return buildDeletedCandidate(uid, chatRoomId, status, initiatedBy);
+
+  const photos = Array.isArray(data.photos) ? data.photos : [];
+  const photo = data.photoUrl || photos[0] || "";
+
+  return {
+    id: uid,
+    name: data.name?.trim() || "Deleted Account",
+    age: typeof data.age === "number" ? data.age : 0,
+    gender: (data.gender as RoommateProfile["gender"]) || "Non-binary",
+    budget: typeof data.maxBudget === "number" ? data.maxBudget : typeof data.budget === "number" ? data.budget : 0,
+    university: data.university || "",
+    program: data.year || data.year_of_study || "",
+    bio: data.about || data.bio || "",
+    tags: [],
+    photo,
+    deleted: !!data.deleted,
+    chatRoomId,
+    chat_status: status,
+    chat_initiated_by: initiatedBy ?? null,
+  };
+}
+
 export default function MatchesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const auth = useAuth();
-  const [matches, setMatches] = useState<RoommateProfile[]>([]);
-  const [acceptingId, setAcceptingId] = useState<string | null>(null);
+  const [matches, setMatches] = useState<ChatListItem[]>([]);
+  const [acceptingChatId, setAcceptingChatId] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string>("");
 
   React.useEffect(() => {
     if (auth.isGuest) setMatches([]);
   }, [auth.isGuest]);
 
-  useFocusEffect(
-    useCallback(() => {
-      if (auth.isGuest) {
-        setMatches([]);
-        return;
-      }
-      (async () => {
-        try {
-          const uid = await getUserId();
-          setCurrentUserId(uid);
-          setMatches(await getMyMatches(uid));
-        } catch {
-          setMatches([]);
-        }
-      })();
-    }, [auth.isGuest]),
-  );
+  React.useEffect(() => {
+    if (auth.isGuest) {
+      setCurrentUserId("");
+      setMatches([]);
+      return;
+    }
 
-  const handleAcceptChat = async (profile: RoommateProfile) => {
-    if (!currentUserId || !profile.id) return;
-    setAcceptingId(profile.id);
-    try {
-      const chatRoomId = [currentUserId, profile.id].sort().join("_");
-      const success = await acceptChatRequest(chatRoomId, currentUserId);
-      if (success) {
-        // Update the local state to reflect the accepted status
-        setMatches((prev) =>
-          prev.map((p) =>
-            p.id === profile.id ? { ...p, chat_status: "active" } : p,
-          ),
-        );
+    let mounted = true;
+    let unsub: (() => void) | null = null;
+
+    (async () => {
+      try {
+        const uid = await getUserId();
+        if (!mounted) return;
+        setCurrentUserId(uid);
+
+        const chatsQ = query(collection(db, "chats"), where("users", "array-contains", uid));
+        unsub = onSnapshot(chatsQ, (snapshot) => {
+          void (async () => {
+            const rows = await Promise.all(
+              snapshot.docs.map(async (chatDoc) => {
+                const chatData = chatDoc.data() as FirestoreChatDoc;
+                const users = Array.isArray(chatData.users) ? chatData.users : [];
+                const counterpartUid = users.find((u) => u !== uid);
+                if (!counterpartUid) {
+                  return null;
+                }
+
+                const userSnap = await getDoc(doc(db, "users", counterpartUid));
+                const userData = userSnap.exists() ? (userSnap.data() as FirestoreUserDoc) : null;
+
+                return mapUserToChatItem(
+                  counterpartUid,
+                  chatDoc.id,
+                  chatData.status ?? "active",
+                  chatData.initiatedBy ?? null,
+                  userData,
+                );
+              }),
+            );
+
+            if (mounted) {
+              setMatches(rows.filter((r): r is ChatListItem => !!r));
+            }
+          })();
+        });
+      } catch {
+        if (mounted) setMatches([]);
       }
+    })();
+
+    return () => {
+      mounted = false;
+      if (unsub) unsub();
+    };
+  }, [auth.isGuest]);
+
+  const handleAcceptChat = async (profile: ChatListItem) => {
+    if (!currentUserId || !profile.chatRoomId) return;
+    setAcceptingChatId(profile.chatRoomId);
+    try {
+      await updateDoc(doc(db, "chats", profile.chatRoomId), { status: "active" });
     } catch (err) {
       console.error("Accept chat failed:", err);
     } finally {
-      setAcceptingId(null);
+      setAcceptingChatId(null);
     }
   };
 
-  const handleNavigateToChat = (profile: RoommateProfile) => {
-    // Only allow navigation if chat is active or if there's no status (fallback to active)
+  const handleNavigateToChat = (profile: ChatListItem) => {
     const chatStatus = profile.chat_status ?? "active";
     if (chatStatus === "active") {
       router.push({ pathname: "/chat/[id]", params: { id: profile.id } });
@@ -151,7 +258,7 @@ export default function MatchesScreen() {
                     </Text>
                   )}
                 </View>
-                {isReceiver && acceptingId !== p.id ? (
+                {isReceiver && acceptingChatId !== p.chatRoomId ? (
                   <Pressable
                     style={styles.acceptBtn}
                     onPress={() => handleAcceptChat(p)}
@@ -159,7 +266,7 @@ export default function MatchesScreen() {
                   >
                     <Text style={styles.acceptBtnText}>Accept</Text>
                   </Pressable>
-                ) : isReceiver && acceptingId === p.id ? (
+                ) : isReceiver && acceptingChatId === p.chatRoomId ? (
                   <ActivityIndicator size="small" color={colors.brand} />
                 ) : (
                   <Ionicons name="paper-plane-outline" size={22} color={colors.onSurfaceTertiary} />

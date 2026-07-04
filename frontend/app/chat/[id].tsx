@@ -20,7 +20,7 @@ import type { RoommateProfile } from "@/src/data/profiles";
 import { getUserPublic } from "@/src/api/discover";
 import { getUserId } from "@/src/utils/userId";
 import { db } from "@/src/config/firebase";
-import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp } from "firebase/firestore";
+import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc } from "firebase/firestore";
 
 const CURRENCY = "€";
 
@@ -35,6 +35,10 @@ interface FirestoreMessageDoc {
   text?: string;
   senderId?: string;
   createdAt?: any;
+}
+
+interface FirestoreChatDoc {
+  status?: "pending" | "active";
 }
 
 type MessageGroupPosition = "first" | "middle" | "last" | "single";
@@ -98,6 +102,7 @@ export default function ChatScreen() {
   const scrollRef = useRef<ScrollView>(null);
   const [text, setText] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
+  const [chatStatus, setChatStatus] = useState<"pending" | "active">("active");
 
   const createdAtToMillis = useCallback((value: any): number => {
     if (typeof value === "number") return value;
@@ -114,6 +119,16 @@ export default function ChatScreen() {
 
   useEffect(() => {
     if (!currentUserId || !chatRoomId) return;
+    const chatRef = doc(db, "chats", chatRoomId);
+    const unsubChat = onSnapshot(chatRef, (snapshot) => {
+      if (!snapshot.exists()) {
+        setChatStatus("active");
+        return;
+      }
+      const data = snapshot.data() as FirestoreChatDoc;
+      setChatStatus(data.status === "pending" ? "pending" : "active");
+    });
+
     const q = query(
       collection(db, "chats", chatRoomId, "messages"),
       orderBy("createdAt", "asc"),
@@ -137,12 +152,15 @@ export default function ChatScreen() {
       });
       requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: false }));
     });
-    return unsub;
+    return () => {
+      unsub();
+      unsubChat();
+    };
   }, [chatRoomId, currentUserId, sortMessages]);
 
   const send = useCallback(async () => {
     const trimmed = text.trim();
-    if (!trimmed || !currentUserId || !id || !chatRoomId) return;
+    if (!trimmed || !currentUserId || !id || !chatRoomId || chatStatus === "pending") return;
 
     const optimisticMessage: Message = {
       id: `temp-${Date.now()}`,
@@ -165,7 +183,7 @@ export default function ChatScreen() {
     } catch {
       setMessages((prev) => prev.filter((m) => m.id !== optimisticMessage.id));
     }
-  }, [chatRoomId, currentUserId, id, sortMessages, text]);
+  }, [chatRoomId, chatStatus, currentUserId, id, sortMessages, text]);
 
   if (!profile) {
     return (
@@ -311,16 +329,17 @@ export default function ChatScreen() {
             style={styles.input}
             value={text}
             onChangeText={setText}
-            placeholder={`Message ${displayName}...`}
+            placeholder={chatStatus === "pending" ? "Waiting for acceptance..." : `Message ${displayName}...`}
             placeholderTextColor={colors.onSurfaceTertiary}
             multiline
             testID="chat-input"
             onSubmitEditing={send}
+            editable={chatStatus !== "pending"}
           />
           <Pressable
-            style={[styles.sendBtn, !text.trim() && styles.sendBtnDisabled]}
+            style={[styles.sendBtn, (!text.trim() || chatStatus === "pending") && styles.sendBtnDisabled]}
             onPress={send}
-            disabled={!text.trim()}
+            disabled={!text.trim() || chatStatus === "pending"}
             testID="chat-send-button"
           >
             <Ionicons name="paper-plane" size={20} color={colors.onBrand} />
