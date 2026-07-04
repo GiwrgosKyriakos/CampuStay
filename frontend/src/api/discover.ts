@@ -31,6 +31,18 @@ export async function getMyMatches(userId: string): Promise<RoommateProfile[]> {
   return data.matches as RoommateProfile[];
 }
 
+export async function acceptChatRequest(chatRoomId: string, userId: string): Promise<boolean> {
+  const res = await fetch(`${BASE}/api/chat/${chatRoomId}/accept`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      "current-user-id": userId,
+    },
+  });
+  if (!res.ok) return false;
+  return true;
+}
+
 export async function getUserPublic(userId: string): Promise<RoommateProfile | null> {
   const res = await fetch(`${BASE}/api/user-public/${userId}`);
   if (!res.ok) return null;

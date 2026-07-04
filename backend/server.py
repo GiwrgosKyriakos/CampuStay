@@ -517,6 +517,18 @@ async def swipe(body: SwipeIn):
     )
     matched = False
     if body.direction == "right":
+        # Create a pending chat room on right swipe.
+        chat_room_id = "_".join(sorted([body.user_id, body.target_id]))
+        existing_chat = await db.chats.find_one({"chat_room_id": chat_room_id})
+        if not existing_chat:
+            await db.chats.insert_one({
+                "chat_room_id": chat_room_id,
+                "participants": [body.user_id, body.target_id],
+                "initiatedBy": body.user_id,
+                "status": "pending",
+                "created_at": now,
+                "updated_at": now,
+            })
         rev = await db.swipes.find_one({"user_id": body.target_id, "target_id": body.user_id, "direction": "right"})
         matched = rev is not None
     return {"ok": True, "matched": matched}
@@ -529,11 +541,30 @@ async def my_matches(user_id: str):
         uid = s["target_id"]
         u = await db.users.find_one({"user_id": uid})
         p = await db.user_profiles.find_one({"user_id": uid})
-        if u and p:
-            out.append(build_candidate(u, p))
-        else:
-            out.append(build_deleted_candidate(uid))
+        chat_room_id = "_".join(sorted([user_id, uid]))
+        chat = await db.chats.find_one({"chat_room_id": chat_room_id})
+        candidate = build_candidate(u, p) if (u and p) else build_deleted_candidate(uid)
+        candidate["chat_status"] = chat.get("status", "active") if chat else "active"
+        candidate["chat_initiated_by"] = chat.get("initiatedBy") if chat else None
+        out.append(candidate)
     return {"matches": out}
+
+
+@api_router.put("/chat/{chat_room_id}/accept")
+async def accept_chat(chat_room_id: str, current_user_id: str = Header(None)):
+    if not current_user_id:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    chat = await db.chats.find_one({"chat_room_id": chat_room_id})
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    if current_user_id not in chat.get("participants", []):
+        raise HTTPException(status_code=403, detail="Not a participant")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.chats.update_one(
+        {"chat_room_id": chat_room_id},
+        {"$set": {"status": "active", "updated_at": now}},
+    )
+    return {"ok": True, "status": "active"}
 
 
 @api_router.get("/user-public/{user_id}")

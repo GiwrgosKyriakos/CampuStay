@@ -12,4 +12,6 @@ export interface RoommateProfile {
   tags: string[];
   photo: string;
   deleted?: boolean;
+  chat_status?: "pending" | "active";
+  chat_initiated_by?: string | null;
 }

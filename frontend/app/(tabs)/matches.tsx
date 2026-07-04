@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -8,7 +8,7 @@ import { useRouter, useFocusEffect } from "expo-router";
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import type { RoommateProfile } from "@/src/data/profiles";
 import { getUserId } from "@/src/utils/userId";
-import { getMyMatches } from "@/src/api/discover";
+import { getMyMatches, acceptChatRequest } from "@/src/api/discover";
 import { useAuth } from "@/src/context/auth";
 
 const TAB_BAR_SPACE = 100;
@@ -22,6 +22,8 @@ export default function MatchesScreen() {
   const router = useRouter();
   const auth = useAuth();
   const [matches, setMatches] = useState<RoommateProfile[]>([]);
+  const [acceptingId, setAcceptingId] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string>("");
 
   React.useEffect(() => {
     if (auth.isGuest) setMatches([]);
@@ -36,6 +38,7 @@ export default function MatchesScreen() {
       (async () => {
         try {
           const uid = await getUserId();
+          setCurrentUserId(uid);
           setMatches(await getMyMatches(uid));
         } catch {
           setMatches([]);
@@ -43,6 +46,35 @@ export default function MatchesScreen() {
       })();
     }, [auth.isGuest]),
   );
+
+  const handleAcceptChat = async (profile: RoommateProfile) => {
+    if (!currentUserId || !profile.id) return;
+    setAcceptingId(profile.id);
+    try {
+      const chatRoomId = [currentUserId, profile.id].sort().join("_");
+      const success = await acceptChatRequest(chatRoomId, currentUserId);
+      if (success) {
+        // Update the local state to reflect the accepted status
+        setMatches((prev) =>
+          prev.map((p) =>
+            p.id === profile.id ? { ...p, chat_status: "active" } : p,
+          ),
+        );
+      }
+    } catch (err) {
+      console.error("Accept chat failed:", err);
+    } finally {
+      setAcceptingId(null);
+    }
+  };
+
+  const handleNavigateToChat = (profile: RoommateProfile) => {
+    // Only allow navigation if chat is active or if there's no status (fallback to active)
+    const chatStatus = profile.chat_status ?? "active";
+    if (chatStatus === "active") {
+      router.push({ pathname: "/chat/[id]", params: { id: profile.id } });
+    }
+  };
 
   return (
     <View style={styles.container} testID="matches-screen">
@@ -85,13 +117,18 @@ export default function MatchesScreen() {
             const isDeleted = isDeletedCounterpart(p);
             const displayName = isDeleted ? "Deleted Account" : p.name;
             const hasAvatar = !isDeleted && !!p.photo?.trim();
+            const chatStatus = p.chat_status ?? "active";
+            const isPending = chatStatus === "pending";
+            const isInitiator = isPending && p.chat_initiated_by === currentUserId;
+            const isReceiver = isPending && p.chat_initiated_by !== currentUserId;
 
             return (
               <Pressable
                 key={p.id}
                 style={styles.row}
                 testID={`chat-row-${p.id}`}
-                onPress={() => router.push({ pathname: "/chat/[id]", params: { id: p.id } })}
+                onPress={() => handleNavigateToChat(p)}
+                disabled={isPending && isInitiator}
               >
                 {hasAvatar ? (
                   <Image source={{ uri: p.photo }} style={styles.avatar} contentFit="cover" transition={150} />
@@ -104,11 +141,29 @@ export default function MatchesScreen() {
                   <Text style={styles.rowName} numberOfLines={1}>
                     {displayName}
                   </Text>
-                  <Text style={styles.rowMsg} numberOfLines={1}>
-                    Hey there! 👋
-                  </Text>
+                  {isInitiator ? (
+                    <Text style={styles.rowMsg} numberOfLines={1}>
+                      Pending approval
+                    </Text>
+                  ) : (
+                    <Text style={styles.rowMsg} numberOfLines={1}>
+                      Hey there! 👋
+                    </Text>
+                  )}
                 </View>
-                <Ionicons name="paper-plane-outline" size={22} color={colors.onSurfaceTertiary} />
+                {isReceiver && acceptingId !== p.id ? (
+                  <Pressable
+                    style={styles.acceptBtn}
+                    onPress={() => handleAcceptChat(p)}
+                    testID={`accept-btn-${p.id}`}
+                  >
+                    <Text style={styles.acceptBtnText}>Accept</Text>
+                  </Pressable>
+                ) : isReceiver && acceptingId === p.id ? (
+                  <ActivityIndicator size="small" color={colors.brand} />
+                ) : (
+                  <Ionicons name="paper-plane-outline" size={22} color={colors.onSurfaceTertiary} />
+                )}
               </Pressable>
             );
           })}
@@ -146,6 +201,13 @@ const styles = StyleSheet.create({
   rowText: { flex: 1, gap: 3 },
   rowName: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface },
   rowMsg: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary },
+  acceptBtn: {
+    backgroundColor: colors.brandTertiary,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.sm,
+  },
+  acceptBtnText: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.brand },
   empty: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.xl, gap: spacing.sm },
   emptyIcon: {
     width: 88,
