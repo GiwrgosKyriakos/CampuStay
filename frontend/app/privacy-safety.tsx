@@ -13,6 +13,7 @@ export default function PrivacySafetyScreen() {
   const auth = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const isGuest = auth.isGuest;
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [privacy, setPrivacy] = useState<PrivacyPreferences>({
@@ -23,7 +24,7 @@ export default function PrivacySafetyScreen() {
 
   useEffect(() => {
     let active = true;
-    if (auth.isGuest) {
+    if (isGuest) {
       setLoading(false);
       return;
     }
@@ -42,11 +43,11 @@ export default function PrivacySafetyScreen() {
     return () => {
       active = false;
     };
-  }, [auth.isGuest, auth.userId]);
+  }, [isGuest, auth.userId]);
 
   const persistPrivacy = useCallback(
     async (nextPrivacy: PrivacyPreferences) => {
-      if (auth.isGuest) return;
+      if (isGuest) return;
       setPrivacy(nextPrivacy);
       setSaving(true);
       setError(null);
@@ -59,27 +60,27 @@ export default function PrivacySafetyScreen() {
         setSaving(false);
       }
     },
-    [auth.isGuest, auth.userId],
+    [isGuest, auth.userId],
   );
 
   const toggleVisibility = useCallback(
     (value: boolean) => {
-      if (auth.isGuest) return;
+      if (isGuest) return;
       persistPrivacy({ ...privacy, is_visible: value });
     },
-    [auth.isGuest, privacy, persistPrivacy],
+    [isGuest, privacy, persistPrivacy],
   );
 
   const unblockProfile = useCallback(
     (id: string) => {
-      if (auth.isGuest) return;
+      if (isGuest) return;
       const nextPrivacy = {
         ...privacy,
         blocked_profiles: privacy.blocked_profiles.filter((p) => p.id !== id),
       };
       persistPrivacy(nextPrivacy);
     },
-    [auth.isGuest, privacy, persistPrivacy],
+    [isGuest, privacy, persistPrivacy],
   );
 
   if (auth.isLoading || loading) {
@@ -127,13 +128,15 @@ export default function PrivacySafetyScreen() {
               </Text>
             </View>
           </View>
-          <Switch
-            value={privacy.is_visible}
-            onValueChange={toggleVisibility}
-            disabled={auth.isGuest}
-            trackColor={{ false: colors.surfaceSecondary, true: colors.brand }}
-            thumbColor={privacy.is_visible ? colors.surface : colors.surfaceSecondary}
-          />
+          <View style={isGuest ? styles.disabledControl : undefined}>
+            <Switch
+              value={privacy.is_visible}
+              onValueChange={toggleVisibility}
+              disabled={isGuest}
+              trackColor={{ false: isGuest ? colors.border : colors.surfaceSecondary, true: isGuest ? colors.onSurfaceTertiary : colors.brand }}
+              thumbColor={isGuest ? colors.surfaceTertiary : privacy.is_visible ? colors.surface : colors.surfaceSecondary}
+            />
+          </View>
         </View>
 
         <View style={styles.blockedCard}>
@@ -148,9 +151,9 @@ export default function PrivacySafetyScreen() {
                   <Text style={styles.blockedId}>{profile.id}</Text>
                 </View>
                 <Pressable
-                  style={[styles.unblockButton, auth.isGuest && styles.unblockButtonDisabled]}
+                  style={[styles.unblockButton, isGuest && styles.unblockButtonDisabled]}
                   onPress={() => unblockProfile(profile.id)}
-                  disabled={auth.isGuest}
+                  disabled={isGuest}
                   testID={`unblock-${profile.id}`}
                 >
                   <Text style={styles.unblockText}>Unblock</Text>
@@ -232,6 +235,7 @@ const styles = StyleSheet.create({
   unblockButtonDisabled: {
     opacity: 0.45,
   },
+  disabledControl: { opacity: 0.6 },
   unblockText: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onBrand },
   saveText: { fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.brand, marginTop: spacing.sm, textAlign: "center" },
   errorText: { fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.error, marginTop: spacing.sm, textAlign: "center" },

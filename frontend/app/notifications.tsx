@@ -40,6 +40,7 @@ export default function NotificationsScreen() {
   const auth = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const isGuest = auth.isGuest;
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [preferences, setPreferences] = useState<Record<NotificationKey, boolean>>({
@@ -51,7 +52,7 @@ export default function NotificationsScreen() {
 
   useEffect(() => {
     let active = true;
-    if (auth.isGuest) {
+    if (isGuest) {
       setLoading(false);
       return;
     }
@@ -72,7 +73,7 @@ export default function NotificationsScreen() {
     return () => {
       active = false;
     };
-  }, [auth.isGuest, auth.userId]);
+  }, [isGuest, auth.userId]);
 
   const updatePreference = useCallback(
     async (key: NotificationKey, value: boolean) => {
@@ -100,74 +101,62 @@ export default function NotificationsScreen() {
     );
   }
 
-  if (auth.isGuest) {
-    return (
-      <View style={styles.root}>
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={[styles.contentContainer, { paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + spacing["5xl"] }]}
-          showsVerticalScrollIndicator={false}
-          testID="notifications-guest-screen"
-        >
-          <View style={styles.header}>
-            <Text style={styles.title}>Notifications</Text>
-            <Text style={styles.subtitle}>Manage your push notification preferences.</Text>
-          </View>
+  return (
+    <View style={styles.root}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[
+          styles.contentContainer,
+          { paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + (isGuest ? spacing["5xl"] : spacing.xl) },
+        ]}
+        showsVerticalScrollIndicator={false}
+        testID="notifications-screen"
+      >
+        <View style={styles.header}>
+          <Text style={styles.title}>Notifications</Text>
+          <Text style={styles.subtitle}>Manage your push notification preferences.</Text>
+        </View>
 
+        {isGuest && (
           <GuestModeTopBanner
             onPress={() => router.push("/auth-landing")}
             testID="notifications-guest-banner"
             buttonTestID="notifications-guest-top-signin-button"
             style={styles.guestBannerSpacing}
           />
+        )}
 
-          <View style={styles.guestInfoCard}>
-            <Text style={styles.guestTitle}>Notifications are disabled in Guest Mode</Text>
-            <Text style={styles.guestSubtitle}>
-              Log in to access your personal notification preferences and receive updates for your matches.
-            </Text>
-          </View>
-        </ScrollView>
+        <View style={styles.centerBlock}>
+          {NOTIFICATION_ROWS.map((row) => (
+            <View key={row.id} style={styles.settingRow} testID={`notification-row-${row.id}`}>
+              <View style={styles.rowText}>
+                <Text style={styles.settingTitle}>{row.title}</Text>
+                <Text style={styles.settingSubtitle}>{row.subtitle}</Text>
+              </View>
+              <View style={isGuest ? styles.disabledControl : undefined}>
+                <Switch
+                  value={preferences[row.id]}
+                  onValueChange={(value) => updatePreference(row.id, value)}
+                  disabled={isGuest}
+                  trackColor={{ false: isGuest ? colors.border : colors.surfaceSecondary, true: isGuest ? colors.onSurfaceTertiary : colors.brand }}
+                  thumbColor={isGuest ? colors.surfaceTertiary : preferences[row.id] ? colors.surface : colors.surfaceSecondary}
+                />
+              </View>
+            </View>
+          ))}
+        </View>
+        {saving && <Text style={styles.saveText}>Saving changes…</Text>}
+        {error && <Text style={styles.errorText}>{error}</Text>}
+      </ScrollView>
 
+      {isGuest && (
         <GuestModeStickyFooter
           onPress={() => router.push("/auth-landing")}
           bottomInset={insets.bottom}
           buttonTestID="notifications-guest-footer-signin-button"
         />
-      </View>
-    );
-  }
-
-  return (
-    <ScrollView
-      style={styles.scroll}
-      contentContainerStyle={[styles.contentContainer, { paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + spacing.xl }]}
-      showsVerticalScrollIndicator={false}
-      testID="notifications-screen"
-    >
-      <View style={styles.header}>
-        <Text style={styles.title}>Notifications</Text>
-        <Text style={styles.subtitle}>Manage your push notification preferences.</Text>
-      </View>
-      <View style={styles.centerBlock}>
-        {NOTIFICATION_ROWS.map((row) => (
-          <View key={row.id} style={styles.settingRow} testID={`notification-row-${row.id}`}>
-            <View style={styles.rowText}>
-              <Text style={styles.settingTitle}>{row.title}</Text>
-              <Text style={styles.settingSubtitle}>{row.subtitle}</Text>
-            </View>
-            <Switch
-              value={preferences[row.id]}
-              onValueChange={(value) => updatePreference(row.id, value)}
-              trackColor={{ false: colors.surfaceSecondary, true: colors.brand }}
-              thumbColor={preferences[row.id] ? colors.surface : colors.surfaceSecondary}
-            />
-          </View>
-        ))}
-      </View>
-      {saving && <Text style={styles.saveText}>Saving changes…</Text>}
-      {error && <Text style={styles.errorText}>{error}</Text>}
-    </ScrollView>
+      )}
+    </View>
   );
 }
 
@@ -198,13 +187,5 @@ const styles = StyleSheet.create({
   saveText: { fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.brand, marginTop: spacing.sm, textAlign: "center" },
   errorText: { fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.error, marginTop: spacing.sm, textAlign: "center" },
   guestBannerSpacing: { marginBottom: spacing.lg },
-  guestInfoCard: {
-    backgroundColor: colors.surfaceSecondary,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.lg,
-  },
-  guestTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize.xl, color: colors.onSurface, textAlign: "center" },
-  guestSubtitle: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary, textAlign: "center", marginTop: spacing.sm },
+  disabledControl: { opacity: 0.6 },
 });
