@@ -154,9 +154,9 @@ export default function ProfileScreen() {
           </View>
           <Text style={styles.name}>{displayName}</Text>
           <View style={styles.subInfoWrap}>
-            <Text style={styles.subInfoText}>{age != null ? `Age ${age}` : "Add your age"}</Text>
-            <Text style={styles.subInfoText}>{program}</Text>
-            <Text style={styles.subInfoText}>{university}</Text>
+            <Text style={styles.subInfoText}>
+              {age != null ? `Age ${age}` : "Add your age"} · {program} · {university}
+            </Text>
           </View>
         </View>
 
@@ -257,8 +257,8 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
-  hero: { alignItems: "center", paddingBottom: spacing.xl, gap: spacing.sm },
-  avatarWrap: { marginTop: spacing.sm, marginBottom: spacing.sm },
+  hero: { alignItems: "center", paddingTop: spacing["3xl"], paddingBottom: spacing.xl, gap: spacing.sm },
+  avatarWrap: { marginTop: spacing.lg, marginBottom: spacing.sm },
   avatarButton: { alignItems: "center", justifyContent: "center" },
   avatarButtonPressed: { transform: [{ scale: 0.98 }] },
   avatar: {
@@ -294,7 +294,7 @@ const styles = StyleSheet.create({
   name: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface },
   subInfoWrap: {
     width: "100%",
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
     alignItems: "center",
     gap: 2,
   },
@@ -303,6 +303,7 @@ const styles = StyleSheet.create({
     fontSize: fontSize.base,
     color: colors.onSurfaceTertiary,
     textAlign: "center",
+    flexWrap: "wrap",
     lineHeight: 20,
   },
   statsCard: {
