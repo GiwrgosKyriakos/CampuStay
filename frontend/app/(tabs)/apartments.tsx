@@ -5,11 +5,13 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
+import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import { getUserProfile } from "@/src/api/userProfile";
 import { getUserId } from "@/src/utils/userId";
 import { useAuth } from "@/src/context/auth";
+import { db } from "@/src/config/firebase";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 100;
@@ -24,6 +26,22 @@ interface Apartment {
   size: number;
   image: string;
   tags: string[];
+  hostId?: string;
+}
+
+interface FirestoreApartmentDoc {
+  title?: string;
+  area?: string;
+  city?: string;
+  rent?: number;
+  price?: number;
+  rooms?: number;
+  size?: number;
+  sqft?: number;
+  image?: string;
+  tags?: string[];
+  amenities?: string[];
+  hostId?: string;
 }
 
 const APARTMENTS: Apartment[] = [
@@ -77,11 +95,11 @@ const APARTMENTS: Apartment[] = [
   },
 ];
 
-export default function ApartmentsScreen({ route, navigation }: any) {
+export default function ApartmentsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const auth = useAuth();
-  const [apartments, setApartments] = useState<Apartment[]>(APARTMENTS);
+  const [publishedApartments, setPublishedApartments] = useState<Apartment[]>([]);
   const [showFilters, setShowFilters] = useState(false);
   const [rentMin, setRentMin] = useState("");
   const [rentMax, setRentMax] = useState("");
@@ -91,6 +109,40 @@ export default function ApartmentsScreen({ route, navigation }: any) {
   const [petFriendly, setPetFriendly] = useState(false);
   const [nearMetro, setNearMetro] = useState(false);
   const [hideCreateFab, setHideCreateFab] = useState(false);
+
+  useEffect(() => {
+    const apartmentsQuery = query(collection(db, "apartments"), orderBy("createdAt", "desc"));
+    const unsubscribe = onSnapshot(
+      apartmentsQuery,
+      (snapshot) => {
+        const fetched: Apartment[] = snapshot.docs.map((snap) => {
+          const data = snap.data() as FirestoreApartmentDoc;
+          const amenities = Array.isArray(data.amenities) ? data.amenities : [];
+          const tags = Array.isArray(data.tags) ? data.tags : amenities;
+          return {
+            id: snap.id,
+            title: data.title?.trim() || "Apartment listing",
+            area: data.area?.trim() || "Unknown area",
+            city: data.city?.trim() || "Unknown city",
+            rent: typeof data.rent === "number" ? data.rent : typeof data.price === "number" ? data.price : 0,
+            rooms: typeof data.rooms === "number" ? data.rooms : 1,
+            size: typeof data.size === "number" ? data.size : typeof data.sqft === "number" ? data.sqft : 0,
+            image:
+              data.image ||
+              "https://images.unsplash.com/photo-1564078516393-cf04bd966897?crop=entropy&cs=srgb&fm=jpg&w=1200&q=85",
+            tags: tags.length ? tags : ["New listing"],
+            hostId: data.hostId,
+          };
+        });
+        setPublishedApartments(fetched);
+      },
+      () => {
+        setPublishedApartments([]);
+      },
+    );
+
+    return () => unsubscribe();
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -116,12 +168,7 @@ export default function ApartmentsScreen({ route, navigation }: any) {
     }, [auth.isGuest]),
   );
 
-  useEffect(() => {
-    const newListing = route?.params?.newListing;
-    if (!newListing) return;
-    setApartments((prev) => [newListing, ...prev]);
-    navigation?.setParams?.({ newListing: undefined });
-  }, [navigation, route?.params?.newListing]);
+  const apartments = useMemo(() => [...publishedApartments, ...APARTMENTS], [publishedApartments]);
 
   const filteredApartments = useMemo(() => {
     const minRent = rentMin ? Number(rentMin) : null;

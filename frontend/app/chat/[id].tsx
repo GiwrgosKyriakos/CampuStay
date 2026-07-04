@@ -75,7 +75,7 @@ function getMessageGroupInfo(messages: Message[], index: number, currentUserId: 
 export default function ChatScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, chatRoomId: chatRoomIdParam } = useLocalSearchParams<{ id: string; chatRoomId?: string }>();
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [profile, setProfile] = useState<RoommateProfile | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
@@ -95,9 +95,12 @@ export default function ChatScreen() {
   }, []);
 
   const chatRoomId = useMemo(() => {
+    if (typeof chatRoomIdParam === "string" && chatRoomIdParam.trim().length > 0) {
+      return chatRoomIdParam;
+    }
     if (!currentUserId || !id) return null;
     return [currentUserId, id].sort().join("_");
-  }, [currentUserId, id]);
+  }, [chatRoomIdParam, currentUserId, id]);
 
   const scrollRef = useRef<ScrollView>(null);
   const [text, setText] = useState("");

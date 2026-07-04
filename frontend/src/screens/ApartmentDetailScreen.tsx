@@ -1,5 +1,6 @@
 import React, { useRef, useState } from "react";
 import {
+  Alert,
   Dimensions,
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -14,9 +15,11 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Linking from "expo-linking";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 
 import { colors, fonts, fontSize, radius, spacing } from "@/src/theme";
 import { useAuth } from "@/src/context/auth";
+import { db } from "@/src/config/firebase";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const CURRENCY = "€";
@@ -32,6 +35,7 @@ interface Apartment {
   size: number;
   image: string;
   tags: string[];
+  hostId?: string;
 }
 
 type AmenityDef = {
@@ -87,6 +91,47 @@ export default function ApartmentDetailScreen() {
   const contactHost = () => {
     const subject = encodeURIComponent(`Inquiry about: ${apt!.title}`);
     Linking.openURL(`mailto:${CONTACT_EMAIL}?subject=${subject}`);
+  };
+
+  const startHostChat = async () => {
+    const currentUid = auth.userId;
+    const hostId = apt?.hostId;
+
+    if (!currentUid) {
+      router.push("/auth-landing");
+      return;
+    }
+
+    if (!hostId) {
+      contactHost();
+      return;
+    }
+
+    if (hostId === currentUid) {
+      Alert.alert("Host listing", "You are the host of this listing.");
+      return;
+    }
+
+    const chatRoomId = `${currentUid}_${hostId}`;
+
+    try {
+      await setDoc(
+        doc(db, "chats", chatRoomId),
+        {
+          users: [currentUid, hostId],
+          status: "active",
+          initiatedBy: currentUid,
+          apartmentId: apt?.id,
+          apartmentTitle: apt?.title,
+          updatedAt: serverTimestamp(),
+          createdAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+      router.push({ pathname: "/chat/[id]", params: { id: hostId, chatRoomId } });
+    } catch {
+      Alert.alert("Chat unavailable", "We could not open the chat right now. Please try again.");
+    }
   };
 
   return (
@@ -223,12 +268,12 @@ export default function ApartmentDetailScreen() {
       <View style={[styles.footer, { paddingBottom: spacing.lg + insets.bottom }]}>
         <Pressable
           style={({ pressed }) => [styles.contactBtn, pressed && styles.contactBtnPressed]}
-          onPress={auth.isGuest ? () => router.push("/auth-landing") : contactHost}
+          onPress={auth.isGuest ? () => router.push("/auth-landing") : startHostChat}
           testID="apartment-detail-contact"
         >
           <Ionicons name="mail-outline" size={20} color={colors.onBrand} />
           <Text style={styles.contactBtnText}>
-            {auth.isGuest ? "Sign Up / Log In to contact host" : "Contact Host"}
+            {auth.isGuest ? "Sign Up / Log In to contact host" : "Contact Host / Landlord"}
           </Text>
         </Pressable>
       </View>
