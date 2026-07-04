@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback, useEffect } from "react";
+import React, { useRef, useState, useCallback, useEffect, useMemo } from "react";
 import {
   View,
   Text,
@@ -27,7 +27,14 @@ const CURRENCY = "€";
 interface Message {
   id: string;
   text: string;
-  mine: boolean;
+  senderId: string;
+  createdAt: any;
+}
+
+interface FirestoreMessageDoc {
+  text?: string;
+  senderId?: string;
+  createdAt?: any;
 }
 
 export default function ChatScreen() {
@@ -52,45 +59,82 @@ export default function ChatScreen() {
     getUserId().then(setCurrentUserId);
   }, []);
 
+  const chatRoomId = useMemo(() => {
+    if (!currentUserId || !id) return null;
+    return [currentUserId, id].sort().join("_");
+  }, [currentUserId, id]);
+
   const scrollRef = useRef<ScrollView>(null);
   const [text, setText] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
 
+  const createdAtToMillis = useCallback((value: any): number => {
+    if (typeof value === "number") return value;
+    if (value?.toMillis && typeof value.toMillis === "function") return value.toMillis();
+    const parsed = Date.parse(String(value));
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }, []);
+
+  const sortMessages = useCallback(
+    (list: Message[]) =>
+      [...list].sort((a, b) => createdAtToMillis(a.createdAt) - createdAtToMillis(b.createdAt)),
+    [createdAtToMillis],
+  );
+
   useEffect(() => {
-    if (!currentUserId || !id) return;
-    const chatId = [currentUserId, id].sort().join("_");
+    if (!currentUserId || !chatRoomId) return;
     const q = query(
-      collection(db, "chats", chatId, "messages"),
+      collection(db, "chats", chatRoomId, "messages"),
       orderBy("createdAt", "asc"),
     );
     const unsub = onSnapshot(q, (snapshot) => {
       const fetched: Message[] = snapshot.docs.map((doc) => {
-        const data = doc.data();
+        const data = doc.data() as FirestoreMessageDoc;
         return {
           id: doc.id,
           text: data.text ?? "",
-          mine: data.senderId === currentUserId,
+          senderId: data.senderId ?? "",
+          createdAt: data.createdAt ?? 0,
         };
       });
-      setMessages(fetched);
+      setMessages((prev) => {
+        const optimisticPending = prev.filter((m) => m.id.startsWith("temp-") && m.senderId === currentUserId);
+        const unresolved = optimisticPending.filter(
+          (temp) => !fetched.some((serverMsg) => serverMsg.senderId === temp.senderId && serverMsg.text === temp.text),
+        );
+        return sortMessages([...fetched, ...unresolved]);
+      });
       requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: false }));
     });
     return unsub;
-  }, [currentUserId, id]);
+  }, [chatRoomId, currentUserId, sortMessages]);
 
   const send = useCallback(async () => {
     const trimmed = text.trim();
-    if (!trimmed || !currentUserId || !id) return;
-    const chatId = [currentUserId, id].sort().join("_");
-    setText("");
-    requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
-    await addDoc(collection(db, "chats", chatId, "messages"), {
+    if (!trimmed || !currentUserId || !id || !chatRoomId) return;
+
+    const optimisticMessage: Message = {
+      id: `temp-${Date.now()}`,
       text: trimmed,
       senderId: currentUserId,
-      receiverId: id,
-      createdAt: serverTimestamp(),
-    });
-  }, [text, currentUserId, id]);
+      createdAt: Date.now(),
+    };
+
+    setMessages((prev) => sortMessages([...prev, optimisticMessage]));
+    setText("");
+    requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
+
+    try {
+      await addDoc(collection(db, "chats", chatRoomId, "messages"), {
+        text: trimmed,
+        senderId: currentUserId,
+        receiverId: id,
+        createdAt: serverTimestamp(),
+      });
+    } catch {
+      setMessages((prev) => prev.filter((m) => m.id !== optimisticMessage.id));
+    }
+  }, [chatRoomId, currentUserId, id, sortMessages, text]);
 
   if (!profile) {
     return (
@@ -164,12 +208,13 @@ export default function ChatScreen() {
           onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}
         >
           {messages.map((m) => (
+            // Keep visual bubble style untouched; ownership derives from senderId.
             <View
               key={m.id}
-              style={[styles.bubble, m.mine ? styles.bubbleMine : styles.bubbleTheirs]}
+              style={[styles.bubble, m.senderId === currentUserId ? styles.bubbleMine : styles.bubbleTheirs]}
               testID={`chat-message-${m.id}`}
             >
-              <Text style={[styles.bubbleText, m.mine && styles.bubbleTextMine]}>{m.text}</Text>
+              <Text style={[styles.bubbleText, m.senderId === currentUserId && styles.bubbleTextMine]}>{m.text}</Text>
             </View>
           ))}
         </ScrollView>
