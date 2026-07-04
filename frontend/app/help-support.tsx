@@ -29,6 +29,30 @@ export default function HelpSupportScreen() {
   const auth = useAuth();
   const [openIndex, setOpenIndex] = useState<number | null>(null);
 
+  const openEmailSupport = async () => {
+    if (auth.isGuest) return;
+    await Linking.openURL("mailto:gkiriakos92@gmail.com?subject=CampuStay%20Support%20Inquiry");
+  };
+
+  const openInstagram = async () => {
+    if (auth.isGuest) return;
+    try {
+      const supported = await Linking.canOpenURL("instagram://user?username=g1wrgos.k");
+      if (supported) {
+        await Linking.openURL("instagram://user?username=g1wrgos.k");
+        return;
+      }
+    } catch {
+      // Fall back to web URL below.
+    }
+    await Linking.openURL("https://instagram.com/g1wrgos.k");
+  };
+  
+  const openWebsite = async () => {
+    if (auth.isGuest) return;
+    await Linking.openURL("https://www.campustay.com");
+  };
+
   if (auth.isLoading) return null;
 
   const navigationSource = auth.isGuest ? "/guest" : "/roommates";
@@ -81,6 +105,47 @@ export default function HelpSupportScreen() {
         <Text style={styles.contactButtonText}>Contact Support Team</Text>
       </Pressable>
 
+      <View style={styles.linksSection}>
+        <Pressable
+          style={[styles.linkRow, auth.isGuest && styles.linkRowDisabled]}
+          onPress={openEmailSupport}
+          disabled={auth.isGuest}
+          testID="help-email-support"
+        >
+          <View style={styles.linkIconWrap}>
+            <Ionicons name="mail-outline" size={20} color={colors.onSurface} />
+          </View>
+          <Text style={styles.linkLabel}>Email Support</Text>
+          <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+        </Pressable>
+
+        <Pressable
+          style={[styles.linkRow, auth.isGuest && styles.linkRowDisabled]}
+          onPress={openInstagram}
+          disabled={auth.isGuest}
+          testID="help-instagram-link"
+        >
+          <View style={styles.linkIconWrap}>
+            <Ionicons name="logo-instagram" size={20} color={colors.onSurface} />
+          </View>
+          <Text style={styles.linkLabel}>Follow us on Instagram</Text>
+          <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+        </Pressable>
+
+        <Pressable
+          style={[styles.linkRow, auth.isGuest && styles.linkRowDisabled]}
+          onPress={openWebsite}
+          disabled={auth.isGuest}
+          testID="help-website-link"
+        >
+          <View style={styles.linkIconWrap}>
+            <Ionicons name="globe-outline" size={20} color={colors.onSurface} />
+          </View>
+          <Text style={styles.linkLabel}>Visit Website</Text>
+          <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+        </Pressable>
+      </View>
+
       <Pressable style={styles.backButton} onPress={() => router.replace(navigationSource)}>
         <Text style={styles.backText}>Back to home</Text>
       </Pressable>
@@ -127,6 +192,40 @@ const styles = StyleSheet.create({
   },
   contactButtonDisabled: { opacity: 0.45 },
   contactButtonText: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onBrand },
+  linksSection: {
+    marginTop: spacing.md,
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: "hidden",
+  },
+  linkRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.lg,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.divider,
+  },
+  linkRowDisabled: {
+    opacity: 0.45,
+  },
+  linkIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.md,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surface,
+  },
+  linkLabel: {
+    flex: 1,
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.base,
+    color: colors.onSurface,
+  },
   backButton: {
     marginTop: spacing.md,
     alignItems: "center",
