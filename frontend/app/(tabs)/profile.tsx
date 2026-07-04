@@ -115,7 +115,7 @@ export default function ProfileScreen() {
         ],
       };
 
-      await saveUserProfile(uid, nextProfile);
+      await saveUserProfile(uid, nextProfile, { email: auth.user?.email ?? null });
       setProfile(nextProfile);
     } finally {
       setUpdatingPhoto(false);

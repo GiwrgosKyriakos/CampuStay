@@ -6,7 +6,7 @@ import * as WebBrowser from "expo-web-browser";
 import { storage } from "@/src/utils/storage";
 import { setUserIdCache } from "@/src/utils/userId";
 import { apiLogin, apiRegister, apiGoogle, apiMe, apiLogout, AuthUser } from "@/src/api/auth";
-import { getUserProfile } from "@/src/api/userProfile";
+import { userProfileExists } from "@/src/api/userProfile";
 
 const TOKEN_KEY = "auth_token";
 const GUEST_KEY = "auth_guest";
@@ -60,8 +60,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const resolveNeedsProfileSetup = useCallback(async (userId: string): Promise<boolean> => {
     try {
-      const profile = await getUserProfile(userId);
-      const needsSetup = !profile;
+      const exists = await userProfileExists(userId);
+      const needsSetup = !exists;
       if (needsSetup) await storage.setItem(SETUP_KEY, true);
       else await storage.removeItem(SETUP_KEY);
       return needsSetup;

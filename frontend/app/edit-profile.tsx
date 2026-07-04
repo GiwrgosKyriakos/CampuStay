@@ -236,7 +236,7 @@ export default function EditProfileScreen() {
       };
       if (userId) {
         console.log(`[EditProfile] → Calling saveUserProfile for user: ${userId.substring(0, 8)}...`);
-        await saveUserProfile(userId, profile);
+        await saveUserProfile(userId, profile, { email: auth.user?.email ?? null });
         console.log("[EditProfile] ✓ Profile saved successfully");
       }
       
