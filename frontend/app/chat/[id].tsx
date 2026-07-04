@@ -22,6 +22,7 @@ import { getUserId } from "@/src/utils/userId";
 import { db } from "@/src/config/firebase";
 import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc } from "firebase/firestore";
 import { DELETED_ACCOUNT_LABEL } from "@/src/api/accountDeletion";
+import { markIncomingMessagesAsRead } from "@/src/api/chat";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 
 const CURRENCY = "€";
@@ -31,12 +32,15 @@ interface Message {
   text: string;
   senderId: string;
   createdAt: any;
+  isRead?: boolean;
 }
 
 interface FirestoreMessageDoc {
   text?: string;
   senderId?: string;
   createdAt?: any;
+  isRead?: boolean;
+  readAt?: any;
 }
 
 interface FirestoreChatDoc {
@@ -151,6 +155,7 @@ export default function ChatScreen() {
           text: data.text ?? "",
           senderId: data.senderId ?? "",
           createdAt: data.createdAt ?? 0,
+          isRead: data.isRead ?? true,
         };
       });
       setMessages((prev) => {
@@ -167,6 +172,14 @@ export default function ChatScreen() {
       unsubChat();
     };
   }, [chatRoomId, currentUserId, sortMessages]);
+
+  // Mark incoming messages as read when user enters this chat
+  useEffect(() => {
+    if (!currentUserId || !chatRoomId || !id) return;
+    
+    // Call the async function to mark messages from counterpart as read
+    void markIncomingMessagesAsRead(chatRoomId, currentUserId, id);
+  }, [chatRoomId, currentUserId, id]);
 
   const send = useCallback(async () => {
     const trimmed = text.trim();
@@ -190,6 +203,7 @@ export default function ChatScreen() {
         senderId: currentUserId,
         receiverId: id,
         createdAt: serverTimestamp(),
+        isRead: false,
       });
     } catch {
       setMessages((prev) => prev.filter((m) => m.id !== optimisticMessage.id));
