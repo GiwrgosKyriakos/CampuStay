@@ -11,6 +11,8 @@ import { useAuth } from "@/src/context/auth";
 import { getUserId } from "@/src/utils/userId";
 import { getUserProfile, saveUserProfile, UserProfile } from "@/src/api/userProfile";
 import { getMyMatches } from "@/src/api/discover";
+import { getRoomieProfile } from "@/src/api/roomieProfile";
+import { TOTAL_QUESTIONS } from "@/src/data/quiz";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 100;
@@ -33,6 +35,7 @@ export default function ProfileScreen() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [matchCount, setMatchCount] = useState(0);
   const [updatingPhoto, setUpdatingPhoto] = useState(false);
+  const [quizAnsweredCount, setQuizAnsweredCount] = useState(0);
 
   React.useEffect(() => {
     if (auth.isGuest) {
@@ -47,12 +50,14 @@ export default function ProfileScreen() {
       (async () => {
         try {
           const uid = await getUserId();
-          const [p, m] = await Promise.all([
+          const [p, m, quiz] = await Promise.all([
             getUserProfile(uid).catch(() => null),
             getMyMatches(uid).catch(() => []),
+            getRoomieProfile(uid).catch(() => ({ answers: {} })),
           ]);
           setProfile(p);
           setMatchCount(m.length);
+          setQuizAnsweredCount(Object.keys(quiz.answers ?? {}).length);
         } catch {
           /* keep placeholders */
         }
@@ -184,18 +189,35 @@ export default function ProfileScreen() {
 
         <View style={styles.section}>
           {NAV_SETTINGS.map((s, i) => (
-            <Pressable
-              key={s.label}
-              style={[styles.row, i < NAV_SETTINGS.length - 1 && styles.rowBorder]}
-              testID={s.testID}
-              onPress={() => canAccessRoute(s.route) && router.push(s.route as any)}
-            >
-              <View style={styles.rowIcon}>
-                <Ionicons name={s.icon} size={20} color={colors.onSurface} />
-              </View>
-              <Text style={[styles.rowLabel, !canAccessRoute(s.route) && styles.rowDisabled]}>{s.label}</Text>
-              <Ionicons name="chevron-forward" size={18} color={!canAccessRoute(s.route) ? colors.border : colors.onSurfaceTertiary} />
-            </Pressable>
+            <View key={s.label}>
+              <Pressable
+                style={[styles.row, i < NAV_SETTINGS.length - 1 && styles.rowBorder]}
+                testID={s.testID}
+                onPress={() => canAccessRoute(s.route) && router.push(s.route as any)}
+              >
+                <View style={styles.rowIcon}>
+                  <Ionicons name={s.icon} size={20} color={colors.onSurface} />
+                </View>
+                <Text style={[styles.rowLabel, !canAccessRoute(s.route) && styles.rowDisabled]}>{s.label}</Text>
+                <Ionicons name="chevron-forward" size={18} color={!canAccessRoute(s.route) ? colors.border : colors.onSurfaceTertiary} />
+              </Pressable>
+
+              {s.route === "/roomie-profile" && (
+                <View style={styles.quizProgressWrap} testID="quiz-progress-wrap">
+                  <View style={styles.quizProgressTrack}>
+                    <View
+                      style={[
+                        styles.quizProgressFill,
+                        { width: `${Math.min(100, Math.round((quizAnsweredCount / TOTAL_QUESTIONS) * 100))}%` },
+                      ]}
+                    />
+                  </View>
+                  <Text style={styles.quizProgressText}>
+                    {quizAnsweredCount}/{TOTAL_QUESTIONS} answered
+                  </Text>
+                </View>
+              )}
+            </View>
           ))}
         </View>
 
@@ -308,6 +330,29 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   rowLabel: { flex: 1, fontFamily: fonts.semibold, fontSize: fontSize.lg, color: colors.onSurface },
+  quizProgressWrap: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
+    paddingTop: spacing.xs,
+    gap: spacing.xs,
+  },
+  quizProgressTrack: {
+    height: 8,
+    borderRadius: radius.pill,
+    overflow: "hidden",
+    backgroundColor: colors.surfaceTertiary,
+  },
+  quizProgressFill: {
+    height: "100%",
+    borderRadius: radius.pill,
+    backgroundColor: colors.brand,
+  },
+  quizProgressText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+    color: colors.onSurfaceTertiary,
+    textAlign: "right",
+  },
   logout: {
     flexDirection: "row",
     alignItems: "center",

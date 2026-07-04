@@ -11,10 +11,12 @@ import SwipeDeck, { SwipeDeckHandle } from "@/src/components/SwipeDeck";
 import FilterSheet, { Filters, DEFAULT_FILTERS } from "@/src/components/FilterSheet";
 import { getUserId } from "@/src/utils/userId";
 import { getCandidates, postSwipe } from "@/src/api/discover";
+import { getRoomieProfile } from "@/src/api/roomieProfile";
 import { useAuth } from "@/src/context/auth";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 84;
+const TOTAL_QUESTIONS_PLACEHOLDER = 15;
 
 export default function RoommatesScreen() {
   const insets = useSafeAreaInsets();
@@ -26,6 +28,7 @@ export default function RoommatesScreen() {
   const [activeAction, setActiveAction] = useState<"left" | "right" | null>(null);
   const [candidates, setCandidates] = useState<RoommateProfile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [quizAnsweredCount, setQuizAnsweredCount] = useState(0);
   const actionTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async () => {
@@ -49,6 +52,30 @@ export default function RoommatesScreen() {
         if (actionTimeout.current) clearTimeout(actionTimeout.current);
       };
     }, [load]),
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (auth.isGuest) {
+        setQuizAnsweredCount(0);
+        return;
+      }
+
+      let mounted = true;
+      (async () => {
+        try {
+          const uid = await getUserId();
+          const quiz = await getRoomieProfile(uid).catch(() => ({ answers: {} }));
+          if (mounted) setQuizAnsweredCount(Object.keys(quiz.answers ?? {}).length);
+        } catch {
+          if (mounted) setQuizAnsweredCount(0);
+        }
+      })();
+
+      return () => {
+        mounted = false;
+      };
+    }, [auth.isGuest]),
   );
 
   const filtered = useMemo(
@@ -96,9 +123,20 @@ export default function RoommatesScreen() {
   return (
     <View style={styles.container} testID="roommates-screen">
       <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
-        <Text style={styles.brand}>
-          Roomie<Text style={{ color: colors.brand }}>Swipe</Text>
-        </Text>
+        <View style={styles.brandRow}>
+          <Text style={styles.brand}>
+            Roomie<Text style={{ color: colors.brand }}>Swipe</Text>
+          </Text>
+          {quizAnsweredCount === 0 && (
+            <Pressable
+              style={styles.quizPill}
+              onPress={() => router.push("/roomie-profile")}
+              testID="roommates-quiz-pill"
+            >
+              <Text style={styles.quizPillText}>Quiz</Text>
+            </Pressable>
+          )}
+        </View>
         <Pressable style={styles.filterPill} onPress={openSheet} testID="filter-open-button">
           <Text style={styles.filterText}>Roomate Preferences</Text>
         </Pressable>
@@ -157,7 +195,17 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md, gap: spacing.md },
+  brandRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   brand: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface },
+  quizPill: {
+    backgroundColor: colors.brand,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  quizPillText: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onBrand },
   filterPill: {
     alignItems: "center",
     justifyContent: "center",
