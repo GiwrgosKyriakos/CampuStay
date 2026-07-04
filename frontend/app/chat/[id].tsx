@@ -37,8 +37,35 @@ interface FirestoreMessageDoc {
   createdAt?: any;
 }
 
+type MessageGroupPosition = "first" | "middle" | "last" | "single";
+
+interface MessageGroupInfo {
+  position: MessageGroupPosition;
+  isConsecutive: boolean;
+}
+
 function isDeletedCounterpart(profile: RoommateProfile): boolean {
   return !!profile.deleted || !profile.name?.trim();
+}
+
+function getMessageGroupInfo(messages: Message[], index: number, currentUserId: string): MessageGroupInfo {
+  const currentMsg = messages[index];
+  const prevMsg = index > 0 ? messages[index - 1] : null;
+  const nextMsg = index < messages.length - 1 ? messages[index + 1] : null;
+
+  const prevSame = prevMsg?.senderId === currentMsg.senderId;
+  const nextSame = nextMsg?.senderId === currentMsg.senderId;
+
+  if (!prevSame && !nextSame) {
+    return { position: "single", isConsecutive: false };
+  }
+  if (!prevSame && nextSame) {
+    return { position: "first", isConsecutive: true };
+  }
+  if (prevSame && nextSame) {
+    return { position: "middle", isConsecutive: true };
+  }
+  return { position: "last", isConsecutive: true };
 }
 
 export default function ChatScreen() {
@@ -214,8 +241,8 @@ export default function ChatScreen() {
 
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === "ios" ? "translate-with-padding" : "height"}
-        keyboardVerticalOffset={spacing.md}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? insets.top : 0}
       >
         <ScrollView
           ref={scrollRef}
@@ -224,16 +251,59 @@ export default function ChatScreen() {
           showsVerticalScrollIndicator={false}
           onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}
         >
-          {messages.map((m) => (
-            // Keep visual bubble style untouched; ownership derives from senderId.
-            <View
-              key={m.id}
-              style={[styles.bubble, m.senderId === currentUserId ? styles.bubbleMine : styles.bubbleTheirs]}
-              testID={`chat-message-${m.id}`}
-            >
-              <Text style={[styles.bubbleText, m.senderId === currentUserId && styles.bubbleTextMine]}>{m.text}</Text>
-            </View>
-          ))}
+          {messages.map((m, idx) => {
+            const groupInfo = getMessageGroupInfo(messages, idx, currentUserId || "");
+            const isMine = m.senderId === currentUserId;
+            const lastMsgIsDifferentSender = idx > 0 && messages[idx - 1].senderId !== m.senderId;
+
+            let borderRadii = {};
+            if (isMine) {
+              // Sent messages (right side)
+              if (groupInfo.position === "first") {
+                borderRadii = { borderTopRightRadius: radius.sm, borderBottomRightRadius: radius.lg };
+              } else if (groupInfo.position === "middle") {
+                borderRadii = { borderTopRightRadius: radius.sm, borderBottomRightRadius: radius.sm };
+              } else if (groupInfo.position === "last") {
+                borderRadii = { borderTopRightRadius: radius.lg, borderBottomRightRadius: radius.sm };
+              } else {
+                borderRadii = { borderTopRightRadius: radius.lg, borderBottomRightRadius: radius.sm };
+              }
+            } else {
+              // Received messages (left side)
+              if (groupInfo.position === "first") {
+                borderRadii = { borderTopLeftRadius: radius.sm, borderBottomLeftRadius: radius.lg };
+              } else if (groupInfo.position === "middle") {
+                borderRadii = { borderTopLeftRadius: radius.sm, borderBottomLeftRadius: radius.sm };
+              } else if (groupInfo.position === "last") {
+                borderRadii = { borderTopLeftRadius: radius.lg, borderBottomLeftRadius: radius.sm };
+              } else {
+                borderRadii = { borderTopLeftRadius: radius.lg, borderBottomLeftRadius: radius.sm };
+              }
+            }
+
+            return (
+              <View
+                key={m.id}
+                style={[
+                  styles.bubble,
+                  isMine ? styles.bubbleMine : styles.bubbleTheirs,
+                  borderRadii,
+                  {
+                    marginVertical: groupInfo.isConsecutive
+                      ? groupInfo.position === "first"
+                        ? spacing.xs
+                        : 2
+                      : lastMsgIsDifferentSender
+                      ? spacing.sm
+                      : spacing.xs,
+                  },
+                ]}
+                testID={`chat-message-${m.id}`}
+              >
+                <Text style={[styles.bubbleText, isMine && styles.bubbleTextMine]}>{m.text}</Text>
+              </View>
+            );
+          })}
         </ScrollView>
 
         <View style={[styles.inputBar, { paddingBottom: insets.bottom + spacing.sm }]}>
@@ -315,7 +385,7 @@ const styles = StyleSheet.create({
   },
   budgetPill: { backgroundColor: colors.brandTertiary },
   detailText: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
-  messages: { padding: spacing.lg, gap: spacing.sm },
+  messages: { paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, gap: 0 },
   bubble: {
     maxWidth: "78%",
     paddingHorizontal: spacing.lg,
@@ -325,12 +395,10 @@ const styles = StyleSheet.create({
   bubbleTheirs: {
     alignSelf: "flex-start",
     backgroundColor: colors.surfaceTertiary,
-    borderBottomLeftRadius: radius.sm,
   },
   bubbleMine: {
     alignSelf: "flex-end",
     backgroundColor: colors.brand,
-    borderBottomRightRadius: radius.sm,
   },
   bubbleText: { fontFamily: fonts.regular, fontSize: fontSize.lg, color: colors.onSurface },
   bubbleTextMine: { color: colors.onBrand, fontFamily: fonts.semibold },
