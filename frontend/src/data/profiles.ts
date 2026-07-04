@@ -11,4 +11,5 @@ export interface RoommateProfile {
   bio: string;
   tags: string[];
   photo: string;
+  deleted?: boolean;
 }

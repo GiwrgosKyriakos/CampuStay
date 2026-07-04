@@ -37,6 +37,10 @@ interface FirestoreMessageDoc {
   createdAt?: any;
 }
 
+function isDeletedCounterpart(profile: RoommateProfile): boolean {
+  return !!profile.deleted || !profile.name?.trim();
+}
+
 export default function ChatScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -153,6 +157,14 @@ export default function ChatScreen() {
     );
   }
 
+  const deletedCounterpart = isDeletedCounterpart(profile);
+  const displayName = deletedCounterpart ? "Deleted Account" : profile.name;
+  const displayUniversity = deletedCounterpart ? "" : profile.university;
+  const displayGender = deletedCounterpart ? "N/A" : profile.gender;
+  const displayAge = deletedCounterpart ? "—" : `${profile.age} yrs`;
+  const displayBudget = deletedCounterpart ? "—" : `${CURRENCY}${profile.budget}/mo`;
+  const showAvatarImage = !deletedCounterpart && !!profile.photo?.trim();
+
   return (
     <View style={styles.container} testID="chat-screen">
       {/* Header */}
@@ -166,30 +178,35 @@ export default function ChatScreen() {
           >
             <Ionicons name="chevron-back" size={24} color={colors.onSurface} />
           </Pressable>
-          <Image source={{ uri: profile.photo }} style={styles.headerAvatar} contentFit="cover" />
+          {showAvatarImage ? (
+            <Image source={{ uri: profile.photo }} style={styles.headerAvatar} contentFit="cover" />
+          ) : (
+            <View style={styles.headerAvatarFallback} testID="chat-header-avatar-fallback">
+              <Ionicons name="person" size={22} color={colors.onSurfaceTertiary} />
+            </View>
+          )}
           <View style={{ flex: 1 }}>
             <Text style={styles.headerName} numberOfLines={1}>
-              {profile.name}
+              {displayName}
             </Text>
             <Text style={styles.headerUni} numberOfLines={1}>
-              {profile.university}
+              {displayUniversity}
             </Text>
           </View>
         </View>
         <View style={styles.detailRow}>
           <View style={styles.detailPill}>
             <Ionicons name="person-outline" size={13} color={colors.onSurfaceTertiary} />
-            <Text style={styles.detailText}>{profile.gender}</Text>
+            <Text style={styles.detailText}>{displayGender}</Text>
           </View>
           <View style={styles.detailPill}>
             <Ionicons name="calendar-outline" size={13} color={colors.onSurfaceTertiary} />
-            <Text style={styles.detailText}>{profile.age} yrs</Text>
+            <Text style={styles.detailText}>{displayAge}</Text>
           </View>
           <View style={[styles.detailPill, styles.budgetPill]}>
             <Ionicons name="wallet-outline" size={13} color={colors.onBrandTertiary} />
             <Text style={[styles.detailText, { color: colors.onBrandTertiary }]}>
-              {CURRENCY}
-              {profile.budget}/mo
+              {displayBudget}
             </Text>
           </View>
         </View>
@@ -224,7 +241,7 @@ export default function ChatScreen() {
             style={styles.input}
             value={text}
             onChangeText={setText}
-            placeholder={`Message ${profile.name}...`}
+            placeholder={`Message ${displayName}...`}
             placeholderTextColor={colors.onSurfaceTertiary}
             multiline
             testID="chat-input"
@@ -274,6 +291,16 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceTertiary,
   },
   headerAvatar: { width: 44, height: 44, borderRadius: radius.pill, backgroundColor: colors.surfaceTertiary },
+  headerAvatarFallback: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceTertiary,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
   headerName: { fontFamily: fonts.displayExtra, fontSize: fontSize.xl, color: colors.onSurface },
   headerUni: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
   detailRow: { flexDirection: "row", gap: spacing.sm },

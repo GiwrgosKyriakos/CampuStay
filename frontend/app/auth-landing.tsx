@@ -20,8 +20,8 @@ export default function AuthLandingScreen() {
       console.log("[AuthLanding] → User tapped Google Sign-In button");
       const user = await auth.signInWithGoogle();
       if (user) {
-        console.log("[AuthLanding] ✓ Google Sign-In successful, navigating to profile setup...");
-        router.replace("/edit-profile");
+        console.log("[AuthLanding] ✓ Google Sign-In successful, resolving post-login route...");
+        router.replace("/");
       } else {
         console.warn("[AuthLanding] ⚠ Google Sign-In returned null user");
       }

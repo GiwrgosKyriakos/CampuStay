@@ -208,11 +208,58 @@ async def save_user_settings(user_id: str, payload: UserSettingsIn):
 
 @api_router.delete("/delete-account/{user_id}")
 async def delete_account(user_id: str, payload: DeleteAccountBody):
-    # Remove all account-related documents from the database.
-    await db.user_profiles.delete_one({"user_id": user_id})
-    await db.roomie_profiles.delete_one({"user_id": user_id})
-    await db.user_settings.delete_one({"user_id": user_id})
-    return {"deleted": True}
+    # Resolve account by user_id and/or registered email credential.
+    credential_email = (payload.credential or "").strip().lower()
+    user = await db.users.find_one({"user_id": user_id})
+    if not user and credential_email:
+        user = await db.users.find_one({"email": credential_email})
+    if not user:
+        return {"deleted": True, "user_id": user_id}
+
+    stored_email = (user.get("email") or "").strip().lower()
+    if credential_email and stored_email and credential_email != stored_email:
+        raise HTTPException(status_code=400, detail="Credential email does not match account")
+
+    target_user_id = user["user_id"]
+    target_email = stored_email
+
+    # Delete account-owned records. Chat history is intentionally preserved.
+    users_query = {"user_id": target_user_id}
+    if target_email:
+        users_query = {"$or": [{"user_id": target_user_id}, {"email": target_email}]}
+
+    users_deleted = await db.users.delete_many(users_query)
+    quiz_deleted = await db.roomie_profiles.delete_many({"user_id": target_user_id})
+    await db.user_profiles.delete_many({"user_id": target_user_id})
+    await db.user_settings.delete_many({"user_id": target_user_id})
+    await db.user_sessions.delete_many({"user_id": target_user_id})
+
+    # Remove swipes initiated by this user; keep other users' rows for fallback display.
+    swipes_deleted = await db.swipes.delete_many({"user_id": target_user_id})
+
+    # Optional collection if precomputed matches exists in some deployments.
+    matches_deleted = await db.matches.delete_many(
+        {
+            "$or": [
+                {"user_id": target_user_id},
+                {"user_a": target_user_id},
+                {"user_b": target_user_id},
+                {"participants": target_user_id},
+            ]
+        }
+    )
+
+    return {
+        "deleted": True,
+        "user_id": target_user_id,
+        "email": target_email,
+        "counts": {
+            "users": users_deleted.deleted_count,
+            "quiz_answers": quiz_deleted.deleted_count,
+            "swipes": swipes_deleted.deleted_count,
+            "matches": matches_deleted.deleted_count,
+        },
+    }
 
 
 # ---- Authentication (Emergent Google + email/password sessions) ----
@@ -384,6 +431,23 @@ def build_candidate(user: dict, profile: dict) -> dict:
         "bio": profile.get("about") or "",
         "tags": profile.get("tags") or [],
         "photo": photo,
+        "deleted": False,
+    }
+
+
+def build_deleted_candidate(user_id: str) -> dict:
+    return {
+        "id": user_id,
+        "name": "Deleted Account",
+        "age": 0,
+        "gender": "N/A",
+        "budget": 0,
+        "university": "",
+        "program": "",
+        "bio": "This account has been deleted.",
+        "tags": [],
+        "photo": "",
+        "deleted": True,
     }
 
 
@@ -467,6 +531,8 @@ async def my_matches(user_id: str):
         p = await db.user_profiles.find_one({"user_id": uid})
         if u and p:
             out.append(build_candidate(u, p))
+        else:
+            out.append(build_deleted_candidate(uid))
     return {"matches": out}
 
 
@@ -475,7 +541,7 @@ async def user_public(user_id: str):
     u = await db.users.find_one({"user_id": user_id})
     p = await db.user_profiles.find_one({"user_id": user_id})
     if not u or not p:
-        raise HTTPException(status_code=404, detail="Not found")
+        return {"user": build_deleted_candidate(user_id)}
     return {"user": build_candidate(u, p)}
 
 

@@ -6,6 +6,7 @@ import * as WebBrowser from "expo-web-browser";
 import { storage } from "@/src/utils/storage";
 import { setUserIdCache } from "@/src/utils/userId";
 import { apiLogin, apiRegister, apiGoogle, apiMe, apiLogout, AuthUser } from "@/src/api/auth";
+import { getUserProfile } from "@/src/api/userProfile";
 
 const TOKEN_KEY = "auth_token";
 const GUEST_KEY = "auth_guest";
@@ -57,24 +58,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setStatus("guest");
   }, []);
 
-  const persist = useCallback(async (newToken: string, newUser: AuthUser, markSetup: boolean) => {
+  const resolveNeedsProfileSetup = useCallback(async (userId: string): Promise<boolean> => {
+    try {
+      const profile = await getUserProfile(userId);
+      const needsSetup = !profile;
+      if (needsSetup) await storage.setItem(SETUP_KEY, true);
+      else await storage.removeItem(SETUP_KEY);
+      return needsSetup;
+    } catch {
+      // Fallback to last known setup state if profile lookup fails.
+      return await storage.getItem(SETUP_KEY, false);
+    }
+  }, []);
+
+  const persist = useCallback(async (newToken: string, newUser: AuthUser) => {
     await storage.secureSet(TOKEN_KEY, newToken);
     await storage.setItem("roomie_user_id", newUser.user_id);
     setUserIdCache(newUser.user_id);
     await storage.removeItem(GUEST_KEY);
-    if (markSetup) {
-      await storage.setItem(SETUP_KEY, true);
-      setNeedsProfileSetup(true);
-    }
+
+    const needsSetup = await resolveNeedsProfileSetup(newUser.user_id);
+
     setToken(newToken);
     setUser(newUser);
+    setNeedsProfileSetup(needsSetup);
     setStatus("authed");
-  }, []);
+  }, [resolveNeedsProfileSetup]);
 
   const loginWithGoogleSession = useCallback(
     async (sessionId: string): Promise<AuthUser | null> => {
       const { token: t, user: u } = await apiGoogle(sessionId);
-      await persist(t, u, true);
+      await persist(t, u);
       return u;
     },
     [persist],
@@ -121,22 +135,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         console.log("[Auth] Checking for stored token...");
-        const setupFlag = await storage.getItem(SETUP_KEY, false);
-        if (mounted && setupFlag) {
-          console.log("[Auth] Profile setup flag found");
-          setNeedsProfileSetup(true);
-        }
-
         const storedToken = await storage.secureGet(TOKEN_KEY, "");
         if (storedToken) {
           console.log("[Auth] Found stored token, validating with server...");
           try {
             const me = await apiMe(storedToken);
+            const needsSetup = await resolveNeedsProfileSetup(me.user_id);
             if (mounted) {
               console.log("[Auth] Token valid! User logged in:", me.user_id);
               setToken(storedToken);
               setUser(me);
               setUserIdCache(me.user_id);
+              setNeedsProfileSetup(needsSetup);
               setStatus("authed");
             }
             return;
@@ -165,12 +175,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       mounted = false;
     };
-  }, [loginWithGoogleSession]);
+  }, [loginWithGoogleSession, resolveNeedsProfileSetup]);
 
   const loginEmail = useCallback(
     async (email: string, password: string) => {
       const { token: t, user: u } = await apiLogin(email.trim(), password);
-      await persist(t, u, true);
+      await persist(t, u);
     },
     [persist],
   );
@@ -178,7 +188,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const registerEmail = useCallback(
     async (email: string, password: string) => {
       const { token: t, user: u } = await apiRegister(email.trim(), password);
-      await persist(t, u, true);
+      await persist(t, u);
     },
     [persist],
   );

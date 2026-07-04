@@ -13,6 +13,10 @@ import { useAuth } from "@/src/context/auth";
 
 const TAB_BAR_SPACE = 100;
 
+function isDeletedCounterpart(profile: RoommateProfile): boolean {
+  return !!profile.deleted || !profile.name?.trim();
+}
+
 export default function MatchesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -77,25 +81,37 @@ export default function MatchesScreen() {
           contentContainerStyle={[styles.list, { paddingBottom: TAB_BAR_SPACE + insets.bottom }]}
           showsVerticalScrollIndicator={false}
         >
-          {matches.map((p) => (
-            <Pressable
-              key={p.id}
-              style={styles.row}
-              testID={`chat-row-${p.id}`}
-              onPress={() => router.push({ pathname: "/chat/[id]", params: { id: p.id } })}
-            >
-              <Image source={{ uri: p.photo }} style={styles.avatar} contentFit="cover" transition={150} />
-              <View style={styles.rowText}>
-                <Text style={styles.rowName} numberOfLines={1}>
-                  {p.name}
-                </Text>
-                <Text style={styles.rowMsg} numberOfLines={1}>
-                  Hey there! 👋
-                </Text>
-              </View>
-              <Ionicons name="paper-plane-outline" size={22} color={colors.onSurfaceTertiary} />
-            </Pressable>
-          ))}
+          {matches.map((p) => {
+            const isDeleted = isDeletedCounterpart(p);
+            const displayName = isDeleted ? "Deleted Account" : p.name;
+            const hasAvatar = !isDeleted && !!p.photo?.trim();
+
+            return (
+              <Pressable
+                key={p.id}
+                style={styles.row}
+                testID={`chat-row-${p.id}`}
+                onPress={() => router.push({ pathname: "/chat/[id]", params: { id: p.id } })}
+              >
+                {hasAvatar ? (
+                  <Image source={{ uri: p.photo }} style={styles.avatar} contentFit="cover" transition={150} />
+                ) : (
+                  <View style={styles.avatarFallback} testID={`chat-row-avatar-fallback-${p.id}`}>
+                    <Ionicons name="person" size={28} color={colors.onSurfaceTertiary} />
+                  </View>
+                )}
+                <View style={styles.rowText}>
+                  <Text style={styles.rowName} numberOfLines={1}>
+                    {displayName}
+                  </Text>
+                  <Text style={styles.rowMsg} numberOfLines={1}>
+                    Hey there! 👋
+                  </Text>
+                </View>
+                <Ionicons name="paper-plane-outline" size={22} color={colors.onSurfaceTertiary} />
+              </Pressable>
+            );
+          })}
         </ScrollView>
       )}
     </View>
@@ -117,6 +133,16 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.divider,
   },
   avatar: { width: 60, height: 60, borderRadius: radius.pill, backgroundColor: colors.surfaceTertiary },
+  avatarFallback: {
+    width: 60,
+    height: 60,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceTertiary,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
   rowText: { flex: 1, gap: 3 },
   rowName: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface },
   rowMsg: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary },
