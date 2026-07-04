@@ -20,6 +20,7 @@ import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 import { colors, fonts, fontSize, radius, spacing } from "@/src/theme";
 import { useAuth } from "@/src/context/auth";
 import { db } from "@/src/config/firebase";
+import { subscribeUserLikedApartmentIds, toggleApartmentLike } from "@/src/api/apartmentLikes";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const CURRENCY = "€";
@@ -68,6 +69,7 @@ export default function ApartmentDetailScreen() {
 
   const scrollRef = useRef<ScrollView>(null);
   const [activePage, setActivePage] = useState(0);
+  const [isLiked, setIsLiked] = useState(false);
 
   if (!apt) {
     return (
@@ -79,6 +81,19 @@ export default function ApartmentDetailScreen() {
       </View>
     );
   }
+
+  React.useEffect(() => {
+    if (auth.isGuest || !auth.userId) {
+      setIsLiked(false);
+      return;
+    }
+
+    const unsubscribe = subscribeUserLikedApartmentIds(auth.userId, (ids) => {
+      setIsLiked(ids.has(apt.id));
+    });
+
+    return () => unsubscribe();
+  }, [apt.id, auth.isGuest, auth.userId]);
 
   // Build an array of images — currently one per listing; slot for future multi-image support.
   const images: string[] = [apt.image];
@@ -131,6 +146,23 @@ export default function ApartmentDetailScreen() {
       router.push({ pathname: "/chat/[id]", params: { id: hostId, chatRoomId } });
     } catch {
       Alert.alert("Chat unavailable", "We could not open the chat right now. Please try again.");
+    }
+  };
+
+  const handleToggleLike = async () => {
+    if (auth.isGuest || !auth.userId) {
+      router.push("/auth-landing");
+      return;
+    }
+
+    const prev = isLiked;
+    setIsLiked(!prev);
+    try {
+      const next = await toggleApartmentLike(auth.userId, apt.id);
+      setIsLiked(next);
+    } catch {
+      setIsLiked(prev);
+      Alert.alert("Could not update like", "Please try again.");
     }
   };
 
@@ -192,7 +224,16 @@ export default function ApartmentDetailScreen() {
 
         {/* ── Main Info Block ── */}
         <View style={styles.infoBlock}>
-          <Text style={styles.aptTitle}>{apt.title}</Text>
+          <View style={styles.titleRow}>
+            <Text style={styles.aptTitle}>{apt.title}</Text>
+            <Pressable
+              style={[styles.likeBtn, isLiked && styles.likeBtnActive]}
+              onPress={handleToggleLike}
+              testID={`apartment-detail-like-${apt.id}`}
+            >
+              <Ionicons name={isLiked ? "heart" : "heart-outline"} size={20} color={isLiked ? "#FFFFFF" : colors.onSurface} />
+            </Pressable>
+          </View>
           <View style={styles.locRow}>
             <Ionicons name="location-outline" size={16} color={colors.onSurfaceTertiary} />
             <Text style={styles.locText}>{apt.area}, {apt.city}</Text>
@@ -356,11 +397,37 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.sm,
     gap: spacing.sm,
   },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+  },
   aptTitle: {
+    flex: 1,
     fontFamily: fonts.displayExtra,
     fontSize: fontSize["2xl"],
     color: colors.onSurface,
     lineHeight: 30,
+  },
+  likeBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.9)",
+    borderWidth: 1,
+    borderColor: colors.border,
+    shadowColor: "#000",
+    shadowOpacity: 0.16,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 6,
+  },
+  likeBtnActive: {
+    backgroundColor: "#FF5A66",
+    borderColor: "#FF5A66",
   },
   locRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
   locText: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary },

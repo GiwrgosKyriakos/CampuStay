@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Switch } from "react-native";
+import { Alert, View, Text, StyleSheet, ScrollView, Pressable, TextInput, Switch } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -12,6 +12,7 @@ import { getUserProfile } from "@/src/api/userProfile";
 import { getUserId } from "@/src/utils/userId";
 import { useAuth } from "@/src/context/auth";
 import { db } from "@/src/config/firebase";
+import { subscribeUserLikedApartmentIds, toggleApartmentLike } from "@/src/api/apartmentLikes";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 100;
@@ -109,6 +110,17 @@ export default function ApartmentsScreen() {
   const [petFriendly, setPetFriendly] = useState(false);
   const [nearMetro, setNearMetro] = useState(false);
   const [hideCreateFab, setHideCreateFab] = useState(false);
+  const [likedApartmentIds, setLikedApartmentIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (auth.isGuest || !auth.userId) {
+      setLikedApartmentIds(new Set());
+      return;
+    }
+
+    const unsubscribe = subscribeUserLikedApartmentIds(auth.userId, setLikedApartmentIds);
+    return () => unsubscribe();
+  }, [auth.isGuest, auth.userId]);
 
   useEffect(() => {
     const apartmentsQuery = query(collection(db, "apartments"), orderBy("createdAt", "desc"));
@@ -169,6 +181,42 @@ export default function ApartmentsScreen() {
   );
 
   const apartments = useMemo(() => [...publishedApartments, ...APARTMENTS], [publishedApartments]);
+
+  const handleToggleLike = useCallback(
+    async (apartmentId: string) => {
+      if (auth.isGuest || !auth.userId) {
+        router.push("/auth-landing");
+        return;
+      }
+
+      const wasLiked = likedApartmentIds.has(apartmentId);
+      setLikedApartmentIds((prev) => {
+        const next = new Set(prev);
+        if (wasLiked) next.delete(apartmentId);
+        else next.add(apartmentId);
+        return next;
+      });
+
+      try {
+        const isLiked = await toggleApartmentLike(auth.userId, apartmentId);
+        setLikedApartmentIds((prev) => {
+          const next = new Set(prev);
+          if (isLiked) next.add(apartmentId);
+          else next.delete(apartmentId);
+          return next;
+        });
+      } catch {
+        setLikedApartmentIds((prev) => {
+          const next = new Set(prev);
+          if (wasLiked) next.add(apartmentId);
+          else next.delete(apartmentId);
+          return next;
+        });
+        Alert.alert("Could not update like", "Please try again.");
+      }
+    },
+    [auth.isGuest, auth.userId, likedApartmentIds, router],
+  );
 
   const filteredApartments = useMemo(() => {
     const minRent = rentMin ? Number(rentMin) : null;
@@ -280,54 +328,65 @@ export default function ApartmentsScreen() {
         contentContainerStyle={[styles.list, { paddingBottom: TAB_BAR_SPACE + insets.bottom }]}
         showsVerticalScrollIndicator={false}
       >
-        {filteredApartments.map((apt) => (
-          <Pressable
-            key={apt.id}
-            style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-            onPress={() =>
-              router.push({
-                pathname: "/apartment-detail",
-                params: { data: JSON.stringify(apt) },
-              } as any)
-            }
-            testID={`apartment-card-${apt.id}`}
-          >
-            <Image source={{ uri: apt.image }} style={styles.photo} contentFit="cover" transition={150} />
-            <LinearGradient
-              colors={["transparent", "rgba(26,26,26,0.95)"]}
-              locations={[0.4, 1]}
-              style={StyleSheet.absoluteFill}
-            />
-            <View style={styles.rentBadge}>
-              <Text style={styles.rentText}>
-                {CURRENCY}
-                {apt.rent}
-              </Text>
-              <Text style={styles.rentMo}>/mo</Text>
-            </View>
-            <View style={styles.cardBody}>
-              <Text style={styles.aptTitle}>{apt.title}</Text>
-              <View style={styles.locRow}>
-                <Ionicons name="location-outline" size={14} color="rgba(255,255,255,0.85)" />
-                <Text style={styles.loc}>
-                  {apt.area}, {apt.city}
-                </Text>
-              </View>
-              <View style={styles.statsRow}>
-                <Text style={styles.stat}>{apt.rooms} rooms</Text>
-                <View style={styles.dot} />
-                <Text style={styles.stat}>{apt.size} m²</Text>
-              </View>
-              <View style={styles.tagRow}>
-                {apt.tags.map((t) => (
-                  <View key={t} style={styles.tag}>
-                    <Text style={styles.tagText}>{t}</Text>
+        {filteredApartments.map((apt) => {
+          const isLiked = likedApartmentIds.has(apt.id);
+          return (
+            <View key={apt.id} style={styles.cardWrap}>
+              <Pressable
+                style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+                onPress={() =>
+                  router.push({
+                    pathname: "/apartment-detail",
+                    params: { data: JSON.stringify(apt) },
+                  } as any)
+                }
+                testID={`apartment-card-${apt.id}`}
+              >
+                <Image source={{ uri: apt.image }} style={styles.photo} contentFit="cover" transition={150} />
+                <LinearGradient
+                  colors={["transparent", "rgba(26,26,26,0.95)"]}
+                  locations={[0.4, 1]}
+                  style={StyleSheet.absoluteFill}
+                />
+                <View style={styles.rentBadge}>
+                  <Text style={styles.rentText}>
+                    {CURRENCY}
+                    {apt.rent}
+                  </Text>
+                  <Text style={styles.rentMo}>/mo</Text>
+                </View>
+                <View style={styles.cardBody}>
+                  <Text style={styles.aptTitle}>{apt.title}</Text>
+                  <View style={styles.locRow}>
+                    <Ionicons name="location-outline" size={14} color="rgba(255,255,255,0.85)" />
+                    <Text style={styles.loc}>
+                      {apt.area}, {apt.city}
+                    </Text>
                   </View>
-                ))}
-              </View>
+                  <View style={styles.statsRow}>
+                    <Text style={styles.stat}>{apt.rooms} rooms</Text>
+                    <View style={styles.dot} />
+                    <Text style={styles.stat}>{apt.size} m²</Text>
+                  </View>
+                  <View style={styles.tagRow}>
+                    {apt.tags.map((t) => (
+                      <View key={t} style={styles.tag}>
+                        <Text style={styles.tagText}>{t}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              </Pressable>
+              <Pressable
+                style={[styles.likeBtn, isLiked && styles.likeBtnActive]}
+                onPress={() => handleToggleLike(apt.id)}
+                testID={`apartment-like-${apt.id}`}
+              >
+                <Ionicons name={isLiked ? "heart" : "heart-outline"} size={20} color={isLiked ? "#FFFFFF" : colors.onSurface} />
+              </Pressable>
             </View>
-          </Pressable>
-        ))}
+          );
+        })}
         {filteredApartments.length === 0 && (
           <View style={styles.emptyState} testID="apartments-empty-state">
             <Text style={styles.emptyTitle}>No apartments match these filters</Text>
@@ -408,6 +467,7 @@ const styles = StyleSheet.create({
   },
   switchText: { fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onSurface },
   list: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, gap: spacing.lg },
+  cardWrap: { position: "relative" },
   card: {
     height: 260,
     borderRadius: radius.lg,
@@ -415,6 +475,28 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceTertiary,
   },
   cardPressed: { opacity: 0.88 },
+  likeBtn: {
+    position: "absolute",
+    right: spacing.md,
+    bottom: spacing.md,
+    width: 42,
+    height: 42,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.9)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.95)",
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 7,
+  },
+  likeBtnActive: {
+    backgroundColor: "#FF5A66",
+    borderColor: "#FF5A66",
+  },
   photo: { ...StyleSheet.absoluteFillObject },
   rentBadge: {
     position: "absolute",
