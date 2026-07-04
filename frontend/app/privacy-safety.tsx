@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, Switch, Pressable, ActivityIndicato
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+import * as WebBrowser from "expo-web-browser";
 
 import { useAuth } from "@/src/context/auth";
 import { getUserSettings, saveUserPrivacy, PrivacyPreferences } from "@/src/api/accountSettings";
@@ -139,6 +140,20 @@ export default function PrivacySafetyScreen() {
           </View>
         </View>
 
+        <View style={styles.settingsList}>
+          <Pressable
+            style={styles.settingsRow}
+            onPress={() => WebBrowser.openBrowserAsync("https://giwrgoskyriakos.github.io/CampuStay/privacy.html")}
+            testID="privacy-policy-link"
+          >
+            <View style={styles.settingsRowIcon}>
+              <Ionicons name="document-text-outline" size={20} color={colors.onSurface} />
+            </View>
+            <Text style={styles.settingsRowLabel}>Privacy Policy</Text>
+            <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+          </Pressable>
+        </View>
+
         <View style={styles.blockedCard}>
           <Text style={styles.blockedTitle}>Blocked Profiles</Text>
           {privacy.blocked_profiles.length === 0 ? (
@@ -206,6 +221,34 @@ const styles = StyleSheet.create({
   toggleText: { flex: 1 },
   toggleTitle: { fontFamily: fonts.semibold, fontSize: fontSize.lg, color: colors.onSurface },
   toggleSubtitle: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary, marginTop: 6 },
+  settingsList: {
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: "hidden",
+    marginBottom: spacing.lg,
+  },
+  settingsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    padding: spacing.lg,
+  },
+  settingsRowIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceTertiary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  settingsRowLabel: {
+    flex: 1,
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.lg,
+    color: colors.onSurface,
+  },
   blockedCard: {
     backgroundColor: colors.surfaceSecondary,
     borderRadius: radius.lg,
