@@ -16,6 +16,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { colors, fonts, fontSize, radius, spacing } from "@/src/theme";
+import { useAuth } from "@/src/context/auth";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const CURRENCY = "€";
@@ -51,6 +52,7 @@ const AMENITIES: AmenityDef[] = [
 export default function ApartmentDetailScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const auth = useAuth();
   const { data } = useLocalSearchParams<{ data: string }>();
 
   let apt: Apartment | null = null;
@@ -221,11 +223,13 @@ export default function ApartmentDetailScreen() {
       <View style={[styles.footer, { paddingBottom: spacing.lg + insets.bottom }]}>
         <Pressable
           style={({ pressed }) => [styles.contactBtn, pressed && styles.contactBtnPressed]}
-          onPress={contactHost}
+          onPress={auth.isGuest ? () => router.push("/auth-landing") : contactHost}
           testID="apartment-detail-contact"
         >
           <Ionicons name="mail-outline" size={20} color={colors.onBrand} />
-          <Text style={styles.contactBtnText}>Contact Host</Text>
+          <Text style={styles.contactBtnText}>
+            {auth.isGuest ? "Sign Up / Log In to contact host" : "Contact Host"}
+          </Text>
         </Pressable>
       </View>
     </View>

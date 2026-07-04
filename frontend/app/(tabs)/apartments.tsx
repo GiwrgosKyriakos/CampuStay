@@ -288,7 +288,7 @@ export default function ApartmentsScreen({ route, navigation }: any) {
           </View>
         )}
       </ScrollView>
-      {!hideCreateFab && (
+      {!auth.isGuest && !hideCreateFab && (
         <Pressable
           style={[styles.fab, { bottom: TAB_BAR_SPACE + insets.bottom + spacing.md }]}
           onPress={() => router.push("/create-listing" as any)}
