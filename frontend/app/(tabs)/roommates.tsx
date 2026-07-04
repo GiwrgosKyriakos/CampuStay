@@ -122,11 +122,13 @@ export default function RoommatesScreen() {
 
   return (
     <View style={styles.container} testID="roommates-screen">
-      <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
+      <View style={[styles.header, { paddingTop: insets.top + spacing.lg }]}>
         <View style={styles.brandRow}>
-          <Text style={styles.brand}>
-            Roomie<Text style={{ color: colors.brand }}>Swipe</Text>
-          </Text>
+          <View style={styles.brandTextWrap}>
+            <Text style={styles.brand}>
+              Roomie<Text style={{ color: colors.brand }}>Swipe</Text>
+            </Text>
+          </View>
           {quizAnsweredCount === 0 && (
             <Pressable
               style={styles.quizPill}
@@ -195,17 +197,18 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md, gap: spacing.md },
-  brandRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  brandRow: { flexDirection: "row", alignItems: "center" },
+  brandTextWrap: { flex: 1 },
   brand: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface },
   quizPill: {
     backgroundColor: colors.brand,
     borderRadius: radius.pill,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 6,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
     alignItems: "center",
     justifyContent: "center",
   },
-  quizPillText: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onBrand },
+  quizPillText: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onBrand },
   filterPill: {
     alignItems: "center",
     justifyContent: "center",
@@ -215,7 +218,7 @@ const styles = StyleSheet.create({
   },
   filterText: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurfaceInverse },
   deckArea: { flex: 1, marginHorizontal: spacing.lg },
-  actions: { flexDirection: "row", justifyContent: "center", gap: spacing.xl, paddingVertical: spacing.lg },
+  actions: { flexDirection: "row", justifyContent: "center", gap: spacing.xl, paddingVertical: spacing.md },
   actionBtn: {
     width: 64,
     height: 64,
