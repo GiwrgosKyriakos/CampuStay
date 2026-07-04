@@ -15,7 +15,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { KeyboardAwareScrollView, KeyboardStickyView } from "react-native-keyboard-controller";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import * as ImagePicker from "expo-image-picker";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
@@ -314,25 +314,20 @@ export default function EditProfileScreen() {
 
       <KeyboardAwareScrollView
         bottomOffset={120}
-        contentContainerStyle={styles.scroll}
+        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + spacing["5xl"] }]}
         showsVerticalScrollIndicator={false}
       >
         {guestLocked && (
-          <View style={styles.guestNotice} testID="guest-edit-notice">
-            <View style={{ flex: 1 }}>
-              <Text style={styles.guestNoticeTitle}>Sign up first</Text>
-              <Text style={styles.guestNoticeText}>
-                Guest Mode keeps this screen read-only. Sign in to edit your profile, upload photos, and save changes.
-              </Text>
-            </View>
-            <Pressable style={styles.guestNoticeButton} onPress={() => router.push("/auth-landing")} testID="guest-edit-signin-button">
-              <Text style={styles.guestNoticeButtonText}>Sign Up / Log In</Text>
+          <View style={styles.guestTopBanner} testID="guest-edit-notice">
+            <Text style={styles.guestTopBannerText}>Guest mode: Read only</Text>
+            <Pressable style={styles.guestTopBannerButton} onPress={() => router.push("/auth-landing")} testID="guest-edit-signin-button">
+              <Text style={styles.guestTopBannerButtonText}>Sign Up / Log In</Text>
             </Pressable>
           </View>
         )}
 
         {/* SECTION 1: Profile Photos */}
-        <View style={[styles.card, guestLocked && styles.cardLocked]} pointerEvents={guestLocked ? "none" : "auto"}>
+        <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Ionicons name="image-outline" size={22} color={colors.onSurface} />
             <Text style={styles.cardTitle}>Profile Photos</Text>
@@ -370,7 +365,7 @@ export default function EditProfileScreen() {
                 colors={[colors.brand, colors.brandSecondary]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
-                style={styles.gradientBtn}
+                style={[styles.gradientBtn, guestLocked && styles.guestReadOnlyControl]}
               >
                 <Text style={styles.gradientBtnText}>✨ Add Photos</Text>
               </LinearGradient>
@@ -390,7 +385,7 @@ export default function EditProfileScreen() {
         </View>
 
         {/* SECTION 2: Basic Information */}
-        <View style={[styles.card, guestLocked && styles.cardLocked]} pointerEvents={guestLocked ? "none" : "auto"}>
+        <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Ionicons name="person-outline" size={22} color={colors.onSurface} />
             <Text style={styles.cardTitle}>Basic Information</Text>
@@ -398,7 +393,7 @@ export default function EditProfileScreen() {
 
           <Text style={styles.label}>Display Name</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, guestLocked && styles.guestReadOnlyControl]}
             value={name}
             onChangeText={setName}
             placeholder={auth.user?.name || "Your name"}
@@ -409,7 +404,7 @@ export default function EditProfileScreen() {
 
           <Text style={styles.label}>Age</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, guestLocked && styles.guestReadOnlyControl]}
             value={age}
             onChangeText={(t) => setAge(t.replace(/[^0-9]/g, ""))}
             placeholder="e.g. 22"
@@ -422,7 +417,7 @@ export default function EditProfileScreen() {
 
           <Text style={styles.label}>About You</Text>
           <TextInput
-            style={[styles.input, styles.textArea]}
+            style={[styles.input, styles.textArea, guestLocked && styles.guestReadOnlyControl]}
             value={about}
             onChangeText={setAbout}
             placeholder="Tell us about yourself, your interests, and what you're looking for in a roommate."
@@ -443,7 +438,7 @@ export default function EditProfileScreen() {
               return (
                 <Pressable
                   key={g}
-                  style={[styles.radioPill, active && styles.radioPillActive]}
+                  style={[styles.radioPill, active && styles.radioPillActive, guestLocked && styles.guestReadOnlyControl]}
                   onPress={() => setGender(g)}
                   disabled={guestLocked}
                   testID={`gender-${g}`}
@@ -458,10 +453,12 @@ export default function EditProfileScreen() {
           </View>
 
           <Text style={styles.label}>City</Text>
-          <Dropdown value={city} options={CITIES} placeholder="Select your city" onSelect={setCity} testID="city-dropdown" disabled={guestLocked} />
+          <View style={guestLocked ? styles.guestReadOnlyControl : undefined}>
+            <Dropdown value={city} options={CITIES} placeholder="Select your city" onSelect={setCity} testID="city-dropdown" disabled={guestLocked} />
+          </View>
 
           <Pressable
-            style={[styles.checkboxRow, hasPlace && styles.checkboxRowActive]}
+            style={[styles.checkboxRow, hasPlace && styles.checkboxRowActive, guestLocked && styles.guestReadOnlyControl]}
             onPress={() => selectHousingOption("has_place")}
             testID="has-place-checkbox"
             disabled={guestLocked}
@@ -506,7 +503,7 @@ export default function EditProfileScreen() {
           </Animated.View>
 
           <Pressable
-            style={[styles.checkboxRow, lookingForApartment && styles.checkboxRowActive]}
+            style={[styles.checkboxRow, lookingForApartment && styles.checkboxRowActive, guestLocked && styles.guestReadOnlyControl]}
             onPress={() => selectHousingOption("looking")}
             testID="looking-apartment-checkbox"
             disabled={guestLocked}
@@ -519,28 +516,32 @@ export default function EditProfileScreen() {
         </View>
 
         {/* SECTION 3: Education & Living */}
-        <View style={[styles.card, guestLocked && styles.cardLocked]} pointerEvents={guestLocked ? "none" : "auto"}>
+        <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Ionicons name="book-outline" size={22} color={colors.onSurface} />
             <Text style={styles.cardTitle}>Education & Living</Text>
           </View>
 
           <Text style={styles.label}>University</Text>
-          <Dropdown
-            value={university}
-            options={UNIVERSITIES}
-            placeholder="Select your university"
-            onSelect={setUniversity}
-            disabled={guestLocked}
-            testID="university-dropdown"
-          />
+          <View style={guestLocked ? styles.guestReadOnlyControl : undefined}>
+            <Dropdown
+              value={university}
+              options={UNIVERSITIES}
+              placeholder="Select your university"
+              onSelect={setUniversity}
+              disabled={guestLocked}
+              testID="university-dropdown"
+            />
+          </View>
 
           <Text style={styles.label}>Year of Study</Text>
-          <Dropdown value={year} options={YEARS} placeholder="Select your year" onSelect={setYear} disabled={guestLocked} testID="year-dropdown" />
+          <View style={guestLocked ? styles.guestReadOnlyControl : undefined}>
+            <Dropdown value={year} options={YEARS} placeholder="Select your year" onSelect={setYear} disabled={guestLocked} testID="year-dropdown" />
+          </View>
 
           <Text style={styles.label}>Monthly Budget (€)</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, guestLocked && styles.guestReadOnlyControl]}
             value={budget}
             onChangeText={(t) => setBudget(t.replace(/[^0-9]/g, ""))}
             placeholder="e.g. 600"
@@ -552,18 +553,20 @@ export default function EditProfileScreen() {
           />
 
           <Text style={styles.label}>Preferred Move-in Date</Text>
-          <Dropdown
-            value={moveIn}
-            options={MOVE_IN_OPTIONS}
-            placeholder="Select move-in date"
-            onSelect={setMoveIn}
-            disabled={guestLocked}
-            testID="movein-dropdown"
-          />
+          <View style={guestLocked ? styles.guestReadOnlyControl : undefined}>
+            <Dropdown
+              value={moveIn}
+              options={MOVE_IN_OPTIONS}
+              placeholder="Select move-in date"
+              onSelect={setMoveIn}
+              disabled={guestLocked}
+              testID="movein-dropdown"
+            />
+          </View>
         </View>
 
         {/* SECTION 4: Social Media */}
-        <View style={[styles.card, guestLocked && styles.cardLocked]} pointerEvents={guestLocked ? "none" : "auto"}>
+        <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Ionicons name="link-outline" size={22} color={colors.onSurface} />
             <Text style={styles.cardTitle}>Social Media</Text>
@@ -572,7 +575,7 @@ export default function EditProfileScreen() {
 
           <Text style={styles.label}>Instagram Username</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, guestLocked && styles.guestReadOnlyControl]}
             value={instagram}
             onChangeText={setInstagram}
             placeholder="your_instagram"
@@ -584,7 +587,7 @@ export default function EditProfileScreen() {
 
           <Text style={styles.label}>Facebook Profile</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, guestLocked && styles.guestReadOnlyControl]}
             value={facebook}
             onChangeText={setFacebook}
             placeholder="https://facebook.com/yourprofile"
@@ -597,7 +600,7 @@ export default function EditProfileScreen() {
 
           <Text style={styles.label}>LinkedIn Profile</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, guestLocked && styles.guestReadOnlyControl]}
             value={linkedin}
             onChangeText={setLinkedin}
             placeholder="https://linkedin.com/in/yourprofile"
@@ -610,7 +613,7 @@ export default function EditProfileScreen() {
 
           <Text style={styles.label}>Twitter/X Username</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, guestLocked && styles.guestReadOnlyControl]}
             value={twitter}
             onChangeText={setTwitter}
             placeholder="your_twitter"
@@ -631,43 +634,41 @@ export default function EditProfileScreen() {
       </KeyboardAwareScrollView>
 
       {/* Sticky footer */}
-      <KeyboardStickyView>
-        <View style={[styles.footer, { paddingBottom: insets.bottom + spacing.md }]}>
-          {error && (
-            <View style={styles.errorBanner} testID="form-error-banner">
-              <Ionicons name="alert-circle" size={16} color={colors.error} />
-              <Text style={styles.errorText}>{error}</Text>
-            </View>
-          )}
-          {guestLocked ? (
-            <Pressable onPress={() => router.push("/auth-landing")} testID="guest-edit-footer-button">
-              <LinearGradient
-                colors={[colors.brand, colors.brandSecondary]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.submitBtn}
-              >
-                <Text style={styles.submitText}>Sign Up / Log In</Text>
-              </LinearGradient>
-            </Pressable>
-          ) : (
-            <Pressable onPress={submit} disabled={submitting} testID="complete-profile-button">
-              <LinearGradient
-                colors={[colors.brand, colors.brandSecondary]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={[styles.submitBtn, submitting && { opacity: 0.6 }]}
-              >
-                {submitting ? (
-                  <ActivityIndicator color={colors.onBrand} />
-                ) : (
-                  <Text style={styles.submitText}> Complete Profile </Text>
-                )}
-              </LinearGradient>
-            </Pressable>
-          )}
-        </View>
-      </KeyboardStickyView>
+      <View style={[styles.footer, { paddingBottom: insets.bottom + spacing.md }]}> 
+        {error && (
+          <View style={styles.errorBanner} testID="form-error-banner">
+            <Ionicons name="alert-circle" size={16} color={colors.error} />
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        )}
+        {guestLocked ? (
+          <Pressable onPress={() => router.push("/auth-landing")} testID="guest-edit-footer-button">
+            <LinearGradient
+              colors={[colors.brand, colors.brandSecondary]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.submitBtn}
+            >
+              <Text style={styles.submitText}>Sign Up / Log In</Text>
+            </LinearGradient>
+          </Pressable>
+        ) : (
+          <Pressable onPress={submit} disabled={submitting} testID="complete-profile-button">
+            <LinearGradient
+              colors={[colors.brand, colors.brandSecondary]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={[styles.submitBtn, submitting && { opacity: 0.6 }]}
+            >
+              {submitting ? (
+                <ActivityIndicator color={colors.onBrand} />
+              ) : (
+                <Text style={styles.submitText}> Complete Profile </Text>
+              )}
+            </LinearGradient>
+          </Pressable>
+        )}
+      </View>
     </View>
   );
 }
@@ -706,7 +707,6 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.sm,
   },
-  cardLocked: { opacity: 0.5 },
   cardHeader: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginBottom: spacing.xs },
   cardTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize.xl, color: colors.onSurface },
   subtitle: { fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onSurfaceTertiary },
@@ -723,6 +723,7 @@ const styles = StyleSheet.create({
     fontSize: fontSize.base,
     color: colors.onSurface,
   },
+  guestReadOnlyControl: { opacity: 0.45 },
   textArea: { minHeight: 110, textAlignVertical: "top", paddingTop: spacing.md },
   counter: {
     alignSelf: "flex-end",
@@ -856,29 +857,34 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
   },
   infoText: { flex: 1, fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary, lineHeight: 18 },
-  guestNotice: {
+  guestTopBanner: {
     flexDirection: "row",
-    gap: spacing.md,
     alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.md,
     backgroundColor: colors.surfaceSecondary,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
   },
-  guestNoticeTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize.lg, color: colors.onSurface },
-  guestNoticeText: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary, marginTop: 4, lineHeight: 18 },
-  guestNoticeButton: {
+  guestTopBannerText: { flex: 1, fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onBrand },
+  guestTopBannerButton: {
     backgroundColor: colors.brand,
     borderRadius: radius.pill,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
   },
-  guestNoticeButtonText: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onBrand },
+  guestTopBannerButtonText: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onBrand },
   footer: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
-    backgroundColor: colors.surfaceSecondary,
+    backgroundColor: "rgba(17,17,17,0.9)",
     borderTopWidth: 1,
     borderTopColor: colors.border,
     gap: spacing.sm,

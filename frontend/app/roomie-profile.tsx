@@ -120,67 +120,69 @@ export default function RoomieProfileScreen() {
           <ActivityIndicator size="large" color={colors.brand} />
         </View>
       ) : (
-        <ScrollView
-          contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + spacing["3xl"] }]}
-          showsVerticalScrollIndicator={false}
-        >
-          {guestLocked && (
-            <View style={styles.guestNotice} testID="roomie-guest-notice">
-              <View style={{ flex: 1 }}>
-                <Text style={styles.guestTitle}>Guest Mode: Read-only</Text>
-                <Text style={styles.guestText}>
-                  You can browse all Compatibility Quiz questions, but answers are locked until you sign in.
-                </Text>
+        <>
+          <ScrollView
+            contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + spacing["5xl"] }]}
+            showsVerticalScrollIndicator={false}
+          >
+            {guestLocked && (
+              <View style={styles.guestTopBanner} testID="roomie-guest-notice">
+                <Text style={styles.guestTopBannerText}>Guest mode: Read only</Text>
+                <Pressable style={styles.guestTopBannerButton} onPress={() => router.push("/auth-landing")} testID="roomie-top-signin-button">
+                  <Text style={styles.guestTopBannerButtonText}>Sign Up / Log In</Text>
+                </Pressable>
               </View>
-            </View>
-          )}
+            )}
 
-          {QUIZ_SECTIONS.map((section) => (
-            <View key={section.category} style={styles.section}>
-              <View style={styles.categoryRow}>
-                <View style={styles.categoryDot} />
-                <Text style={styles.category}>{section.category}</Text>
-              </View>
-              {section.questions.map((q) => (
-                <View key={q.id} style={styles.questionBlock} testID={`question-${q.id}`}>
-                  <Text style={styles.question}>
-                    {q.emoji}  {q.question}
-                  </Text>
-                  {q.options.map((opt, idx) => {
-                    const selected = answers[q.id] === opt;
-                    return (
-                      <Pressable
-                        key={idx}
-                        style={[styles.option, selected && styles.optionSelected, guestLocked && styles.optionDisabled]}
-                        onPress={guestLocked ? undefined : () => select(q.id, opt)}
-                        disabled={guestLocked}
-                        testID={`option-${q.id}-${idx}`}
-                      >
-                        <View style={[styles.radio, selected && styles.radioSelected]}>
-                          {selected && <View style={styles.radioInner} />}
-                        </View>
-                        <Text style={[styles.optionText, selected && styles.optionTextSelected]}>{opt}</Text>
-                      </Pressable>
-                    );
-                  })}
+            {QUIZ_SECTIONS.map((section) => (
+              <View key={section.category} style={styles.section}>
+                <View style={styles.categoryRow}>
+                  <View style={styles.categoryDot} />
+                  <Text style={styles.category}>{section.category}</Text>
                 </View>
-              ))}
-            </View>
-          ))}
+                {section.questions.map((q) => (
+                  <View key={q.id} style={styles.questionBlock} testID={`question-${q.id}`}>
+                    <Text style={styles.question}>
+                      {q.emoji}  {q.question}
+                    </Text>
+                    {q.options.map((opt, idx) => {
+                      const selected = answers[q.id] === opt;
+                      return (
+                        <Pressable
+                          key={idx}
+                          style={[styles.option, selected && styles.optionSelected, guestLocked && styles.optionDisabled]}
+                          onPress={guestLocked ? undefined : () => select(q.id, opt)}
+                          disabled={guestLocked}
+                          testID={`option-${q.id}-${idx}`}
+                        >
+                          <View style={[styles.radio, selected && styles.radioSelected]}>
+                            {selected && <View style={styles.radioInner} />}
+                          </View>
+                          <Text style={[styles.optionText, selected && styles.optionTextSelected]}>{opt}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                ))}
+              </View>
+            ))}
+          </ScrollView>
 
           {guestLocked && (
-            <Pressable onPress={() => router.push("/auth-landing")} testID="roomie-signin-button">
-              <LinearGradient
-                colors={[colors.brand, colors.brandSecondary]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.guestBottomButton}
-              >
-                <Text style={styles.guestBottomButtonText}>Sign Up / Log In</Text>
-              </LinearGradient>
-            </Pressable>
+            <View style={[styles.footer, { paddingBottom: insets.bottom + spacing.md }]}>
+              <Pressable onPress={() => router.push("/auth-landing")} testID="roomie-signin-button">
+                <LinearGradient
+                  colors={[colors.brand, colors.brandSecondary]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.guestBottomButton}
+                >
+                  <Text style={styles.guestBottomButtonText}>Sign Up / Log In</Text>
+                </LinearGradient>
+              </Pressable>
+            </View>
           )}
-        </ScrollView>
+        </>
       )}
     </View>
   );
@@ -243,18 +245,39 @@ const styles = StyleSheet.create({
   radioInner: { width: 11, height: 11, borderRadius: 6, backgroundColor: colors.onBrandTertiary },
   optionText: { flex: 1, fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurface },
   optionTextSelected: { fontFamily: fonts.semibold, color: colors.onBrandTertiary },
-  guestNotice: {
-    marginBottom: spacing.lg,
-    padding: spacing.lg,
-    borderRadius: radius.lg,
+  guestTopBanner: {
+    marginBottom: spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
     backgroundColor: colors.surfaceSecondary,
     borderWidth: 1,
     borderColor: colors.border,
   },
-  guestTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize.lg, color: colors.onSurface },
-  guestText: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary, marginTop: 4, lineHeight: 18 },
+  guestTopBannerText: { flex: 1, fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onBrand },
+  guestTopBannerButton: {
+    backgroundColor: colors.brand,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+  },
+  guestTopBannerButtonText: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onBrand },
+  footer: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingTop: spacing.md,
+    paddingHorizontal: spacing.lg,
+    backgroundColor: "rgba(17,17,17,0.9)",
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
   guestBottomButton: {
-    marginTop: spacing.lg,
     borderRadius: radius.pill,
     paddingVertical: spacing.lg,
     alignItems: "center",
