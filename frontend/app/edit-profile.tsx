@@ -20,6 +20,7 @@ import * as ImagePicker from "expo-image-picker";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import Dropdown from "@/src/components/Dropdown";
+import { GuestModeStickyFooter, GuestModeTopBanner } from "@/src/components/GuestModeLayout";
 import { getUserId } from "@/src/utils/userId";
 import { getUserProfile, saveUserProfile, UserProfile } from "@/src/api/userProfile";
 import { useAuth } from "@/src/context/auth";
@@ -318,12 +319,11 @@ export default function EditProfileScreen() {
         showsVerticalScrollIndicator={false}
       >
         {guestLocked && (
-          <View style={styles.guestTopBanner} testID="guest-edit-notice">
-            <Text style={styles.guestTopBannerText}>Guest mode: Read only</Text>
-            <Pressable style={styles.guestTopBannerButton} onPress={() => router.push("/auth-landing")} testID="guest-edit-signin-button">
-              <Text style={styles.guestTopBannerButtonText}>Sign Up / Log In</Text>
-            </Pressable>
-          </View>
+          <GuestModeTopBanner
+            onPress={() => router.push("/auth-landing")}
+            testID="guest-edit-notice"
+            buttonTestID="guest-edit-signin-button"
+          />
         )}
 
         {/* SECTION 1: Profile Photos */}
@@ -634,25 +634,20 @@ export default function EditProfileScreen() {
       </KeyboardAwareScrollView>
 
       {/* Sticky footer */}
-      <View style={[styles.footer, { paddingBottom: insets.bottom + spacing.md }]}> 
-        {error && (
-          <View style={styles.errorBanner} testID="form-error-banner">
-            <Ionicons name="alert-circle" size={16} color={colors.error} />
-            <Text style={styles.errorText}>{error}</Text>
-          </View>
-        )}
-        {guestLocked ? (
-          <Pressable onPress={() => router.push("/auth-landing")} testID="guest-edit-footer-button">
-            <LinearGradient
-              colors={[colors.brand, colors.brandSecondary]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.submitBtn}
-            >
-              <Text style={styles.submitText}>Sign Up / Log In</Text>
-            </LinearGradient>
-          </Pressable>
-        ) : (
+      {guestLocked ? (
+        <GuestModeStickyFooter
+          onPress={() => router.push("/auth-landing")}
+          bottomInset={insets.bottom}
+          buttonTestID="guest-edit-footer-button"
+        />
+      ) : (
+        <View style={[styles.footer, { paddingBottom: insets.bottom + spacing.md }]}> 
+          {error && (
+            <View style={styles.errorBanner} testID="form-error-banner">
+              <Ionicons name="alert-circle" size={16} color={colors.error} />
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          )}
           <Pressable onPress={submit} disabled={submitting} testID="complete-profile-button">
             <LinearGradient
               colors={[colors.brand, colors.brandSecondary]}
@@ -667,8 +662,8 @@ export default function EditProfileScreen() {
               )}
             </LinearGradient>
           </Pressable>
-        )}
-      </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -857,26 +852,6 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
   },
   infoText: { flex: 1, fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary, lineHeight: 18 },
-  guestTopBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: spacing.md,
-    backgroundColor: colors.surfaceSecondary,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-  },
-  guestTopBannerText: { flex: 1, fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onBrand },
-  guestTopBannerButton: {
-    backgroundColor: colors.brand,
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-  },
-  guestTopBannerButtonText: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onBrand },
   footer: {
     position: "absolute",
     left: 0,

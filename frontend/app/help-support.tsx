@@ -6,6 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Linking from "expo-linking";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
+import { GuestModeStickyFooter, GuestModeTopBanner } from "@/src/components/GuestModeLayout";
 import { useAuth } from "@/src/context/auth";
 
 const FAQ_ITEMS = [
@@ -58,103 +59,117 @@ export default function HelpSupportScreen() {
   const navigationSource = auth.isGuest ? "/guest" : "/roommates";
 
   return (
-    <ScrollView
-      style={styles.root}
-      contentContainerStyle={[styles.contentContainer, { paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + spacing.xl }]}
-      showsVerticalScrollIndicator={false}
-      testID="help-support-screen"
-    >
-      <View style={styles.header}>
-        <Text style={styles.title}>Help & Support</Text>
-        <Text style={styles.subtitle}>Browse frequently asked questions or contact the support team directly.</Text>
-      </View>
+    <View style={styles.root}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[
+          styles.contentContainer,
+          { paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + (auth.isGuest ? spacing["5xl"] : spacing.xl) },
+        ]}
+        showsVerticalScrollIndicator={false}
+        testID="help-support-screen"
+      >
+        <View style={styles.header}>
+          <Text style={styles.title}>Help & Support</Text>
+          <Text style={styles.subtitle}>Browse frequently asked questions or contact the support team directly.</Text>
+        </View>
+
+        {auth.isGuest && (
+          <GuestModeTopBanner
+            onPress={() => router.push("/auth-landing")}
+            testID="help-guest-readonly-banner"
+            buttonTestID="help-guest-top-signin-button"
+            style={styles.guestBannerSpacing}
+          />
+        )}
+
+        {FAQ_ITEMS.map((item, index) => {
+          const open = openIndex === index;
+          return (
+            <Pressable
+              key={item.question}
+              style={[styles.accordion, open && styles.accordionOpen]}
+              onPress={() => setOpenIndex(open ? null : index)}
+              testID={`faq-${index}`}
+            >
+              <View style={styles.accordionHeader}>
+                <Text style={styles.question}>{item.question}</Text>
+                <Ionicons name={open ? "chevron-up" : "chevron-down"} size={20} color={colors.onSurfaceTertiary} />
+              </View>
+              {open && <Text style={styles.answer}>{item.answer}</Text>}
+            </Pressable>
+          );
+        })}
+
+        <Pressable
+          style={[styles.contactButton, auth.isGuest && styles.contactButtonDisabled]}
+          onPress={() => !auth.isGuest && Linking.openURL("mailto:support@unimates.com?subject=Support%20Request")}
+          disabled={auth.isGuest}
+          testID="contact-support-button"
+        >
+          <Text style={styles.contactButtonText}>Contact Support Team</Text>
+        </Pressable>
+
+        <View style={styles.linksSection}>
+          <Pressable
+            style={[styles.linkRow, auth.isGuest && styles.linkRowDisabled]}
+            onPress={openEmailSupport}
+            disabled={auth.isGuest}
+            testID="help-email-support"
+          >
+            <View style={styles.linkIconWrap}>
+              <Ionicons name="mail-outline" size={20} color={colors.onSurface} />
+            </View>
+            <Text style={styles.linkLabel}>Email Support</Text>
+            <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+          </Pressable>
+
+          <Pressable
+            style={[styles.linkRow, auth.isGuest && styles.linkRowDisabled]}
+            onPress={openInstagram}
+            disabled={auth.isGuest}
+            testID="help-instagram-link"
+          >
+            <View style={styles.linkIconWrap}>
+              <Ionicons name="logo-instagram" size={20} color={colors.onSurface} />
+            </View>
+            <Text style={styles.linkLabel}>Follow us on Instagram</Text>
+            <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+          </Pressable>
+
+          <Pressable
+            style={[styles.linkRow, auth.isGuest && styles.linkRowDisabled]}
+            onPress={openWebsite}
+            disabled={auth.isGuest}
+            testID="help-website-link"
+          >
+            <View style={styles.linkIconWrap}>
+              <Ionicons name="globe-outline" size={20} color={colors.onSurface} />
+            </View>
+            <Text style={styles.linkLabel}>Visit Website</Text>
+            <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+          </Pressable>
+        </View>
+
+        <Pressable style={styles.backButton} onPress={() => router.replace(navigationSource)}>
+          <Text style={styles.backText}>Back to home</Text>
+        </Pressable>
+      </ScrollView>
 
       {auth.isGuest && (
-        <View style={styles.guestReadOnlyBanner} testID="help-guest-readonly-banner">
-          <Text style={styles.guestReadOnlyTitle}>Guest Mode: Read-only</Text>
-          <Text style={styles.guestReadOnlyText}>
-            You can browse help content, but contacting support requires signing in.
-          </Text>
-        </View>
+        <GuestModeStickyFooter
+          onPress={() => router.push("/auth-landing")}
+          bottomInset={insets.bottom}
+          buttonTestID="help-guest-footer-signin-button"
+        />
       )}
-
-      {FAQ_ITEMS.map((item, index) => {
-        const open = openIndex === index;
-        return (
-          <Pressable
-            key={item.question}
-            style={[styles.accordion, open && styles.accordionOpen]}
-            onPress={() => setOpenIndex(open ? null : index)}
-            testID={`faq-${index}`}
-          >
-            <View style={styles.accordionHeader}>
-              <Text style={styles.question}>{item.question}</Text>
-              <Ionicons name={open ? "chevron-up" : "chevron-down"} size={20} color={colors.onSurfaceTertiary} />
-            </View>
-            {open && <Text style={styles.answer}>{item.answer}</Text>}
-          </Pressable>
-        );
-      })}
-
-      <Pressable
-        style={[styles.contactButton, auth.isGuest && styles.contactButtonDisabled]}
-        onPress={() => !auth.isGuest && Linking.openURL("mailto:support@unimates.com?subject=Support%20Request")}
-        disabled={auth.isGuest}
-        testID="contact-support-button"
-      >
-        <Text style={styles.contactButtonText}>Contact Support Team</Text>
-      </Pressable>
-
-      <View style={styles.linksSection}>
-        <Pressable
-          style={[styles.linkRow, auth.isGuest && styles.linkRowDisabled]}
-          onPress={openEmailSupport}
-          disabled={auth.isGuest}
-          testID="help-email-support"
-        >
-          <View style={styles.linkIconWrap}>
-            <Ionicons name="mail-outline" size={20} color={colors.onSurface} />
-          </View>
-          <Text style={styles.linkLabel}>Email Support</Text>
-          <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-        </Pressable>
-
-        <Pressable
-          style={[styles.linkRow, auth.isGuest && styles.linkRowDisabled]}
-          onPress={openInstagram}
-          disabled={auth.isGuest}
-          testID="help-instagram-link"
-        >
-          <View style={styles.linkIconWrap}>
-            <Ionicons name="logo-instagram" size={20} color={colors.onSurface} />
-          </View>
-          <Text style={styles.linkLabel}>Follow us on Instagram</Text>
-          <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-        </Pressable>
-
-        <Pressable
-          style={[styles.linkRow, auth.isGuest && styles.linkRowDisabled]}
-          onPress={openWebsite}
-          disabled={auth.isGuest}
-          testID="help-website-link"
-        >
-          <View style={styles.linkIconWrap}>
-            <Ionicons name="globe-outline" size={20} color={colors.onSurface} />
-          </View>
-          <Text style={styles.linkLabel}>Visit Website</Text>
-          <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-        </Pressable>
-      </View>
-
-      <Pressable style={styles.backButton} onPress={() => router.replace(navigationSource)}>
-        <Text style={styles.backText}>Back to home</Text>
-      </Pressable>
-    </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.surface },
+  scroll: { flex: 1 },
   contentContainer: { minHeight: "100%", paddingHorizontal: spacing.lg },
   header: { marginBottom: spacing.xl },
   container: { backgroundColor: colors.surface, paddingHorizontal: spacing.lg },
@@ -172,17 +187,9 @@ const styles = StyleSheet.create({
   accordionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: spacing.sm },
   question: { flex: 1, fontFamily: fonts.semibold, fontSize: fontSize.lg, color: colors.onSurface },
   answer: { marginTop: spacing.sm, fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary, lineHeight: 20 },
-  guestReadOnlyBanner: {
+  guestBannerSpacing: {
     marginBottom: spacing.md,
-    backgroundColor: colors.surfaceSecondary,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.lg,
-    gap: spacing.xs,
   },
-  guestReadOnlyTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize.lg, color: colors.onSurface },
-  guestReadOnlyText: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary, lineHeight: 18 },
   contactButton: {
     marginTop: spacing.xl,
     backgroundColor: colors.brand,

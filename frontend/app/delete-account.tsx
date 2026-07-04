@@ -5,6 +5,7 @@ import { useRouter } from "expo-router";
 
 import { useAuth } from "@/src/context/auth";
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
+import { GuestModeStickyFooter, GuestModeTopBanner } from "@/src/components/GuestModeLayout";
 
 export default function DeleteAccountScreen() {
   const auth = useAuth();
@@ -41,30 +42,46 @@ export default function DeleteAccountScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + spacing.lg }]} testID="delete-account-screen">
-      {auth.isGuest ? (
+      <View style={styles.mainContent}>
+        {auth.isGuest && (
+          <GuestModeTopBanner
+            onPress={() => router.push("/auth-landing")}
+            testID="delete-guest-banner"
+            buttonTestID="delete-signin-button"
+            style={styles.guestBannerSpacing}
+          />
+        )}
+
+        {auth.isGuest ? (
+          <View style={styles.content}>
+            <Text style={styles.heading}>Sign up first</Text>
+            <Text style={styles.warning}>
+              Guest Mode cannot delete an account because there is no signed-in profile to remove.
+            </Text>
+          </View>
+        ) : (
         <View style={styles.content}>
-          <Text style={styles.heading}>Sign up first</Text>
+          <Text style={styles.heading}>Are you sure you want to delete your account?</Text>
           <Text style={styles.warning}>
-            Guest Mode cannot delete an account because there is no signed-in profile to remove.
+            This action is permanent. All your profile data, matches, quiz responses, and chats will be wiped from our databases forever.
           </Text>
-          <Pressable style={styles.signInButton} onPress={() => router.push("/auth-landing")} testID="delete-signin-button">
-            <Text style={styles.signInText}>Sign Up / Log In</Text>
-          </Pressable>
+          <View style={styles.credentialBox}>
+            <Text style={styles.credentialLabel}>Registered Email</Text>
+            <Text style={styles.credentialValue}>{userEmail}</Text>
+          </View>
         </View>
-      ) : (
-      <View style={styles.content}>
-        <Text style={styles.heading}>Are you sure you want to delete your account?</Text>
-        <Text style={styles.warning}>
-          This action is permanent. All your profile data, matches, quiz responses, and chats will be wiped from our databases forever.
-        </Text>
-        <View style={styles.credentialBox}>
-          <Text style={styles.credentialLabel}>Registered Email</Text>
-          <Text style={styles.credentialValue}>{userEmail}</Text>
-        </View>
+        )}
+
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
       </View>
-      )}
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
-      {!auth.isGuest && (
+
+      {auth.isGuest ? (
+        <GuestModeStickyFooter
+          onPress={() => router.push("/auth-landing")}
+          bottomInset={insets.bottom}
+          buttonTestID="delete-guest-footer-signin-button"
+        />
+      ) : (
         <Pressable style={[styles.deleteButton, loading && styles.disabled]} onPress={handleDelete} disabled={loading} testID="delete-permanently-button">
           {loading ? (
             <ActivityIndicator size="small" color={colors.onError} />
@@ -78,8 +95,10 @@ export default function DeleteAccountScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.surface, paddingHorizontal: spacing.lg, justifyContent: "space-between" },
+  container: { flex: 1, backgroundColor: colors.surface, paddingHorizontal: spacing.lg },
+  mainContent: { flex: 1 },
   content: { gap: spacing.lg },
+  guestBannerSpacing: { marginBottom: spacing.lg },
   heading: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface, marginBottom: spacing.sm },
   warning: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.surfaceSecondary, lineHeight: 22 },
   credentialBox: {
@@ -102,12 +121,4 @@ const styles = StyleSheet.create({
   },
   deleteText: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onError },
   disabled: { opacity: 0.7 },
-  signInButton: {
-    backgroundColor: colors.brand,
-    borderRadius: radius.pill,
-    paddingVertical: spacing.lg,
-    alignItems: "center",
-    marginTop: spacing.md,
-  },
-  signInText: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onBrand },
 });

@@ -1,12 +1,12 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
+import { GuestModeStickyFooter, GuestModeTopBanner } from "@/src/components/GuestModeLayout";
 import { QUIZ_SECTIONS, TOTAL_QUESTIONS } from "@/src/data/quiz";
 import { getUserId } from "@/src/utils/userId";
 import { getRoomieProfile, saveRoomieProfile } from "@/src/api/roomieProfile";
@@ -126,12 +126,12 @@ export default function RoomieProfileScreen() {
             showsVerticalScrollIndicator={false}
           >
             {guestLocked && (
-              <View style={styles.guestTopBanner} testID="roomie-guest-notice">
-                <Text style={styles.guestTopBannerText}>Guest mode: Read only</Text>
-                <Pressable style={styles.guestTopBannerButton} onPress={() => router.push("/auth-landing")} testID="roomie-top-signin-button">
-                  <Text style={styles.guestTopBannerButtonText}>Sign Up / Log In</Text>
-                </Pressable>
-              </View>
+              <GuestModeTopBanner
+                onPress={() => router.push("/auth-landing")}
+                testID="roomie-guest-notice"
+                buttonTestID="roomie-top-signin-button"
+                style={styles.guestTopBannerSpacing}
+              />
             )}
 
             {QUIZ_SECTIONS.map((section) => (
@@ -169,18 +169,11 @@ export default function RoomieProfileScreen() {
           </ScrollView>
 
           {guestLocked && (
-            <View style={[styles.footer, { paddingBottom: insets.bottom + spacing.md }]}>
-              <Pressable onPress={() => router.push("/auth-landing")} testID="roomie-signin-button">
-                <LinearGradient
-                  colors={[colors.brand, colors.brandSecondary]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.guestBottomButton}
-                >
-                  <Text style={styles.guestBottomButtonText}>Sign Up / Log In</Text>
-                </LinearGradient>
-              </Pressable>
-            </View>
+            <GuestModeStickyFooter
+              onPress={() => router.push("/auth-landing")}
+              bottomInset={insets.bottom}
+              buttonTestID="roomie-signin-button"
+            />
           )}
         </>
       )}
@@ -245,43 +238,7 @@ const styles = StyleSheet.create({
   radioInner: { width: 11, height: 11, borderRadius: 6, backgroundColor: colors.onBrandTertiary },
   optionText: { flex: 1, fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurface },
   optionTextSelected: { fontFamily: fonts.semibold, color: colors.onBrandTertiary },
-  guestTopBanner: {
+  guestTopBannerSpacing: {
     marginBottom: spacing.sm,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: spacing.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.md,
-    backgroundColor: colors.surfaceSecondary,
-    borderWidth: 1,
-    borderColor: colors.border,
   },
-  guestTopBannerText: { flex: 1, fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onBrand },
-  guestTopBannerButton: {
-    backgroundColor: colors.brand,
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-  },
-  guestTopBannerButtonText: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onBrand },
-  footer: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    paddingTop: spacing.md,
-    paddingHorizontal: spacing.lg,
-    backgroundColor: "rgba(17,17,17,0.9)",
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  guestBottomButton: {
-    borderRadius: radius.pill,
-    paddingVertical: spacing.lg,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  guestBottomButtonText: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onBrand },
 });

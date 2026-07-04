@@ -14,6 +14,7 @@ import { useRouter } from "expo-router";
 import { useAuth } from "@/src/context/auth";
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import { getUserSettings, saveUserNotifications } from "@/src/api/accountSettings";
+import { GuestModeStickyFooter, GuestModeTopBanner } from "@/src/components/GuestModeLayout";
 
 const NOTIFICATION_ROWS = [
   {
@@ -101,21 +102,45 @@ export default function NotificationsScreen() {
 
   if (auth.isGuest) {
     return (
-      <View style={[styles.container, styles.center, { paddingTop: insets.top + spacing.lg }]}> 
-        <Text style={styles.guestTitle}>Notifications are disabled in Guest Mode</Text>
-        <Text style={styles.guestSubtitle}>
-          Log in to access your personal notification preferences and receive updates for your matches.
-        </Text>
-        <Pressable style={styles.guestButton} onPress={() => router.replace("/guest")}> 
-          <Text style={styles.guestButtonText}>Continue as guest</Text>
-        </Pressable>
+      <View style={styles.root}>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={[styles.contentContainer, { paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + spacing["5xl"] }]}
+          showsVerticalScrollIndicator={false}
+          testID="notifications-guest-screen"
+        >
+          <View style={styles.header}>
+            <Text style={styles.title}>Notifications</Text>
+            <Text style={styles.subtitle}>Manage your push notification preferences.</Text>
+          </View>
+
+          <GuestModeTopBanner
+            onPress={() => router.push("/auth-landing")}
+            testID="notifications-guest-banner"
+            buttonTestID="notifications-guest-top-signin-button"
+            style={styles.guestBannerSpacing}
+          />
+
+          <View style={styles.guestInfoCard}>
+            <Text style={styles.guestTitle}>Notifications are disabled in Guest Mode</Text>
+            <Text style={styles.guestSubtitle}>
+              Log in to access your personal notification preferences and receive updates for your matches.
+            </Text>
+          </View>
+        </ScrollView>
+
+        <GuestModeStickyFooter
+          onPress={() => router.push("/auth-landing")}
+          bottomInset={insets.bottom}
+          buttonTestID="notifications-guest-footer-signin-button"
+        />
       </View>
     );
   }
 
   return (
     <ScrollView
-      style={styles.root}
+      style={styles.scroll}
       contentContainerStyle={[styles.contentContainer, { paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + spacing.xl }]}
       showsVerticalScrollIndicator={false}
       testID="notifications-screen"
@@ -148,6 +173,7 @@ export default function NotificationsScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.surface },
+  scroll: { flex: 1, backgroundColor: colors.surface },
   contentContainer: { minHeight: "100%", paddingHorizontal: spacing.lg, justifyContent: "center" },
   header: { marginBottom: spacing.xl, alignItems: "center" },
   centerBlock: { flex: 1, justifyContent: "center", gap: spacing.sm },
@@ -171,14 +197,14 @@ const styles = StyleSheet.create({
   settingSubtitle: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary, marginTop: 4 },
   saveText: { fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.brand, marginTop: spacing.sm, textAlign: "center" },
   errorText: { fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.error, marginTop: spacing.sm, textAlign: "center" },
-  guestTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface, textAlign: "center" },
-  guestSubtitle: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary, textAlign: "center", marginTop: spacing.sm },
-  guestButton: {
-    marginTop: spacing.lg,
-    backgroundColor: colors.brand,
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.md,
+  guestBannerSpacing: { marginBottom: spacing.lg },
+  guestInfoCard: {
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.lg,
   },
-  guestButtonText: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onBrand },
+  guestTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize.xl, color: colors.onSurface, textAlign: "center" },
+  guestSubtitle: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary, textAlign: "center", marginTop: spacing.sm },
 });
