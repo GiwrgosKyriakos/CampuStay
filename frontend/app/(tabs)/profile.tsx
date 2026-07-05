@@ -68,7 +68,7 @@ export default function ProfileScreen() {
   const displayName = auth.isGuest ? "Guest" : profile?.name || auth.user?.name || "Your Profile";
   const photoUri = auth.isGuest ? "" : profile?.photos?.[0] || "";
   const hasPhoto = !!photoUri.trim();
-  const university = auth.isGuest ? "" : profile?.university || "Add your university";
+  const university = auth.isGuest ? "" : profile?.university || "";
   const program = auth.isGuest ? "Complete your profile" : profile?.year_of_study || "Complete your profile";
   const age = auth.isGuest ? null : profile?.age ?? null;
   const budget = profile?.budget ?? null;

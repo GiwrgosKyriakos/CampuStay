@@ -1,4 +1,4 @@
-import { Stack, usePathname, useRouter } from "expo-router";
+import { Stack, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect, useState } from "react";
 import { LogBox } from "react-native";
@@ -29,7 +29,7 @@ function AppNavigator() {
 
 function AppContent() {
   const auth = useAuth();
-  const pathname = usePathname();
+  const segments = useSegments();
   const router = useRouter();
   const [iconsLoaded, iconsError] = useIconFonts();
   const [fontsLoaded, fontsError] = useFonts({
@@ -43,11 +43,12 @@ function AppContent() {
   const fontsReady = (iconsLoaded || !!iconsError) && (fontsLoaded || !!fontsError);
   const authReady = !auth.isLoading;
   const appReady = fontsReady && authReady;
+  const topSegment = segments[0] ?? "";
   const isAuthRoute =
-    pathname === "/auth-landing" ||
-    pathname === "/auth-email" ||
-    pathname === "/privacy-policy";
-  const isUnauthenticated = !auth.isLoggedIn && !auth.isGuestMode;
+    topSegment === "auth-landing" ||
+    topSegment === "auth-email" ||
+    topSegment === "privacy-policy";
+  const isUnauthenticated = auth.user === null && !auth.isGuest;
 
   useEffect(() => {
     console.log("[App] Loading fonts and icons...");
@@ -80,7 +81,7 @@ function AppContent() {
     if (isUnauthenticated && !isAuthRoute) {
       router.replace("/auth-landing");
     }
-  }, [authReady, isUnauthenticated, isAuthRoute, router]);
+  }, [authReady, isUnauthenticated, isAuthRoute, router, segments]);
 
   if (!fontsReady || !authReady) {
     console.log("[App] Waiting for app readiness...", { fontsReady, authReady });
