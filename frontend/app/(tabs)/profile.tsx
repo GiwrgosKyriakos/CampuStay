@@ -18,7 +18,7 @@ import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 100;
-const NAV_SETTINGS: { icon: keyof typeof Ionicons.glyphMap; label: string; route: string; testID: string }[] = [
+const NAV_SETTINGS: { icon: keyof typeof Ionicons.glyphMap; label: string; route: string; testID?: string }[] = [
   { icon: "sparkles", label: "Compatibility Quiz", route: "/roomie-profile", testID: "setting-compatibility-quiz" },
   { icon: "create-outline", label: "Edit profile", route: "/edit-profile" },
   { icon: "notifications-outline", label: "Notifications", route: "/notifications" },
