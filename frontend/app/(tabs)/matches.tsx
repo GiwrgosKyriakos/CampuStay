@@ -291,7 +291,7 @@ export default function MatchesScreen() {
         <Text style={styles.title}>Matches</Text>
         <Text style={styles.subtitle}>
           {auth.isGuest
-            ? "Sign in to see your matches"
+            ? "Sign up to see your matches"
             : matches.length > 0
             ? `${matches.length} roommate${matches.length > 1 ? "s" : ""} you liked`
             : "People you like will show up here"}
@@ -303,7 +303,7 @@ export default function MatchesScreen() {
           <View style={styles.emptyIcon}>
             <Ionicons name="lock-closed-outline" size={42} color={colors.onBrandTertiary} />
           </View>
-          <Text style={styles.emptyTitle}>Sign in to see your matches</Text>
+          <Text style={styles.emptyTitle}>Sign up to see your matches</Text>
           <Text style={styles.emptySub}>Your likes, matches, and chats appear here after you log in.</Text>
           <Pressable style={styles.ctaBtn} onPress={() => router.push("/auth-landing")} testID="matches-signin-button">
             <Text style={styles.ctaText}>Sign Up / Log In</Text>
@@ -432,7 +432,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: spacing.sm,
   },
-  emptyTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface },
+  emptyTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface, textAlign: "center" },
   emptySub: { fontFamily: fonts.regular, fontSize: fontSize.lg, color: colors.onSurfaceTertiary, textAlign: "center" },
   ctaBtn: {
     marginTop: spacing.md,
