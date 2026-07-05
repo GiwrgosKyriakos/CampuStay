@@ -33,6 +33,14 @@ export const REGISTER = {
 	loginLink: 'register-login-link',
 };
 
+export const AUTH = {
+	backButton: 'auth-back-button',
+	loginTab: 'auth-tab-login',
+	registerTab: 'auth-tab-register',
+	modeTabs: 'auth-mode-tabs',
+	notice: 'auth-inline-notice',
+};
+
 export const LOGOUT = {
 	button: 'logout-button',
 };

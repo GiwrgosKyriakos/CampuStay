@@ -18,6 +18,7 @@ import * as WebBrowser from "expo-web-browser";
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import { useAuth } from "@/src/context/auth";
 import { firebaseAuth } from "@/src/config/firebase";
+import { AUTH, LOGIN, REGISTER } from "@/constants/testIds";
 
 type Mode = "login" | "register";
 type NoticeTone = "error" | "success";
@@ -66,6 +67,7 @@ export default function AuthEmailScreen() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [authNotice, setAuthNotice] = useState<AuthNotice | null>(null);
+  const activeFieldIds = mode === "login" ? LOGIN : REGISTER;
 
   const handleBack = () => {
     router.back();
@@ -164,7 +166,7 @@ export default function AuthEmailScreen() {
       testID={`auth-email-${mode}`}
     >
       <View style={styles.header}>
-        <Pressable onPress={handleBack} testID="back-button">
+        <Pressable onPress={handleBack} testID={AUTH.backButton}>
           <Ionicons name="chevron-back" size={28} color={colors.onSurface} />
         </Pressable>
         <Text style={styles.headerTitle}>Sign In</Text>
@@ -174,11 +176,11 @@ export default function AuthEmailScreen() {
       <View style={styles.content}>
         <Text style={styles.subtitle}>Access CampuStay with your email and password.</Text>
 
-        <View style={styles.tabBar} testID="auth-mode-tabs">
+        <View style={styles.tabBar} testID={AUTH.modeTabs}>
           <Pressable
             style={[styles.tabButton, mode === "login" ? styles.tabButtonActive : styles.tabButtonInactive]}
             onPress={() => switchMode("login")}
-            testID="auth-tab-login"
+            testID={AUTH.loginTab}
           >
             <Text style={[styles.tabButtonText, mode === "login" ? styles.tabButtonTextActive : styles.tabButtonTextInactive]}>
               Log In
@@ -187,7 +189,7 @@ export default function AuthEmailScreen() {
           <Pressable
             style={[styles.tabButton, mode === "register" ? styles.tabButtonActive : styles.tabButtonInactive]}
             onPress={() => switchMode("register")}
-            testID="auth-tab-register"
+            testID={AUTH.registerTab}
           >
             <Text style={[styles.tabButtonText, mode === "register" ? styles.tabButtonTextActive : styles.tabButtonTextInactive]}>
               Sign Up
@@ -202,7 +204,7 @@ export default function AuthEmailScreen() {
             </Text>
             <Pressable
               onPress={() => switchMode(mode === "login" ? "register" : "login")}
-              testID={mode === "login" ? "login-register-link" : "register-login-link"}
+              testID={mode === "login" ? LOGIN.registerLink : REGISTER.loginLink}
             >
               <Text style={styles.inlineSwitchLink}>{mode === "login" ? "Create one." : "Log In."}</Text>
             </Pressable>
@@ -214,7 +216,7 @@ export default function AuthEmailScreen() {
                 styles.noticeContainer,
                 authNotice.tone === "success" ? styles.noticeContainerSuccess : styles.noticeContainerError,
               ]}
-              testID="auth-inline-error"
+              testID={AUTH.notice}
             >
               <Text style={styles.noticeText}>{authNotice.message}</Text>
             </View>
@@ -236,7 +238,7 @@ export default function AuthEmailScreen() {
                   }}
                   editable={!loading}
                   autoCapitalize="words"
-                  testID="name-input"
+                  testID={REGISTER.nameInput}
                 />
               </View>
             </View>
@@ -258,7 +260,7 @@ export default function AuthEmailScreen() {
                 editable={!loading}
                 autoCapitalize="none"
                 keyboardType="email-address"
-                testID="email-input"
+                testID={activeFieldIds.emailInput}
               />
             </View>
           </View>
@@ -278,7 +280,7 @@ export default function AuthEmailScreen() {
                 }}
                 secureTextEntry={!showPassword}
                 editable={!loading}
-                testID="password-input"
+                testID={activeFieldIds.passwordInput}
               />
               <Pressable onPress={() => setShowPassword(!showPassword)}>
                 <Ionicons
@@ -307,7 +309,7 @@ export default function AuthEmailScreen() {
                   }}
                   secureTextEntry={!showPassword}
                   editable={!loading}
-                  testID="confirm-password-input"
+                  testID={REGISTER.passwordConfirmInput}
                 />
               </View>
             </View>
@@ -317,7 +319,7 @@ export default function AuthEmailScreen() {
             style={[styles.submitButton, loading && styles.submitButtonDisabled]}
             onPress={mode === "login" ? handleLogin : handleRegister}
             disabled={loading}
-            testID="submit-button"
+            testID={activeFieldIds.submitButton}
           >
             {loading ? (
               <ActivityIndicator color={colors.onSurface} size="small" />
@@ -327,7 +329,7 @@ export default function AuthEmailScreen() {
           </Pressable>
 
           {mode === "login" && (
-            <Pressable onPress={handleForgotPassword} disabled={loading} testID="forgot-password-button">
+            <Pressable onPress={handleForgotPassword} disabled={loading} testID={LOGIN.forgotPasswordLink}>
               <Text style={styles.forgotText}>Forgot Password?</Text>
             </Pressable>
           )}
