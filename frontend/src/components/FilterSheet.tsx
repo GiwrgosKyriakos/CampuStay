@@ -1,16 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Animated,
-  Dimensions,
-  Modal,
-  PanResponder,
-  Pressable,
-  StyleSheet,
-  Text,
-  TouchableWithoutFeedback,
-  View,
-} from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import Slider from "@react-native-community/slider";
+import {
+  BottomSheetBackdrop,
+  BottomSheetHandle,
+  BottomSheetModal,
+  BottomSheetView,
+  type BottomSheetBackdropProps,
+} from "@gorhom/bottom-sheet";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
@@ -33,10 +30,6 @@ export const DEFAULT_FILTERS: Filters = {
 
 const GENDERS: GenderFilter[] = ["All", "Female", "Male", "Non-binary"];
 
-const { height: SCREEN_HEIGHT } = Dimensions.get("window");
-const SHEET_CLOSE_THRESHOLD = 120;
-const SHEET_CLOSE_VELOCITY = 1.1;
-
 interface Props {
   current: Filters;
   currency: string;
@@ -48,56 +41,26 @@ interface Props {
 const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) => {
   const insets = useSafeAreaInsets();
   const [draft, setDraft] = useState<Filters>(current);
-  const [mounted, setMounted] = useState(visible);
-  const [sliderInteracting, setSliderInteracting] = useState(false);
-  const translateY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
-  const backdropOpacity = useRef(new Animated.Value(0)).current;
-  const dragStart = useRef(0);
+  const draftRef = useRef(draft);
+  const modalRef = useRef<BottomSheetModal>(null);
+  const isPresentedRef = useRef(false);
+  const snapPoints = useMemo(() => ["86%"], []);
 
   useEffect(() => {
-    if (visible) {
-      if (!mounted) {
-        setMounted(true);
-        translateY.setValue(SCREEN_HEIGHT);
-        backdropOpacity.setValue(0);
+    draftRef.current = draft;
+  }, [draft]);
 
-        Animated.parallel([
-          Animated.timing(backdropOpacity, {
-            toValue: 1,
-            duration: 180,
-            useNativeDriver: true,
-          }),
-          Animated.timing(translateY, {
-            toValue: 0,
-            duration: 240,
-            useNativeDriver: true,
-          }),
-        ]).start();
-      }
+  useEffect(() => {
+    if (visible && !isPresentedRef.current) {
+      modalRef.current?.present();
+      isPresentedRef.current = true;
       return;
     }
 
-    if (!mounted) {
-      return;
+    if (!visible && isPresentedRef.current) {
+      modalRef.current?.dismiss();
     }
-
-    Animated.parallel([
-      Animated.timing(backdropOpacity, {
-        toValue: 0,
-        duration: 140,
-        useNativeDriver: true,
-      }),
-      Animated.timing(translateY, {
-        toValue: SCREEN_HEIGHT,
-        duration: 180,
-        useNativeDriver: true,
-      }),
-    ]).start(({ finished }) => {
-      if (finished) {
-        setMounted(false);
-      }
-    });
-  }, [backdropOpacity, mounted, translateY, visible]);
+  }, [visible]);
 
   useEffect(() => {
     if (visible) {
@@ -108,12 +71,8 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
   const set = (patch: Partial<Filters>) => setDraft((d) => ({ ...d, ...patch }));
 
   const close = useCallback(() => {
-    if (!visible) {
-      return;
-    }
-    onChange(draft);
-    onClose();
-  }, [draft, onChange, onClose, visible]);
+    modalRef.current?.dismiss();
+  }, []);
 
   const setAndCommit = useCallback(
     (patch: Partial<Filters>) => {
@@ -126,69 +85,55 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
     [onChange],
   );
 
-  const sheetPanResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: (_, gestureState) => {
-          if (sliderInteracting) return false;
-          return gestureState.dy > 4 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx);
-        },
-        onPanResponderGrant: () => {
-          translateY.stopAnimation((value) => {
-            dragStart.current = value;
-          });
-        },
-        onPanResponderMove: (_, gestureState) => {
-          if (gestureState.dy > 0) {
-            translateY.setValue(dragStart.current + gestureState.dy);
-          }
-        },
-        onPanResponderRelease: (_, gestureState) => {
-          const shouldClose = gestureState.dy > SHEET_CLOSE_THRESHOLD || gestureState.vy > SHEET_CLOSE_VELOCITY;
-          if (shouldClose) {
-            close();
-            return;
-          }
-
-          Animated.spring(translateY, {
-            toValue: 0,
-            useNativeDriver: true,
-            tension: 80,
-            friction: 14,
-          }).start();
-        },
-      }),
-    [close, sliderInteracting, translateY],
+  const renderBackdrop = useCallback(
+    (props: BottomSheetBackdropProps) => (
+      <BottomSheetBackdrop
+        {...props}
+        opacity={0.58}
+        pressBehavior="close"
+        appearsOnIndex={0}
+        disappearsOnIndex={-1}
+      />
+    ),
+    [],
   );
 
-  if (!mounted) {
-    return null;
-  }
+  const handleDismiss = useCallback(() => {
+    isPresentedRef.current = false;
+    onChange(draftRef.current);
+    onClose();
+  }, [onChange, onClose]);
 
   return (
-    <Modal transparent visible={mounted} statusBarTranslucent animationType="none" onRequestClose={close}>
-      <View style={styles.overlay}>
-        <TouchableWithoutFeedback onPress={close}>
-          <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]} />
-        </TouchableWithoutFeedback>
-
-        <Animated.View style={[styles.sheet, { transform: [{ translateY }] }]}>
-          <View style={styles.sheetHandleArea} {...sheetPanResponder.panHandlers}>
-            <View style={styles.handle} />
-            <View style={styles.headerRow}>
-              <View>
-                <Text style={styles.title} testID="filter-sheet-title">
-                  Preferences
-                </Text>
-                <Text style={styles.subtitle}>Adjust these in real time.</Text>
-              </View>
-              <Pressable onPress={close} hitSlop={12} testID="filter-close-button">
-                <Text style={styles.closeText}>Done</Text>
-              </Pressable>
+    <BottomSheetModal
+      ref={modalRef}
+      index={0}
+      snapPoints={snapPoints}
+      backdropComponent={renderBackdrop}
+      onDismiss={handleDismiss}
+      enablePanDownToClose
+      enableHandlePanningGesture
+      enableContentPanningGesture={false}
+      handleIndicatorStyle={styles.handleIndicator}
+      backgroundStyle={styles.sheetBackground}
+    >
+      <BottomSheetView style={[styles.sheetBody, { paddingBottom: insets.bottom + spacing.lg }]}> 
+        <View style={styles.sheetHandleArea}>
+          <BottomSheetHandle indicatorStyle={styles.hiddenIndicator} />
+          <View style={styles.headerRow}>
+            <View>
+              <Text style={styles.title} testID="filter-sheet-title">
+                Preferences
+              </Text>
+              <Text style={styles.subtitle}>Adjust these in real time.</Text>
             </View>
+            <Pressable onPress={close} hitSlop={12} testID="filter-close-button">
+              <Text style={styles.closeText}>Done</Text>
+            </Pressable>
           </View>
+        </View>
 
-          <View style={[styles.content, { paddingBottom: insets.bottom + spacing.lg }]}>
+        <View style={styles.content}>
             <Text style={styles.label}>Gender</Text>
             <View style={styles.chipRow}>
               {GENDERS.map((g) => {
@@ -222,7 +167,6 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
               upperBound={draft.ageMax}
               onChange={(value) => set({ ageMin: value })}
               onCommit={(value) => setAndCommit({ ageMin: value })}
-              onInteractionChange={setSliderInteracting}
               testID="filter-age-min-slider"
             />
             <PreferenceSlider
@@ -235,7 +179,6 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
               upperBound={40}
               onChange={(value) => set({ ageMax: value })}
               onCommit={(value) => setAndCommit({ ageMax: value })}
-              onInteractionChange={setSliderInteracting}
               testID="filter-age-max-slider"
             />
 
@@ -256,7 +199,6 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
               upperBound={1500}
               onChange={(value) => set({ budgetMax: value })}
               onCommit={(value) => setAndCommit({ budgetMax: value })}
-              onInteractionChange={setSliderInteracting}
               valueFormatter={(value) => `${currency}${value}/mo`}
               testID="filter-budget-slider"
             />
@@ -276,10 +218,9 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
                 <Text style={styles.applyText}>Show roommates</Text>
               </Pressable>
             </View>
-          </View>
-        </Animated.View>
-      </View>
-    </Modal>
+        </View>
+      </BottomSheetView>
+    </BottomSheetModal>
   );
 };
 
@@ -295,7 +236,6 @@ interface PreferenceSliderProps {
   upperBound?: number;
   onChange: (value: number) => void;
   onCommit: (value: number) => void;
-  onInteractionChange?: (active: boolean) => void;
   valueFormatter?: (value: number) => string;
   testID?: string;
 }
@@ -310,7 +250,6 @@ function PreferenceSlider({
   upperBound = maximum,
   onChange,
   onCommit,
-  onInteractionChange,
   valueFormatter,
   testID,
 }: PreferenceSliderProps) {
@@ -350,7 +289,6 @@ function PreferenceSlider({
         value={liveValue}
         onSlidingStart={() => {
           draggingRef.current = true;
-          onInteractionChange?.(true);
         }}
         onValueChange={(next) => {
           const clamped = clampValue(next);
@@ -363,7 +301,6 @@ function PreferenceSlider({
           setLiveValue(clamped);
           onChange(clamped);
           onCommit(clamped);
-          onInteractionChange?.(false);
         }}
       />
     </View>
@@ -371,29 +308,27 @@ function PreferenceSlider({
 }
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, justifyContent: "flex-end" },
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(16, 16, 20, 0.58)" },
-  sheet: {
+  sheetBackground: {
     backgroundColor: colors.surface,
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
-    overflow: "hidden",
-    maxHeight: SCREEN_HEIGHT * 0.88,
   },
-  sheetHandleArea: { paddingTop: spacing.sm, paddingBottom: spacing.sm, paddingHorizontal: spacing.xl },
-  handle: {
-    alignSelf: "center",
+  handleIndicator: {
     width: 48,
     height: 5,
-    borderRadius: 999,
+    borderRadius: radius.pill,
     backgroundColor: colors.borderStrong,
-    marginBottom: spacing.md,
   },
+  hiddenIndicator: {
+    opacity: 0,
+  },
+  sheetBody: { flex: 1 },
+  sheetHandleArea: { paddingTop: spacing.sm, paddingBottom: spacing.sm, paddingHorizontal: spacing.xl },
   headerRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.md },
   title: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface },
   subtitle: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary, marginTop: 2 },
   closeText: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.brand, paddingTop: 4 },
-  content: { paddingHorizontal: spacing.xl, paddingTop: spacing.sm, gap: spacing.sm },
+  content: { paddingHorizontal: spacing.xl, paddingTop: spacing.sm, gap: spacing.sm, flexGrow: 1 },
   label: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface, marginTop: spacing.md },
   subLabel: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
   sliderValue: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onBrandTertiary },
