@@ -6,9 +6,6 @@ import {
   Pressable,
   TextInput,
   ActivityIndicator,
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -22,6 +19,21 @@ import { useAuth } from "@/src/context/auth";
 
 type Mode = "initial" | "login" | "register";
 
+function mapFirebaseAuthError(code?: string): string {
+  switch (code) {
+    case "auth/invalid-email":
+      return "Please enter a valid email address.";
+    case "auth/invalid-credential":
+      return "Incorrect email or password. Please try again.";
+    case "auth/email-already-in-use":
+      return "This email is already registered.";
+    case "auth/weak-password":
+      return "Password should be at least 6 characters long.";
+    default:
+      return "An unexpected error occurred. Please try again.";
+  }
+}
+
 export default function AuthEmailScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -33,6 +45,7 @@ export default function AuthEmailScreen() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   const handleBack = () => {
     if (mode === "initial") {
@@ -42,6 +55,7 @@ export default function AuthEmailScreen() {
       setEmail("");
       setPassword("");
       setConfirmPassword("");
+      setAuthError(null);
     }
   };
 
@@ -50,8 +64,10 @@ export default function AuthEmailScreen() {
   };
 
   const handleLogin = async () => {
+    setAuthError(null);
+
     if (!email.trim() || !password.trim()) {
-      Alert.alert("Error", "Please fill in all fields");
+      setAuthError("Please fill in all fields.");
       return;
     }
 
@@ -60,25 +76,27 @@ export default function AuthEmailScreen() {
       await auth.loginEmail(email.trim(), password);
       router.replace("/");
     } catch (err: any) {
-      Alert.alert("Login Error", err.message || "Failed to log in. Please try again.");
+      setAuthError(mapFirebaseAuthError(err?.code));
     } finally {
       setLoading(false);
     }
   };
 
   const handleRegister = async () => {
+    setAuthError(null);
+
     if (!email.trim() || !password.trim() || !confirmPassword.trim()) {
-      Alert.alert("Error", "Please fill in all fields");
+      setAuthError("Please fill in all fields.");
       return;
     }
 
     if (password !== confirmPassword) {
-      Alert.alert("Error", "Passwords do not match");
+      setAuthError("Passwords do not match.");
       return;
     }
 
     if (password.length < 6) {
-      Alert.alert("Error", "Password must be at least 6 characters");
+      setAuthError("Password should be at least 6 characters long.");
       return;
     }
 
@@ -87,7 +105,7 @@ export default function AuthEmailScreen() {
       await auth.registerEmail(email.trim(), password);
       router.replace("/");
     } catch (err: any) {
-      Alert.alert("Registration Error", err.message || "Failed to register. Please try again.");
+      setAuthError(mapFirebaseAuthError(err?.code));
     } finally {
       setLoading(false);
     }
@@ -109,7 +127,10 @@ export default function AuthEmailScreen() {
 
           <Pressable
             style={styles.methodButton}
-            onPress={() => setMode("login")}
+            onPress={() => {
+              setAuthError(null);
+              setMode("login");
+            }}
             testID="email-login-option"
           >
             <View style={styles.methodIcon}>
@@ -124,7 +145,10 @@ export default function AuthEmailScreen() {
 
           <Pressable
             style={styles.methodButton}
-            onPress={() => setMode("register")}
+            onPress={() => {
+              setAuthError(null);
+              setMode("register");
+            }}
             testID="email-register-option"
           >
             <View style={styles.methodIcon}>
@@ -161,6 +185,12 @@ export default function AuthEmailScreen() {
           {mode === "login" ? "Enter your credentials" : "Set up your account"}
         </Text>
 
+        {authError ? (
+          <View style={styles.errorContainer} testID="auth-inline-error">
+            <Text style={styles.errorText}>{authError}</Text>
+          </View>
+        ) : null}
+
         {/* Email Input */}
         <View style={styles.inputGroup}>
           <Text style={styles.label}>Email Address</Text>
@@ -171,7 +201,10 @@ export default function AuthEmailScreen() {
               placeholder="you@example.com"
               placeholderTextColor={colors.onSurfaceTertiary}
               value={email}
-              onChangeText={setEmail}
+              onChangeText={(text) => {
+                setEmail(text);
+                setAuthError(null);
+              }}
               editable={!loading}
               autoCapitalize="none"
               keyboardType="email-address"
@@ -190,7 +223,10 @@ export default function AuthEmailScreen() {
               placeholder="Enter password"
               placeholderTextColor={colors.onSurfaceTertiary}
               value={password}
-              onChangeText={setPassword}
+              onChangeText={(text) => {
+                setPassword(text);
+                setAuthError(null);
+              }}
               secureTextEntry={!showPassword}
               editable={!loading}
               testID="password-input"
@@ -219,7 +255,10 @@ export default function AuthEmailScreen() {
                 placeholder="Confirm password"
                 placeholderTextColor={colors.onSurfaceTertiary}
                 value={confirmPassword}
-                onChangeText={setConfirmPassword}
+                onChangeText={(text) => {
+                  setConfirmPassword(text);
+                  setAuthError(null);
+                }}
                 secureTextEntry={!showPassword}
                 editable={!loading}
                 testID="confirm-password-input"
@@ -292,6 +331,19 @@ const styles = StyleSheet.create({
     fontSize: fontSize.base,
     color: colors.onSurfaceTertiary,
     marginBottom: spacing.md,
+  },
+  errorContainer: {
+    borderRadius: 12,
+    backgroundColor: "rgba(176, 82, 36, 0.35)",
+    borderWidth: 1,
+    borderColor: "rgba(224, 122, 47, 0.45)",
+    padding: 12,
+  },
+  errorText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+    color: colors.onSurface,
+    textAlign: "center",
   },
   methodButton: {
     flexDirection: "row",
