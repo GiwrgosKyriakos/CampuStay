@@ -83,7 +83,16 @@ export default function DeleteAccountScreen() {
           buttonTestID="delete-guest-footer-signin-button"
         />
       ) : (
-        <Pressable style={[styles.deleteButton, loading && styles.disabled]} onPress={handleDelete} disabled={loading} testID="delete-permanently-button">
+        <Pressable
+          style={[
+            styles.deleteButton,
+            { marginBottom: Math.max(insets.bottom + 34, 38) },
+            loading && styles.disabled,
+          ]}
+          onPress={handleDelete}
+          disabled={loading}
+          testID="delete-permanently-button"
+        >
           {loading ? (
             <ActivityIndicator size="small" color={colors.onError} />
           ) : (
@@ -101,7 +110,7 @@ const styles = StyleSheet.create({
   content: { gap: spacing.lg },
   guestBannerSpacing: { marginBottom: spacing.lg },
   heading: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface, marginBottom: spacing.sm },
-  warning: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.surfaceSecondary, lineHeight: 22 },
+  warning: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.brand, lineHeight: 22 },
   credentialBox: {
     marginTop: spacing.lg,
     padding: spacing.lg,
@@ -110,7 +119,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.12)",
   },
-  credentialLabel: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.surfaceSecondary, marginBottom: spacing.sm },
+  credentialLabel: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface, marginBottom: spacing.sm },
   credentialValue: { fontFamily: fonts.regular, fontSize: fontSize.lg, color: colors.onSurface, backgroundColor: "rgba(255,255,255,0.05)", padding: spacing.sm, borderRadius: radius.md },
   errorText: { fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.error, marginBottom: spacing.sm },
   deleteButton: {
@@ -118,7 +127,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     paddingVertical: spacing.lg,
     alignItems: "center",
-    marginBottom: spacing.xl,
   },
   deleteText: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onError },
   disabled: { opacity: 0.7 },
