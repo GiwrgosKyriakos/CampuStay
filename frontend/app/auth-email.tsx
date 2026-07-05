@@ -15,6 +15,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 
+import * as WebBrowser from "expo-web-browser";
+
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import { useAuth } from "@/src/context/auth";
 
@@ -248,7 +250,11 @@ export default function AuthEmailScreen() {
         )}
 
         <View style={styles.footerRow}>
-          <Text style={styles.footerText}>By continuing, you agree to our Terms of Service and </Text>
+          <Text style={styles.footerText}>By continuing, you agree to our </Text>
+          <Pressable onPress={() => WebBrowser.openBrowserAsync("https://giwrgoskyriakos.github.io/CampuStay/terms_of_service.html")} testID="terms-of-service-email-link">
+            <Text style={styles.footerLinkText}>Terms of Service</Text>
+          </Pressable>
+          <Text style={styles.footerText}> and </Text>
           <Pressable onPress={handlePrivacyPolicyPress} testID="privacy-policy-email-link">
             <Text style={styles.footerLinkText}>Privacy Policy</Text>
           </Pressable>
