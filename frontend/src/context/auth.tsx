@@ -9,6 +9,7 @@ import {
   signInWithEmailAndPassword,
   signOut,
   GoogleAuthProvider,
+  updateProfile,
   type User as FirebaseUser,
 } from "firebase/auth";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
@@ -40,7 +41,7 @@ interface AuthContextValue {
   token: string | null;
   needsProfileSetup: boolean;
   loginEmail: (email: string, password: string) => Promise<void>;
-  registerEmail: (email: string, password: string) => Promise<void>;
+  registerEmail: (email: string, password: string, name?: string) => Promise<void>;
   signInWithGoogle: () => Promise<AuthUser | null>;
   continueAsGuest: () => Promise<void>;
   logout: () => Promise<void>;
@@ -106,7 +107,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [needsProfileSetup, setNeedsProfileSetup] = useState(false);
 
-  const proxyProjectName = process.env.EXPO_PUBLIC_EXPO_PROXY_PROJECT ?? "@gkyriakos92/frontend";
   const redirectUri = AuthSession.makeRedirectUri();
   // const redirectUri = "https://auth.expo.io/@gkyriakos92/frontend";
 
@@ -196,8 +196,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const registerEmail = useCallback(
-    async (email: string, password: string) => {
+    async (email: string, password: string, name?: string) => {
       const userCredential = await createUserWithEmailAndPassword(firebaseAuth, email.trim(), password);
+      const trimmedName = name?.trim() ?? "";
+
+      if (trimmedName) {
+        await updateProfile(userCredential.user, { displayName: trimmedName });
+      }
+
       await syncUserDocument(userCredential.user);
       const idToken = await userCredential.user.getIdToken();
       await persist(idToken, mapFirebaseUser(userCredential.user));
