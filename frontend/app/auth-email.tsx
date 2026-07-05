@@ -145,6 +145,7 @@ export default function AuthEmailScreen() {
     <KeyboardAwareScrollView
       style={styles.container}
       contentContainerStyle={{ paddingTop: insets.top }}
+      keyboardShouldPersistTaps="handled"
       testID={`auth-email-${mode}`}
     >
       <View style={styles.header}>
