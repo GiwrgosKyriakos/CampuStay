@@ -43,6 +43,11 @@ function AppContent() {
   const fontsReady = (iconsLoaded || !!iconsError) && (fontsLoaded || !!fontsError);
   const authReady = !auth.isLoading;
   const appReady = fontsReady && authReady;
+  const isAuthRoute =
+    pathname === "/auth-landing" ||
+    pathname === "/auth-email" ||
+    pathname === "/privacy-policy";
+  const isUnauthenticated = !auth.isLoggedIn && !auth.isGuestMode;
 
   useEffect(() => {
     console.log("[App] Loading fonts and icons...");
@@ -72,19 +77,18 @@ function AppContent() {
   useEffect(() => {
     if (!authReady) return;
 
-    const isAuthRoute =
-      pathname === "/auth-landing" ||
-      pathname === "/auth-email" ||
-      pathname === "/privacy-policy";
-    const isUnauthenticated = !auth.isLoggedIn && !auth.isGuestMode;
-
     if (isUnauthenticated && !isAuthRoute) {
       router.replace("/auth-landing");
     }
-  }, [authReady, auth.isGuestMode, auth.isLoggedIn, pathname, router]);
+  }, [authReady, isUnauthenticated, isAuthRoute, router]);
 
   if (!fontsReady || !authReady) {
     console.log("[App] Waiting for app readiness...", { fontsReady, authReady });
+    return null;
+  }
+
+  if (isUnauthenticated && !isAuthRoute) {
+    // Block protected navigator mounting until redirect lands on auth gateway.
     return null;
   }
 
