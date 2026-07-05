@@ -11,6 +11,8 @@ import { QUIZ_SECTIONS, TOTAL_QUESTIONS } from "@/src/data/quiz";
 import { useAuth } from "@/src/context/auth";
 import { db } from "@/src/config/firebase";
 
+const STICKY_FOOTER_PADDING = 152;
+
 export default function RoomieProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -118,7 +120,10 @@ export default function RoomieProfileScreen() {
       ) : (
         <>
           <ScrollView
-            contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + spacing["5xl"] }]}
+            contentContainerStyle={[
+              styles.scroll,
+              { paddingBottom: insets.bottom + (guestLocked ? STICKY_FOOTER_PADDING : spacing.xl) },
+            ]}
             showsVerticalScrollIndicator={false}
           >
             {guestLocked && (

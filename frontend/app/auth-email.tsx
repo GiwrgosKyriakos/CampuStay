@@ -43,6 +43,10 @@ export default function AuthEmailScreen() {
     }
   };
 
+  const handlePrivacyPolicyPress = () => {
+    router.push("/privacy-policy");
+  };
+
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
       Alert.alert("Error", "Please fill in all fields");
@@ -242,6 +246,13 @@ export default function AuthEmailScreen() {
             <Text style={styles.forgotText}>Forgot password?</Text>
           </Pressable>
         )}
+
+        <View style={styles.footerRow}>
+          <Text style={styles.footerText}>By continuing, you agree to our Terms of Service and </Text>
+          <Pressable onPress={handlePrivacyPolicyPress} testID="privacy-policy-email-link">
+            <Text style={styles.footerLinkText}>Privacy Policy</Text>
+          </Pressable>
+        </View>
       </View>
     </KeyboardAwareScrollView>
   );
@@ -360,6 +371,25 @@ const styles = StyleSheet.create({
     color: colors.brand,
     textAlign: "center",
     marginTop: spacing.lg,
+    textDecorationLine: "underline",
+  },
+  footerRow: {
+    marginTop: spacing.xl,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    flexWrap: "wrap",
+  },
+  footerText: {
+    fontFamily: fonts.regular,
+    fontSize: fontSize.sm,
+    color: colors.onSurfaceTertiary,
+    textAlign: "center",
+  },
+  footerLinkText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+    color: colors.onSurfaceTertiary,
     textDecorationLine: "underline",
   },
 });

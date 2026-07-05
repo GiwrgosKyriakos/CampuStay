@@ -11,10 +11,11 @@ import {
   GoogleAuthProvider,
   type User as FirebaseUser,
 } from "firebase/auth";
+import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 
 import { storage } from "@/src/utils/storage";
 import { setUserIdCache } from "@/src/utils/userId";
-import { firebaseAuth } from "@/src/config/firebase";
+import { db, firebaseAuth } from "@/src/config/firebase";
 
 const TOKEN_KEY = "auth_token";
 const GUEST_KEY = "auth_guest";
@@ -60,6 +61,45 @@ function mapFirebaseUser(firebaseUser: FirebaseUser): AuthUser {
   };
 }
 
+async function syncUserDocument(firebaseUser: FirebaseUser): Promise<void> {
+  const userRef = doc(db, "users", firebaseUser.uid);
+  const userSnap = await getDoc(userRef);
+
+  const payload: Record<string, unknown> = {
+    email: firebaseUser.email ?? null,
+    name: firebaseUser.displayName ?? null,
+    photoUrl: firebaseUser.photoURL ?? "",
+    photos: firebaseUser.photoURL ? [firebaseUser.photoURL] : [],
+    authProvider: firebaseUser.providerData?.[0]?.providerId ?? "password",
+    lastLoginAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+
+  if (!userSnap.exists()) {
+    Object.assign(payload, {
+      age: null,
+      university: null,
+      year: null,
+      maxBudget: null,
+      gender: null,
+      about: "",
+      city: null,
+      has_place: false,
+      looking_for_apartment: false,
+      year_of_study: null,
+      budget: null,
+      move_in: null,
+      instagram: "",
+      facebook: "",
+      linkedin: "",
+      twitter: "",
+      createdAt: serverTimestamp(),
+    });
+  }
+
+  await setDoc(userRef, payload, { merge: true });
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<Status>("loading");
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -95,7 +135,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await storage.setItem("roomie_user_id", newUser.user_id);
     setUserIdCache(newUser.user_id);
     await storage.removeItem(GUEST_KEY);
-    const needsSetup = await storage.getItem(SETUP_KEY, false);
+    const needsSetup = (await storage.getItem(SETUP_KEY, false)) ?? false;
 
     setToken(newToken);
     setUser(newUser);
@@ -130,7 +170,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     (async () => {
       try {
-        const setup = await storage.getItem(SETUP_KEY, false);
+        const setup = (await storage.getItem(SETUP_KEY, false)) ?? false;
         if (mounted) {
           setNeedsProfileSetup(setup);
         }
@@ -148,6 +188,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const loginEmail = useCallback(
     async (email: string, password: string) => {
       const userCredential = await signInWithEmailAndPassword(firebaseAuth, email.trim(), password);
+      await syncUserDocument(userCredential.user);
       const idToken = await userCredential.user.getIdToken();
       await persist(idToken, mapFirebaseUser(userCredential.user));
     },
@@ -157,6 +198,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const registerEmail = useCallback(
     async (email: string, password: string) => {
       const userCredential = await createUserWithEmailAndPassword(firebaseAuth, email.trim(), password);
+      await syncUserDocument(userCredential.user);
       const idToken = await userCredential.user.getIdToken();
       await persist(idToken, mapFirebaseUser(userCredential.user));
     },

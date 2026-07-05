@@ -35,6 +35,7 @@ const NOTIFICATION_ROWS = [
 ] as const;
 
 type NotificationKey = "new_matches" | "direct_messages" | "app_updates_and_tips";
+const STICKY_FOOTER_PADDING = 152;
 
 export default function NotificationsScreen() {
   const auth = useAuth();
@@ -107,7 +108,7 @@ export default function NotificationsScreen() {
         style={styles.scroll}
         contentContainerStyle={[
           styles.contentContainer,
-          { paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + (isGuest ? spacing["5xl"] : spacing.xl) },
+          { paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + (isGuest ? STICKY_FOOTER_PADDING : spacing.xl) },
         ]}
         showsVerticalScrollIndicator={false}
         testID="notifications-screen"

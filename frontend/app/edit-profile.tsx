@@ -39,6 +39,7 @@ const YEARS = ["1st Year", "2nd Year", "3rd Year", "4th Year", "Master/PhD"];
 const GENDERS = ["Male", "Female", "Prefer Not To Say"];
 const ABOUT_LIMIT = 250;
 const HOUSING_PROMPT_MESSAGE = "Create your listing now!";
+const STICKY_FOOTER_PADDING = 152;
 
 const MOVE_IN_OPTIONS = (() => {
   const out: string[] = ["As soon as possible"];
@@ -302,7 +303,7 @@ export default function EditProfileScreen() {
 
       <KeyboardAwareScrollView
         bottomOffset={120}
-        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + spacing["5xl"] }]}
+        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + STICKY_FOOTER_PADDING }]}
         showsVerticalScrollIndicator={false}
       >
         {guestLocked && (

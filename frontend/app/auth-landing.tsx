@@ -37,6 +37,10 @@ export default function AuthLandingScreen() {
     router.push("/auth-email");
   };
 
+  const handlePrivacyPolicyPress = () => {
+    router.push("/privacy-policy");
+  };
+
   return (
     <View style={styles.container} testID="auth-landing-screen">
       {/* Hero Section */}
@@ -107,9 +111,12 @@ export default function AuthLandingScreen() {
         </Pressable>
 
         {/* Footer Text */}
-        <Text style={styles.footerText}>
-          By continuing, you agree to our Terms of Service and Privacy Policy
-        </Text>
+        <View style={styles.footerRow}>
+          <Text style={styles.footerText}>By continuing, you agree to our Terms of Service and </Text>
+          <Pressable onPress={handlePrivacyPolicyPress} testID="privacy-policy-footer-link">
+            <Text style={styles.footerLinkText}>Privacy Policy</Text>
+          </Pressable>
+        </View>
       </View>
     </View>
   );
@@ -226,6 +233,18 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     color: colors.onSurfaceTertiary,
     textAlign: "center",
+  },
+  footerRow: {
     marginTop: spacing.md,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    flexWrap: "wrap",
+  },
+  footerLinkText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+    color: colors.onSurfaceTertiary,
+    textDecorationLine: "underline",
   },
 });

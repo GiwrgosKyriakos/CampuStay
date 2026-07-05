@@ -314,7 +314,7 @@ export default function ApartmentDetailScreen() {
         >
           <Ionicons name="mail-outline" size={20} color={colors.onBrand} />
           <Text style={styles.contactBtnText}>
-            {auth.isGuest ? "Sign Up / Log In to contact host" : "Contact Host / Landlord"}
+            {auth.isGuest ? "Sign Up / Log In to contact host" : "Contact Host"}
           </Text>
         </Pressable>
       </View>

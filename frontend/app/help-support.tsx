@@ -24,6 +24,8 @@ const FAQ_ITEMS = [
   },
 ];
 
+const STICKY_FOOTER_PADDING = 152;
+
 export default function HelpSupportScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -64,7 +66,7 @@ export default function HelpSupportScreen() {
         style={styles.scroll}
         contentContainerStyle={[
           styles.contentContainer,
-          { paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + (auth.isGuest ? spacing["5xl"] : spacing.xl) },
+          { paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + (auth.isGuest ? STICKY_FOOTER_PADDING : spacing.xl) },
         ]}
         showsVerticalScrollIndicator={false}
         testID="help-support-screen"

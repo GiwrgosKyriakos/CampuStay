@@ -10,6 +10,8 @@ import { getUserSettings, saveUserPrivacy, PrivacyPreferences } from "@/src/api/
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import { GuestModeStickyFooter, GuestModeTopBanner } from "@/src/components/GuestModeLayout";
 
+const STICKY_FOOTER_PADDING = 152;
+
 export default function PrivacySafetyScreen() {
   const auth = useAuth();
   const router = useRouter();
@@ -98,7 +100,7 @@ export default function PrivacySafetyScreen() {
         style={styles.scroll}
         contentContainerStyle={[
           styles.contentContainer,
-          { paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + (auth.isGuest ? spacing["5xl"] : spacing.xl) },
+          { paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + (auth.isGuest ? STICKY_FOOTER_PADDING : spacing.xl) },
         ]}
         showsVerticalScrollIndicator={false}
         testID="privacy-safety-screen"

@@ -72,7 +72,10 @@ function AppContent() {
   useEffect(() => {
     if (!authReady) return;
 
-    const isAuthRoute = pathname === "/auth-landing" || pathname === "/auth-email";
+    const isAuthRoute =
+      pathname === "/auth-landing" ||
+      pathname === "/auth-email" ||
+      pathname === "/privacy-policy";
     const isUnauthenticated = !auth.isLoggedIn && !auth.isGuestMode;
 
     if (isUnauthenticated && !isAuthRoute) {
