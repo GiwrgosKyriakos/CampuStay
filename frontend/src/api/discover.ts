@@ -124,6 +124,7 @@ export async function postSwipe(
           status: "pending",
           initiatedBy: userId,
           createdAt: serverTimestamp(),
+          lastMessageTimestamp: serverTimestamp(),
           lastMessage: "",
         },
         { merge: true },

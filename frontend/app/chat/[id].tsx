@@ -20,7 +20,7 @@ import type { RoommateProfile } from "@/src/data/profiles";
 import { getUserPublic } from "@/src/api/discover";
 import { getUserId } from "@/src/utils/userId";
 import { db } from "@/src/config/firebase";
-import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc } from "firebase/firestore";
+import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc } from "firebase/firestore";
 import { DELETED_ACCOUNT_LABEL } from "@/src/api/accountDeletion";
 import { markIncomingMessagesAsRead } from "@/src/api/chat";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
@@ -204,6 +204,11 @@ export default function ChatScreen() {
         receiverId: id,
         createdAt: serverTimestamp(),
         isRead: false,
+      });
+
+      await updateDoc(doc(db, "chats", chatRoomId), {
+        lastMessage: trimmed,
+        lastMessageTimestamp: serverTimestamp(),
       });
     } catch {
       setMessages((prev) => prev.filter((m) => m.id !== optimisticMessage.id));

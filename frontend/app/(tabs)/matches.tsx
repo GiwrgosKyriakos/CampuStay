@@ -48,6 +48,9 @@ interface FirestoreChatDoc {
   initiatedBy?: string | null;
   deletedUsers?: Record<string, boolean>;
   participantDisplayNames?: Record<string, string>;
+  lastMessageTimestamp?: { toMillis?: () => number } | number | null;
+  updatedAt?: { toMillis?: () => number } | number | null;
+  createdAt?: { toMillis?: () => number } | number | null;
 }
 
 interface FirestoreLastMessageDoc {
@@ -64,6 +67,17 @@ interface LastMessageMeta {
   text: string;
   senderId: string;
   isRead: boolean;
+}
+
+function toMillis(value: unknown): number {
+  if (typeof value === "number") return value;
+  if (value && typeof value === "object" && "toMillis" in value) {
+    const fn = (value as { toMillis?: () => number }).toMillis;
+    if (typeof fn === "function") {
+      return fn() ?? 0;
+    }
+  }
+  return 0;
 }
 
 function isMessageRead(msg: FirestoreLastMessageDoc | null, currentUserId: string): boolean {
@@ -161,7 +175,11 @@ export default function MatchesScreen() {
         if (!mounted) return;
         setCurrentUserId(uid);
 
-        const chatsQ = query(collection(db, "chats"), where("users", "array-contains", uid));
+        const chatsQ = query(
+          collection(db, "chats"),
+          where("users", "array-contains", uid),
+          orderBy("lastMessageTimestamp", "desc"),
+        );
         unsub = onSnapshot(chatsQ, (snapshot) => {
           const activeChatIds = new Set(snapshot.docs.map((d) => d.id));
 
@@ -217,6 +235,10 @@ export default function MatchesScreen() {
             const rows = await Promise.all(
               snapshot.docs.map(async (chatDoc) => {
                 const chatData = chatDoc.data() as FirestoreChatDoc;
+                const sortKey =
+                  toMillis(chatData.lastMessageTimestamp) ||
+                  toMillis(chatData.updatedAt) ||
+                  toMillis(chatData.createdAt);
                 const users = Array.isArray(chatData.users) ? chatData.users : [];
                 const counterpartUid = users.find((u) => u !== uid);
                 if (!counterpartUid) {
@@ -226,30 +248,41 @@ export default function MatchesScreen() {
                 const tombstonedLabel = chatData.participantDisplayNames?.[counterpartUid];
                 const isTombstoned = chatData.deletedUsers?.[counterpartUid] === true || tombstonedLabel === DELETED_ACCOUNT_LABEL;
                 if (isTombstoned) {
-                  return buildDeletedCandidate(
-                    counterpartUid,
-                    chatDoc.id,
-                    chatData.status ?? "active",
-                    chatData.initiatedBy ?? null,
-                    DELETED_ACCOUNT_LABEL,
-                  );
+                  return {
+                    sortKey,
+                    item: buildDeletedCandidate(
+                      counterpartUid,
+                      chatDoc.id,
+                      chatData.status ?? "active",
+                      chatData.initiatedBy ?? null,
+                      DELETED_ACCOUNT_LABEL,
+                    ),
+                  };
                 }
 
                 const userSnap = await getDoc(doc(db, "users", counterpartUid));
                 const userData = userSnap.exists() ? (userSnap.data() as FirestoreUserDoc) : null;
 
-                return mapUserToChatItem(
-                  counterpartUid,
-                  chatDoc.id,
-                  chatData.status ?? "active",
-                  chatData.initiatedBy ?? null,
-                  userData,
-                );
+                return {
+                  sortKey,
+                  item: mapUserToChatItem(
+                    counterpartUid,
+                    chatDoc.id,
+                    chatData.status ?? "active",
+                    chatData.initiatedBy ?? null,
+                    userData,
+                  ),
+                };
               }),
             );
 
             if (mounted) {
-              setMatches(rows.filter((r): r is ChatListItem => !!r));
+              setMatches(
+                rows
+                  .filter((r): r is { sortKey: number; item: ChatListItem } => !!r)
+                  .sort((a, b) => b.sortKey - a.sortKey)
+                  .map((row) => row.item),
+              );
             }
           })();
         });
