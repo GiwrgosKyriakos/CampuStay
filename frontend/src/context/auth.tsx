@@ -67,10 +67,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [needsProfileSetup, setNeedsProfileSetup] = useState(false);
 
   const proxyProjectName = process.env.EXPO_PUBLIC_EXPO_PROXY_PROJECT ?? "@gkyriakos92/frontend";
-  const redirectUri = AuthSession.makeRedirectUri({
-    useProxy: true,
-    projectNameForProxy: proxyProjectName,
-  });
+  const redirectUri = AuthSession.makeRedirectUri();
 
   const [request, , promptAsync] = Google.useIdTokenAuthRequest({
     expoClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ?? process.env.EXPO_PUBLIC_WEB_CLIENT_ID,
