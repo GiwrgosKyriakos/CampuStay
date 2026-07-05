@@ -15,6 +15,7 @@ import { getMyMatches } from "@/src/api/discover";
 import { db } from "@/src/config/firebase";
 import { TOTAL_QUESTIONS } from "@/src/data/quiz";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
+import { uploadProfileImageAsync } from "@/src/api/imageUpload";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 100;
@@ -98,19 +99,19 @@ export default function ProfileScreen() {
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.8,
-        base64: true,
       });
 
       if (result.canceled) return;
       const asset = result.assets[0];
-      if (!asset?.base64) return;
+      if (!asset?.uri) return;
 
       const uid = await getUserId();
+      const uploadedPhoto = await uploadProfileImageAsync(asset.uri, uid, 0);
       const nextProfile: UserProfile = {
         ...(profile as UserProfile),
         name: profile.name ?? auth.user?.name ?? "",
         photos: [
-          `data:image/jpeg;base64,${asset.base64}`,
+          uploadedPhoto,
           ...(profile.photos ?? []).slice(1),
         ],
       };
@@ -120,7 +121,7 @@ export default function ProfileScreen() {
     } finally {
       setUpdatingPhoto(false);
     }
-  }, [auth.isGuest, auth.user?.name, profile, router]);
+  }, [auth.isGuest, auth.user?.email, auth.user?.name, profile, router]);
 
   return (
     <View style={styles.container} testID="profile-screen">

@@ -24,6 +24,7 @@ import { GuestModeStickyFooter, GuestModeTopBanner } from "@/src/components/Gues
 import { getUserId } from "@/src/utils/userId";
 import { getUserProfile, saveUserProfile, UserProfile } from "@/src/api/userProfile";
 import { useAuth } from "@/src/context/auth";
+import { uploadProfileImageAsync } from "@/src/api/imageUpload";
 
 const CITIES = ["Thessaloniki", "Athens", "Patras", "Heraklion", "Ioannina", "Larissa", "Rethymno"];
 const UNIVERSITIES = [
@@ -170,13 +171,12 @@ export default function EditProfileScreen() {
         mediaTypes: ["images"],
         allowsMultipleSelection: true,
         selectionLimit: 3 - photos.length,
-        base64: true,
         quality: 0.5,
       });
       if (!result.canceled) {
         const picked = result.assets
-          .filter((a) => a.base64)
-          .map((a) => `data:image/jpeg;base64,${a.base64}`);
+          .map((asset) => asset.uri)
+          .filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0);
         setPhotos((prev) => [...prev, ...picked].slice(0, 3));
         setError(null);
       }
@@ -209,9 +209,12 @@ export default function EditProfileScreen() {
     setSubmitting(true);
     try {
       console.log("[EditProfile] → Saving user profile...");
+      const uploadedPhotos = userId
+        ? await Promise.all(photos.map((uri, index) => uploadProfileImageAsync(uri, userId, index)))
+        : photos.filter((p) => p.trim().length > 0);
       const profile: UserProfile = {
         name: name.trim() || auth.user?.name || "",
-        photos: photos.filter((p) => p.trim().length > 0),
+        photos: uploadedPhotos.filter((p) => p.trim().length > 0),
         age: age ? parseInt(age, 10) : null,
         about,
         gender,
@@ -230,6 +233,7 @@ export default function EditProfileScreen() {
       if (userId) {
         console.log(`[EditProfile] → Calling saveUserProfile for user: ${userId.substring(0, 8)}...`);
         await saveUserProfile(userId, profile, { email: auth.user?.email ?? null });
+        setPhotos(profile.photos);
         console.log("[EditProfile] ✓ Profile saved successfully");
       }
       

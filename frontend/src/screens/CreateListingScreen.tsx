@@ -1,6 +1,7 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   Alert,
+  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -10,16 +11,20 @@ import {
   Text,
   TextInput,
   View,
+  Linking,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
+import * as ImagePicker from "expo-image-picker";
+import { Image } from "expo-image";
 
 import Dropdown from "@/src/components/Dropdown";
 import { colors, fonts, fontSize, radius, spacing } from "@/src/theme";
 import { db } from "@/src/config/firebase";
 import { useAuth } from "@/src/context/auth";
+import { uploadListingImageAsync } from "@/src/api/imageUpload";
 
 type AmenityKey = "petFriendly" | "nearMetro" | "furnished" | "balcony" | "parking";
 
@@ -27,11 +32,6 @@ type Amenity = {
   key: AmenityKey;
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
-};
-
-type PhotoSlot = {
-  id: string;
-  color: string;
 };
 
 const CITY_OPTIONS = ["Athens", "Thessaloniki", "Patras", "Heraklion", "Ioannina", "Larissa"];
@@ -44,8 +44,8 @@ const AMENITIES: Amenity[] = [
   { key: "parking", label: "Parking", icon: "car-sport-outline" },
 ];
 
-const PHOTO_COLORS = ["#7EC8E3", "#F6B26B", "#93C47D", "#B4A7D6", "#76A5AF", "#F9CB9C"];
 const PHOTO_SLOTS = 6;
+const IMAGE_QUALITY = 0.7;
 
 export default function CreateListingScreen() {
   const router = useRouter();
@@ -56,6 +56,9 @@ export default function CreateListingScreen() {
   const [city, setCity] = useState<string | null>(null);
   const [area, setArea] = useState("");
   const [sizeSqm, setSizeSqm] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [permBlocked, setPermBlocked] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [amenities, setAmenities] = useState<Record<AmenityKey, boolean>>({
     petFriendly: false,
     nearMetro: false,
@@ -63,7 +66,7 @@ export default function CreateListingScreen() {
     balcony: false,
     parking: false,
   });
-  const [photos, setPhotos] = useState<Array<PhotoSlot | null>>(Array.from({ length: PHOTO_SLOTS }, () => null));
+  const [photos, setPhotos] = useState<string[]>([]);
 
   const selectedAmenities = useMemo(
     () => AMENITIES.filter((item) => amenities[item.key]).map((item) => item.label),
@@ -74,26 +77,88 @@ export default function CreateListingScreen() {
     setAmenities((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const handlePhotoSlotPress = (index: number) => {
-    setPhotos((prev) => {
-      const next = [...prev];
-      const hasPhoto = !!next[index];
+  const pickPhoto = useCallback(
+    async (source: "camera" | "library") => {
+      if (photos.length >= PHOTO_SLOTS) return;
 
-      if (hasPhoto) {
-        next[index] = null;
-        return next;
+      setPermBlocked(false);
+
+      try {
+        if (Platform.OS !== "web") {
+          if (source === "library") {
+            const current = await ImagePicker.getMediaLibraryPermissionsAsync();
+            let status = current.status;
+            if (status !== "granted" && current.canAskAgain) {
+              const requested = await ImagePicker.requestMediaLibraryPermissionsAsync();
+              status = requested.status;
+            }
+            if (status !== "granted") {
+              setPermBlocked(true);
+              return;
+            }
+          } else {
+            const current = await ImagePicker.getCameraPermissionsAsync();
+            let status = current.status;
+            if (status !== "granted" && current.canAskAgain) {
+              const requested = await ImagePicker.requestCameraPermissionsAsync();
+              status = requested.status;
+            }
+            if (status !== "granted") {
+              setPermBlocked(true);
+              return;
+            }
+          }
+        }
+
+        const result = source === "camera"
+          ? await ImagePicker.launchCameraAsync({
+              mediaTypes: ["images"],
+              allowsEditing: true,
+              aspect: [4, 3],
+              quality: IMAGE_QUALITY,
+            })
+          : await ImagePicker.launchImageLibraryAsync({
+              mediaTypes: ["images"],
+              allowsMultipleSelection: true,
+              selectionLimit: PHOTO_SLOTS - photos.length,
+              quality: IMAGE_QUALITY,
+            });
+
+        if (result.canceled) return;
+
+        const pickedUris = result.assets
+          .map((asset) => asset.uri)
+          .filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0);
+
+        if (!pickedUris.length) {
+          setError("We could not read that image. Please try another photo.");
+          return;
+        }
+
+        setPhotos((prev) => [...prev, ...pickedUris].slice(0, PHOTO_SLOTS));
+        setError(null);
+      } catch {
+        setError("Could not open your camera or photo library. Please try again.");
       }
+    },
+    [photos.length],
+  );
 
-      const color = PHOTO_COLORS[index % PHOTO_COLORS.length];
-      next[index] = {
-        id: `mock-photo-${index}-${Date.now()}`,
-        color,
-      };
-      return next;
-    });
-  };
+  const openImagePicker = useCallback(() => {
+    Alert.alert("Add listing photo", "Choose where to get your listing image.", [
+      { text: "Take Photo", onPress: () => void pickPhoto("camera") },
+      { text: "Choose from Library", onPress: () => void pickPhoto("library") },
+      { text: "Cancel", style: "cancel" },
+    ]);
+  }, [pickPhoto]);
+
+  const removePhoto = useCallback((index: number) => {
+    setPhotos((prev) => prev.filter((_, photoIndex) => photoIndex !== index));
+  }, []);
 
   const validateAndSubmit = async () => {
+    if (submitting) return;
+
     if (!monthlyRent || !city || !area.trim() || !sizeSqm) {
       Alert.alert("Missing details", "Please complete Monthly Rent, City, Area, and Size before publishing.");
       return;
@@ -106,29 +171,42 @@ export default function CreateListingScreen() {
       return;
     }
 
-    const firstPhoto = photos.find((slot) => !!slot);
-    const data = {
-      title: `${area.trim()} apartment`,
-      area: area.trim(),
-      city,
-      rent: Number(monthlyRent),
-      price: Number(monthlyRent),
-      rooms: 1,
-      size: Number(sizeSqm),
-      sqft: Number(sizeSqm),
-      image: firstPhoto
-        ? `https://dummyimage.com/1200x800/${firstPhoto.color.replace("#", "")}/0a0a0a&text=Listing+Photo`
-        : "https://images.unsplash.com/photo-1564078516393-cf04bd966897?crop=entropy&cs=srgb&fm=jpg&w=1200&q=85",
-      tags: selectedAmenities.length ? selectedAmenities : ["New listing"],
-      amenities: selectedAmenities,
-      hostId,
-      createdAt: serverTimestamp(),
-    };
-
     try {
+      setSubmitting(true);
+      setError(null);
+
+      const uploadedImages = await Promise.all(
+        photos.map((uri, index) => uploadListingImageAsync(uri, hostId, index)),
+      );
+      const firstImage = uploadedImages[0] ?? "";
+
+      const data = {
+        title: `${area.trim()} apartment`,
+        area: area.trim(),
+        city,
+        rent: Number(monthlyRent),
+        price: Number(monthlyRent),
+        rooms: 1,
+        size: Number(sizeSqm),
+        sqft: Number(sizeSqm),
+        image: firstImage,
+        imageUrl: firstImage,
+        images: uploadedImages,
+        tags: selectedAmenities.length ? selectedAmenities : ["New listing"],
+        amenities: selectedAmenities,
+        hostId,
+        createdAt: serverTimestamp(),
+      };
+
       await addDoc(collection(db, "apartments"), data);
+
+      if (uploadedImages.length) {
+        setPhotos(uploadedImages);
+      }
     } catch {
+      setError("We could not upload your listing photos right now. Please try again.");
       Alert.alert("Publish failed", "We could not publish your listing right now. Please try again.");
+      setSubmitting(false);
       return;
     }
 
@@ -239,24 +317,33 @@ export default function CreateListingScreen() {
 
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Photos</Text>
-            <Text style={styles.fieldHint}>Tap an empty tile to add a mock photo, or tap again to remove it.</Text>
+            <Text style={styles.fieldHint}>Choose listing photos from your gallery or camera. Tap a photo to remove it.</Text>
             <View style={styles.photoGrid}>
-              {photos.map((slot, index) => {
-                const filled = !!slot;
+              {Array.from({ length: PHOTO_SLOTS }, (_, index) => index).map((index) => {
+                const uri = photos[index];
+                const filled = !!uri;
                 return (
                   <Pressable
                     key={`photo-slot-${index}`}
-                    onPress={() => handlePhotoSlotPress(index)}
+                    onPress={() => {
+                      if (filled) {
+                        removePhoto(index);
+                        return;
+                      }
+                      openImagePicker();
+                    }}
                     style={[
                       styles.photoTile,
-                      filled ? { backgroundColor: slot.color, borderColor: slot.color } : styles.photoTileEmpty,
+                      filled ? styles.photoTileFilled : styles.photoTileEmpty,
                     ]}
                     testID={`create-listing-photo-slot-${index}`}
                   >
                     {filled ? (
                       <>
-                        <Ionicons name="image" size={24} color={colors.onBrand} />
-                        <Text style={styles.photoTileText}>Photo {index + 1}</Text>
+                        <Image source={{ uri }} style={styles.photoImage} contentFit="cover" />
+                        <View style={styles.photoOverlay}>
+                          <Ionicons name="close-circle" size={20} color={colors.onSurface} />
+                        </View>
                       </>
                     ) : (
                       <>
@@ -268,12 +355,33 @@ export default function CreateListingScreen() {
                 );
               })}
             </View>
+
+            {permBlocked && (
+              <Pressable style={styles.settingsButton} onPress={() => Linking.openSettings()}>
+                <Ionicons name="settings-outline" size={16} color={colors.onSurface} />
+                <Text style={styles.settingsButtonText}>Photo access is off. Open Settings.</Text>
+              </Pressable>
+            )}
+
+            {error ? <Text style={styles.errorText}>{error}</Text> : null}
           </View>
         </ScrollView>
 
         <View style={[styles.footer, { paddingBottom: spacing.lg + insets.bottom }]}>
-          <Pressable style={styles.publishButton} onPress={validateAndSubmit} testID="create-listing-publish-button">
-            <Text style={styles.publishButtonText}>Publish Listing</Text>
+          <Pressable
+            style={[styles.publishButton, submitting && styles.publishButtonDisabled]}
+            onPress={validateAndSubmit}
+            disabled={submitting}
+            testID="create-listing-publish-button"
+          >
+            {submitting ? (
+              <View style={styles.publishButtonLoadingRow}>
+                <ActivityIndicator size="small" color={colors.onBrand} />
+                <Text style={styles.publishButtonText}>Uploading Photos...</Text>
+              </View>
+            ) : (
+              <Text style={styles.publishButtonText}>Publish Listing</Text>
+            )}
           </Pressable>
         </View>
       </KeyboardAvoidingView>
@@ -399,6 +507,24 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: colors.surface,
   },
+  photoTileFilled: {
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.surfaceTertiary,
+    overflow: "hidden",
+    position: "relative",
+  },
+  photoImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: radius.md,
+  },
+  photoOverlay: {
+    position: "absolute",
+    top: spacing.xs,
+    right: spacing.xs,
+    backgroundColor: "rgba(8, 61, 74, 0.78)",
+    borderRadius: radius.pill,
+  },
   photoTileText: {
     fontFamily: fonts.semibold,
     fontSize: fontSize.sm,
@@ -406,6 +532,24 @@ const styles = StyleSheet.create({
   },
   photoTileTextMuted: {
     color: colors.onSurfaceTertiary,
+  },
+  settingsButton: {
+    marginTop: spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    alignSelf: "flex-start",
+  },
+  settingsButtonText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+    color: colors.onSurface,
+  },
+  errorText: {
+    marginTop: spacing.xs,
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+    color: colors.error,
   },
   footer: {
     paddingHorizontal: spacing.lg,
@@ -425,6 +569,15 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },
     elevation: 6,
+  },
+  publishButtonDisabled: {
+    opacity: 0.88,
+  },
+  publishButtonLoadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
   },
   publishButtonText: {
     fontFamily: fonts.displayExtra,
