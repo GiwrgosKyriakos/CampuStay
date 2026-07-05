@@ -241,7 +241,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
-    await signOut(firebaseAuth);
+    try {
+      await signOut(firebaseAuth);
+    } catch (err) {
+      console.warn("[Auth] Firebase signOut failed; clearing local session anyway:", err);
+    }
     await enterGuestMode();
   }, [enterGuestMode]);
 

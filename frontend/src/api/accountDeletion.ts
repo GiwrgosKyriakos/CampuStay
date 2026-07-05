@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteField,
   deleteDoc,
   doc,
   getDocs,
@@ -13,7 +14,7 @@ import { deleteUser, getAuth } from "firebase/auth";
 
 import { db } from "@/src/config/firebase";
 
-const DELETED_ACCOUNT_LABEL = "Noone (Deleted account)";
+const DELETED_ACCOUNT_LABEL = "Deleted Account";
 
 async function deleteDocsByQuery(q: ReturnType<typeof query>): Promise<void> {
   const snapshot = await getDocs(q);
@@ -45,6 +46,16 @@ async function tombstoneChatsForDeletedUser(uid: string): Promise<void> {
           participantDisplayNames: {
             [uid]: DELETED_ACCOUNT_LABEL,
           },
+          // Remove common per-user avatar metadata keys if present.
+          participantPhotoUrls: {
+            [uid]: deleteField(),
+          },
+          participantPhotos: {
+            [uid]: deleteField(),
+          },
+          participantAvatars: {
+            [uid]: deleteField(),
+          },
           updatedAt: serverTimestamp(),
         },
         { merge: true },
@@ -71,6 +82,7 @@ export async function deleteAccountDeep(uid: string): Promise<void> {
     deleteDoc(doc(db, "quiz_answers", uid)),
     deleteDocsByQuery(query(collection(db, "liked_apartments"), where("userId", "==", uid))),
     deleteDocsByQuery(query(collection(db, "swipes"), where("fromUid", "==", uid))),
+    deleteDocsByQuery(query(collection(db, "swipes"), where("toUid", "==", uid))),
   ]);
 
   await deleteFirebaseAuthCredentials(uid);

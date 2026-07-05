@@ -64,7 +64,7 @@ export default function DeleteAccountScreen() {
           <Text style={styles.heading}>Are you sure you want to delete your account?</Text>
           <Text style={styles.warning}>
             This action is permanent. Your profile data, quiz responses, likes, and swipes will be permanently removed.
-            Existing chats remain visible to your conversation partners as "Noone (Deleted account)".
+            Existing chats remain visible to your conversation partners as "Deleted Account".
           </Text>
           <View style={styles.credentialBox}>
             <Text style={styles.credentialLabel}>Registered Email</Text>
