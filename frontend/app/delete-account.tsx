@@ -67,7 +67,7 @@ export default function DeleteAccountScreen() {
             Existing chats remain visible to your conversation partners as "Deleted Account".
           </Text>
           <View style={styles.credentialBox}>
-            <Text style={styles.credentialLabel}>Registered Email</Text>
+            <Text style={styles.credentialLabel}>Registered Email:</Text>
             <Text style={styles.credentialValue}>{userEmail}</Text>
           </View>
         </View>

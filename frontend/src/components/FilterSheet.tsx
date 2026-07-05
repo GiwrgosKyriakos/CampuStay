@@ -3,9 +3,10 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import Slider from "@react-native-community/slider";
 import {
   BottomSheetBackdrop,
-  BottomSheetHandle,
   BottomSheetModal,
   BottomSheetView,
+  BottomSheetScrollView,
+  BottomSheetHandle,
   type BottomSheetBackdropProps,
 } from "@gorhom/bottom-sheet";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -44,7 +45,9 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
   const draftRef = useRef(draft);
   const modalRef = useRef<BottomSheetModal>(null);
   const isPresentedRef = useRef(false);
-  const snapPoints = useMemo(() => ["86%"], []);
+  const snapPoints = useMemo(() => ["88.6%"], []);
+  const actionsBottomOffset = 0 // Math.max(insets.bottom + spacing.md, 40);
+  const actionsTopOffset = 0 //Math.max(insets.top + spacing.md, 40);
 
   useEffect(() => {
     draftRef.current = draft;
@@ -109,16 +112,17 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
       ref={modalRef}
       index={0}
       snapPoints={snapPoints}
+      enableOverDrag={false}
       backdropComponent={renderBackdrop}
       onDismiss={handleDismiss}
       enablePanDownToClose
       enableHandlePanningGesture
-      enableContentPanningGesture={false}
+      enableContentPanningGesture
       handleIndicatorStyle={styles.handleIndicator}
       backgroundStyle={styles.sheetBackground}
     >
       <BottomSheetView style={[styles.sheetBody, { paddingBottom: insets.bottom + spacing.lg }]}> 
-        <View style={styles.sheetHandleArea}>
+        <View style={[styles.sheetHandleArea]}>
           <BottomSheetHandle indicatorStyle={styles.hiddenIndicator} />
           <View style={styles.headerRow}>
             <View>
@@ -203,7 +207,7 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
               testID="filter-budget-slider"
             />
 
-            <View style={styles.actions}>
+            <View style={[styles.actions, { marginBottom: actionsBottomOffset }, { marginTop: actionsTopOffset }]}>
               <Pressable
                 style={styles.resetBtn}
                 onPress={() => {
@@ -351,7 +355,7 @@ const styles = StyleSheet.create({
     height: 34,
     marginHorizontal: -8,
   },
-  actions: { flexDirection: "row", gap: spacing.md, marginTop: spacing.xl },
+  actions: { flexDirection: "row", gap: spacing.md, marginTop: spacing.lg },
   resetBtn: {
     paddingHorizontal: spacing.xl,
     paddingVertical: spacing.md,
