@@ -112,8 +112,12 @@ export default function AuthLandingScreen() {
 
         {/* Footer Text */}
         <View style={styles.footerRow}>
-          <Text style={styles.footerText}>By continuing, you agree to our Terms of Service and </Text>
-          <Pressable onPress={handlePrivacyPolicyPress} testID="privacy-policy-footer-link">
+          <Text style={styles.footerText}>By continuing, you agree to our </Text>
+          <Pressable onPress={() => WebBrowser.openBrowserAsync("https://giwrgoskyriakos.github.io/CampuStay/terms_of_service.html")} testID="terms-of-service-email-link">
+            <Text style={styles.footerLinkText}>Terms of Service</Text>
+          </Pressable>
+          <Text style={styles.footerText}> and </Text>
+          <Pressable onPress={handlePrivacyPolicyPress} testID="privacy-policy-email-link">
             <Text style={styles.footerLinkText}>Privacy Policy</Text>
           </Pressable>
         </View>
