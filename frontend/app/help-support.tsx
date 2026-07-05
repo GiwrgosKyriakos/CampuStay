@@ -33,12 +33,10 @@ export default function HelpSupportScreen() {
   const [openIndex, setOpenIndex] = useState<number | null>(null);
 
   const openEmailSupport = async () => {
-    if (auth.isGuest) return;
     await Linking.openURL("mailto:gkiriakos92@gmail.com?subject=CampuStay%20Support%20Inquiry");
   };
 
   const openInstagram = async () => {
-    if (auth.isGuest) return;
     try {
       const supported = await Linking.canOpenURL("instagram://user?username=g1wrgos.k");
       if (supported) {
@@ -49,11 +47,6 @@ export default function HelpSupportScreen() {
       // Fall back to web URL below.
     }
     await Linking.openURL("https://instagram.com/g1wrgos.k");
-  };
-  
-  const openWebsite = async () => {
-    if (auth.isGuest) return;
-    await Linking.openURL("https://www.campustay.com");
   };
 
   if (auth.isLoading) return null;
@@ -104,9 +97,8 @@ export default function HelpSupportScreen() {
         })}
 
         <Pressable
-          style={[styles.contactButton, auth.isGuest && styles.contactButtonDisabled]}
-          onPress={() => !auth.isGuest && Linking.openURL("mailto:support@unimates.com?subject=Support%20Request")}
-          disabled={auth.isGuest}
+          style={styles.contactButton}
+          onPress={() => Linking.openURL("mailto:support@unimates.com?subject=Support%20Request")}
           testID="contact-support-button"
         >
           <Text style={styles.contactButtonText}>Contact Support Team</Text>
@@ -114,9 +106,8 @@ export default function HelpSupportScreen() {
 
         <View style={styles.linksSection}>
           <Pressable
-            style={[styles.linkRow, auth.isGuest && styles.linkRowDisabled]}
+            style={styles.linkRow}
             onPress={openEmailSupport}
-            disabled={auth.isGuest}
             testID="help-email-support"
           >
             <View style={styles.linkIconWrap}>
@@ -127,28 +118,14 @@ export default function HelpSupportScreen() {
           </Pressable>
 
           <Pressable
-            style={[styles.linkRow, auth.isGuest && styles.linkRowDisabled]}
+            style={styles.linkRow}
             onPress={openInstagram}
-            disabled={auth.isGuest}
             testID="help-instagram-link"
           >
             <View style={styles.linkIconWrap}>
               <Ionicons name="logo-instagram" size={20} color={colors.onSurface} />
             </View>
             <Text style={styles.linkLabel}>Follow us on Instagram</Text>
-            <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-          </Pressable>
-
-          <Pressable
-            style={[styles.linkRow, auth.isGuest && styles.linkRowDisabled]}
-            onPress={openWebsite}
-            disabled={auth.isGuest}
-            testID="help-website-link"
-          >
-            <View style={styles.linkIconWrap}>
-              <Ionicons name="globe-outline" size={20} color={colors.onSurface} />
-            </View>
-            <Text style={styles.linkLabel}>Visit Website</Text>
             <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
           </Pressable>
         </View>
@@ -199,7 +176,6 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.lg,
     alignItems: "center",
   },
-  contactButtonDisabled: { opacity: 0.45 },
   contactButtonText: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onBrand },
   linksSection: {
     marginTop: spacing.md,
@@ -217,9 +193,6 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.lg,
     borderBottomWidth: 1,
     borderBottomColor: colors.divider,
-  },
-  linkRowDisabled: {
-    opacity: 0.45,
   },
   linkIconWrap: {
     width: 40,
