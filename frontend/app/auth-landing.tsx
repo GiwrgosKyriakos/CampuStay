@@ -1,19 +1,9 @@
-import { GoogleSignin } from '@react-native-google-signin/google-signin';
-import { GoogleAuthProvider, signInWithCredential } from 'firebase/auth';
-import { firebaseAuth } from '../src/config/firebase';
-
-GoogleSignin.configure({
-  webClientId: '311068327323-cmdkalllbaojgsf9dq2bp6fpjs5c9ut6.apps.googleusercontent.com',
-});
-
 import React, { useState } from "react";
 import { View, Text, StyleSheet, Pressable, Image, ActivityIndicator } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-
-import * as WebBrowser from "expo-web-browser";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import { useAuth } from "@/src/context/auth";
@@ -25,28 +15,17 @@ export default function AuthLandingScreen() {
   const [googleLoading, setGoogleLoading] = useState(false);
 
   const handleGoogleLogin = async () => {
-  try {
-    setGoogleLoading(true);
-    console.log("[AuthLanding] -> User tapped Google Sign-In button");
-    
-    await GoogleSignin.hasPlayServices();
-    const userInfo = await GoogleSignin.signIn();
-    const idToken = userInfo.data?.idToken;
-    if (!idToken) throw new Error("No ID Token found");
-    const credential = GoogleAuthProvider.credential(idToken);
-    const userCredential = await signInWithCredential(firebaseAuth, credential);
-    if (userCredential.user) {
-      console.log("[AuthLanding] ✓ Google Sign-In successful, resolving post-login route...");
+    try {
+      setGoogleLoading(true);
+      console.log("[AuthLanding] -> User tapped Google Sign-In button");
+      await auth.signInWithGoogle();
       router.replace("/");
-    } else {
-      console.warn("[AuthLanding] ⚠ Google Sign-In returned null user");
+    } catch (err: any) {
+      console.error("[AuthLanding] X Google login error:", err);
+    } finally {
+      setGoogleLoading(false);
     }
-  } catch (err: any) {
-    console.error("[AuthLanding] X Google login error:", err);
-  } finally {
-    setGoogleLoading(false);
-  }
-};
+  };
 
   const handleEmailFlow = () => {
     router.push("/auth-email");

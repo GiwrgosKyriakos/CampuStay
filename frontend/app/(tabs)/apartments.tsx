@@ -262,13 +262,22 @@ export default function ApartmentsScreen() {
             <Ionicons name="options-outline" size={18} color={colors.onBrandTertiary} />
             <Text style={styles.filterToggleText}>{showFilters ? "Hide Filters" : "Show Filters"}</Text>
           </Pressable>
-          <Pressable
-            style={[styles.likedToggle, showOnlyLiked && styles.likedToggleActive]}
-            onPress={() => setShowOnlyLiked((v) => !v)}
-            testID="apartments-liked-toggle"
-          >
-            <Text style={styles.likedToggleText}>🖤 Liked</Text>
-          </Pressable>
+          <View style={styles.viewToggle} testID="apartments-view-toggle">
+            <Pressable
+              style={[styles.viewToggleOption, !showOnlyLiked && styles.viewToggleOptionActive]}
+              onPress={() => setShowOnlyLiked(false)}
+              testID="apartments-view-all"
+            >
+              <Text style={[styles.viewToggleText, !showOnlyLiked && styles.viewToggleTextActive]}>All</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.viewToggleOption, showOnlyLiked && styles.viewToggleOptionActive]}
+              onPress={() => setShowOnlyLiked(true)}
+              testID="apartments-view-liked"
+            >
+              <Text style={[styles.viewToggleText, showOnlyLiked && styles.viewToggleTextActive]}>Liked</Text>
+            </Pressable>
+          </View>
         </View>
         {showFilters && (
           <View style={styles.filterPanel} testID="apartments-filter-panel">
@@ -450,26 +459,34 @@ const styles = StyleSheet.create({
   },
   filterToggleActive: { backgroundColor: "#C8E9FF" },
   filterToggleText: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onBrandTertiary },
-  likedToggle: {
-    alignSelf: "flex-start",
+  viewToggle: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
+    backgroundColor: "#D9F0FF",
+    borderRadius: radius.pill,
+    padding: 4,
+    borderWidth: 1,
+    borderColor: "#A8D9FF",
+  },
+  viewToggleOption: {
+    flex: 1,
+    alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#FF8A1E",
     borderRadius: radius.pill,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
-    borderWidth: 1,
-    borderColor: "#FF8A1E",
   },
-  likedToggleActive: {
-    backgroundColor: "#FF8A1E",
-    borderColor: "#111111",
+  viewToggleOptionActive: {
+    backgroundColor: colors.brand,
   },
-  likedToggleText: {
+  viewToggleText: {
     fontFamily: fonts.bold,
     fontSize: fontSize.base,
-    color: "#111111",
+    color: colors.onBrandTertiary,
+  },
+  viewToggleTextActive: {
+    color: colors.onBrand,
   },
   filterPanel: {
     marginTop: spacing.sm,

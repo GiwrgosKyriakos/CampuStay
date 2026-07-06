@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
@@ -17,7 +17,7 @@ import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 const TAB_BAR_SPACE = 100;
 
 function isDeletedCounterpart(profile: RoommateProfile): boolean {
-  return !!profile.deleted || !profile.name?.trim();
+  return !!profile.deleted;
 }
 
 interface ChatListItem extends RoommateProfile {
@@ -243,21 +243,6 @@ export default function MatchesScreen() {
                 const counterpartUid = users.find((u) => u !== uid);
                 if (!counterpartUid) {
                   return null;
-                }
-
-                const tombstonedLabel = chatData.participantDisplayNames?.[counterpartUid];
-                const isTombstoned = chatData.deletedUsers?.[counterpartUid] === true || tombstonedLabel === DELETED_ACCOUNT_LABEL;
-                if (isTombstoned) {
-                  return {
-                    sortKey,
-                    item: buildDeletedCandidate(
-                      counterpartUid,
-                      chatDoc.id,
-                      chatData.status ?? "active",
-                      chatData.initiatedBy ?? null,
-                      DELETED_ACCOUNT_LABEL,
-                    ),
-                  };
                 }
 
                 const userSnap = await getDoc(doc(db, "users", counterpartUid));

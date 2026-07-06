@@ -17,7 +17,6 @@ import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import type { RoommateProfile } from "@/src/data/profiles";
-import { getUserPublic } from "@/src/api/discover";
 import { getUserId } from "@/src/utils/userId";
 import { db } from "@/src/config/firebase";
 import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc } from "firebase/firestore";
@@ -49,6 +48,21 @@ interface FirestoreChatDoc {
   participantDisplayNames?: Record<string, string>;
 }
 
+interface FirestoreUserDoc {
+  name?: string | null;
+  age?: number | null;
+  gender?: string | null;
+  university?: string | null;
+  year?: string | null;
+  year_of_study?: string | null;
+  maxBudget?: number | null;
+  budget?: number | null;
+  about?: string;
+  bio?: string;
+  photoUrl?: string;
+  photos?: string[];
+}
+
 type MessageGroupPosition = "first" | "middle" | "last" | "single";
 
 interface MessageGroupInfo {
@@ -57,7 +71,26 @@ interface MessageGroupInfo {
 }
 
 function isDeletedCounterpart(profile: RoommateProfile): boolean {
-  return !!profile.deleted || !profile.name?.trim();
+  return !!profile.deleted;
+}
+
+function mapFirestoreUserToProfile(uid: string, data: FirestoreUserDoc): RoommateProfile {
+  const photos = Array.isArray(data.photos) ? data.photos : [];
+  const photo = data.photoUrl || photos[0] || "";
+
+  return {
+    id: uid,
+    name: data.name?.trim() || "Unknown",
+    age: typeof data.age === "number" ? data.age : 0,
+    gender: (data.gender as RoommateProfile["gender"]) || "Non-binary",
+    budget: typeof data.maxBudget === "number" ? data.maxBudget : typeof data.budget === "number" ? data.budget : 0,
+    university: data.university || "",
+    program: data.year || data.year_of_study || "",
+    bio: data.about || data.bio || "",
+    tags: [],
+    photo,
+    deleted: false,
+  };
 }
 
 function getMessageGroupInfo(messages: Message[], index: number, currentUserId: string): MessageGroupInfo {
@@ -84,19 +117,43 @@ export default function ChatScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { id, chatRoomId: chatRoomIdParam } = useLocalSearchParams<{ id: string; chatRoomId?: string }>();
+  const counterpartId = typeof id === "string" ? id : "";
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [profile, setProfile] = useState<RoommateProfile | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
+  const [counterpartExists, setCounterpartExists] = useState(true);
 
   useEffect(() => {
-    (async () => {
-      try {
-        if (id) setProfile(await getUserPublic(id));
-      } finally {
+    if (!counterpartId) {
+      setProfile(null);
+      setCounterpartExists(false);
+      setLoadingProfile(false);
+      return;
+    }
+
+    setLoadingProfile(true);
+    const userRef = doc(db, "users", counterpartId);
+    const unsubscribe = onSnapshot(
+      userRef,
+      (snapshot) => {
+        if (snapshot.exists()) {
+          setProfile(mapFirestoreUserToProfile(counterpartId, snapshot.data() as FirestoreUserDoc));
+          setCounterpartExists(true);
+        } else {
+          setProfile(null);
+          setCounterpartExists(false);
+        }
         setLoadingProfile(false);
-      }
-    })();
-  }, [id]);
+      },
+      () => {
+        setProfile(null);
+        setCounterpartExists(false);
+        setLoadingProfile(false);
+      },
+    );
+
+    return () => unsubscribe();
+  }, [counterpartId]);
 
   useEffect(() => {
     getUserId().then(setCurrentUserId);
@@ -114,7 +171,6 @@ export default function ChatScreen() {
   const [text, setText] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [chatStatus, setChatStatus] = useState<"pending" | "active">("active");
-  const [chatDeletedUsers, setChatDeletedUsers] = useState<Record<string, boolean>>({});
 
   const createdAtToMillis = useCallback((value: any): number => {
     if (typeof value === "number") return value;
@@ -135,12 +191,10 @@ export default function ChatScreen() {
     const unsubChat = onSnapshot(chatRef, (snapshot) => {
       if (!snapshot.exists()) {
         setChatStatus("active");
-        setChatDeletedUsers({});
         return;
       }
       const data = snapshot.data() as FirestoreChatDoc;
       setChatStatus(data.status === "pending" ? "pending" : "active");
-      setChatDeletedUsers(data.deletedUsers ?? {});
     });
 
     const q = query(
@@ -183,7 +237,7 @@ export default function ChatScreen() {
 
   const send = useCallback(async () => {
     const trimmed = text.trim();
-    const counterpartDeleted = !!(id && chatDeletedUsers[id]);
+    const counterpartDeleted = !counterpartExists;
     if (!trimmed || !currentUserId || !id || !chatRoomId || chatStatus === "pending" || counterpartDeleted) return;
 
     const optimisticMessage: Message = {
@@ -213,7 +267,7 @@ export default function ChatScreen() {
     } catch {
       setMessages((prev) => prev.filter((m) => m.id !== optimisticMessage.id));
     }
-  }, [chatRoomId, chatStatus, currentUserId, id, sortMessages, text]);
+  }, [chatRoomId, chatStatus, counterpartExists, currentUserId, id, sortMessages, text]);
 
   if (!profile && loadingProfile) {
     return (
@@ -239,7 +293,7 @@ export default function ChatScreen() {
 
   const activeProfile = profile ?? deletedProfileFallback;
 
-  const deletedCounterpart = isDeletedCounterpart(activeProfile) || !!(id && chatDeletedUsers[id]);
+  const deletedCounterpart = !counterpartExists || isDeletedCounterpart(activeProfile);
   const displayName = deletedCounterpart ? DELETED_ACCOUNT_LABEL : activeProfile.name;
   const displayUniversity = deletedCounterpart ? "" : activeProfile.university;
   const displayGender = deletedCounterpart ? "N/A" : activeProfile.gender;

@@ -4,6 +4,7 @@ import * as Google from "expo-auth-session/providers/google";
 import * as WebBrowser from "expo-web-browser";
 import {
   createUserWithEmailAndPassword,
+  getAdditionalUserInfo,
   onAuthStateChanged,
   signInWithCredential,
   signInWithEmailAndPassword,
@@ -130,12 +131,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setStatus("guest");
   }, []);
 
-  const persist = useCallback(async (newToken: string, newUser: AuthUser) => {
+  const persist = useCallback(async (newToken: string, newUser: AuthUser, shouldSetupProfile?: boolean) => {
     await storage.secureSet(TOKEN_KEY, newToken);
     await storage.setItem("roomie_user_id", newUser.user_id);
     setUserIdCache(newUser.user_id);
     await storage.removeItem(GUEST_KEY);
-    const needsSetup = (await storage.getItem(SETUP_KEY, false)) ?? false;
+    if (typeof shouldSetupProfile === "boolean") {
+      await storage.setItem(SETUP_KEY, shouldSetupProfile);
+    }
+    const needsSetup =
+      typeof shouldSetupProfile === "boolean"
+        ? shouldSetupProfile
+        : (await storage.getItem(SETUP_KEY, false)) ?? false;
 
     setToken(newToken);
     setUser(newUser);
@@ -190,7 +197,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const userCredential = await signInWithEmailAndPassword(firebaseAuth, email.trim(), password);
       await syncUserDocument(userCredential.user);
       const idToken = await userCredential.user.getIdToken();
-      await persist(idToken, mapFirebaseUser(userCredential.user));
+      await persist(idToken, mapFirebaseUser(userCredential.user), false);
     },
     [persist],
   );
@@ -206,7 +213,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       await syncUserDocument(userCredential.user);
       const idToken = await userCredential.user.getIdToken();
-      await persist(idToken, mapFirebaseUser(userCredential.user));
+      await persist(idToken, mapFirebaseUser(userCredential.user), true);
     },
     [persist],
   );
@@ -232,8 +239,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const firebaseUser = userCredential.user;
     const firebaseToken = await firebaseUser.getIdToken();
     const mappedUser = mapFirebaseUser(firebaseUser);
+    const additionalUserInfo = getAdditionalUserInfo(userCredential);
 
-    await persist(firebaseToken, mappedUser);
+    await syncUserDocument(firebaseUser);
+    await persist(firebaseToken, mappedUser, additionalUserInfo?.isNewUser === true);
     return mappedUser;
   }, [promptAsync, request, persist]);
 
