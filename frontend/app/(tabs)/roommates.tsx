@@ -1,3 +1,6 @@
+import { useEffect } from 'react';
+import { registerForPushNotificationsAsync } from '../../src/utils/notificationService';
+import { updateDoc } from 'firebase/firestore';
 import React, { useMemo, useRef, useState, useCallback } from "react";
 import { View, Text, StyleSheet, Pressable, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -13,7 +16,7 @@ import FilterSheet, { Filters, DEFAULT_FILTERS } from "@/src/components/FilterSh
 import { getUserId } from "@/src/utils/userId";
 import { getCandidates, postSwipe, resetDislikedSwipes } from "@/src/api/discover";
 import { useAuth } from "@/src/context/auth";
-import { db } from "@/src/config/firebase";
+import { db, firebaseAuth } from "@/src/config/firebase";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 84;
@@ -32,6 +35,36 @@ export default function RoommatesScreen() {
   const [loading, setLoading] = useState(true);
   const [quizAnsweredCount, setQuizAnsweredCount] = useState(0);
   const actionTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+useEffect(() => {
+  const setupNotifications = async () => {
+    // 1. Σιγουρευόμαστε ότι ο χρήστης έχει όντως συνδεθεί και υπάρχει το UID του
+    if (!firebaseAuth.currentUser) {
+      console.log('[Notifications] Δεν υπάρχει συνδεδεμένος χρήστης ακόμα.');
+      return;
+    }
+
+    // 2. Ζητάμε άδεια και παίρνουμε το Token
+    const token = await registerForPushNotificationsAsync();
+    
+    // 3. Αν πάρουμε το token, το αποθηκεύουμε στο Firestore στο προφίλ του
+    if (token) {
+      try {
+        const userDocRef = doc(db, 'users', firebaseAuth.currentUser.uid);
+        await updateDoc(userDocRef, {
+          expoPushToken: token,
+        });
+        console.log('[Notifications] ✓ Το Push Token αποθηκεύτηκε επιτυχώς στο Firestore!');
+      } catch (error) {
+        console.error('[Notifications] X Σφάλμα κατά την αποθήκευση στο Firestore:', error);
+      }
+    }
+  };
+
+  // Εκτέλεση της παραπάνω συνάρτησης
+  setupNotifications();
+}, []); // 👈 Τα άδεια αγκύλες σημαίνουν ότι θα τρέξει ΜΙΑ φορά, μόλις ανοίξει αυτή η οθόνη
+
 
   const load = useCallback(async () => {
     try {
