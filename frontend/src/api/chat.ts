@@ -4,9 +4,6 @@ import {
   where,
   getDocs,
   writeBatch,
-  doc,
-  updateDoc,
-  batch,
   Timestamp,
 } from "firebase/firestore";
 import { db } from "@/src/config/firebase";

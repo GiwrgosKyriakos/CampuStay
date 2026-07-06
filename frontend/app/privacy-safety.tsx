@@ -9,6 +9,7 @@ import { useAuth } from "@/src/context/auth";
 import { getUserSettings, saveUserPrivacy, PrivacyPreferences } from "@/src/api/accountSettings";
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import { GuestModeStickyFooter, GuestModeTopBanner } from "@/src/components/GuestModeLayout";
+import { t } from "@/src/locales";
 
 const STICKY_FOOTER_PADDING = 152;
 
@@ -38,7 +39,7 @@ export default function PrivacySafetyScreen() {
         setPrivacy(settings.privacy);
       } catch {
         if (!active) return;
-        setError("Unable to load privacy preferences.");
+        setError(t("privacySafety.errors.load"));
       } finally {
         if (active) setLoading(false);
       }
@@ -58,7 +59,7 @@ export default function PrivacySafetyScreen() {
         if (!auth.userId) return;
         await saveUserPrivacy(auth.userId, nextPrivacy);
       } catch {
-        setError("Failed to update privacy settings.");
+        setError(t("privacySafety.errors.save"));
       } finally {
         setSaving(false);
       }
@@ -106,8 +107,8 @@ export default function PrivacySafetyScreen() {
         testID="privacy-safety-screen"
       >
         <View style={styles.header}>
-          <Text style={styles.title}>Privacy & Safety</Text>
-          <Text style={styles.subtitle}>Control who sees your profile and manage blocked accounts.</Text>
+          <Text style={styles.title}>{t("privacySafety.title")}</Text>
+          <Text style={styles.subtitle}>{t("privacySafety.subtitle")}</Text>
         </View>
 
         {auth.isGuest && (
@@ -125,10 +126,8 @@ export default function PrivacySafetyScreen() {
               <Ionicons name="eye-outline" size={20} color={colors.onSurface} />
             </View>
             <View style={styles.toggleText}>
-              <Text style={styles.toggleTitle}>Show my profile in the stack</Text>
-              <Text style={styles.toggleSubtitle}>
-                If turned off, your profile will not appear in other students&apos; Home screens.
-              </Text>
+              <Text style={styles.toggleTitle}>{t("privacySafety.visibilityTitle")}</Text>
+              <Text style={styles.toggleSubtitle}>{t("privacySafety.visibilityHelp")}</Text>
             </View>
           </View>
           <View style={isGuest ? styles.disabledControl : undefined}>
@@ -151,15 +150,15 @@ export default function PrivacySafetyScreen() {
             <View style={styles.settingsRowIcon}>
               <Ionicons name="document-text-outline" size={20} color={colors.onSurface} />
             </View>
-            <Text style={styles.settingsRowLabel}>Privacy Policy</Text>
+            <Text style={styles.settingsRowLabel}>{t("common.labels.privacyPolicy")}</Text>
             <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
           </Pressable>
         </View>
 
         <View style={styles.blockedCard}>
-          <Text style={styles.blockedTitle}>Blocked Profiles</Text>
+          <Text style={styles.blockedTitle}>{t("privacySafety.blockedTitle")}</Text>
           {privacy.blocked_profiles.length === 0 ? (
-            <Text style={styles.blockedEmpty}>You have not blocked any profiles.</Text>
+            <Text style={styles.blockedEmpty}>{t("privacySafety.blockedEmpty")}</Text>
           ) : (
             privacy.blocked_profiles.map((profile) => (
               <View key={profile.id} style={styles.blockedRow} testID={`blocked-profile-${profile.id}`}>
@@ -173,13 +172,13 @@ export default function PrivacySafetyScreen() {
                   disabled={isGuest}
                   testID={`unblock-${profile.id}`}
                 >
-                  <Text style={styles.unblockText}>Unblock</Text>
+                  <Text style={styles.unblockText}>{t("common.actions.unblock")}</Text>
                 </Pressable>
               </View>
             ))
           )}
         </View>
-        {saving && <Text style={styles.saveText}>Saving privacy settings…</Text>}
+        {saving && <Text style={styles.saveText}>{t("privacySafety.saving")}</Text>}
         {error && <Text style={styles.errorText}>{error}</Text>}
       </ScrollView>
 

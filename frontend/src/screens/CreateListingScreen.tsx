@@ -25,6 +25,7 @@ import { colors, fonts, fontSize, radius, spacing } from "@/src/theme";
 import { db } from "@/src/config/firebase";
 import { useAuth } from "@/src/context/auth";
 import { uploadListingImageAsync } from "@/src/api/imageUpload";
+import { t } from "@/src/locales";
 
 type AmenityKey = "petFriendly" | "nearMetro" | "furnished" | "balcony" | "parking";
 
@@ -34,14 +35,12 @@ type Amenity = {
   icon: keyof typeof Ionicons.glyphMap;
 };
 
-const CITY_OPTIONS = ["Athens", "Thessaloniki", "Patras", "Heraklion", "Ioannina", "Larissa"];
-
 const AMENITIES: Amenity[] = [
-  { key: "petFriendly", label: "Pet-friendly", icon: "paw-outline" },
-  { key: "nearMetro", label: "Near Metro", icon: "train-outline" },
-  { key: "furnished", label: "Furnished", icon: "bed-outline" },
-  { key: "balcony", label: "Balcony", icon: "sunny-outline" },
-  { key: "parking", label: "Parking", icon: "car-sport-outline" },
+  { key: "petFriendly", label: "createListing.amenities.petFriendly", icon: "paw-outline" },
+  { key: "nearMetro", label: "createListing.amenities.nearMetro", icon: "train-outline" },
+  { key: "furnished", label: "createListing.amenities.furnished", icon: "bed-outline" },
+  { key: "balcony", label: "createListing.amenities.balcony", icon: "sunny-outline" },
+  { key: "parking", label: "createListing.amenities.parking", icon: "car-sport-outline" },
 ];
 
 const PHOTO_SLOTS = 6;
@@ -67,9 +66,10 @@ export default function CreateListingScreen() {
     parking: false,
   });
   const [photos, setPhotos] = useState<string[]>([]);
+  const cityOptions = t("createListing.options.cities") as unknown as string[];
 
   const selectedAmenities = useMemo(
-    () => AMENITIES.filter((item) => amenities[item.key]).map((item) => item.label),
+    () => AMENITIES.filter((item) => amenities[item.key]).map((item) => t(item.label)),
     [amenities],
   );
 
@@ -131,24 +131,24 @@ export default function CreateListingScreen() {
           .filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0);
 
         if (!pickedUris.length) {
-          setError("We could not read that image. Please try another photo.");
+          setError(t("createListing.errors.imageUnreadable"));
           return;
         }
 
         setPhotos((prev) => [...prev, ...pickedUris].slice(0, PHOTO_SLOTS));
         setError(null);
       } catch {
-        setError("Could not open your camera or photo library. Please try again.");
+        setError(t("createListing.errors.imagePicker"));
       }
     },
     [photos.length],
   );
 
   const openImagePicker = useCallback(() => {
-    Alert.alert("Add listing photo", "Choose where to get your listing image.", [
-      { text: "Take Photo", onPress: () => void pickPhoto("camera") },
-      { text: "Choose from Library", onPress: () => void pickPhoto("library") },
-      { text: "Cancel", style: "cancel" },
+    Alert.alert(t("createListing.alerts.addPhotoTitle"), t("createListing.alerts.addPhotoMessage"), [
+      { text: t("createListing.alerts.takePhoto"), onPress: () => void pickPhoto("camera") },
+      { text: t("createListing.alerts.chooseLibrary"), onPress: () => void pickPhoto("library") },
+      { text: t("common.actions.cancel"), style: "cancel" },
     ]);
   }, [pickPhoto]);
 
@@ -160,13 +160,13 @@ export default function CreateListingScreen() {
     if (submitting) return;
 
     if (!monthlyRent || !city || !area.trim() || !sizeSqm) {
-      Alert.alert("Missing details", "Please complete Monthly Rent, City, Area, and Size before publishing.");
+      Alert.alert(t("createListing.alerts.missingDetailsTitle"), t("createListing.alerts.missingDetailsMessage"));
       return;
     }
 
     const hostId = auth.userId;
     if (!hostId || auth.isGuest) {
-      Alert.alert("Sign in required", "Please sign up or log in to publish a listing.");
+      Alert.alert(t("createListing.alerts.signInRequiredTitle"), t("createListing.alerts.signInRequiredMessage"));
       router.push("/auth-landing");
       return;
     }
@@ -181,7 +181,7 @@ export default function CreateListingScreen() {
       const firstImage = uploadedImages[0] ?? "";
 
       const data = {
-        title: `${area.trim()} apartment`,
+        title: t("createListing.listingTitle", { area: area.trim() }),
         area: area.trim(),
         city,
         rent: Number(monthlyRent),
@@ -192,7 +192,7 @@ export default function CreateListingScreen() {
         image: firstImage,
         imageUrl: firstImage,
         images: uploadedImages,
-        tags: selectedAmenities.length ? selectedAmenities : ["New listing"],
+        tags: selectedAmenities.length ? selectedAmenities : [t("apartments.newListing")],
         amenities: selectedAmenities,
         hostId,
         createdAt: serverTimestamp(),
@@ -204,15 +204,15 @@ export default function CreateListingScreen() {
         setPhotos(uploadedImages);
       }
     } catch {
-      setError("We could not upload your listing photos right now. Please try again.");
-      Alert.alert("Publish failed", "We could not publish your listing right now. Please try again.");
+      setError(t("createListing.errors.uploadPhotos"));
+      Alert.alert(t("createListing.alerts.publishFailedTitle"), t("createListing.alerts.publishFailedMessage"));
       setSubmitting(false);
       return;
     }
 
     Alert.alert(
-      "Listing published",
-      `Your ${sizeSqm} sq.m. listing in ${area}, ${city} is now live.`,
+      t("createListing.alerts.publishedTitle"),
+      t("createListing.alerts.publishedMessage", { size: sizeSqm, area, city }),
     );
     router.back();
   };
@@ -231,39 +231,39 @@ export default function CreateListingScreen() {
               <Ionicons name="chevron-back" size={20} color={colors.onSurface} />
             </Pressable>
             <View style={styles.headerTextWrap}>
-              <Text style={styles.title}>Create Listing</Text>
-              <Text style={styles.subtitle}>Publish your apartment details in a few steps.</Text>
+              <Text style={styles.title}>{t("createListing.title")}</Text>
+              <Text style={styles.subtitle}>{t("createListing.subtitle")}</Text>
             </View>
           </View>
 
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Monthly Rent</Text>
+            <Text style={styles.sectionTitle}>{t("createListing.monthlyRent")}</Text>
             <TextInput
               value={monthlyRent}
               onChangeText={(t) => setMonthlyRent(t.replace(/[^0-9]/g, ""))}
-              placeholder="e.g. 650"
+              placeholder={t("createListing.rentPlaceholder")}
               placeholderTextColor={colors.onSurfaceTertiary}
               keyboardType="number-pad"
               maxLength={5}
               style={styles.input}
               testID="create-listing-rent-input"
             />
-            <Text style={styles.fieldHint}>Set a fair monthly rent in EUR.</Text>
+            <Text style={styles.fieldHint}>{t("createListing.rentHint")}</Text>
           </View>
 
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Location</Text>
+            <Text style={styles.sectionTitle}>{t("createListing.location")}</Text>
             <Dropdown
               value={city}
-              options={CITY_OPTIONS}
-              placeholder="Select city"
+              options={cityOptions}
+              placeholder={t("createListing.cityPlaceholder")}
               onSelect={setCity}
               testID="create-listing-city-dropdown"
             />
             <TextInput
               value={area}
               onChangeText={setArea}
-              placeholder="Area / Neighborhood"
+              placeholder={t("createListing.areaPlaceholder")}
               placeholderTextColor={colors.onSurfaceTertiary}
               style={[styles.input, styles.mtSm]}
               testID="create-listing-area-input"
@@ -271,11 +271,11 @@ export default function CreateListingScreen() {
           </View>
 
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Size</Text>
+            <Text style={styles.sectionTitle}>{t("createListing.size")}</Text>
             <TextInput
               value={sizeSqm}
               onChangeText={(t) => setSizeSqm(t.replace(/[^0-9]/g, ""))}
-              placeholder="Square meters (sq.m.)"
+              placeholder={t("createListing.sizePlaceholder")}
               placeholderTextColor={colors.onSurfaceTertiary}
               keyboardType="number-pad"
               maxLength={4}
@@ -285,7 +285,7 @@ export default function CreateListingScreen() {
           </View>
 
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Amenities & Preferences</Text>
+            <Text style={styles.sectionTitle}>{t("createListing.amenitiesTitle")}</Text>
             <View style={styles.amenityList}>
               {AMENITIES.map((amenity) => {
                 const active = amenities[amenity.key];
@@ -297,7 +297,7 @@ export default function CreateListingScreen() {
                         size={18}
                         color={active ? colors.onBrandTertiary : colors.onSurfaceTertiary}
                       />
-                      <Text style={[styles.amenityLabel, active && styles.amenityLabelActive]}>{amenity.label}</Text>
+                      <Text style={[styles.amenityLabel, active && styles.amenityLabelActive]}>{t(amenity.label)}</Text>
                     </View>
                     <Switch
                       value={active}
@@ -311,13 +311,13 @@ export default function CreateListingScreen() {
               })}
             </View>
             <Text style={styles.fieldHint} numberOfLines={2}>
-              Selected: {selectedAmenities.length ? selectedAmenities.join(", ") : "No amenities selected yet"}
+              {t("createListing.selectedAmenities", { value: selectedAmenities.length ? selectedAmenities.join(", ") : t("createListing.selectedAmenitiesEmpty") })}
             </Text>
           </View>
 
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Photos</Text>
-            <Text style={styles.fieldHint}>Choose listing photos from your gallery or camera. Tap a photo to remove it.</Text>
+            <Text style={styles.sectionTitle}>{t("common.labels.photos")}</Text>
+            <Text style={styles.fieldHint}>{t("createListing.photosHint")}</Text>
             <View style={styles.photoGrid}>
               {Array.from({ length: PHOTO_SLOTS }, (_, index) => index).map((index) => {
                 const uri = photos[index];
@@ -348,7 +348,7 @@ export default function CreateListingScreen() {
                     ) : (
                       <>
                         <Ionicons name="add" size={26} color={colors.onSurfaceTertiary} />
-                        <Text style={[styles.photoTileText, styles.photoTileTextMuted]}>Add</Text>
+                        <Text style={[styles.photoTileText, styles.photoTileTextMuted]}>{t("common.actions.add")}</Text>
                       </>
                     )}
                   </Pressable>
@@ -359,7 +359,7 @@ export default function CreateListingScreen() {
             {permBlocked && (
               <Pressable style={styles.settingsButton} onPress={() => Linking.openSettings()}>
                 <Ionicons name="settings-outline" size={16} color={colors.onSurface} />
-                <Text style={styles.settingsButtonText}>Photo access is off. Open Settings.</Text>
+                <Text style={styles.settingsButtonText}>{`${t("common.media.photoAccessOff")} ${t("common.actions.openSettings")}.`}</Text>
               </Pressable>
             )}
 
@@ -377,10 +377,10 @@ export default function CreateListingScreen() {
             {submitting ? (
               <View style={styles.publishButtonLoadingRow}>
                 <ActivityIndicator size="small" color={colors.onBrand} />
-                <Text style={styles.publishButtonText}>Uploading Photos...</Text>
+                <Text style={styles.publishButtonText}>{t("createListing.uploading")}</Text>
               </View>
             ) : (
-              <Text style={styles.publishButtonText}>Publish Listing</Text>
+              <Text style={styles.publishButtonText}>{t("common.cta.publishListing")}</Text>
             )}
           </Pressable>
         </View>

@@ -25,29 +25,17 @@ import { getUserId } from "@/src/utils/userId";
 import { getUserProfile, saveUserProfile, UserProfile } from "@/src/api/userProfile";
 import { useAuth } from "@/src/context/auth";
 import { uploadProfileImageAsync } from "@/src/api/imageUpload";
+import { formatMonthYear, t } from "@/src/locales";
 
-const CITIES = ["Thessaloniki", "Athens", "Patras", "Heraklion", "Ioannina", "Larissa", "Rethymno"];
-const UNIVERSITIES = [
-  "Aristotle University of Thessaloniki",
-  "National Technical University of Athens",
-  "National & Kapodistrian University of Athens",
-  "University of Patras",
-  "University of Crete",
-  "University of Ioannina",
-  "University of Macedonia",
-];
-const YEARS = ["1st Year", "2nd Year", "3rd Year", "4th Year", "Master/PhD"];
-const GENDERS = ["Male", "Female", "Prefer Not To Say"];
 const ABOUT_LIMIT = 250;
-const HOUSING_PROMPT_MESSAGE = "Create your listing now!";
 const STICKY_FOOTER_PADDING = 152;
 
 const MOVE_IN_OPTIONS = (() => {
-  const out: string[] = ["As soon as possible"];
+  const out: string[] = [t("editProfile.options.moveInAsap")];
   const now = new Date();
   for (let i = 0; i < 12; i++) {
     const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
-    out.push(d.toLocaleString("en-US", { month: "long", year: "numeric" }));
+    out.push(formatMonthYear(d));
   }
   return out;
 })();
@@ -81,6 +69,10 @@ export default function EditProfileScreen() {
   const [twitter, setTwitter] = useState("");
   const guestLocked = auth.isGuest;
   const housingPromptAnim = useRef(new Animated.Value(0)).current;
+  const cities = t("editProfile.options.cities") as unknown as string[];
+  const universities = t("editProfile.options.universities") as unknown as string[];
+  const years = t("editProfile.options.years") as unknown as string[];
+  const genders = t("editProfile.options.genders") as unknown as string[];
 
   useEffect(() => {
     Animated.timing(housingPromptAnim, {
@@ -181,7 +173,7 @@ export default function EditProfileScreen() {
         setError(null);
       }
     } catch {
-      setError("Could not open the photo library. Please try again.");
+      setError(t("editProfile.errors.photoLibrary"));
     }
   }, [photos.length]);
 
@@ -202,7 +194,7 @@ export default function EditProfileScreen() {
   const submit = useCallback(async () => {
     if (submitting) return;
     if (about.length > ABOUT_LIMIT) {
-      setError(`About You must be ${ABOUT_LIMIT} characters or less.`);
+      setError(t("editProfile.errors.aboutTooLong", { limit: ABOUT_LIMIT }));
       return;
     }
     setError(null);
@@ -250,7 +242,7 @@ export default function EditProfileScreen() {
       }
     } catch (err) {
       console.error("[EditProfile] ✗ Error saving profile:", err);
-      setError("Failed to save your profile. Please try again.");
+      setError(t("editProfile.errors.saveFailed"));
       setSubmitting(false);
     }
   }, [
@@ -301,7 +293,7 @@ export default function EditProfileScreen() {
         >
           <Ionicons name="chevron-back" size={24} color={colors.onSurface} />
         </Pressable>
-        <Text style={styles.headerTitle}>Complete Your Profile</Text>
+        <Text style={styles.headerTitle}>{t("editProfile.title")}</Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -322,9 +314,9 @@ export default function EditProfileScreen() {
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Ionicons name="image-outline" size={22} color={colors.onSurface} />
-            <Text style={styles.cardTitle}>Profile Photos</Text>
+            <Text style={styles.cardTitle}>{t("editProfile.photosTitle")}</Text>
           </View>
-          <Text style={styles.subtitle}>Upload Photos (optional, up to 3)</Text>
+          <Text style={styles.subtitle}>{t("editProfile.photosSubtitle")}</Text>
 
           {guestLocked && (
             <View style={styles.guestAvatarPlaceholder} testID="guest-profile-photo-placeholder">
@@ -359,17 +351,17 @@ export default function EditProfileScreen() {
                 end={{ x: 1, y: 0 }}
                 style={[styles.gradientBtn, guestLocked && styles.guestReadOnlyControl]}
               >
-                <Text style={styles.gradientBtnText}>✨ Add Photos</Text>
+                <Text style={styles.gradientBtnText}>{t("editProfile.addPhotos")}</Text>
               </LinearGradient>
             </Pressable>
           )}
 
-          <Text style={styles.footnote}>A default avatar silhouette will be used if no photo is uploaded.</Text>
+          <Text style={styles.footnote}>{t("editProfile.photoFootnote")}</Text>
 
           {permBlocked && (
             <Pressable style={styles.settingsBtn} onPress={() => Linking.openSettings()} testID="open-settings-button">
               <Ionicons name="settings-outline" size={16} color={colors.onSurface} />
-              <Text style={styles.settingsText}>Photo access is off — Open Settings</Text>
+              <Text style={styles.settingsText}>{t("common.media.photoAccessOffOpenSettings")}</Text>
             </Pressable>
           )}
         </View>
@@ -378,26 +370,26 @@ export default function EditProfileScreen() {
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Ionicons name="person-outline" size={22} color={colors.onSurface} />
-            <Text style={styles.cardTitle}>Basic Information</Text>
+            <Text style={styles.cardTitle}>{t("editProfile.basicTitle")}</Text>
           </View>
 
-          <Text style={styles.label}>Display Name</Text>
+          <Text style={styles.label}>{t("editProfile.displayName")}</Text>
           <TextInput
             style={[styles.input, guestLocked && styles.guestReadOnlyControl]}
             value={name}
             onChangeText={setName}
-            placeholder={auth.user?.name || "Your name"}
+            placeholder={auth.user?.name || t("editProfile.namePlaceholder")}
             placeholderTextColor={colors.onSurfaceTertiary}
             editable={!guestLocked}
             testID="name-input"
           />
 
-          <Text style={styles.label}>Age</Text>
+          <Text style={styles.label}>{t("editProfile.age")}</Text>
           <TextInput
             style={[styles.input, guestLocked && styles.guestReadOnlyControl]}
             value={age}
             onChangeText={(t) => setAge(t.replace(/[^0-9]/g, ""))}
-            placeholder="e.g. 22"
+            placeholder={t("editProfile.agePlaceholder")}
             placeholderTextColor={colors.onSurfaceTertiary}
             keyboardType="number-pad"
             maxLength={2}
@@ -405,12 +397,12 @@ export default function EditProfileScreen() {
             testID="age-input"
           />
 
-          <Text style={styles.label}>About You</Text>
+          <Text style={styles.label}>{t("editProfile.about")}</Text>
           <TextInput
             style={[styles.input, styles.textArea, guestLocked && styles.guestReadOnlyControl]}
             value={about}
             onChangeText={setAbout}
-            placeholder="Tell us about yourself, your interests, and what you're looking for in a roommate."
+            placeholder={t("editProfile.aboutPlaceholder")}
             placeholderTextColor={colors.onSurfaceTertiary}
             multiline
             maxLength={ABOUT_LIMIT}
@@ -421,9 +413,9 @@ export default function EditProfileScreen() {
             {about.length}/{ABOUT_LIMIT}
           </Text>
 
-          <Text style={styles.label}>Gender</Text>
+          <Text style={styles.label}>{t("editProfile.gender")}</Text>
           <View style={styles.radioRow}>
-            {GENDERS.map((g) => {
+            {genders.map((g) => {
               const active = gender === g;
               return (
                 <Pressable
@@ -442,9 +434,9 @@ export default function EditProfileScreen() {
             })}
           </View>
 
-          <Text style={styles.label}>City</Text>
+          <Text style={styles.label}>{t("editProfile.city")}</Text>
           <View style={guestLocked ? styles.guestReadOnlyControl : undefined}>
-            <Dropdown value={city} options={CITIES} placeholder="Select your city" onSelect={setCity} testID="city-dropdown" disabled={guestLocked} />
+            <Dropdown value={city} options={cities} placeholder={t("editProfile.cityPlaceholder")} onSelect={setCity} testID="city-dropdown" disabled={guestLocked} />
           </View>
 
           <Pressable
@@ -456,7 +448,7 @@ export default function EditProfileScreen() {
             <View style={[styles.checkbox, hasPlace && styles.checkboxActive]}>
               {hasPlace && <Ionicons name="checkmark" size={16} color={colors.onBrand} />}
             </View>
-            <Text style={styles.checkboxText}>I have a house/apartment to share 🏠</Text>
+            <Text style={styles.checkboxText}>{t("editProfile.hasPlace")}</Text>
           </Pressable>
 
           <Animated.View
@@ -487,7 +479,7 @@ export default function EditProfileScreen() {
               testID="housing-listing-prompt-button"
             >
               <Text style={styles.housingPromptText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.95}>
-                {HOUSING_PROMPT_MESSAGE}
+                {t("editProfile.housingPrompt")}
               </Text>
             </Pressable>
           </Animated.View>
@@ -501,7 +493,7 @@ export default function EditProfileScreen() {
             <View style={[styles.checkbox, lookingForApartment && styles.checkboxActive]}>
               {lookingForApartment && <Ionicons name="checkmark" size={16} color={colors.onBrand} />}
             </View>
-            <Text style={styles.checkboxText}>Currently looking for an apartment</Text>
+            <Text style={styles.checkboxText}>{t("editProfile.lookingForApartment")}</Text>
           </Pressable>
         </View>
 
@@ -509,32 +501,32 @@ export default function EditProfileScreen() {
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Ionicons name="book-outline" size={22} color={colors.onSurface} />
-            <Text style={styles.cardTitle}>Education & Living</Text>
+            <Text style={styles.cardTitle}>{t("editProfile.educationTitle")}</Text>
           </View>
 
-          <Text style={styles.label}>University</Text>
+          <Text style={styles.label}>{t("editProfile.university")}</Text>
           <View style={guestLocked ? styles.guestReadOnlyControl : undefined}>
             <Dropdown
               value={university}
-              options={UNIVERSITIES}
-              placeholder="Select your university"
+              options={universities}
+              placeholder={t("editProfile.universityPlaceholder")}
               onSelect={setUniversity}
               disabled={guestLocked}
               testID="university-dropdown"
             />
           </View>
 
-          <Text style={styles.label}>Year of Study</Text>
+          <Text style={styles.label}>{t("editProfile.year")}</Text>
           <View style={guestLocked ? styles.guestReadOnlyControl : undefined}>
-            <Dropdown value={year} options={YEARS} placeholder="Select your year" onSelect={setYear} disabled={guestLocked} testID="year-dropdown" />
+            <Dropdown value={year} options={years} placeholder={t("editProfile.yearPlaceholder")} onSelect={setYear} disabled={guestLocked} testID="year-dropdown" />
           </View>
 
-          <Text style={styles.label}>Monthly Budget (€)</Text>
+          <Text style={styles.label}>{t("editProfile.budget", { currency: "€" })}</Text>
           <TextInput
             style={[styles.input, guestLocked && styles.guestReadOnlyControl]}
             value={budget}
             onChangeText={(t) => setBudget(t.replace(/[^0-9]/g, ""))}
-            placeholder="e.g. 600"
+            placeholder={t("editProfile.budgetPlaceholder")}
             placeholderTextColor={colors.onSurfaceTertiary}
             keyboardType="number-pad"
             maxLength={5}
@@ -542,12 +534,12 @@ export default function EditProfileScreen() {
             testID="budget-input"
           />
 
-          <Text style={styles.label}>Preferred Move-in Date</Text>
+          <Text style={styles.label}>{t("editProfile.moveIn")}</Text>
           <View style={guestLocked ? styles.guestReadOnlyControl : undefined}>
             <Dropdown
               value={moveIn}
               options={MOVE_IN_OPTIONS}
-              placeholder="Select move-in date"
+              placeholder={t("editProfile.moveInPlaceholder")}
               onSelect={setMoveIn}
               disabled={guestLocked}
               testID="movein-dropdown"
@@ -559,28 +551,28 @@ export default function EditProfileScreen() {
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Ionicons name="link-outline" size={22} color={colors.onSurface} />
-            <Text style={styles.cardTitle}>Social Media</Text>
+            <Text style={styles.cardTitle}>{t("editProfile.socialTitle")}</Text>
           </View>
-          <Text style={styles.subtitle}>All social links are optional</Text>
+          <Text style={styles.subtitle}>{t("editProfile.socialSubtitle")}</Text>
 
-          <Text style={styles.label}>Instagram Username</Text>
+          <Text style={styles.label}>{t("editProfile.instagram")}</Text>
           <TextInput
             style={[styles.input, guestLocked && styles.guestReadOnlyControl]}
             value={instagram}
             onChangeText={setInstagram}
-            placeholder="your_instagram"
+            placeholder={t("editProfile.instagramPlaceholder")}
             placeholderTextColor={colors.onSurfaceTertiary}
             autoCapitalize="none"
             editable={!guestLocked}
             testID="instagram-input"
           />
 
-          <Text style={styles.label}>Facebook Profile</Text>
+          <Text style={styles.label}>{t("editProfile.facebook")}</Text>
           <TextInput
             style={[styles.input, guestLocked && styles.guestReadOnlyControl]}
             value={facebook}
             onChangeText={setFacebook}
-            placeholder="https://facebook.com/yourprofile"
+            placeholder={t("editProfile.facebookPlaceholder")}
             placeholderTextColor={colors.onSurfaceTertiary}
             autoCapitalize="none"
             keyboardType="url"
@@ -588,12 +580,12 @@ export default function EditProfileScreen() {
             testID="facebook-input"
           />
 
-          <Text style={styles.label}>LinkedIn Profile</Text>
+          <Text style={styles.label}>{t("editProfile.linkedin")}</Text>
           <TextInput
             style={[styles.input, guestLocked && styles.guestReadOnlyControl]}
             value={linkedin}
             onChangeText={setLinkedin}
-            placeholder="https://linkedin.com/in/yourprofile"
+            placeholder={t("editProfile.linkedinPlaceholder")}
             placeholderTextColor={colors.onSurfaceTertiary}
             autoCapitalize="none"
             keyboardType="url"
@@ -601,12 +593,12 @@ export default function EditProfileScreen() {
             testID="linkedin-input"
           />
 
-          <Text style={styles.label}>Twitter/X Username</Text>
+          <Text style={styles.label}>{t("editProfile.twitter")}</Text>
           <TextInput
             style={[styles.input, guestLocked && styles.guestReadOnlyControl]}
             value={twitter}
             onChangeText={setTwitter}
-            placeholder="your_twitter"
+            placeholder={t("editProfile.twitterPlaceholder")}
             placeholderTextColor={colors.onSurfaceTertiary}
             autoCapitalize="none"
             editable={!guestLocked}
@@ -615,10 +607,7 @@ export default function EditProfileScreen() {
 
           <View style={styles.infoBox}>
             <Ionicons name="information-circle-outline" size={18} color={colors.onSurfaceTertiary} />
-            <Text style={styles.infoText}>
-              Social media profiles help potential roommates get to know you better. You can always update or
-              remove these later in your profile settings.
-            </Text>
+            <Text style={styles.infoText}>{t("editProfile.socialInfo")}</Text>
           </View>
         </View>
       </KeyboardAwareScrollView>
@@ -648,7 +637,7 @@ export default function EditProfileScreen() {
               {submitting ? (
                 <ActivityIndicator color={colors.onBrand} />
               ) : (
-                <Text style={styles.submitText}> Complete Profile </Text>
+                <Text style={styles.submitText}>{t("common.cta.completeProfile")}</Text>
               )}
             </LinearGradient>
           </Pressable>

@@ -2,11 +2,12 @@ import React from "react";
 import { View, Text, StyleSheet, ActivityIndicator } from "react-native";
 
 import { colors, fonts, fontSize } from "@/src/theme";
+import { t } from "@/src/locales";
 
 export default function SplashScreen() {
   return (
     <View style={styles.container}>
-      <Text style={styles.logo}>Roomie</Text>
+      <Text style={styles.logo}>{t("common.brandName")}</Text>
       <ActivityIndicator color={colors.brand} size="large" style={styles.loader} />
     </View>
   );

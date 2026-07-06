@@ -16,21 +16,24 @@ import { db } from "@/src/config/firebase";
 import { TOTAL_QUESTIONS } from "@/src/data/quiz";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import { uploadProfileImageAsync } from "@/src/api/imageUpload";
+import { t } from "@/src/locales";
+import { useLocale } from "@/src/context/locale";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 100;
 const NAV_SETTINGS: { icon: keyof typeof Ionicons.glyphMap; label: string; route: string; testID?: string }[] = [
-  { icon: "sparkles", label: "Compatibility Quiz", route: "/roomie-profile", testID: "setting-compatibility-quiz" },
-  { icon: "create-outline", label: "Edit profile", route: "/edit-profile" },
-  { icon: "notifications-outline", label: "Notifications", route: "/notifications" },
-  { icon: "shield-checkmark-outline", label: "Privacy & safety", route: "/privacy-safety" },
-  { icon: "help-circle-outline", label: "Help & support", route: "/help-support" },
+  { icon: "sparkles", label: "common.labels.compatibilityQuiz", route: "/roomie-profile", testID: "setting-compatibility-quiz" },
+  { icon: "create-outline", label: "common.labels.editProfile", route: "/edit-profile" },
+  { icon: "notifications-outline", label: "common.labels.notifications", route: "/notifications" },
+  { icon: "shield-checkmark-outline", label: "common.labels.privacySafety", route: "/privacy-safety" },
+  { icon: "help-circle-outline", label: "common.labels.helpSupport", route: "/help-support" },
 ];
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const auth = useAuth();
+  const { locale, setLocale } = useLocale();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [matchCount, setMatchCount] = useState(0);
   const [updatingPhoto, setUpdatingPhoto] = useState(false);
@@ -66,13 +69,14 @@ export default function ProfileScreen() {
     }, [auth.isGuest]),
   );
 
-  const displayName = auth.isGuest ? "Guest" : profile?.name || auth.user?.name || "Your Profile";
+  const displayName = auth.isGuest ? t("profile.guestName") : profile?.name || auth.user?.name || t("profile.fallbackName");
   const photoUri = auth.isGuest ? "" : profile?.photos?.[0] || "";
   const hasPhoto = !!photoUri.trim();
   const university = auth.isGuest ? "" : profile?.university || "";
-  const program = auth.isGuest ? "Complete your profile" : profile?.year_of_study || "Complete your profile";
+  const program = auth.isGuest ? t("profile.fallbackProgram") : profile?.year_of_study || t("profile.fallbackProgram");
   const age = auth.isGuest ? null : profile?.age ?? null;
   const budget = profile?.budget ?? null;
+  const subInfoParts = [age != null ? t("common.format.ageLabel", { age }) : "", program, university].filter(Boolean);
 
   const updatePhoto = useCallback(async () => {
     if (auth.isGuest) return;
@@ -153,9 +157,7 @@ export default function ProfileScreen() {
           </View>
           <Text style={styles.name}>{displayName}</Text>
           <View style={styles.subInfoWrap}>
-            <Text style={styles.subInfoText}>
-              {age != null ? `Age ${age}` : ""} · {program} · {university}
-            </Text>
+            <Text style={styles.subInfoText}>{subInfoParts.join(" · ")}</Text>
           </View>
         </View>
 
@@ -163,23 +165,21 @@ export default function ProfileScreen() {
           <View style={styles.statsCard}>
             <View style={styles.statItem}>
               <Text style={styles.statNum}>{auth.isGuest ? "—" : matchCount}</Text>
-              <Text style={styles.statLabel}>Matches</Text>
+              <Text style={styles.statLabel}>{t("profile.statsMatches")}</Text>
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statItem}>
               <Text style={styles.statNum}>
-                {budget != null ? `${CURRENCY}${budget}` : "—"}
+                {budget != null ? `${CURRENCY}${budget}` : t("common.values.emptyDash")}
               </Text>
-              <Text style={styles.statLabel}>Max budget</Text>
+              <Text style={styles.statLabel}>{t("profile.statsBudget")}</Text>
             </View>
           </View>
         ) : (
           <View style={styles.guestBanner}>
             <Ionicons name="eye-off-outline" size={36} color={colors.onSurfaceTertiary} />
-            <Text style={styles.guestTitle}>Guest visitor mode</Text>
-            <Text style={styles.guestText}>
-              You are browsing without an active account. Profile details and account actions are disabled.
-            </Text>
+            <Text style={styles.guestTitle}>{t("profile.guestTitle")}</Text>
+            <Text style={styles.guestText}>{t("common.guest.disabledProfileDescription")}</Text>
           </View>
         )}
 
@@ -194,7 +194,7 @@ export default function ProfileScreen() {
                 <View style={styles.rowIcon}>
                   <Ionicons name={s.icon} size={20} color={colors.onSurface} />
                 </View>
-                <Text style={styles.rowLabel}>{s.label}</Text>
+                <Text style={styles.rowLabel}>{t(s.label)}</Text>
                 <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
               </Pressable>
 
@@ -208,13 +208,36 @@ export default function ProfileScreen() {
                       ]}
                     />
                   </View>
-                  <Text style={styles.quizProgressText}>
-                    {quizAnsweredCount}/{TOTAL_QUESTIONS} answered
-                  </Text>
+                  <Text style={styles.quizProgressText}>{t("profile.quizAnswered", { answered: quizAnsweredCount, total: TOTAL_QUESTIONS })}</Text>
                 </View>
               )}
             </View>
           ))}
+        </View>
+
+        <View style={styles.section}>
+          <View style={styles.languageHeader}>
+            <Text style={styles.rowLabel}>{t("profile.languageTitle")}</Text>
+            <Text style={styles.languageSubtitle}>{t("profile.languageSubtitle")}</Text>
+          </View>
+          <View style={styles.languageOptions}>
+            {([
+              { key: "en", label: t("common.languages.english") },
+              { key: "el", label: t("common.languages.greek") },
+            ] as const).map((option) => {
+              const active = locale === option.key;
+              return (
+                <Pressable
+                  key={option.key}
+                  style={[styles.languageChip, active && styles.languageChipActive]}
+                  onPress={() => void setLocale(option.key)}
+                  testID={`language-${option.key}`}
+                >
+                  <Text style={[styles.languageChipText, active && styles.languageChipTextActive]}>{option.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
         </View>
 
         {!auth.isGuest ? (
@@ -228,7 +251,7 @@ export default function ProfileScreen() {
               }}
             >
               <Ionicons name="log-out-outline" size={20} color={colors.error} />
-              <Text style={styles.logoutText}>Log out</Text>
+              <Text style={styles.logoutText}>{t("profile.logout")}</Text>
             </Pressable>
 
             <Pressable
@@ -237,7 +260,7 @@ export default function ProfileScreen() {
               onPress={() => router.push("/delete-account")}
             >
               <Ionicons name="trash-outline" size={20} color={colors.error} />
-              <Text style={styles.deleteAccountText}>Delete Account</Text>
+              <Text style={styles.deleteAccountText}>{t("profile.deleteAccount")}</Text>
             </Pressable>
           </>
         ) : (
@@ -246,7 +269,7 @@ export default function ProfileScreen() {
             testID="guest-signup-button"
             onPress={() => router.navigate("auth-landing" as any)}
           >
-            <Text style={styles.guestSignUpText}>Sign Up / Log In</Text>
+            <Text style={styles.guestSignUpText}>{t("common.cta.signInOrRegister")}</Text>
           </Pressable>
         )}
       </ScrollView>
@@ -341,6 +364,45 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   rowLabel: { flex: 1, fontFamily: fonts.semibold, fontSize: fontSize.lg, color: colors.onSurface },
+  languageHeader: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    gap: spacing.xs,
+  },
+  languageSubtitle: {
+    fontFamily: fonts.regular,
+    fontSize: fontSize.sm,
+    color: colors.onSurfaceTertiary,
+  },
+  languageOptions: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.lg,
+  },
+  languageChip: {
+    flex: 1,
+    paddingVertical: spacing.md,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceTertiary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  languageChipActive: {
+    borderColor: colors.brand,
+    backgroundColor: colors.brand,
+  },
+  languageChipText: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.base,
+    color: colors.onSurface,
+  },
+  languageChipTextActive: {
+    color: colors.onBrand,
+  },
   quizProgressWrap: {
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.md,

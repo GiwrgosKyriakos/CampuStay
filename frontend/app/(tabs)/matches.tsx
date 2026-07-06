@@ -13,6 +13,7 @@ import { useAuth } from "@/src/context/auth";
 import { db } from "@/src/config/firebase";
 import { DELETED_ACCOUNT_LABEL } from "@/src/api/accountDeletion";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
+import { t } from "@/src/locales";
 
 const TAB_BAR_SPACE = 100;
 
@@ -100,7 +101,7 @@ function buildDeletedCandidate(
     id: uid,
     name: label || DELETED_ACCOUNT_LABEL,
     age: 0,
-    gender: "Non-binary",
+    gender: t("common.values.nonBinary"),
     budget: 0,
     university: "",
     program: "",
@@ -130,7 +131,7 @@ function mapUserToChatItem(
     id: uid,
     name: data.name?.trim() || DELETED_ACCOUNT_LABEL,
     age: typeof data.age === "number" ? data.age : 0,
-    gender: (data.gender as RoommateProfile["gender"]) || "Non-binary",
+    gender: (data.gender as RoommateProfile["gender"]) || t("common.values.nonBinary"),
     budget: typeof data.maxBudget === "number" ? data.maxBudget : typeof data.budget === "number" ? data.budget : 0,
     university: data.university || "",
     program: data.year || data.year_of_study || "",
@@ -306,13 +307,16 @@ export default function MatchesScreen() {
   return (
     <View style={styles.container} testID="matches-screen">
       <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
-        <Text style={styles.title}>Matches</Text>
+        <Text style={styles.title}>{t("matches.title")}</Text>
         <Text style={styles.subtitle}>
           {auth.isGuest
-            ? "Sign up to see your matches"
+            ? t("matches.subtitleGuest")
             : matches.length > 0
-            ? `${matches.length} roommate${matches.length > 1 ? "s" : ""} you liked`
-            : "People you like will show up here"}
+            ? t("matches.subtitleCount", {
+                count: matches.length,
+                roommateLabel: matches.length === 1 ? t("matches.roommateSingular") : t("matches.roommatePlural"),
+              })
+            : t("matches.subtitleNone")}
         </Text>
       </View>
 
@@ -321,10 +325,10 @@ export default function MatchesScreen() {
           <View style={styles.emptyIcon}>
             <Ionicons name="lock-closed-outline" size={42} color={colors.onBrandTertiary} />
           </View>
-          <Text style={styles.emptyTitle}>Sign up to see your matches</Text>
-          <Text style={styles.emptySub}>Your likes, matches, and chats appear here after you log in.</Text>
+          <Text style={styles.emptyTitle}>{t("matches.emptyGuestTitle")}</Text>
+          <Text style={styles.emptySub}>{t("matches.emptyGuestBody")}</Text>
           <Pressable style={styles.ctaBtn} onPress={() => router.push("/auth-landing")} testID="matches-signin-button">
-            <Text style={styles.ctaText}>Sign Up / Log In</Text>
+            <Text style={styles.ctaText}>{t("common.cta.signInOrRegister")}</Text>
           </Pressable>
         </View>
       ) : matches.length === 0 ? (
@@ -332,8 +336,8 @@ export default function MatchesScreen() {
           <View style={styles.emptyIcon}>
             <Ionicons name="chatbubbles-outline" size={42} color={colors.onBrandTertiary} />
           </View>
-          <Text style={styles.emptyTitle}>No matches yet</Text>
-          <Text style={styles.emptySub}>Start swiping to find your future flatmate!</Text>
+          <Text style={styles.emptyTitle}>{t("matches.emptyTitle")}</Text>
+          <Text style={styles.emptySub}>{t("matches.emptyBody")}</Text>
         </View>
       ) : (
         <ScrollView
@@ -342,14 +346,14 @@ export default function MatchesScreen() {
         >
           {matches.map((p) => {
             const isDeleted = isDeletedCounterpart(p);
-            const displayName = isDeleted ? DELETED_ACCOUNT_LABEL : p.name;
+            const displayName = isDeleted ? t("common.account.deleted") : p.name;
             const hasAvatar = !isDeleted && !!p.photo?.trim();
             const chatStatus = p.chat_status ?? "active";
             const isPending = chatStatus === "pending";
             const isInitiator = isPending && p.chat_initiated_by === currentUserId;
             const isReceiver = isPending && p.chat_initiated_by !== currentUserId;
             const lastMessage = lastMessageByChat[p.chatRoomId];
-            const defaultPreview = isInitiator ? "Pending approval" : "Start the conversation";
+            const defaultPreview = isInitiator ? t("matches.previewPending") : t("matches.previewStart");
             const lastPreviewText = lastMessage?.text || defaultPreview;
             const unreadFromCounterparty =
               !isPending &&
@@ -389,7 +393,7 @@ export default function MatchesScreen() {
                     onPress={() => handleAcceptChat(p)}
                     testID={`accept-btn-${p.id}`}
                   >
-                    <Text style={styles.acceptBtnText}>Accept</Text>
+                      <Text style={styles.acceptBtnText}>{t("common.actions.accept")}</Text>
                   </Pressable>
                 ) : isReceiver && acceptingChatId === p.chatRoomId ? (
                   <ActivityIndicator size="small" color={colors.brand} />

@@ -20,9 +20,9 @@ import type { RoommateProfile } from "@/src/data/profiles";
 import { getUserId } from "@/src/utils/userId";
 import { db } from "@/src/config/firebase";
 import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc } from "firebase/firestore";
-import { DELETED_ACCOUNT_LABEL } from "@/src/api/accountDeletion";
 import { markIncomingMessagesAsRead } from "@/src/api/chat";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
+import { t } from "@/src/locales";
 
 const CURRENCY = "€";
 
@@ -80,9 +80,9 @@ function mapFirestoreUserToProfile(uid: string, data: FirestoreUserDoc): Roommat
 
   return {
     id: uid,
-    name: data.name?.trim() || "Unknown",
+    name: data.name?.trim() || t("common.values.unknown"),
     age: typeof data.age === "number" ? data.age : 0,
-    gender: (data.gender as RoommateProfile["gender"]) || "Non-binary",
+    gender: (data.gender as RoommateProfile["gender"]) || t("common.values.nonBinary"),
     budget: typeof data.maxBudget === "number" ? data.maxBudget : typeof data.budget === "number" ? data.budget : 0,
     university: data.university || "",
     program: data.year || data.year_of_study || "",
@@ -279,9 +279,9 @@ export default function ChatScreen() {
 
   const deletedProfileFallback: RoommateProfile = {
     id,
-    name: DELETED_ACCOUNT_LABEL,
+    name: t("common.account.deleted"),
     age: 0,
-    gender: "Non-binary",
+    gender: t("common.values.nonBinary"),
     budget: 0,
     university: "",
     program: "",
@@ -294,11 +294,11 @@ export default function ChatScreen() {
   const activeProfile = profile ?? deletedProfileFallback;
 
   const deletedCounterpart = !counterpartExists || isDeletedCounterpart(activeProfile);
-  const displayName = deletedCounterpart ? DELETED_ACCOUNT_LABEL : activeProfile.name;
+  const displayName = deletedCounterpart ? t("common.account.deleted") : activeProfile.name;
   const displayUniversity = deletedCounterpart ? "" : activeProfile.university;
-  const displayGender = deletedCounterpart ? "N/A" : activeProfile.gender;
-  const displayAge = deletedCounterpart ? "—" : `${activeProfile.age} yrs`;
-  const displayBudget = deletedCounterpart ? "—" : `${CURRENCY}${activeProfile.budget}/mo`;
+  const displayGender = deletedCounterpart ? t("common.values.notApplicable") : activeProfile.gender;
+  const displayAge = deletedCounterpart ? t("common.values.emptyDash") : `${activeProfile.age} ${t("common.format.yearsSuffix")}`;
+  const displayBudget = deletedCounterpart ? t("common.values.emptyDash") : `${CURRENCY}${activeProfile.budget}${t("common.format.perMonthShort")}`;
   const showAvatarImage = !deletedCounterpart && !!activeProfile.photo?.trim();
   const inputBlocked = chatStatus === "pending" || deletedCounterpart;
 
@@ -421,10 +421,10 @@ export default function ChatScreen() {
             onChangeText={setText}
             placeholder={
               deletedCounterpart
-                ? "This user deleted their account"
+                ? t("chat.placeholderDeleted")
                 : chatStatus === "pending"
-                ? "Waiting for acceptance..."
-                : `Message ${displayName}...`
+                ? t("chat.placeholderPending")
+                : t("chat.placeholderMessage", { name: displayName })
             }
             placeholderTextColor={colors.onSurfaceTertiary}
             multiline

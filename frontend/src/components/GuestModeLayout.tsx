@@ -3,6 +3,7 @@ import { View, Text, Pressable, StyleSheet, ViewStyle, StyleProp } from "react-n
 import { LinearGradient } from "expo-linear-gradient";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
+import { t } from "@/src/locales";
 
 type GuestModeTopBannerProps = {
   onPress: () => void;
@@ -22,9 +23,9 @@ type GuestModeStickyFooterProps = {
 export function GuestModeTopBanner({ onPress, testID, buttonTestID, style }: GuestModeTopBannerProps) {
   return (
     <View style={[styles.topBanner, style]} testID={testID}>
-      <Text style={styles.topBannerText}>Guest mode: Read only</Text>
+      <Text style={styles.topBannerText}>{t("common.guest.readOnlyBanner")}</Text>
       <Pressable style={styles.topBannerButton} onPress={onPress} testID={buttonTestID}>
-        <Text style={styles.topBannerButtonText}>Sign Up / Log In</Text>
+        <Text style={styles.topBannerButtonText}>{t("common.cta.signInOrRegister")}</Text>
       </Pressable>
     </View>
   );
@@ -40,7 +41,7 @@ export function GuestModeStickyFooter({ onPress, testID, buttonTestID, bottomIns
           end={{ x: 1, y: 0 }}
           style={styles.footerButton}
         >
-          <Text style={styles.footerButtonText}>Sign Up / Log In</Text>
+            <Text style={styles.footerButtonText}>{t("common.cta.signInOrRegister")}</Text>
         </LinearGradient>
       </Pressable>
     </View>

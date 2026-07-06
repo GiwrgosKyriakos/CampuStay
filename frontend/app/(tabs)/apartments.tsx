@@ -13,6 +13,7 @@ import { getUserId } from "@/src/utils/userId";
 import { useAuth } from "@/src/context/auth";
 import { db } from "@/src/config/firebase";
 import { subscribeUserLikedApartmentIds, toggleApartmentLike } from "@/src/api/apartmentLikes";
+import { t } from "@/src/locales";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 100;
@@ -45,56 +46,63 @@ interface FirestoreApartmentDoc {
   hostId?: string;
 }
 
-const APARTMENTS: Apartment[] = [
-  {
-    id: "a1",
-    title: "Sunny loft near campus",
-    area: "Kreuzberg",
-    city: "Berlin",
-    rent: 720,
-    rooms: 3,
-    size: 78,
-    image:
-      "https://images.unsplash.com/photo-1564078516393-cf04bd966897?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzZ8MHwxfHNlYXJjaHwxfHxlbXB0eSUyMGFwYXJ0bWVudCUyMGxpdmluZyUyMHJvb20lMjB3YXJtJTIwbGlnaHR8ZW58MHx8fHwxNzgyNzc4MzA0fDA&ixlib=rb-4.1.0&q=85",
-    tags: ["Furnished", "Balcony", "WiFi"],
-  },
-  {
-    id: "a2",
-    title: "Cozy shared flat",
-    area: "Schwabing",
-    city: "Munich",
-    rent: 590,
-    rooms: 2,
-    size: 54,
-    image:
-      "https://images.unsplash.com/photo-1541194577687-8c63bf9e7ee3?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzZ8MHwxfHNlYXJjaHwyfHxlbXB0eSUyMGFwYXJ0bWVudCUyMGxpdmluZyUyMHJvb20lMjB3YXJtJTIwbGlnaHR8ZW58MHx8fHwxNzgyNzc4MzA0fDA&ixlib=rb-4.1.0&q=85",
-    tags: ["Pet-friendly", "Near metro"],
-  },
-  {
-    id: "a3",
-    title: "Modern studio with view",
-    area: "Altstadt",
-    city: "Heidelberg",
-    rent: 850,
-    rooms: 1,
-    size: 42,
-    image:
-      "https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?crop=entropy&cs=srgb&fm=jpg&w=1000&q=85",
-    tags: ["Furnished", "Bills incl."],
-  },
-  {
-    id: "a4",
-    title: "Bright room in WG",
-    area: "Eimsbüttel",
-    city: "Hamburg",
-    rent: 480,
-    rooms: 4,
-    size: 95,
-    image:
-      "https://images.unsplash.com/photo-1505691938895-1758d7feb511?crop=entropy&cs=srgb&fm=jpg&w=1000&q=85",
-    tags: ["Shared kitchen", "Garden"],
-  },
-];
+function buildSeedApartments(): Apartment[] {
+  return [
+    {
+      id: "a1",
+      title: t("apartments.sample.a1.title"),
+      area: "Kreuzberg",
+      city: "Berlin",
+      rent: 720,
+      rooms: 3,
+      size: 78,
+      image:
+        "https://images.unsplash.com/photo-1564078516393-cf04bd966897?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzZ8MHwxfHNlYXJjaHwxfHxlbXB0eSUyMGFwYXJ0bWVudCUyMGxpdmluZyUyMHJvb20lMjB3YXJtJTIwbGlnaHR8ZW58MHx8fHwxNzgyNzc4MzA0fDA&ixlib=rb-4.1.0&q=85",
+      tags: ["Furnished", "Balcony", "WiFi"],
+    },
+    {
+      id: "a2",
+      title: t("apartments.sample.a2.title"),
+      area: "Schwabing",
+      city: "Munich",
+      rent: 590,
+      rooms: 2,
+      size: 54,
+      image:
+        "https://images.unsplash.com/photo-1541194577687-8c63bf9e7ee3?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzZ8MHwxfHNlYXJjaHwyfHxlbXB0eSUyMGFwYXJ0bWVudCUyMGxpdmluZyUyMHJvb20lMjB3YXJtJTIwbGlnaHR8ZW58MHx8fHwxNzgyNzc4MzA0fDA&ixlib=rb-4.1.0&q=85",
+      tags: ["Pet-friendly", "Near metro"],
+    },
+    {
+      id: "a3",
+      title: t("apartments.sample.a3.title"),
+      area: "Altstadt",
+      city: "Heidelberg",
+      rent: 850,
+      rooms: 1,
+      size: 42,
+      image:
+        "https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?crop=entropy&cs=srgb&fm=jpg&w=1000&q=85",
+      tags: ["Furnished", "Bills incl."],
+    },
+    {
+      id: "a4",
+      title: t("apartments.sample.a4.title"),
+      area: "Eimsbüttel",
+      city: "Hamburg",
+      rent: 480,
+      rooms: 4,
+      size: 95,
+      image:
+        "https://images.unsplash.com/photo-1505691938895-1758d7feb511?crop=entropy&cs=srgb&fm=jpg&w=1000&q=85",
+      tags: ["Shared kitchen", "Garden"],
+    },
+  ];
+}
+
+function translateApartmentTag(tag: string): string {
+  const translated = t(`apartments.tags.${tag}`);
+  return translated === `apartments.tags.${tag}` ? tag : translated;
+}
 
 export default function ApartmentsScreen() {
   const insets = useSafeAreaInsets();
@@ -134,16 +142,16 @@ export default function ApartmentsScreen() {
           const tags = Array.isArray(data.tags) ? data.tags : amenities;
           return {
             id: snap.id,
-            title: data.title?.trim() || "Apartment listing",
-            area: data.area?.trim() || "Unknown area",
-            city: data.city?.trim() || "Unknown city",
+            title: data.title?.trim() || t("apartments.unknownListing"),
+            area: data.area?.trim() || t("apartments.unknownArea"),
+            city: data.city?.trim() || t("apartments.unknownCity"),
             rent: typeof data.rent === "number" ? data.rent : typeof data.price === "number" ? data.price : 0,
             rooms: typeof data.rooms === "number" ? data.rooms : 1,
             size: typeof data.size === "number" ? data.size : typeof data.sqft === "number" ? data.sqft : 0,
             image:
               data.image ||
               "https://images.unsplash.com/photo-1564078516393-cf04bd966897?crop=entropy&cs=srgb&fm=jpg&w=1200&q=85",
-            tags: tags.length ? tags : ["New listing"],
+            tags: tags.length ? tags : [t("apartments.newListing")],
             hostId: data.hostId,
           };
         });
@@ -181,7 +189,7 @@ export default function ApartmentsScreen() {
     }, [auth.isGuest]),
   );
 
-  const apartments = useMemo(() => [...publishedApartments, ...APARTMENTS], [publishedApartments]);
+  const apartments = useMemo(() => [...publishedApartments, ...buildSeedApartments()], [publishedApartments]);
 
   const handleToggleLike = useCallback(
     async (apartmentId: string) => {
@@ -213,7 +221,7 @@ export default function ApartmentsScreen() {
           else next.delete(apartmentId);
           return next;
         });
-        Alert.alert("Could not update like", "Please try again.");
+        Alert.alert(t("apartments.likeUpdateTitle"), t("apartments.likeUpdateMessage"));
       }
     },
     [auth.isGuest, auth.userId, likedApartmentIds, router],
@@ -251,8 +259,8 @@ export default function ApartmentsScreen() {
   return (
     <View style={styles.container} testID="apartments-screen">
       <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
-        <Text style={styles.title}>Apartments</Text>
-        <Text style={styles.subtitle}>Available homes in your study city</Text>
+        <Text style={styles.title}>{t("apartments.title")}</Text>
+        <Text style={styles.subtitle}>{t("apartments.subtitle")}</Text>
         <View style={styles.headerControlsRow}>
           <Pressable
             style={[styles.filterToggle, showFilters && styles.filterToggleActive]}
@@ -260,7 +268,7 @@ export default function ApartmentsScreen() {
             testID="apartments-filter-toggle"
           >
             <Ionicons name="options-outline" size={18} color={colors.onBrandTertiary} />
-            <Text style={styles.filterToggleText}>{showFilters ? "Hide Filters" : "Show Filters"}</Text>
+            <Text style={styles.filterToggleText}>{showFilters ? t("apartments.hideFilters") : t("apartments.showFilters")}</Text>
           </Pressable>
           <View style={styles.viewToggle} testID="apartments-view-toggle">
             <Pressable
@@ -268,26 +276,26 @@ export default function ApartmentsScreen() {
               onPress={() => setShowOnlyLiked(false)}
               testID="apartments-view-all"
             >
-              <Text style={[styles.viewToggleText, !showOnlyLiked && styles.viewToggleTextActive]}>All</Text>
+              <Text style={[styles.viewToggleText, !showOnlyLiked && styles.viewToggleTextActive]}>{t("apartments.all")}</Text>
             </Pressable>
             <Pressable
               style={[styles.viewToggleOption, showOnlyLiked && styles.viewToggleOptionActive]}
               onPress={() => setShowOnlyLiked(true)}
               testID="apartments-view-liked"
             >
-              <Text style={[styles.viewToggleText, showOnlyLiked && styles.viewToggleTextActive]}>Liked</Text>
+              <Text style={[styles.viewToggleText, showOnlyLiked && styles.viewToggleTextActive]}>{t("apartments.liked")}</Text>
             </Pressable>
           </View>
         </View>
         {showFilters && (
           <View style={styles.filterPanel} testID="apartments-filter-panel">
-            <Text style={styles.filterLabel}>Monthly Rent ({CURRENCY})</Text>
+            <Text style={styles.filterLabel}>{t("apartments.monthlyRent", { currency: CURRENCY })}</Text>
             <View style={styles.rangeRow}>
               <TextInput
                 style={styles.rangeInput}
                 value={rentMin}
                 onChangeText={(t) => setRentMin(t.replace(/[^0-9]/g, ""))}
-                placeholder="Min"
+                placeholder={t("apartments.min")}
                 keyboardType="number-pad"
                 placeholderTextColor={colors.onSurfaceTertiary}
                 testID="apartments-rent-min"
@@ -296,30 +304,30 @@ export default function ApartmentsScreen() {
                 style={styles.rangeInput}
                 value={rentMax}
                 onChangeText={(t) => setRentMax(t.replace(/[^0-9]/g, ""))}
-                placeholder="Max"
+                placeholder={t("apartments.max")}
                 keyboardType="number-pad"
                 placeholderTextColor={colors.onSurfaceTertiary}
                 testID="apartments-rent-max"
               />
             </View>
 
-            <Text style={styles.filterLabel}>Area / City</Text>
+            <Text style={styles.filterLabel}>{t("apartments.areaCity")}</Text>
             <TextInput
               style={styles.singleInput}
               value={cityQuery}
               onChangeText={setCityQuery}
-              placeholder="e.g. Berlin or Kreuzberg"
+              placeholder={t("apartments.cityPlaceholder")}
               placeholderTextColor={colors.onSurfaceTertiary}
               testID="apartments-city-filter"
             />
 
-            <Text style={styles.filterLabel}>Square Meters (m²)</Text>
+            <Text style={styles.filterLabel}>{t("apartments.squareMeters")}</Text>
             <View style={styles.rangeRow}>
               <TextInput
                 style={styles.rangeInput}
                 value={sizeMin}
                 onChangeText={(t) => setSizeMin(t.replace(/[^0-9]/g, ""))}
-                placeholder="Min"
+                placeholder={t("apartments.min")}
                 keyboardType="number-pad"
                 placeholderTextColor={colors.onSurfaceTertiary}
                 testID="apartments-size-min"
@@ -328,20 +336,20 @@ export default function ApartmentsScreen() {
                 style={styles.rangeInput}
                 value={sizeMax}
                 onChangeText={(t) => setSizeMax(t.replace(/[^0-9]/g, ""))}
-                placeholder="Max"
+                placeholder={t("apartments.max")}
                 keyboardType="number-pad"
                 placeholderTextColor={colors.onSurfaceTertiary}
                 testID="apartments-size-max"
               />
             </View>
 
-            <Text style={styles.filterLabel}>Preferences</Text>
+            <Text style={styles.filterLabel}>{t("apartments.preferences")}</Text>
             <View style={styles.switchRow}>
-              <Text style={styles.switchText}>Pet-friendly</Text>
+              <Text style={styles.switchText}>{t("apartments.petFriendly")}</Text>
               <Switch value={petFriendly} onValueChange={setPetFriendly} trackColor={{ true: colors.brand, false: colors.border }} />
             </View>
             <View style={styles.switchRow}>
-              <Text style={styles.switchText}>Near Metro</Text>
+              <Text style={styles.switchText}>{t("apartments.nearMetro")}</Text>
               <Switch value={nearMetro} onValueChange={setNearMetro} trackColor={{ true: colors.brand, false: colors.border }} />
             </View>
           </View>
@@ -376,7 +384,7 @@ export default function ApartmentsScreen() {
                     {CURRENCY}
                     {apt.rent}
                   </Text>
-                  <Text style={styles.rentMo}>/mo</Text>
+                  <Text style={styles.rentMo}>{t("apartments.perMonthShort")}</Text>
                 </View>
                 <View style={styles.cardBody}>
                   <Text style={styles.aptTitle}>{apt.title}</Text>
@@ -387,14 +395,14 @@ export default function ApartmentsScreen() {
                     </Text>
                   </View>
                   <View style={styles.statsRow}>
-                    <Text style={styles.stat}>{apt.rooms} rooms</Text>
+                    <Text style={styles.stat}>{`${apt.rooms} ${t("apartments.rooms")}`}</Text>
                     <View style={styles.dot} />
                     <Text style={styles.stat}>{apt.size} m²</Text>
                   </View>
                   <View style={styles.tagRow}>
                     {apt.tags.map((t) => (
                       <View key={t} style={styles.tag}>
-                        <Text style={styles.tagText}>{t}</Text>
+                        <Text style={styles.tagText}>{translateApartmentTag(t)}</Text>
                       </View>
                     ))}
                   </View>
@@ -413,10 +421,10 @@ export default function ApartmentsScreen() {
         {filteredApartments.length === 0 && (
           <View style={styles.emptyState} testID="apartments-empty-state">
             <Text style={styles.emptyTitle}>
-              {showOnlyLiked ? "No liked apartments yet" : "No apartments match these filters"}
+              {showOnlyLiked ? t("apartments.emptyLiked") : t("apartments.emptyFiltered")}
             </Text>
             {!showOnlyLiked && (
-              <Text style={styles.emptySub}>Adjust your rent, area, size, or preference filters.</Text>
+              <Text style={styles.emptySub}>{t("apartments.emptyHint")}</Text>
             )}
           </View>
         )}

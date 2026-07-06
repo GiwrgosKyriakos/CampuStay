@@ -6,7 +6,6 @@ import {
   ScrollView,
   Switch,
   ActivityIndicator,
-  Pressable,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -15,22 +14,23 @@ import { useAuth } from "@/src/context/auth";
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import { getUserSettings, saveUserNotifications } from "@/src/api/accountSettings";
 import { GuestModeStickyFooter, GuestModeTopBanner } from "@/src/components/GuestModeLayout";
+import { t } from "@/src/locales";
 
 const NOTIFICATION_ROWS = [
   {
     id: "new_matches",
-    title: "New Matches",
-    subtitle: "Notify me when someone likes me back",
+    title: "notifications.rows.newMatches.title",
+    subtitle: "notifications.rows.newMatches.subtitle",
   },
   {
     id: "direct_messages",
-    title: "Direct Messages",
-    subtitle: "Notify me when I receive a new chat message",
+    title: "notifications.rows.directMessages.title",
+    subtitle: "notifications.rows.directMessages.subtitle",
   },
   {
     id: "app_updates_and_tips",
-    title: "App Updates & Tips",
-    subtitle: "Occasional reminders and compatibility tips",
+    title: "notifications.rows.updatesTips.title",
+    subtitle: "notifications.rows.updatesTips.subtitle",
   },
 ] as const;
 
@@ -65,7 +65,7 @@ export default function NotificationsScreen() {
         setPreferences(settings.notifications);
       } catch {
         if (!active) return;
-        setError("Unable to load notification settings.");
+        setError(t("notifications.errors.load"));
       } finally {
         if (active) setLoading(false);
       }
@@ -86,7 +86,7 @@ export default function NotificationsScreen() {
         if (!auth.userId) return;
         await saveUserNotifications(auth.userId, nextPreferences);
       } catch {
-        setError("Could not save notification settings.");
+        setError(t("notifications.errors.save"));
       } finally {
         setSaving(false);
       }
@@ -114,8 +114,8 @@ export default function NotificationsScreen() {
         testID="notifications-screen"
       >
         <View style={styles.header}>
-          <Text style={styles.title}>Notifications</Text>
-          <Text style={styles.subtitle}>Manage your push notification preferences.</Text>
+          <Text style={styles.title}>{t("notifications.title")}</Text>
+          <Text style={styles.subtitle}>{t("notifications.subtitle")}</Text>
         </View>
 
         {isGuest && (
@@ -131,8 +131,8 @@ export default function NotificationsScreen() {
           {NOTIFICATION_ROWS.map((row) => (
             <View key={row.id} style={styles.settingRow} testID={`notification-row-${row.id}`}>
               <View style={styles.rowText}>
-                <Text style={styles.settingTitle}>{row.title}</Text>
-                <Text style={styles.settingSubtitle}>{row.subtitle}</Text>
+                <Text style={styles.settingTitle}>{t(row.title)}</Text>
+                <Text style={styles.settingSubtitle}>{t(row.subtitle)}</Text>
               </View>
               <View style={isGuest ? styles.disabledControl : undefined}>
                 <Switch
@@ -146,7 +146,7 @@ export default function NotificationsScreen() {
             </View>
           ))}
         </View>
-        {saving && <Text style={styles.saveText}>Saving changes…</Text>}
+        {saving && <Text style={styles.saveText}>{t("notifications.saving")}</Text>}
         {error && <Text style={styles.errorText}>{error}</Text>}
       </ScrollView>
 

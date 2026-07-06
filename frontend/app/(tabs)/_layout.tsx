@@ -1,6 +1,7 @@
 import { Tabs } from "expo-router";
 
 import GlassTabBar from "@/src/components/GlassTabBar";
+import { t } from "@/src/locales";
 
 export default function TabsLayout() {
   return (
@@ -8,10 +9,10 @@ export default function TabsLayout() {
       tabBar={(props) => <GlassTabBar {...props} />}
       screenOptions={{ headerShown: false }}
     >
-      <Tabs.Screen name="roommates" options={{ title: "Roommates" }} />
-      <Tabs.Screen name="matches" options={{ title: "Matches" }} />
-      <Tabs.Screen name="apartments" options={{ title: "Apartments" }} />
-      <Tabs.Screen name="profile" options={{ title: "Profile" }} />
+      <Tabs.Screen name="roommates" options={{ title: t("tabs.roommates") }} />
+      <Tabs.Screen name="matches" options={{ title: t("tabs.matches") }} />
+      <Tabs.Screen name="apartments" options={{ title: t("tabs.apartments") }} />
+      <Tabs.Screen name="profile" options={{ title: t("tabs.profile") }} />
     </Tabs>
   );
 }

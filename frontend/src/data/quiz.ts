@@ -1,3 +1,5 @@
+import { t } from "@/src/locales";
+
 export interface QuizQuestion {
   id: string;
   emoji: string;
@@ -12,158 +14,122 @@ export interface QuizSection {
 
 export const QUIZ_SECTIONS: QuizSection[] = [
   {
-    category: "Cleaning & Habits",
+    category: t("quiz.categories.cleaning"),
     questions: [
       {
         id: "q1",
         emoji: "🧹",
-        question: "What is your overall standard of cleanliness for the shared spaces?",
-        options: ["Very tidy and highly organized", "Average and reasonably clean", "Pretty relaxed or messy"],
+        question: t("quiz.questions.q1.question"),
+        options: t("quiz.questions.q1.options") as unknown as string[],
       },
       {
         id: "q2",
         emoji: "🧽",
-        question: "How frequently do you plan to contribute to deep house cleaning?",
-        options: ["At least once a week", "Every now and then", "Only when it gets absolutely necessary"],
+        question: t("quiz.questions.q2.question"),
+        options: t("quiz.questions.q2.options") as unknown as string[],
       },
       {
         id: "q3",
         emoji: "🍽️",
-        question: "What is your golden rule for doing the dishes?",
-        options: ["Wash them immediately or daily", "Leave them for the next day", "Wash them only when no clean ones are left"],
+        question: t("quiz.questions.q3.question"),
+        options: t("quiz.questions.q3.options") as unknown as string[],
       },
     ],
   },
   {
-    category: "Bills & Sharing",
+    category: t("quiz.categories.bills"),
     questions: [
       {
         id: "q4",
         emoji: "💵",
-        question: "How do you want to manage the shared utility bills?",
-        options: [
-          "Split everything strictly down the middle",
-          "Each person takes responsibility for a specific bill",
-          "Figure it out dynamically month by month",
-        ],
+        question: t("quiz.questions.q4.question"),
+        options: t("quiz.questions.q4.options") as unknown as string[],
       },
     ],
   },
   {
-    category: "Lifestyle Core",
+    category: t("quiz.categories.lifestyle"),
     questions: [
       {
         id: "q5",
         emoji: "🚬",
-        question: "What is your stance on smoking or vaping inside the house?",
-        options: ["I smoke regularly", "I only smoke outside or on the balcony", "I am a strict non-smoker"],
+        question: t("quiz.questions.q5.question"),
+        options: t("quiz.questions.q5.options") as unknown as string[],
       },
       {
         id: "q6",
         emoji: "🤫",
-        question: "What are your expectations regarding noise levels in the apartment?",
-        options: [
-          "I need absolute quiet most of the time",
-          "I only need it quiet during late-night hours",
-          "Noise doesn't bother me at all",
-        ],
+        question: t("quiz.questions.q6.question"),
+        options: t("quiz.questions.q6.options") as unknown as string[],
       },
       {
         id: "q7",
         emoji: "💤",
-        question: "What does your typical sleep schedule look like?",
-        options: [
-          "Early bird (asleep before 11 PM)",
-          "Normal student routine (asleep between 11 PM and 1 AM)",
-          "Night owl (asleep after 1 AM)",
-        ],
+        question: t("quiz.questions.q7.question"),
+        options: t("quiz.questions.q7.options") as unknown as string[],
       },
     ],
   },
   {
-    category: "Guests & Social Life",
+    category: t("quiz.categories.guests"),
     questions: [
       {
         id: "q8",
         emoji: "🔕",
-        question: "What is your policy on having friends or guests over?",
-        options: [
-          "Guests can come over anytime without notice",
-          "Please ask or give a heads-up first",
-          "Rare visits only, I prefer privacy",
-        ],
+        question: t("quiz.questions.q8.question"),
+        options: t("quiz.questions.q8.options") as unknown as string[],
       },
       {
         id: "q9",
         emoji: "🎉",
-        question: "How do you feel about hosting parties or gatherings in the apartment?",
-        options: [
-          "Love them, the more the merrier",
-          "Occasional small gatherings are perfectly fine",
-          "Strictly no parties at home",
-        ],
+        question: t("quiz.questions.q9.question"),
+        options: t("quiz.questions.q9.options") as unknown as string[],
       },
       {
         id: "q10",
         emoji: "🤝",
-        question: "What kind of social dynamic do you want to build with your roommate?",
-        options: [
-          "I want us to become close friends and hang out together",
-          "Friendly and polite, but we keep our separate lives",
-          "Just roommates co-existing quietly",
-        ],
+        question: t("quiz.questions.q10.question"),
+        options: t("quiz.questions.q10.options") as unknown as string[],
       },
     ],
   },
   {
-    category: "Sharing Belongings",
+    category: t("quiz.categories.sharing"),
     questions: [
       {
         id: "q11",
         emoji: "📦",
-        question: "How do you feel about sharing personal belongings like kitchenware or furniture?",
-        options: ["Share everything freely", "Always ask before using my things", "I completely prefer not to share"],
+        question: t("quiz.questions.q11.question"),
+        options: t("quiz.questions.q11.options") as unknown as string[],
       },
       {
         id: "q12",
         emoji: "🛒",
-        question: "How should we organize groceries and common household items?",
-        options: [
-          "Take turns buying shared supplies",
-          "Split the grocery costs evenly",
-          "Everyone buys and consumes their own stuff",
-        ],
+        question: t("quiz.questions.q12.question"),
+        options: t("quiz.questions.q12.options") as unknown as string[],
       },
     ],
   },
   {
-    category: "Personal Preferences",
+    category: t("quiz.categories.personal"),
     questions: [
       {
         id: "q13",
         emoji: "🐾",
-        question: "What is your situation or preference regarding pets in the house?",
-        options: [
-          "I have a pet or definitely want to get one",
-          "I don't have one, but pets are totally fine with me",
-          "Strictly no pets allowed",
-        ],
+        question: t("quiz.questions.q13.question"),
+        options: t("quiz.questions.q13.options") as unknown as string[],
       },
       {
         id: "q14",
         emoji: "🍻",
-        question: "What is your preference regarding alcohol consumption inside the apartment?",
-        options: [
-          "I enjoy drinking frequently at home",
-          "I only drink occasionally on weekends",
-          "I don't drink or prefer an alcohol-free home",
-        ],
+        question: t("quiz.questions.q14.question"),
+        options: t("quiz.questions.q14.options") as unknown as string[],
       },
       {
         id: "q15",
         emoji: "🍳",
-        question: "How often do you plan on using the kitchen to cook your meals?",
-        options: ["I cook every single day", "A few times a week", "Rarely, I mostly order out or eat on campus"],
+        question: t("quiz.questions.q15.question"),
+        options: t("quiz.questions.q15.options") as unknown as string[],
       },
     ],
   },

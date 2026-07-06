@@ -8,21 +8,7 @@ import * as Linking from "expo-linking";
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import { GuestModeStickyFooter, GuestModeTopBanner } from "@/src/components/GuestModeLayout";
 import { useAuth } from "@/src/context/auth";
-
-const FAQ_ITEMS = [
-  {
-    question: "How do Matches work?",
-    answer: "When you both swipe right on each other, a chat room opens in your Matches tab.",
-  },
-  {
-    question: "Is my social media visible to everyone?",
-    answer: "Only your confirmed Matches can see your linked social media profiles.",
-  },
-  {
-    question: "How do I report a fake profile?",
-    answer: "You can report or block a user directly from their profile card or within your chat room.",
-  },
-];
+import { t } from "@/src/locales";
 
 const STICKY_FOOTER_PADDING = 152;
 
@@ -31,9 +17,14 @@ export default function HelpSupportScreen() {
   const router = useRouter();
   const auth = useAuth();
   const [openIndex, setOpenIndex] = useState<number | null>(null);
+  const faqItems = [
+    { question: t("helpSupport.faq.matchesQuestion"), answer: t("helpSupport.faq.matchesAnswer") },
+    { question: t("helpSupport.faq.socialQuestion"), answer: t("helpSupport.faq.socialAnswer") },
+    { question: t("helpSupport.faq.reportQuestion"), answer: t("helpSupport.faq.reportAnswer") },
+  ];
 
   const openEmailSupport = async () => {
-    await Linking.openURL("mailto:gkiriakos92@gmail.com?subject=CampuStay%20Support%20Inquiry");
+    await Linking.openURL(`mailto:gkiriakos92@gmail.com?subject=${encodeURIComponent(t("helpSupport.supportSubject"))}`);
   };
 
   const openInstagram = async () => {
@@ -65,8 +56,8 @@ export default function HelpSupportScreen() {
         testID="help-support-screen"
       >
         <View style={styles.header}>
-          <Text style={styles.title}>Help & Support</Text>
-          <Text style={styles.subtitle}>Browse frequently asked questions or contact the support team directly.</Text>
+          <Text style={styles.title}>{t("helpSupport.title")}</Text>
+          <Text style={styles.subtitle}>{t("helpSupport.subtitle")}</Text>
         </View>
 
         {auth.isGuest && (
@@ -78,7 +69,7 @@ export default function HelpSupportScreen() {
           />
         )}
 
-        {FAQ_ITEMS.map((item, index) => {
+        {faqItems.map((item, index) => {
           const open = openIndex === index;
           return (
             <Pressable
@@ -98,10 +89,10 @@ export default function HelpSupportScreen() {
 
         <Pressable
           style={styles.contactButton}
-          onPress={() => Linking.openURL("mailto:support@unimates.com?subject=Support%20Request")}
+          onPress={() => Linking.openURL(`mailto:support@unimates.com?subject=${encodeURIComponent(t("helpSupport.supportRequestSubject"))}`)}
           testID="contact-support-button"
         >
-          <Text style={styles.contactButtonText}>Contact Support Team</Text>
+          <Text style={styles.contactButtonText}>{t("common.cta.contactSupport")}</Text>
         </Pressable>
 
         <View style={styles.linksSection}>
@@ -113,7 +104,7 @@ export default function HelpSupportScreen() {
             <View style={styles.linkIconWrap}>
               <Ionicons name="mail-outline" size={20} color={colors.onSurface} />
             </View>
-            <Text style={styles.linkLabel}>Email Support</Text>
+            <Text style={styles.linkLabel}>{t("helpSupport.emailSupport")}</Text>
             <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
           </Pressable>
 
@@ -125,13 +116,13 @@ export default function HelpSupportScreen() {
             <View style={styles.linkIconWrap}>
               <Ionicons name="logo-instagram" size={20} color={colors.onSurface} />
             </View>
-            <Text style={styles.linkLabel}>Follow us on Instagram</Text>
+            <Text style={styles.linkLabel}>{t("helpSupport.instagram")}</Text>
             <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
           </Pressable>
         </View>
 
         <Pressable style={styles.backButton} onPress={() => router.replace(navigationSource)}>
-          <Text style={styles.backText}>Back to home</Text>
+          <Text style={styles.backText}>{t("common.cta.backHome")}</Text>
         </Pressable>
       </ScrollView>
 

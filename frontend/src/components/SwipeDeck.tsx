@@ -18,6 +18,7 @@ import Animated, {
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import type { RoommateProfile } from "@/src/data/profiles";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
+import { t } from "@/src/locales";
 
 const { width: SCREEN_W } = Dimensions.get("window");
 const SWIPE_THRESHOLD = SCREEN_W * 0.28;
@@ -111,8 +112,8 @@ const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck(
           <View style={styles.emptyIcon}>
             <Ionicons name="sparkles" size={40} color={colors.onBrandTertiary} />
           </View>
-          <Text style={styles.emptyTitle}>You&apos;re all caught up!</Text>
-          <Text style={styles.emptySub}>No more roommates match your filters right now.</Text>
+          <Text style={styles.emptyTitle}>{t("swipeDeck.emptyTitle")}</Text>
+          <Text style={styles.emptySub}>{t("swipeDeck.emptyBody")}</Text>
           <Pressable
             style={styles.emptyBtn}
             onPress={() => {
@@ -122,7 +123,7 @@ const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck(
             testID="deck-reset-button"
           >
             <Ionicons name="refresh" size={18} color={colors.onBrand} />
-            <Text style={styles.emptyBtnText}>Start over</Text>
+            <Text style={styles.emptyBtnText}>{t("common.actions.startOver")}</Text>
           </Pressable>
         </View>
       </View>
@@ -169,7 +170,7 @@ const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck(
             <Ionicons name="wallet-outline" size={14} color={colors.onSurfaceInverse} />
             <Text style={styles.metaText}>
               {currency}
-              {p.budget}/mo
+              {p.budget}{t("common.format.perMonthShort")}
             </Text>
           </View>
         </View>

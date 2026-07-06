@@ -12,6 +12,7 @@ import { StatusBar } from "expo-status-bar";
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { colors } from "@/src/theme";
 import { AuthProvider, useAuth } from "@/src/context/auth";
+import { LocaleProvider } from "@/src/context/locale";
 
 // Disable logbox errors so the app startup logs remain visible.
 LogBox.ignoreAllLogs(true);
@@ -125,8 +126,10 @@ export default function RootLayout() {
   if (!splashReady) return null;
 
   return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
+    <LocaleProvider>
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+    </LocaleProvider>
   );
 }

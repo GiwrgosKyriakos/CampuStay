@@ -1,13 +1,10 @@
-import { useEffect } from 'react';
-import { registerForPushNotificationsAsync } from '../../src/utils/notificationService';
-import { updateDoc } from 'firebase/firestore';
-import React, { useMemo, useRef, useState, useCallback } from "react";
+import React, { useMemo, useRef, useState, useCallback, useEffect } from "react";
 import { View, Text, StyleSheet, Pressable, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useFocusEffect, useRouter } from "expo-router";
-import { doc, onSnapshot } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc } from "firebase/firestore";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import type { RoommateProfile } from "@/src/data/profiles";
@@ -17,11 +14,11 @@ import { getUserId } from "@/src/utils/userId";
 import { getCandidates, postSwipe, resetDislikedSwipes } from "@/src/api/discover";
 import { useAuth } from "@/src/context/auth";
 import { db, firebaseAuth } from "@/src/config/firebase";
+import { t } from "@/src/locales";
+import { registerForPushNotificationsAsync } from "@/src/utils/notificationService";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 84;
-const TOTAL_QUESTIONS_PLACEHOLDER = 15;
-
 export default function RoommatesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -38,32 +35,28 @@ export default function RoommatesScreen() {
 
 useEffect(() => {
   const setupNotifications = async () => {
-    // 1. Σιγουρευόμαστε ότι ο χρήστης έχει όντως συνδεθεί και υπάρχει το UID του
     if (!firebaseAuth.currentUser) {
-      console.log('[Notifications] Δεν υπάρχει συνδεδεμένος χρήστης ακόμα.');
+      console.log('[Notifications] No authenticated user yet.');
       return;
     }
 
-    // 2. Ζητάμε άδεια και παίρνουμε το Token
     const token = await registerForPushNotificationsAsync();
-    
-    // 3. Αν πάρουμε το token, το αποθηκεύουμε στο Firestore στο προφίλ του
+
     if (token) {
       try {
         const userDocRef = doc(db, 'users', firebaseAuth.currentUser.uid);
         await updateDoc(userDocRef, {
           expoPushToken: token,
         });
-        console.log('[Notifications] ✓ Το Push Token αποθηκεύτηκε επιτυχώς στο Firestore!');
+        console.log('[Notifications] Push token saved to Firestore.');
       } catch (error) {
-        console.error('[Notifications] X Σφάλμα κατά την αποθήκευση στο Firestore:', error);
+        console.error('[Notifications] Failed saving push token to Firestore:', error);
       }
     }
   };
 
-  // Εκτέλεση της παραπάνω συνάρτησης
   setupNotifications();
-}, []); // 👈 Τα άδεια αγκύλες σημαίνουν ότι θα τρέξει ΜΙΑ φορά, μόλις ανοίξει αυτή η οθόνη
+}, []);
 
 
   const load = useCallback(async () => {
@@ -123,7 +116,10 @@ useEffect(() => {
     () =>
       candidates.filter(
         (p) =>
-          (filters.gender === "All" || p.gender === filters.gender) &&
+          (filters.gender === "all" ||
+            (filters.gender === "female" && p.gender === "Female") ||
+            (filters.gender === "male" && p.gender === "Male") ||
+            (filters.gender === "nonBinary" && p.gender === "Non-binary")) &&
           p.age >= filters.ageMin &&
           p.age <= filters.ageMax &&
           p.budget <= filters.budgetMax,
@@ -175,7 +171,7 @@ useEffect(() => {
         <View style={styles.brandRow}>
           <View style={styles.brandTextWrap}>
             <Text style={styles.brand}>
-              Campu<Text style={styles.brandAccent}>Stay</Text>
+              {t("common.brandPrefix")}<Text style={styles.brandAccent}>{t("common.brandSuffix")}</Text>
             </Text>
           </View>
           {quizAnsweredCount === 0 && (
@@ -184,12 +180,12 @@ useEffect(() => {
               onPress={() => router.push("/roomie-profile")}
               testID="roommates-quiz-pill"
             >
-              <Text style={styles.quizPillText}>Quiz</Text>
+              <Text style={styles.quizPillText}>{t("roommates.quiz")}</Text>
             </Pressable>
           )}
         </View>
         <Pressable style={styles.filterPill} onPress={openSheet} testID="filter-open-button">
-          <Text style={styles.filterText}>Roomate Preferences</Text>
+          <Text style={styles.filterText}>{t("roommates.preferences")}</Text>
         </Pressable>
       </View>
 

@@ -7,6 +7,7 @@ import { useAuth } from "@/src/context/auth";
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import { GuestModeStickyFooter, GuestModeTopBanner } from "@/src/components/GuestModeLayout";
 import { deleteAccountDeep } from "@/src/api/accountDeletion";
+import { t } from "@/src/locales";
 
 export default function DeleteAccountScreen() {
   const auth = useAuth();
@@ -21,7 +22,7 @@ export default function DeleteAccountScreen() {
       return;
     }
     if (!auth.userId) {
-      setError("Unable to delete account - user ID not found.");
+      setError(t("deleteAccount.errors.userIdMissing"));
       return;
     }
 
@@ -32,13 +33,13 @@ export default function DeleteAccountScreen() {
       await auth.logout();
       router.replace("/guest");
     } catch {
-      setError("Failed to delete your account. Please try again.");
+      setError(t("deleteAccount.errors.deleteFailed"));
     } finally {
       setLoading(false);
     }
   };
 
-  const userEmail = auth.user?.email ?? "Not available";
+  const userEmail = auth.user?.email ?? t("common.values.notAvailable");
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + spacing.lg }]} testID="delete-account-screen">
@@ -54,20 +55,15 @@ export default function DeleteAccountScreen() {
 
         {auth.isGuest ? (
           <View style={styles.content}>
-            <Text style={styles.heading}>Sign up first</Text>
-            <Text style={styles.warning}>
-              Guest Mode cannot delete an account because there is no signed-in profile to remove.
-            </Text>
+            <Text style={styles.heading}>{t("deleteAccount.guestTitle")}</Text>
+            <Text style={styles.warning}>{t("deleteAccount.guestBody")}</Text>
           </View>
         ) : (
         <View style={styles.content}>
-          <Text style={styles.heading}>Are you sure you want to delete your account?</Text>
-          <Text style={styles.warning}>
-            This action is permanent. Your profile data, quiz responses, likes, and swipes will be permanently removed.
-            Existing chats remain visible to your conversation partners as "Deleted Account".
-          </Text>
+          <Text style={styles.heading}>{t("deleteAccount.title")}</Text>
+          <Text style={styles.warning}>{t("deleteAccount.warning", { deletedLabel: t("common.account.deleted") })}</Text>
           <View style={styles.credentialBox}>
-            <Text style={styles.credentialLabel}>Registered Email:</Text>
+            <Text style={styles.credentialLabel}>{t("deleteAccount.registeredEmail")}</Text>
             <Text style={styles.credentialValue}>{userEmail}</Text>
           </View>
         </View>
@@ -96,7 +92,7 @@ export default function DeleteAccountScreen() {
           {loading ? (
             <ActivityIndicator size="small" color={colors.onError} />
           ) : (
-            <Text style={styles.deleteText}>Delete Permanently</Text>
+            <Text style={styles.deleteText}>{t("deleteAccount.confirm")}</Text>
           )}
         </Pressable>
       )}

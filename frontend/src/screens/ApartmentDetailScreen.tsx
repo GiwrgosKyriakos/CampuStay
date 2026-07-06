@@ -21,6 +21,7 @@ import { colors, fonts, fontSize, radius, spacing } from "@/src/theme";
 import { useAuth } from "@/src/context/auth";
 import { db } from "@/src/config/firebase";
 import { subscribeUserLikedApartmentIds, toggleApartmentLike } from "@/src/api/apartmentLikes";
+import { t } from "@/src/locales";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const CURRENCY = "€";
@@ -46,12 +47,17 @@ type AmenityDef = {
   tagMatch?: string;
 };
 
+function translateApartmentTag(tag: string): string {
+  const translated = t(`apartments.tags.${tag}`);
+  return translated === `apartments.tags.${tag}` ? tag : translated;
+}
+
 const AMENITIES: AmenityDef[] = [
-  { key: "wifi",    label: "Wi-Fi Included",    icon: "wifi-outline",           tagMatch: "WiFi" },
-  { key: "ac",      label: "Air Conditioning",   icon: "snow-outline" },
-  { key: "washer",  label: "Washing Machine",    icon: "water-outline" },
-  { key: "pet",     label: "Pet Friendly",       icon: "paw-outline",            tagMatch: "Pet-friendly" },
-  { key: "furn",    label: "Furnished",          icon: "bed-outline",            tagMatch: "Furnished" },
+  { key: "wifi",    label: "apartmentDetail.amenities.wifi",    icon: "wifi-outline",           tagMatch: "WiFi" },
+  { key: "ac",      label: "apartmentDetail.amenities.ac",   icon: "snow-outline" },
+  { key: "washer",  label: "apartmentDetail.amenities.washer",    icon: "water-outline" },
+  { key: "pet",     label: "apartmentDetail.amenities.pet",       icon: "paw-outline",            tagMatch: "Pet-friendly" },
+  { key: "furn",    label: "apartmentDetail.amenities.furn",          icon: "bed-outline",            tagMatch: "Furnished" },
 ];
 
 export default function ApartmentDetailScreen() {
@@ -71,19 +77,8 @@ export default function ApartmentDetailScreen() {
   const [activePage, setActivePage] = useState(0);
   const [isLiked, setIsLiked] = useState(false);
 
-  if (!apt) {
-    return (
-      <View style={[styles.container, styles.center]}>
-        <Text style={styles.errorText}>Apartment data unavailable.</Text>
-        <Pressable style={styles.backPill} onPress={() => router.back()}>
-          <Text style={styles.backPillText}>Go back</Text>
-        </Pressable>
-      </View>
-    );
-  }
-
   React.useEffect(() => {
-    if (auth.isGuest || !auth.userId) {
+    if (auth.isGuest || !auth.userId || !apt?.id) {
       setIsLiked(false);
       return;
     }
@@ -93,7 +88,18 @@ export default function ApartmentDetailScreen() {
     });
 
     return () => unsubscribe();
-  }, [apt.id, auth.isGuest, auth.userId]);
+  }, [apt?.id, auth.isGuest, auth.userId]);
+
+  if (!apt) {
+    return (
+      <View style={[styles.container, styles.center]}>
+        <Text style={styles.errorText}>{t("apartmentDetail.dataUnavailable")}</Text>
+        <Pressable style={styles.backPill} onPress={() => router.back()}>
+          <Text style={styles.backPillText}>{t("common.actions.back")}</Text>
+        </Pressable>
+      </View>
+    );
+  }
 
   // Build an array of images — currently one per listing; slot for future multi-image support.
   const images: string[] = [apt.image];
@@ -104,7 +110,7 @@ export default function ApartmentDetailScreen() {
   };
 
   const contactHost = () => {
-    const subject = encodeURIComponent(`Inquiry about: ${apt!.title}`);
+    const subject = encodeURIComponent(t("apartmentDetail.emailSubject", { title: apt!.title }));
     Linking.openURL(`mailto:${CONTACT_EMAIL}?subject=${subject}`);
   };
 
@@ -123,7 +129,7 @@ export default function ApartmentDetailScreen() {
     }
 
     if (hostId === currentUid) {
-      Alert.alert("Host listing", "You are the host of this listing.");
+      Alert.alert(t("apartmentDetail.hostListingTitle"), t("apartmentDetail.hostListingMessage"));
       return;
     }
 
@@ -145,7 +151,7 @@ export default function ApartmentDetailScreen() {
       );
       router.push({ pathname: "/chat/[id]", params: { id: hostId, chatRoomId } });
     } catch {
-      Alert.alert("Chat unavailable", "We could not open the chat right now. Please try again.");
+      Alert.alert(t("apartmentDetail.chatUnavailableTitle"), t("apartmentDetail.chatUnavailableMessage"));
     }
   };
 
@@ -162,7 +168,7 @@ export default function ApartmentDetailScreen() {
       setIsLiked(next);
     } catch {
       setIsLiked(prev);
-      Alert.alert("Could not update like", "Please try again.");
+      Alert.alert(t("apartments.likeUpdateTitle"), t("apartments.likeUpdateMessage"));
     }
   };
 
@@ -218,7 +224,7 @@ export default function ApartmentDetailScreen() {
             <Text style={styles.rentValue}>
               {CURRENCY}{apt.rent}
             </Text>
-            <Text style={styles.rentPer}>/mo</Text>
+            <Text style={styles.rentPer}>{t("common.format.perMonthShort")}</Text>
           </View>
         </View>
 
@@ -241,18 +247,18 @@ export default function ApartmentDetailScreen() {
           <View style={styles.statsRow}>
             <View style={styles.statPill}>
               <Ionicons name="home-outline" size={14} color={colors.onBrandTertiary} />
-              <Text style={styles.statText}>{apt.rooms} rooms</Text>
+              <Text style={styles.statText}>{t("common.format.roomCount", { count: apt.rooms })}</Text>
             </View>
             <View style={styles.statPill}>
               <Ionicons name="expand-outline" size={14} color={colors.onBrandTertiary} />
-              <Text style={styles.statText}>{apt.size} m²</Text>
+              <Text style={styles.statText}>{`${apt.size} ${t("common.format.squareMetersShort")}`}</Text>
             </View>
           </View>
         </View>
 
         {/* ── Amenities Grid ── */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Amenities</Text>
+          <Text style={styles.sectionTitle}>{t("apartmentDetail.amenitiesTitle")}</Text>
           <View style={styles.amenitiesGrid}>
             {AMENITIES.map((a) => {
               const active = a.tagMatch
@@ -270,7 +276,7 @@ export default function ApartmentDetailScreen() {
                     color={active ? colors.onBrandTertiary : colors.onSurfaceTertiary}
                   />
                   <Text style={[styles.amenityLabel, active && styles.amenityLabelActive]}>
-                    {a.label}
+                    {t(a.label)}
                   </Text>
                 </View>
               );
@@ -280,23 +286,24 @@ export default function ApartmentDetailScreen() {
 
         {/* ── Description Box ── */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>About this place</Text>
+          <Text style={styles.sectionTitle}>{t("apartmentDetail.aboutTitle")}</Text>
           <View style={styles.descBox}>
-            <Text style={styles.descText}>
-              Welcome to this {apt.size} m² listing in {apt.area}, {apt.city}. The space offers
-              {apt.rooms > 1 ? ` ${apt.rooms} rooms` : " a private room"} at a monthly rate of{" "}
-              {CURRENCY}{apt.rent}.
-            </Text>
-            <Text style={styles.descText}>
-              House rules: No smoking indoors. Quiet hours from 22:00 to 08:00. Common areas to be
-              kept tidy. Guests welcome with prior notice. Utilities and internet are{" "}
-              {apt.tags.includes("Bills incl.") ? "included in the rent" : "billed separately"}.
-            </Text>
+            <Text style={styles.descText}>{t("apartmentDetail.descriptionSummary", {
+              size: apt.size,
+              area: apt.area,
+              city: apt.city,
+              roomText: apt.rooms > 1 ? t("common.format.roomCount", { count: apt.rooms }) : t("apartmentDetail.privateRoom"),
+              currency: CURRENCY,
+              rent: apt.rent,
+            })}</Text>
+            <Text style={styles.descText}>{t("apartmentDetail.descriptionRules", {
+              utilitiesText: apt.tags.includes("Bills incl.") ? t("apartmentDetail.utilitiesIncluded") : t("apartmentDetail.utilitiesSeparate"),
+            })}</Text>
             {apt.tags.length > 0 && (
               <View style={styles.tagRow}>
                 {apt.tags.map((t) => (
                   <View key={t} style={styles.tag}>
-                    <Text style={styles.tagText}>{t}</Text>
+                    <Text style={styles.tagText}>{translateApartmentTag(t)}</Text>
                   </View>
                 ))}
               </View>
@@ -314,7 +321,7 @@ export default function ApartmentDetailScreen() {
         >
           <Ionicons name="mail-outline" size={20} color={colors.onBrand} />
           <Text style={styles.contactBtnText}>
-            {auth.isGuest ? "Sign Up / Log In to contact host" : "Contact Host"}
+            {auth.isGuest ? t("apartmentDetail.signInToContact") : t("common.cta.contactHost")}
           </Text>
         </Pressable>
       </View>

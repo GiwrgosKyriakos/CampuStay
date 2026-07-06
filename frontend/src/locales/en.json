@@ -1,0 +1,458 @@
+{
+  "common": {
+    "brandName": "CampuStay",
+    "brandPrefix": "Campu",
+    "brandSuffix": "Stay",
+    "actions": {
+      "back": "Back",
+      "done": "Done",
+      "cancel": "Cancel",
+      "reset": "Reset",
+      "openSettings": "Open Settings",
+      "add": "Add",
+      "startOver": "Start over",
+      "accept": "Accept",
+      "unblock": "Unblock"
+    },
+    "labels": {
+      "termsOfService": "Terms of Service",
+      "privacyPolicy": "Privacy Policy",
+      "notifications": "Notifications",
+      "privacySafety": "Privacy & Safety",
+      "helpSupport": "Help & Support",
+      "editProfile": "Edit profile",
+      "compatibilityQuiz": "Compatibility Quiz",
+      "matches": "Matches",
+      "apartments": "Apartments",
+      "profile": "Profile",
+      "quiz": "Quiz",
+      "location": "Location",
+      "photos": "Photos",
+      "socialMedia": "Social Media"
+    },
+    "languages": {
+      "english": "English",
+      "greek": "Greek"
+    },
+    "cta": {
+      "signInOrRegister": "Sign Up / Log In",
+      "continueAsGuest": "Continue as Guest",
+      "completeProfile": "Complete Profile",
+      "publishListing": "Publish Listing",
+      "contactHost": "Contact Host",
+      "contactSupport": "Contact Support Team",
+      "backHome": "Back to home"
+    },
+    "guest": {
+      "readOnlyBanner": "Guest mode: Read only",
+      "visitorModeTitle": "Guest Visitor Mode",
+      "visitorModeDescription": "You are browsing without an active account. Content is limited and there is no personal profile data shown.",
+      "disabledProfileDescription": "You are browsing without an active account. Profile details and account actions are disabled."
+    },
+    "account": {
+      "deleted": "Deleted Account"
+    },
+    "values": {
+      "unknown": "Unknown",
+      "notAvailable": "Not available",
+      "notApplicable": "N/A",
+      "emptyDash": "-",
+      "nonBinary": "Non-binary"
+    },
+    "format": {
+      "perMonthShort": "/mo",
+      "squareMetersShort": "m²",
+      "squareMetersLong": "sq.m.",
+      "yearsSuffix": "yrs",
+      "answeredProgress": "{{answered}}/{{total}} answered",
+      "roomCount": "{{count}} rooms",
+      "ageLabel": "Age {{age}}",
+      "moneyPerMonth": "{{currency}}{{amount}}/mo"
+    },
+    "media": {
+      "photoAccessOff": "Photo access is off.",
+      "photoAccessOffOpenSettings": "Photo access is off - Open Settings"
+    }
+  },
+  "tabs": {
+    "roommates": "Roommates",
+    "matches": "Matches",
+    "apartments": "Apartments",
+    "profile": "Profile"
+  },
+  "auth": {
+    "landing": {
+      "tagline": "Find your perfect roommate",
+      "continueWithGoogle": "Continue with Google",
+      "divider": "or",
+      "phoneOrEmail": "Phone or Email",
+      "continueAsGuest": "Continue as Guest",
+      "agreementPrefix": "By continuing, you agree to our ",
+      "terms": "Terms of Service",
+      "agreementAnd": " and ",
+      "privacy": "Privacy Policy"
+    },
+    "email": {
+      "header": "Sign In",
+      "subtitle": "Access CampuStay with your email and password.",
+      "logIn": "Log In",
+      "signUp": "Sign Up",
+      "noAccount": "Don't have an account? ",
+      "alreadyHaveAccount": "Already have an account? ",
+      "createOne": "Create one.",
+      "fullName": "Full Name",
+      "fullNamePlaceholder": "Your full name",
+      "emailAddress": "Email Address",
+      "emailPlaceholder": "you@example.com",
+      "password": "Password",
+      "enterPassword": "Enter password",
+      "createPassword": "Create password",
+      "passwordHelper": "At least 6 characters",
+      "confirmPassword": "Confirm Password",
+      "confirmPasswordPlaceholder": "Confirm password",
+      "forgotPassword": "Forgot Password?",
+      "fillAllFields": "Please fill in all fields.",
+      "passwordsDoNotMatch": "Passwords do not match.",
+      "passwordResetIntro": "Please enter your email address first so we can send you a reset link.",
+      "passwordResetSent": "Password reset email sent successfully! Please check your inbox.",
+      "agreementPrefix": "By continuing, you agree to our ",
+      "terms": "Terms of Service",
+      "agreementAnd": " and ",
+      "privacy": "Privacy Policy"
+    },
+    "errors": {
+      "invalidEmail": "Please enter a valid email address.",
+      "invalidCredential": "Incorrect email or password. Please try again.",
+      "emailInUse": "This email is already registered.",
+      "weakPassword": "Password should be at least 6 characters long.",
+      "unexpected": "An unexpected error occurred. Please try again.",
+      "userNotFound": "No account found with this email address.",
+      "resetFailed": "We could not send a reset email right now. Please try again."
+    }
+  },
+  "guest": {
+    "title": "Guest Visitor Mode",
+    "description": "You are browsing without an active account. Content is limited and there is no personal profile data shown.",
+    "continue": "Continue as guest"
+  },
+  "privacyPolicy": {
+    "title": "Privacy Policy",
+    "lastUpdated": "Last updated: {{date}}",
+    "intro": "CampuStay respects your privacy. We collect only the data needed to provide roommate matching, messaging, and account functionality.",
+    "collectTitle": "What We Collect",
+    "collectBody": "We may store profile information you provide, account credentials, interaction preferences, and in-app activity required to deliver app features.",
+    "useTitle": "How We Use Data",
+    "useBody": "Your data is used to personalize match recommendations, keep your account secure, and improve app reliability and user safety.",
+    "controlsTitle": "Your Controls",
+    "controlsBody": "You can edit profile details, adjust visibility settings, and request account deletion from inside the app."
+  },
+  "privacySafety": {
+    "title": "Privacy & Safety",
+    "subtitle": "Control who sees your profile and manage blocked accounts.",
+    "visibilityTitle": "Show my profile in the stack",
+    "visibilityHelp": "If turned off, your profile will not appear in other students' Home screens.",
+    "blockedTitle": "Blocked Profiles",
+    "blockedEmpty": "You have not blocked any profiles.",
+    "saving": "Saving privacy settings...",
+    "errors": {
+      "load": "Unable to load privacy preferences.",
+      "save": "Failed to update privacy settings."
+    }
+  },
+  "helpSupport": {
+    "title": "Help & Support",
+    "subtitle": "Browse frequently asked questions or contact the support team directly.",
+    "emailSupport": "Email Support",
+    "instagram": "Follow us on Instagram",
+    "supportSubject": "CampuStay Support Inquiry",
+    "supportRequestSubject": "Support Request",
+    "faq": {
+      "matchesQuestion": "How do Matches work?",
+      "matchesAnswer": "When you both swipe right on each other, a chat room opens in your Matches tab.",
+      "socialQuestion": "Is my social media visible to everyone?",
+      "socialAnswer": "Only your confirmed Matches can see your linked social media profiles.",
+      "reportQuestion": "How do I report a fake profile?",
+      "reportAnswer": "You can report or block a user directly from their profile card or within your chat room."
+    }
+  },
+  "editProfile": {
+    "title": "Complete Your Profile",
+    "photosTitle": "Profile Photos",
+    "photosSubtitle": "Upload Photos (optional, up to 3)",
+    "addPhotos": "Add Photos",
+    "photoFootnote": "A default avatar silhouette will be used if no photo is uploaded.",
+    "basicTitle": "Basic Information",
+    "displayName": "Display Name",
+    "namePlaceholder": "Your name",
+    "age": "Age",
+    "agePlaceholder": "e.g. 22",
+    "about": "About You",
+    "aboutPlaceholder": "Tell us about yourself, your interests, and what you're looking for in a roommate.",
+    "gender": "Gender",
+    "city": "City",
+    "cityPlaceholder": "Select your city",
+    "hasPlace": "I have a house/apartment to share",
+    "lookingForApartment": "Currently looking for an apartment",
+    "housingPrompt": "Create your listing now!",
+    "educationTitle": "Education & Living",
+    "university": "University",
+    "universityPlaceholder": "Select your university",
+    "year": "Year of Study",
+    "yearPlaceholder": "Select your year",
+    "budget": "Monthly Budget ({{currency}})",
+    "budgetPlaceholder": "e.g. 600",
+    "moveIn": "Preferred Move-in Date",
+    "moveInPlaceholder": "Select move-in date",
+    "socialTitle": "Social Media",
+    "socialSubtitle": "All social links are optional",
+    "instagram": "Instagram Username",
+    "instagramPlaceholder": "your_instagram",
+    "facebook": "Facebook Profile",
+    "facebookPlaceholder": "https://facebook.com/yourprofile",
+    "linkedin": "LinkedIn Profile",
+    "linkedinPlaceholder": "https://linkedin.com/in/yourprofile",
+    "twitter": "Twitter/X Username",
+    "twitterPlaceholder": "your_twitter",
+    "socialInfo": "Social media profiles help potential roommates get to know you better. You can always update or remove these later in your profile settings.",
+    "errors": {
+      "photoLibrary": "Could not open the photo library. Please try again.",
+      "aboutTooLong": "About You must be {{limit}} characters or less.",
+      "saveFailed": "Failed to save your profile. Please try again."
+    },
+    "options": {
+      "cities": ["Thessaloniki", "Athens", "Patras", "Heraklion", "Ioannina", "Larissa", "Rethymno"],
+      "universities": ["Aristotle University of Thessaloniki", "National Technical University of Athens", "National & Kapodistrian University of Athens", "University of Patras", "University of Crete", "University of Ioannina", "University of Macedonia"],
+      "years": ["1st Year", "2nd Year", "3rd Year", "4th Year", "Master/PhD"],
+      "genders": ["Male", "Female", "Prefer Not To Say"],
+      "moveInAsap": "As soon as possible"
+    }
+  },
+  "notifications": {
+    "title": "Notifications",
+    "subtitle": "Manage your push notification preferences.",
+    "saving": "Saving changes...",
+    "errors": {
+      "load": "Unable to load notification settings.",
+      "save": "Could not save notification settings."
+    },
+    "rows": {
+      "newMatches": { "title": "New Matches", "subtitle": "Notify me when someone likes me back" },
+      "directMessages": { "title": "Direct Messages", "subtitle": "Notify me when I receive a new chat message" },
+      "updatesTips": { "title": "App Updates & Tips", "subtitle": "Occasional reminders and compatibility tips" }
+    }
+  },
+  "deleteAccount": {
+    "guestTitle": "Sign up first",
+    "guestBody": "Guest Mode cannot delete an account because there is no signed-in profile to remove.",
+    "title": "Are you sure you want to delete your account?",
+    "warning": "This action is permanent. Your profile data, quiz responses, likes, and swipes will be permanently removed. Existing chats remain visible to your conversation partners as \"{{deletedLabel}}\".",
+    "registeredEmail": "Registered Email:",
+    "confirm": "Delete Permanently",
+    "errors": {
+      "userIdMissing": "Unable to delete account - user ID not found.",
+      "deleteFailed": "Failed to delete your account. Please try again."
+    }
+  },
+  "roomieProfile": {
+    "title": "Quiz"
+  },
+  "chat": {
+    "placeholderDeleted": "This user deleted their account",
+    "placeholderPending": "Waiting for acceptance...",
+    "placeholderMessage": "Message {{name}}..."
+  },
+  "matches": {
+    "title": "Matches",
+    "subtitleGuest": "Sign up to see your matches",
+    "subtitleNone": "People you like will show up here",
+    "subtitleCount": "{{count}} {{roommateLabel}} you liked",
+    "roommateSingular": "roommate",
+    "roommatePlural": "roommates",
+    "emptyGuestTitle": "Sign up to see your matches",
+    "emptyGuestBody": "Your likes, matches, and chats appear here after you log in.",
+    "emptyTitle": "No matches yet",
+    "emptyBody": "Start swiping to find your future flatmate!",
+    "previewPending": "Pending approval",
+    "previewStart": "Start the conversation"
+  },
+  "profile": {
+    "guestName": "Guest",
+    "fallbackName": "Your Profile",
+    "fallbackProgram": "Complete your profile",
+    "statsMatches": "Matches",
+    "statsBudget": "Max budget",
+    "guestTitle": "Guest visitor mode",
+    "languageTitle": "Language",
+    "languageSubtitle": "Choose the app language.",
+    "quizAnswered": "{{answered}}/{{total}} answered",
+    "logout": "Log out",
+    "deleteAccount": "Delete Account"
+  },
+  "roommates": {
+    "quiz": "Quiz",
+    "preferences": "Roommate Preferences"
+  },
+  "swipeDeck": {
+    "emptyTitle": "You're all caught up!",
+    "emptyBody": "No more roommates match your filters right now."
+  },
+  "filters": {
+    "title": "Preferences",
+    "subtitle": "Adjust these in real time.",
+    "gender": "Gender",
+    "ageRange": "Age range",
+    "minimumAge": "Minimum age",
+    "maximumAge": "Maximum age",
+    "maxBudget": "Max budget",
+    "budget": "Budget",
+    "showRoommates": "Show roommates",
+    "options": {
+      "all": "All",
+      "female": "Female",
+      "male": "Male",
+      "nonBinary": "Non-binary"
+    }
+  },
+  "apartments": {
+    "title": "Apartments",
+    "subtitle": "Available homes in your study city",
+    "showFilters": "Show Filters",
+    "hideFilters": "Hide Filters",
+    "all": "All",
+    "liked": "Liked",
+    "monthlyRent": "Monthly Rent ({{currency}})",
+    "min": "Min",
+    "max": "Max",
+    "areaCity": "Area / City",
+    "cityPlaceholder": "e.g. Berlin or Kreuzberg",
+    "squareMeters": "Square Meters (m²)",
+    "preferences": "Preferences",
+    "petFriendly": "Pet-friendly",
+    "nearMetro": "Near Metro",
+    "likeUpdateTitle": "Could not update like",
+    "likeUpdateMessage": "Please try again.",
+    "unknownListing": "Apartment listing",
+    "unknownArea": "Unknown area",
+    "unknownCity": "Unknown city",
+    "newListing": "New listing",
+    "perMonthShort": "/mo",
+    "rooms": "rooms",
+    "emptyLiked": "No liked apartments yet",
+    "emptyFiltered": "No apartments match these filters",
+    "emptyHint": "Adjust your rent, area, size, or preference filters.",
+    "tags": {
+      "Furnished": "Furnished",
+      "Balcony": "Balcony",
+      "WiFi": "WiFi",
+      "Pet-friendly": "Pet-friendly",
+      "Near metro": "Near metro",
+      "Bills incl.": "Bills incl.",
+      "Shared kitchen": "Shared kitchen",
+      "Garden": "Garden",
+      "New listing": "New listing"
+    },
+    "sample": {
+      "a1": { "title": "Sunny loft near campus" },
+      "a2": { "title": "Cozy shared flat" },
+      "a3": { "title": "Modern studio with view" },
+      "a4": { "title": "Bright room in WG" }
+    }
+  },
+  "apartmentDetail": {
+    "dataUnavailable": "Apartment data unavailable.",
+    "emailSubject": "Inquiry about: {{title}}",
+    "hostListingTitle": "Host listing",
+    "hostListingMessage": "You are the host of this listing.",
+    "chatUnavailableTitle": "Chat unavailable",
+    "chatUnavailableMessage": "We could not open the chat right now. Please try again.",
+    "amenitiesTitle": "Amenities",
+    "aboutTitle": "About this place",
+    "privateRoom": "a private room",
+    "utilitiesIncluded": "included in the rent",
+    "utilitiesSeparate": "billed separately",
+    "descriptionSummary": "Welcome to this {{size}} m² listing in {{area}}, {{city}}. The space offers {{roomText}} at a monthly rate of {{currency}}{{rent}}.",
+    "descriptionRules": "House rules: No smoking indoors. Quiet hours from 22:00 to 08:00. Common areas to be kept tidy. Guests welcome with prior notice. Utilities and internet are {{utilitiesText}}.",
+    "signInToContact": "Sign Up / Log In to contact host",
+    "amenities": {
+      "wifi": "Wi-Fi Included",
+      "ac": "Air Conditioning",
+      "washer": "Washing Machine",
+      "pet": "Pet Friendly",
+      "furn": "Furnished"
+    }
+  },
+  "createListing": {
+    "title": "Create Listing",
+    "subtitle": "Publish your apartment details in a few steps.",
+    "monthlyRent": "Monthly Rent",
+    "rentPlaceholder": "e.g. 650",
+    "rentHint": "Set a fair monthly rent in EUR.",
+    "location": "Location",
+    "cityPlaceholder": "Select city",
+    "areaPlaceholder": "Area / Neighborhood",
+    "size": "Size",
+    "sizePlaceholder": "Square meters (sq.m.)",
+    "amenitiesTitle": "Amenities & Preferences",
+    "selectedAmenities": "Selected: {{value}}",
+    "selectedAmenitiesEmpty": "No amenities selected yet",
+    "photosHint": "Choose listing photos from your gallery or camera. Tap a photo to remove it.",
+    "uploading": "Uploading Photos...",
+    "alerts": {
+      "addPhotoTitle": "Add listing photo",
+      "addPhotoMessage": "Choose where to get your listing image.",
+      "takePhoto": "Take Photo",
+      "chooseLibrary": "Choose from Library",
+      "missingDetailsTitle": "Missing details",
+      "missingDetailsMessage": "Please complete Monthly Rent, City, Area, and Size before publishing.",
+      "signInRequiredTitle": "Sign in required",
+      "signInRequiredMessage": "Please sign up or log in to publish a listing.",
+      "publishFailedTitle": "Publish failed",
+      "publishFailedMessage": "We could not publish your listing right now. Please try again.",
+      "publishedTitle": "Listing published",
+      "publishedMessage": "Your {{size}} sq.m. listing in {{area}}, {{city}} is now live."
+    },
+    "errors": {
+      "imageUnreadable": "We could not read that image. Please try another photo.",
+      "imagePicker": "Could not open your camera or photo library. Please try again.",
+      "uploadPhotos": "We could not upload your listing photos right now. Please try again."
+    },
+    "options": {
+      "cities": ["Athens", "Thessaloniki", "Patras", "Heraklion", "Ioannina", "Larissa"]
+    },
+    "amenities": {
+      "petFriendly": "Pet-friendly",
+      "nearMetro": "Near Metro",
+      "furnished": "Furnished",
+      "balcony": "Balcony",
+      "parking": "Parking"
+    },
+    "listingTitle": "{{area}} apartment"
+  },
+  "quiz": {
+    "categories": {
+      "cleaning": "Cleaning & Habits",
+      "bills": "Bills & Sharing",
+      "lifestyle": "Lifestyle Core",
+      "guests": "Guests & Social Life",
+      "sharing": "Sharing Belongings",
+      "personal": "Personal Preferences"
+    },
+    "questions": {
+      "q1": { "question": "What is your overall standard of cleanliness for the shared spaces?", "options": ["Very tidy and highly organized", "Average and reasonably clean", "Pretty relaxed or messy"] },
+      "q2": { "question": "How frequently do you plan to contribute to deep house cleaning?", "options": ["At least once a week", "Every now and then", "Only when it gets absolutely necessary"] },
+      "q3": { "question": "What is your golden rule for doing the dishes?", "options": ["Wash them immediately or daily", "Leave them for the next day", "Wash them only when no clean ones are left"] },
+      "q4": { "question": "How do you want to manage the shared utility bills?", "options": ["Split everything strictly down the middle", "Each person takes responsibility for a specific bill", "Figure it out dynamically month by month"] },
+      "q5": { "question": "What is your stance on smoking or vaping inside the house?", "options": ["I smoke regularly", "I only smoke outside or on the balcony", "I am a strict non-smoker"] },
+      "q6": { "question": "What are your expectations regarding noise levels in the apartment?", "options": ["I need absolute quiet most of the time", "I only need it quiet during late-night hours", "Noise doesn't bother me at all"] },
+      "q7": { "question": "What does your typical sleep schedule look like?", "options": ["Early bird (asleep before 11 PM)", "Normal student routine (asleep between 11 PM and 1 AM)", "Night owl (asleep after 1 AM)"] },
+      "q8": { "question": "What is your policy on having friends or guests over?", "options": ["Guests can come over anytime without notice", "Please ask or give a heads-up first", "Rare visits only, I prefer privacy"] },
+      "q9": { "question": "How do you feel about hosting parties or gatherings in the apartment?", "options": ["Love them, the more the merrier", "Occasional small gatherings are perfectly fine", "Strictly no parties at home"] },
+      "q10": { "question": "What kind of social dynamic do you want to build with your roommate?", "options": ["I want us to become close friends and hang out together", "Friendly and polite, but we keep our separate lives", "Just roommates co-existing quietly"] },
+      "q11": { "question": "How do you feel about sharing personal belongings like kitchenware or furniture?", "options": ["Share everything freely", "Always ask before using my things", "I completely prefer not to share"] },
+      "q12": { "question": "How should we organize groceries and common household items?", "options": ["Take turns buying shared supplies", "Split the grocery costs evenly", "Everyone buys and consumes their own stuff"] },
+      "q13": { "question": "What is your situation or preference regarding pets in the house?", "options": ["I have a pet or definitely want to get one", "I don't have one, but pets are totally fine with me", "Strictly no pets allowed"] },
+      "q14": { "question": "What is your preference regarding alcohol consumption inside the apartment?", "options": ["I enjoy drinking frequently at home", "I only drink occasionally on weekends", "I don't drink or prefer an alcohol-free home"] },
+      "q15": { "question": "How often do you plan on using the kitchen to cook your meals?", "options": ["I cook every single day", "A few times a week", "Rarely, I mostly order out or eat on campus"] }
+    }
+  }
+}

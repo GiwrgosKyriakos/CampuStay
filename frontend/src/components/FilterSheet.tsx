@@ -5,15 +5,15 @@ import {
   BottomSheetBackdrop,
   BottomSheetModal,
   BottomSheetView,
-  BottomSheetScrollView,
   BottomSheetHandle,
   type BottomSheetBackdropProps,
 } from "@gorhom/bottom-sheet";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
+import { t } from "@/src/locales";
 
-export type GenderFilter = "All" | "Male" | "Female" | "Non-binary";
+export type GenderFilter = "all" | "male" | "female" | "nonBinary";
 
 export interface Filters {
   gender: GenderFilter;
@@ -23,13 +23,26 @@ export interface Filters {
 }
 
 export const DEFAULT_FILTERS: Filters = {
-  gender: "All",
+  gender: "all",
   ageMin: 18,
   ageMax: 30,
   budgetMax: 1000,
 };
 
-const GENDERS: GenderFilter[] = ["All", "Female", "Male", "Non-binary"];
+const GENDERS: GenderFilter[] = ["all", "female", "male", "nonBinary"];
+
+function getGenderLabel(value: GenderFilter): string {
+  switch (value) {
+    case "female":
+      return t("filters.options.female");
+    case "male":
+      return t("filters.options.male");
+    case "nonBinary":
+      return t("filters.options.nonBinary");
+    default:
+      return t("filters.options.all");
+  }
+}
 
 interface Props {
   current: Filters;
@@ -127,18 +140,18 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
           <View style={styles.headerRow}>
             <View>
               <Text style={styles.title} testID="filter-sheet-title">
-                Preferences
+                {t("filters.title")}
               </Text>
-              <Text style={styles.subtitle}>Adjust these in real time.</Text>
+              <Text style={styles.subtitle}>{t("filters.subtitle")}</Text>
             </View>
             <Pressable onPress={close} hitSlop={12} testID="filter-close-button">
-              <Text style={styles.closeText}>Done</Text>
+              <Text style={styles.closeText}>{t("common.actions.done")}</Text>
             </Pressable>
           </View>
         </View>
 
         <View style={styles.content}>
-            <Text style={styles.label}>Gender</Text>
+            <Text style={styles.label}>{t("filters.gender")}</Text>
             <View style={styles.chipRow}>
               {GENDERS.map((g) => {
                 const active = draft.gender === g;
@@ -149,20 +162,20 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
                     style={[styles.chip, active && styles.chipActive]}
                     testID={`filter-gender-${g}`}
                   >
-                    <Text style={[styles.chipText, active && styles.chipTextActive]}>{g}</Text>
+                    <Text style={[styles.chipText, active && styles.chipTextActive]}>{getGenderLabel(g)}</Text>
                   </Pressable>
                 );
               })}
             </View>
 
             <View style={styles.rowBetween}>
-              <Text style={styles.label}>Age range</Text>
+              <Text style={styles.label}>{t("filters.ageRange")}</Text>
               <Text style={styles.value}>
                 {draft.ageMin} – {draft.ageMax}
               </Text>
             </View>
             <PreferenceSlider
-              label="Minimum age"
+              label={t("filters.minimumAge")}
               minimum={18}
               maximum={40}
               step={1}
@@ -174,7 +187,7 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
               testID="filter-age-min-slider"
             />
             <PreferenceSlider
-              label="Maximum age"
+              label={t("filters.maximumAge")}
               minimum={18}
               maximum={40}
               step={1}
@@ -187,14 +200,14 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
             />
 
             <View style={styles.rowBetween}>
-              <Text style={styles.label}>Max budget</Text>
+              <Text style={styles.label}>{t("filters.maxBudget")}</Text>
               <Text style={styles.value}>
                 {currency}
-                {draft.budgetMax}/mo
+                {draft.budgetMax}{t("common.format.perMonthShort")}
               </Text>
             </View>
             <PreferenceSlider
-              label="Budget"
+              label={t("filters.budget")}
               minimum={300}
               maximum={1500}
               step={50}
@@ -203,7 +216,7 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
               upperBound={1500}
               onChange={(value) => set({ budgetMax: value })}
               onCommit={(value) => setAndCommit({ budgetMax: value })}
-              valueFormatter={(value) => `${currency}${value}/mo`}
+              valueFormatter={(value) => `${currency}${value}${t("common.format.perMonthShort")}`}
               testID="filter-budget-slider"
             />
 
@@ -216,10 +229,10 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
                 }}
                 testID="filter-reset-button"
               >
-                <Text style={styles.resetText}>Reset</Text>
+                  <Text style={styles.resetText}>{t("common.actions.reset")}</Text>
               </Pressable>
               <Pressable style={styles.applyBtn} onPress={close} testID="filter-apply-button">
-                <Text style={styles.applyText}>Show roommates</Text>
+                  <Text style={styles.applyText}>{t("filters.showRoommates")}</Text>
               </Pressable>
             </View>
         </View>

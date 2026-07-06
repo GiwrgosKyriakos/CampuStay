@@ -10,6 +10,7 @@ import { GuestModeStickyFooter, GuestModeTopBanner } from "@/src/components/Gues
 import { QUIZ_SECTIONS, TOTAL_QUESTIONS } from "@/src/data/quiz";
 import { useAuth } from "@/src/context/auth";
 import { db } from "@/src/config/firebase";
+import { t } from "@/src/locales";
 
 const STICKY_FOOTER_PADDING = 152;
 
@@ -100,11 +101,11 @@ export default function RoomieProfileScreen() {
           </View>
 
           <View style={styles.headerCenter}>
-            <Text style={styles.title}>Quiz</Text>
+            <Text style={styles.title}>{t("roomieProfile.title")}</Text>
           </View>
 
           <View style={[styles.headerSide, styles.headerRight]}>
-            <Text style={styles.counter}>{answeredCount}/{TOTAL_QUESTIONS} answered</Text>
+            <Text style={styles.counter}>{t("common.format.answeredProgress", { answered: answeredCount, total: TOTAL_QUESTIONS })}</Text>
           </View>
         </View>
 

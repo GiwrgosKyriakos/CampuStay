@@ -6,7 +6,6 @@ import {
   getDocs,
   query,
   serverTimestamp,
-  setDoc,
   where,
   writeBatch,
 } from "firebase/firestore";

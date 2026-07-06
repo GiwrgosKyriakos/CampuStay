@@ -5,6 +5,7 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 
 import { colors, spacing, fonts, fontSize } from "@/src/theme";
+import { formatMonthYear, t } from "@/src/locales";
 
 export default function PrivacyPolicyScreen() {
   const insets = useSafeAreaInsets();
@@ -22,34 +23,22 @@ export default function PrivacyPolicyScreen() {
       >
         <Pressable style={styles.backButton} onPress={() => router.back()} testID="privacy-policy-back-button">
           <Ionicons name="chevron-back" size={22} color={colors.onSurface} />
-          <Text style={styles.backText}>Back</Text>
+          <Text style={styles.backText}>{t("common.actions.back")}</Text>
         </Pressable>
 
-        <Text style={styles.title}>Privacy Policy</Text>
-        <Text style={styles.updated}>Last updated: July 2026</Text>
+        <Text style={styles.title}>{t("privacyPolicy.title")}</Text>
+        <Text style={styles.updated}>{t("privacyPolicy.lastUpdated", { date: formatMonthYear(new Date(2026, 6, 1)) })}</Text>
 
-        <Text style={styles.paragraph}>
-          CampuStay respects your privacy. We collect only the data needed to provide roommate matching,
-          messaging, and account functionality.
-        </Text>
+        <Text style={styles.paragraph}>{t("privacyPolicy.intro")}</Text>
 
-        <Text style={styles.sectionTitle}>What We Collect</Text>
-        <Text style={styles.paragraph}>
-          We may store profile information you provide, account credentials, interaction preferences,
-          and in-app activity required to deliver app features.
-        </Text>
+        <Text style={styles.sectionTitle}>{t("privacyPolicy.collectTitle")}</Text>
+        <Text style={styles.paragraph}>{t("privacyPolicy.collectBody")}</Text>
 
-        <Text style={styles.sectionTitle}>How We Use Data</Text>
-        <Text style={styles.paragraph}>
-          Your data is used to personalize match recommendations, keep your account secure, and improve app
-          reliability and user safety.
-        </Text>
+        <Text style={styles.sectionTitle}>{t("privacyPolicy.useTitle")}</Text>
+        <Text style={styles.paragraph}>{t("privacyPolicy.useBody")}</Text>
 
-        <Text style={styles.sectionTitle}>Your Controls</Text>
-        <Text style={styles.paragraph}>
-          You can edit profile details, adjust visibility settings, and request account deletion from inside
-          the app.
-        </Text>
+        <Text style={styles.sectionTitle}>{t("privacyPolicy.controlsTitle")}</Text>
+        <Text style={styles.paragraph}>{t("privacyPolicy.controlsBody")}</Text>
       </ScrollView>
     </View>
   );

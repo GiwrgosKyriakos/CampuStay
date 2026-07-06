@@ -4,9 +4,11 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import * as WebBrowser from "expo-web-browser";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import { useAuth } from "@/src/context/auth";
+import { t } from "@/src/locales";
 
 export default function AuthLandingScreen() {
   const insets = useSafeAreaInsets();
@@ -44,9 +46,9 @@ export default function AuthLandingScreen() {
           <Image source={require("@/assets/campuStayLogo.png")} style={styles.logoImage} resizeMode="contain" />
         </View>
         <Text style={styles.logo}>
-          Campu<Text style={styles.logoAccent}>Stay</Text>
+          {t("common.brandPrefix")}<Text style={styles.logoAccent}>{t("common.brandSuffix")}</Text>
         </Text>
-        <Text style={styles.tagline}>Find your perfect roommate</Text>
+        <Text style={styles.tagline}>{t("auth.landing.tagline")}</Text>
       </View>
 
       {/* Buttons Section */}
@@ -69,7 +71,7 @@ export default function AuthLandingScreen() {
             ) : (
               <>
                 <Ionicons name="logo-google" size={20} color={colors.onBrand} />
-                <Text style={styles.buttonGoogleText}>Continue with Google</Text>
+                <Text style={styles.buttonGoogleText}>{t("auth.landing.continueWithGoogle")}</Text>
               </>
             )}
           </LinearGradient>
@@ -78,7 +80,7 @@ export default function AuthLandingScreen() {
         {/* Divider */}
         <View style={styles.dividerContainer}>
           <View style={styles.dividerLine} />
-          <Text style={styles.dividerText}>or</Text>
+          <Text style={styles.dividerText}>{t("auth.landing.divider")}</Text>
           <View style={styles.dividerLine} />
         </View>
 
@@ -89,7 +91,7 @@ export default function AuthLandingScreen() {
           testID="email-login-button"
         >
           <Ionicons name="mail-outline" size={20} color={colors.onSurface} />
-          <Text style={styles.buttonEmailText}>Phone or Email</Text>
+          <Text style={styles.buttonEmailText}>{t("auth.landing.phoneOrEmail")}</Text>
         </Pressable>
 
         {/* Guest Mode Button */}
@@ -101,18 +103,18 @@ export default function AuthLandingScreen() {
           }}
           testID="guest-mode-button"
         >
-          <Text style={styles.buttonGuestText}>Continue as Guest</Text>
+          <Text style={styles.buttonGuestText}>{t("auth.landing.continueAsGuest")}</Text>
         </Pressable>
 
         {/* Footer Text */}
         <View style={styles.footerRow}>
-          <Text style={styles.footerText}>By continuing, you agree to our </Text>
+          <Text style={styles.footerText}>{t("auth.landing.agreementPrefix")}</Text>
           <Pressable onPress={() => WebBrowser.openBrowserAsync("https://giwrgoskyriakos.github.io/CampuStay/terms_of_service.html")} testID="terms-of-service-email-link">
-            <Text style={styles.footerLinkText}>Terms of Service</Text>
+            <Text style={styles.footerLinkText}>{t("auth.landing.terms")}</Text>
           </Pressable>
-          <Text style={styles.footerText}> and </Text>
+          <Text style={styles.footerText}>{t("auth.landing.agreementAnd")}</Text>
           <Pressable onPress={handlePrivacyPolicyPress} testID="privacy-policy-email-link">
-            <Text style={styles.footerLinkText}>Privacy Policy</Text>
+            <Text style={styles.footerLinkText}>{t("auth.landing.privacy")}</Text>
           </Pressable>
         </View>
       </View>

@@ -19,6 +19,7 @@ import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import { useAuth } from "@/src/context/auth";
 import { firebaseAuth } from "@/src/config/firebase";
 import { AUTH, LOGIN, REGISTER } from "@/constants/testIds";
+import { t } from "@/src/locales";
 
 type Mode = "login" | "register";
 type NoticeTone = "error" | "success";
@@ -31,26 +32,26 @@ type AuthNotice = {
 function mapFirebaseAuthError(code?: string): string {
   switch (code) {
     case "auth/invalid-email":
-      return "Please enter a valid email address.";
+      return t("auth.errors.invalidEmail");
     case "auth/invalid-credential":
-      return "Incorrect email or password. Please try again.";
+      return t("auth.errors.invalidCredential");
     case "auth/email-already-in-use":
-      return "This email is already registered.";
+      return t("auth.errors.emailInUse");
     case "auth/weak-password":
-      return "Password should be at least 6 characters long.";
+      return t("auth.errors.weakPassword");
     default:
-      return "An unexpected error occurred. Please try again.";
+      return t("auth.errors.unexpected");
   }
 }
 
 function mapPasswordResetError(code?: string): string {
   switch (code) {
     case "auth/user-not-found":
-      return "No account found with this email address.";
+      return t("auth.errors.userNotFound");
     case "auth/invalid-email":
-      return "Please enter a valid email address.";
+      return t("auth.errors.invalidEmail");
     default:
-      return "We could not send a reset email right now. Please try again.";
+      return t("auth.errors.resetFailed");
   }
 }
 
@@ -89,7 +90,7 @@ export default function AuthEmailScreen() {
     setAuthNotice(null);
 
     if (!email.trim() || !password.trim()) {
-      setAuthNotice({ tone: "error", message: "Please fill in all fields." });
+      setAuthNotice({ tone: "error", message: t("auth.email.fillAllFields") });
       return;
     }
 
@@ -108,17 +109,17 @@ export default function AuthEmailScreen() {
     setAuthNotice(null);
 
     if (!name.trim() || !email.trim() || !password.trim() || !confirmPassword.trim()) {
-      setAuthNotice({ tone: "error", message: "Please fill in all fields." });
+      setAuthNotice({ tone: "error", message: t("auth.email.fillAllFields") });
       return;
     }
 
     if (password !== confirmPassword) {
-      setAuthNotice({ tone: "error", message: "Passwords do not match." });
+      setAuthNotice({ tone: "error", message: t("auth.email.passwordsDoNotMatch") });
       return;
     }
 
     if (password.length < 6) {
-      setAuthNotice({ tone: "error", message: "Password should be at least 6 characters long." });
+      setAuthNotice({ tone: "error", message: t("auth.errors.weakPassword") });
       return;
     }
 
@@ -139,7 +140,7 @@ export default function AuthEmailScreen() {
     if (!email.trim()) {
       setAuthNotice({
         tone: "error",
-        message: "Please enter your email address first so we can send you a reset link.",
+        message: t("auth.email.passwordResetIntro"),
       });
       return;
     }
@@ -149,7 +150,7 @@ export default function AuthEmailScreen() {
       await sendPasswordResetEmail(firebaseAuth, email.trim());
       setAuthNotice({
         tone: "success",
-        message: "Password reset email sent successfully! Please check your inbox.",
+        message: t("auth.email.passwordResetSent"),
       });
     } catch (err: any) {
       setAuthNotice({ tone: "error", message: mapPasswordResetError(err?.code) });
@@ -169,12 +170,12 @@ export default function AuthEmailScreen() {
         <Pressable onPress={handleBack} testID={AUTH.backButton}>
           <Ionicons name="chevron-back" size={28} color={colors.onSurface} />
         </Pressable>
-        <Text style={styles.headerTitle}>Sign In</Text>
+        <Text style={styles.headerTitle}>{t("auth.email.header")}</Text>
         <View style={{ width: 28 }} />
       </View>
 
       <View style={styles.content}>
-        <Text style={styles.subtitle}>Access CampuStay with your email and password.</Text>
+        <Text style={styles.subtitle}>{t("auth.email.subtitle")}</Text>
 
         <View style={styles.tabBar} testID={AUTH.modeTabs}>
           <Pressable
@@ -183,7 +184,7 @@ export default function AuthEmailScreen() {
             testID={AUTH.loginTab}
           >
             <Text style={[styles.tabButtonText, mode === "login" ? styles.tabButtonTextActive : styles.tabButtonTextInactive]}>
-              Log In
+              {t("auth.email.logIn")}
             </Text>
           </Pressable>
           <Pressable
@@ -192,7 +193,7 @@ export default function AuthEmailScreen() {
             testID={AUTH.registerTab}
           >
             <Text style={[styles.tabButtonText, mode === "register" ? styles.tabButtonTextActive : styles.tabButtonTextInactive]}>
-              Sign Up
+              {t("auth.email.signUp")}
             </Text>
           </Pressable>
         </View>
@@ -200,13 +201,13 @@ export default function AuthEmailScreen() {
         <View style={styles.formCard}>
           <View style={styles.inlineSwitchRow}>
             <Text style={styles.inlineSwitchText}>
-              {mode === "login" ? "Don't have an account? " : "Already have an account? "}
+              {mode === "login" ? t("auth.email.noAccount") : t("auth.email.alreadyHaveAccount")}
             </Text>
             <Pressable
               onPress={() => switchMode(mode === "login" ? "register" : "login")}
               testID={mode === "login" ? LOGIN.registerLink : REGISTER.loginLink}
             >
-              <Text style={styles.inlineSwitchLink}>{mode === "login" ? "Create one." : "Log In."}</Text>
+              <Text style={styles.inlineSwitchLink}>{mode === "login" ? t("auth.email.createOne") : t("auth.email.logIn")}</Text>
             </Pressable>
           </View>
 
@@ -224,12 +225,12 @@ export default function AuthEmailScreen() {
 
           {mode === "register" && (
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Full Name</Text>
+              <Text style={styles.label}>{t("auth.email.fullName")}</Text>
               <View style={styles.inputWrapper}>
                 <Ionicons name="person-outline" size={20} color={colors.onSurfaceTertiary} />
                 <TextInput
                   style={styles.input}
-                  placeholder="Your full name"
+                  placeholder={t("auth.email.fullNamePlaceholder")}
                   placeholderTextColor={colors.onSurfaceTertiary}
                   value={name}
                   onChangeText={(text) => {
@@ -245,12 +246,12 @@ export default function AuthEmailScreen() {
           )}
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Email Address</Text>
+            <Text style={styles.label}>{t("auth.email.emailAddress")}</Text>
             <View style={styles.inputWrapper}>
               <Ionicons name="mail-outline" size={20} color={colors.onSurfaceTertiary} />
               <TextInput
                 style={styles.input}
-                placeholder="you@example.com"
+                placeholder={t("auth.email.emailPlaceholder")}
                 placeholderTextColor={colors.onSurfaceTertiary}
                 value={email}
                 onChangeText={(text) => {
@@ -266,12 +267,12 @@ export default function AuthEmailScreen() {
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Password</Text>
+            <Text style={styles.label}>{t("auth.email.password")}</Text>
             <View style={styles.inputWrapper}>
               <Ionicons name="lock-closed-outline" size={20} color={colors.onSurfaceTertiary} />
               <TextInput
                 style={styles.input}
-                placeholder={mode === "login" ? "Enter password" : "Create password"}
+                placeholder={mode === "login" ? t("auth.email.enterPassword") : t("auth.email.createPassword")}
                 placeholderTextColor={colors.onSurfaceTertiary}
                 value={password}
                 onChangeText={(text) => {
@@ -290,17 +291,17 @@ export default function AuthEmailScreen() {
                 />
               </Pressable>
             </View>
-            {mode === "register" && <Text style={styles.helperText}>At least 6 characters</Text>}
+            {mode === "register" && <Text style={styles.helperText}>{t("auth.email.passwordHelper")}</Text>}
           </View>
 
           {mode === "register" && (
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Confirm Password</Text>
+              <Text style={styles.label}>{t("auth.email.confirmPassword")}</Text>
               <View style={styles.inputWrapper}>
                 <Ionicons name="lock-closed-outline" size={20} color={colors.onSurfaceTertiary} />
                 <TextInput
                   style={styles.input}
-                  placeholder="Confirm password"
+                  placeholder={t("auth.email.confirmPasswordPlaceholder")}
                   placeholderTextColor={colors.onSurfaceTertiary}
                   value={confirmPassword}
                   onChangeText={(text) => {
@@ -324,25 +325,25 @@ export default function AuthEmailScreen() {
             {loading ? (
               <ActivityIndicator color={colors.onSurface} size="small" />
             ) : (
-              <Text style={styles.submitButtonText}>{mode === "login" ? "Log In" : "Sign Up"}</Text>
+              <Text style={styles.submitButtonText}>{mode === "login" ? t("auth.email.logIn") : t("auth.email.signUp")}</Text>
             )}
           </Pressable>
 
           {mode === "login" && (
             <Pressable onPress={handleForgotPassword} disabled={loading} testID={LOGIN.forgotPasswordLink}>
-              <Text style={styles.forgotText}>Forgot Password?</Text>
+              <Text style={styles.forgotText}>{t("auth.email.forgotPassword")}</Text>
             </Pressable>
           )}
         </View>
 
         <View style={styles.footerRow}>
-          <Text style={styles.footerText}>By continuing, you agree to our </Text>
+          <Text style={styles.footerText}>{t("auth.email.agreementPrefix")}</Text>
           <Pressable onPress={() => WebBrowser.openBrowserAsync("https://giwrgoskyriakos.github.io/CampuStay/terms_of_service.html")} testID="terms-of-service-email-link">
-            <Text style={styles.footerLinkText}>Terms of Service</Text>
+            <Text style={styles.footerLinkText}>{t("auth.email.terms")}</Text>
           </Pressable>
-          <Text style={styles.footerText}> and </Text>
+          <Text style={styles.footerText}>{t("auth.email.agreementAnd")}</Text>
           <Pressable onPress={handlePrivacyPolicyPress} testID="privacy-policy-email-link">
-            <Text style={styles.footerLinkText}>Privacy Policy</Text>
+            <Text style={styles.footerLinkText}>{t("auth.email.privacy")}</Text>
           </Pressable>
         </View>
       </View>

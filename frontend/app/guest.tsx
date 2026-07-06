@@ -4,6 +4,7 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
+import { t } from "@/src/locales";
 
 export default function GuestScreen() {
   const router = useRouter();
@@ -12,12 +13,10 @@ export default function GuestScreen() {
     <View style={styles.container} testID="guest-screen">
       <View style={styles.card}>
         <Ionicons name="eye-off-outline" size={44} color={colors.onSurfaceTertiary} />
-        <Text style={styles.title}>Guest Visitor Mode</Text>
-        <Text style={styles.subtitle}>
-          You are browsing without an active account. Content is limited and there is no personal profile data shown.
-        </Text>
+        <Text style={styles.title}>{t("guest.title")}</Text>
+        <Text style={styles.subtitle}>{t("guest.description")}</Text>
         <Pressable style={styles.button} onPress={() => router.replace("/roommates")} testID="guest-continue-button">
-          <Text style={styles.buttonText}>Continue as guest</Text>
+          <Text style={styles.buttonText}>{t("guest.continue")}</Text>
         </Pressable>
       </View>
     </View>
