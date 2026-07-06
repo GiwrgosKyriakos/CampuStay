@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "311068327323",
+    "project_id": "campustay-da4b5",
+    "storage_bucket": "campustay-da4b5.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:311068327323:android:aa05559fac59f984f1353e",
+        "android_client_info": {
+          "package_name": "CampuStay.Android"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "311068327323-cmdkalllbaojgsf9dq2bp6fpjs5c9ut6.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB3a_1o9EyYSTk0yY2tx7Upxrq7ykdUeSc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "311068327323-cmdkalllbaojgsf9dq2bp6fpjs5c9ut6.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
