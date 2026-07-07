@@ -16,19 +16,125 @@ export interface CompatibilityQuiz {
   q15_roommate_type: 'Just split the bills' | 'Friendly co-living' | 'Let’s hang out and be friends';
 }
 
+export type CompatibilityQuizAnswers = Partial<CompatibilityQuiz>;
+
 export interface UserProfile {
   uid: string;
   city: string;
   gender: 'Male' | 'Female' | 'Prefer Not To Say';
   monthlyBudget: number;
-  quiz: CompatibilityQuiz;
+  quiz?: CompatibilityQuizAnswers;
+}
+
+const QUESTION_KEYS: (keyof CompatibilityQuiz)[] = [
+  'q1_bills',
+  'q2_sharing',
+  'q3_food',
+  'q4_cleanliness',
+  'q5_cleaning_freq',
+  'q6_dishes',
+  'q7_smoke',
+  'q8_pets',
+  'q9_sleep',
+  'q10_quiet',
+  'q11_guests',
+  'q12_parties',
+  'q13_cook',
+  'q14_drinking',
+  'q15_roommate_type',
+];
+
+const QUESTION_MAX_POINTS: Record<keyof CompatibilityQuiz, number> = {
+  q1_bills: 3,
+  q2_sharing: 3,
+  q3_food: 3,
+  q4_cleanliness: 8,
+  q5_cleaning_freq: 6,
+  q6_dishes: 6,
+  q7_smoke: 7,
+  q8_pets: 6,
+  q9_sleep: 6,
+  q10_quiet: 6,
+  q11_guests: 5,
+  q12_parties: 5,
+  q13_cook: 3,
+  q14_drinking: 3,
+  q15_roommate_type: 5,
+};
+
+function hasAnswer(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function scoreAnsweredQuestion(
+  key: keyof CompatibilityQuiz,
+  currentQuiz: CompatibilityQuizAnswers,
+  matchQuiz: CompatibilityQuizAnswers,
+): number {
+  const currentAnswer = currentQuiz[key];
+  const matchAnswer = matchQuiz[key];
+
+  if (!hasAnswer(currentAnswer) || !hasAnswer(matchAnswer)) return 0;
+
+  switch (key) {
+    case 'q7_smoke':
+      if (currentAnswer === matchAnswer) return 7;
+      if (currentAnswer === 'Only outside' && matchAnswer === 'No') return 5;
+      return 0;
+    case 'q8_pets':
+      if (currentAnswer === matchAnswer) return 6;
+      if (currentAnswer === 'Pets are fine' && matchAnswer === 'Yes') return 5;
+      return 0;
+    case 'q9_sleep':
+      if (currentAnswer === matchAnswer) return 6;
+      if (
+        (currentAnswer === 'Before 11pm' && matchAnswer === '11pm–1am') ||
+        (currentAnswer === '11pm–1am' && matchAnswer === 'After 1am')
+      ) {
+        return 3;
+      }
+      return 0;
+    case 'q10_quiet':
+      return currentAnswer === matchAnswer ? 6 : 0;
+    case 'q4_cleanliness':
+      if (currentAnswer === matchAnswer) return 8;
+      if (currentAnswer === 'Very tidy' && matchAnswer === 'Average') return 4;
+      return 0;
+    case 'q5_cleaning_freq':
+      return currentAnswer === matchAnswer ? 6 : 0;
+    case 'q6_dishes':
+      return currentAnswer === matchAnswer ? 6 : 0;
+    case 'q11_guests':
+      return currentAnswer === matchAnswer ? 5 : 0;
+    case 'q12_parties':
+      return currentAnswer === matchAnswer ? 5 : 0;
+    case 'q15_roommate_type':
+      return currentAnswer === matchAnswer ? 5 : 0;
+    case 'q1_bills':
+      return currentAnswer === matchAnswer ? 3 : 0;
+    case 'q2_sharing':
+      return currentAnswer === matchAnswer ? 3 : 0;
+    case 'q3_food':
+      return currentAnswer === matchAnswer ? 3 : 0;
+    case 'q13_cook':
+      return currentAnswer === matchAnswer ? 3 : 0;
+    case 'q14_drinking':
+      return currentAnswer === matchAnswer ? 3 : 0;
+    default:
+      return 0;
+  }
 }
 
 export function calculateMatchScore(currentUser: UserProfile, potentialMatch: UserProfile): number {
   // Αν ψάχνουν σε διαφορετική πόλη, τους βγάζουμε τελείως εκτός στοίβας (0%)
   if (currentUser.city !== potentialMatch.city) return 0;
 
+  const currentQuiz = currentUser.quiz ?? {};
+  const matchQuiz = potentialMatch.quiz ?? {};
+
   let totalPoints = 0;
+  let maxPossiblePoints = 25;
+  let mutuallyAnsweredCount = 0;
 
   // ==========================================
   // 1. MONTHLY BUDGET (Μέγιστο: 25 πόντοι)
@@ -38,78 +144,22 @@ export function calculateMatchScore(currentUser: UserProfile, potentialMatch: Us
   else if (budgetDiff <= 80) totalPoints += 15;
   else if (budgetDiff <= 150) totalPoints += 5;
 
-  const currentQuiz = currentUser.quiz;
-  const matchQuiz = potentialMatch.quiz;
+  for (const key of QUESTION_KEYS) {
+    const currentAnswer = currentQuiz[key];
+    const matchAnswer = matchQuiz[key];
 
-  // Αν κάποιος δεν έχει συμπληρώσει το quiz ακόμα, επιστρέφουμε ένα βασικό σκορ βασισμένο μόνο στο budget
-  if (!currentQuiz || !matchQuiz) {
-    return Math.round((totalPoints / 25) * 100);
+    if (!hasAnswer(currentAnswer) || !hasAnswer(matchAnswer)) {
+      continue;
+    }
+
+    mutuallyAnsweredCount += 1;
+    totalPoints += scoreAnsweredQuestion(key, currentQuiz, matchQuiz);
+    maxPossiblePoints += QUESTION_MAX_POINTS[key];
   }
 
-  // ==========================================
-  // 2. CRITICAL LIFESTYLE (Μέγιστο: 25 πόντοι)
-  // ==========================================
-  // Q7: Καπνισμα (7 πόντοι)
-  if (currentQuiz.q7_smoke === matchQuiz.q7_smoke) totalPoints += 7;
-  else if (currentQuiz.q7_smoke === 'Only outside' && matchQuiz.q7_smoke === 'No') totalPoints += 5;
+  const baseScore = maxPossiblePoints > 0 ? (totalPoints / maxPossiblePoints) * 100 : 0;
+  const completionPercentage = mutuallyAnsweredCount / QUESTION_KEYS.length;
+  const scalingFactor = 0.5 + 0.5 * completionPercentage;
 
-  // Q8: Κατοικίδια (6 πόντοι)
-  if (currentQuiz.q8_pets === matchQuiz.q8_pets) totalPoints += 6;
-  else if (currentQuiz.q8_pets === 'Pets are fine' && matchQuiz.q8_pets === 'Yes') totalPoints += 5;
-
-  // Q9: Ύπνος (6 πόντοι)
-  if (currentQuiz.q9_sleep === matchQuiz.q9_sleep) totalPoints += 6;
-  else if (
-    (currentQuiz.q9_sleep === 'Before 11pm' && matchQuiz.q9_sleep === '11pm–1am') ||
-    (currentQuiz.q9_sleep === '11pm–1am' && matchQuiz.q9_sleep === 'After 1am')
-  ) totalPoints += 3;
-
-  // Q10: Ησυχία (6 πόντοι)
-  if (currentQuiz.q10_quiet === matchQuiz.q10_quiet) totalPoints += 6;
-
-  // ==========================================
-  // 3. CLEANING & HABITS (Μέγιστο: 20 πόντοι)
-  // ==========================================
-  // Q4: Πόσο καθαρός είσαι (8 πόντοι)
-  if (currentQuiz.q4_cleanliness === matchQuiz.q4_cleanliness) totalPoints += 8;
-  else if (currentQuiz.q4_cleanliness === 'Very tidy' && matchQuiz.q4_cleanliness === 'Average') totalPoints += 4;
-
-  // Q5: Συχνότητα καθαρισμού (6 πόντοι)
-  if (currentQuiz.q5_cleaning_freq === matchQuiz.q5_cleaning_freq) totalPoints += 6;
-
-  // Q6: Πλύσιμο πιάτων (6 πόντοι)
-  if (currentQuiz.q6_dishes === matchQuiz.q6_dishes) totalPoints += 6;
-
-  // ==========================================
-  // 4. SOCIAL LIFE & GUESTS (Μέγιστο: 15 πόντοι)
-  // ==========================================
-  // Q11: Καλεσμένοι (5 πόντοι)
-  if (currentQuiz.q11_guests === matchQuiz.q11_guests) totalPoints += 5;
-
-  // Q12: Πάρτι (5 πόντοι)
-  if (currentQuiz.q12_parties === matchQuiz.q12_parties) totalPoints += 5;
-
-  // Q15: Προσδοκίες από συγκατοίκηση (5 πόντοι)
-  if (currentQuiz.q15_roommate_type === matchQuiz.q15_roommate_type) totalPoints += 5;
-
-  // ==========================================
-  // 5. BILLS & KITCHEN (Μέγιστο: 15 πόντοι)
-  // ==========================================
-  // Q1: Λογαριασμοί (3 πόντοι)
-  if (currentQuiz.q1_bills === matchQuiz.q1_bills) totalPoints += 3;
-
-  // Q2: Κοινή χρήση επίπλων/σκεύων (3 πόντοι)
-  if (currentQuiz.q2_sharing === matchQuiz.q2_sharing) totalPoints += 3;
-
-  // Q3: Φαγητό & Κοινά πράγματα (3 πόντοι)
-  if (currentQuiz.q3_food === matchQuiz.q3_food) totalPoints += 3;
-
-  // Q13: Μαγείρεμα (3 πόντοι)
-  if (currentQuiz.q13_cook === matchQuiz.q13_cook) totalPoints += 3;
-
-  // Q14: Αλκοόλ στο σπίτι (3 πόντοι)
-  if (currentQuiz.q14_drinking === matchQuiz.q14_drinking) totalPoints += 3;
-
-  // Επιστροφή τελικού ποσοστού % στρογγυλοποιημένου
-  return Math.min(Math.round(totalPoints), 100);
+  return Math.max(0, Math.min(100, Math.round(baseScore * scalingFactor)));
 }

@@ -18,64 +18,34 @@ import { db, firebaseAuth } from "@/src/config/firebase";
 import { t } from "@/src/locales";
 import { registerForPushNotificationsAsync } from "@/src/utils/notificationService";
 import { calculateMatchScore } from "@/src/utils/matchAlgorithm";
-import type { CompatibilityQuiz, UserProfile as MatchUserProfile } from "@/src/utils/matchAlgorithm";
+import type { CompatibilityQuiz, CompatibilityQuizAnswers, UserProfile as MatchUserProfile } from "@/src/utils/matchAlgorithm";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 84;
-
-const MATCH_QUIZ_KEYS: (keyof CompatibilityQuiz)[] = [
-  "q1_bills",
-  "q2_sharing",
-  "q3_food",
-  "q4_cleanliness",
-  "q5_cleaning_freq",
-  "q6_dishes",
-  "q7_smoke",
-  "q8_pets",
-  "q9_sleep",
-  "q10_quiet",
-  "q11_guests",
-  "q12_parties",
-  "q13_cook",
-  "q14_drinking",
-  "q15_roommate_type",
-];
-
-type MatchUserProfileInput = Omit<MatchUserProfile, "quiz"> & { quiz?: CompatibilityQuiz };
 
 function normalizeMatchGender(gender: string | null | undefined): MatchUserProfile["gender"] {
   if (gender === "Male" || gender === "Female" || gender === "Prefer Not To Say") return gender;
   return "Prefer Not To Say";
 }
 
-function buildCompatibilityQuiz(answers: Record<string, string>): CompatibilityQuiz | undefined {
-  const complete = MATCH_QUIZ_KEYS.every((key) => typeof answers[key] === "string" && answers[key].trim().length > 0);
-  if (!complete) return undefined;
+function buildCompatibilityQuiz(answers: Record<string, string>): CompatibilityQuizAnswers {
+  const quiz: CompatibilityQuizAnswers = {};
 
-  return {
-    q1_bills: answers.q1_bills as CompatibilityQuiz["q1_bills"],
-    q2_sharing: answers.q2_sharing as CompatibilityQuiz["q2_sharing"],
-    q3_food: answers.q3_food as CompatibilityQuiz["q3_food"],
-    q4_cleanliness: answers.q4_cleanliness as CompatibilityQuiz["q4_cleanliness"],
-    q5_cleaning_freq: answers.q5_cleaning_freq as CompatibilityQuiz["q5_cleaning_freq"],
-    q6_dishes: answers.q6_dishes as CompatibilityQuiz["q6_dishes"],
-    q7_smoke: answers.q7_smoke as CompatibilityQuiz["q7_smoke"],
-    q8_pets: answers.q8_pets as CompatibilityQuiz["q8_pets"],
-    q9_sleep: answers.q9_sleep as CompatibilityQuiz["q9_sleep"],
-    q10_quiet: answers.q10_quiet as CompatibilityQuiz["q10_quiet"],
-    q11_guests: answers.q11_guests as CompatibilityQuiz["q11_guests"],
-    q12_parties: answers.q12_parties as CompatibilityQuiz["q12_parties"],
-    q13_cook: answers.q13_cook as CompatibilityQuiz["q13_cook"],
-    q14_drinking: answers.q14_drinking as CompatibilityQuiz["q14_drinking"],
-    q15_roommate_type: answers.q15_roommate_type as CompatibilityQuiz["q15_roommate_type"],
-  };
+  (Object.keys(answers) as (keyof CompatibilityQuiz)[]).forEach((key) => {
+    const value = answers[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      quiz[key] = value as CompatibilityQuiz[typeof key];
+    }
+  });
+
+  return quiz;
 }
 
 function toMatchProfile(
   userId: string,
   profile: { city?: string | null; budget?: number | null; gender?: string | null },
   answers: Record<string, string>,
-): MatchUserProfileInput {
+): MatchUserProfile {
   return {
     uid: userId,
     city: profile.city?.trim() || "",
@@ -150,10 +120,7 @@ useEffect(() => {
       const scoredCandidates = candidateRecords
         .map(({ profile: candidateProfile, quizAnswers }) => {
           const candidateMatchProfile = toMatchProfile(candidateProfile.id, candidateProfile, quizAnswers);
-          const matchScore = calculateMatchScore(
-            currentMatchProfile as MatchUserProfile,
-            candidateMatchProfile as MatchUserProfile,
-          );
+          const matchScore = calculateMatchScore(currentMatchProfile, candidateMatchProfile);
 
           return toScoredCandidate(candidateProfile, matchScore);
         })
