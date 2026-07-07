@@ -43,9 +43,27 @@ interface FirestoreMessageDoc {
 }
 
 interface FirestoreChatDoc {
+  type?: "roommate" | "host" | string;
+  apartmentId?: string;
+  apartmentTitle?: string;
   status?: "pending" | "active";
   deletedUsers?: Record<string, boolean>;
   participantDisplayNames?: Record<string, string>;
+}
+
+interface FirestoreApartmentDoc {
+  title?: string;
+  area?: string;
+  city?: string;
+  rent?: number;
+  price?: number;
+  rooms?: number;
+  size?: number;
+  sqft?: number;
+  image?: string;
+  tags?: string[];
+  amenities?: string[];
+  hostId?: string;
 }
 
 interface FirestoreUserDoc {
@@ -90,6 +108,26 @@ function mapFirestoreUserToProfile(uid: string, data: FirestoreUserDoc): Roommat
     tags: [],
     photo,
     deleted: false,
+  };
+}
+
+function buildApartmentRoutePayload(apartmentId: string, data: FirestoreApartmentDoc, fallbackTitle?: string) {
+  const amenities = Array.isArray(data.amenities) ? data.amenities : [];
+  const tags = Array.isArray(data.tags) ? data.tags : amenities;
+
+  return {
+    id: apartmentId,
+    title: data.title?.trim() || fallbackTitle || t("apartments.unknownListing"),
+    area: data.area?.trim() || t("apartments.unknownArea"),
+    city: data.city?.trim() || t("apartments.unknownCity"),
+    rent: typeof data.rent === "number" ? data.rent : typeof data.price === "number" ? data.price : 0,
+    rooms: typeof data.rooms === "number" ? data.rooms : 1,
+    size: typeof data.size === "number" ? data.size : typeof data.sqft === "number" ? data.sqft : 0,
+    image:
+      data.image ||
+      "https://images.unsplash.com/photo-1564078516393-cf04bd966897?crop=entropy&cs=srgb&fm=jpg&w=1200&q=85",
+    tags: tags.length ? tags : [t("apartments.newListing")],
+    hostId: data.hostId,
   };
 }
 
@@ -171,6 +209,10 @@ export default function ChatScreen() {
   const [text, setText] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [chatStatus, setChatStatus] = useState<"pending" | "active">("active");
+  const [chatType, setChatType] = useState<"roommate" | "host">("roommate");
+  const [hostApartmentId, setHostApartmentId] = useState<string | null>(null);
+  const [hostApartmentTitle, setHostApartmentTitle] = useState<string | null>(null);
+  const [hostApartment, setHostApartment] = useState<ReturnType<typeof buildApartmentRoutePayload> | null>(null);
 
   const createdAtToMillis = useCallback((value: any): number => {
     if (typeof value === "number") return value;
@@ -191,10 +233,16 @@ export default function ChatScreen() {
     const unsubChat = onSnapshot(chatRef, (snapshot) => {
       if (!snapshot.exists()) {
         setChatStatus("active");
+        setChatType("roommate");
+        setHostApartmentId(null);
+        setHostApartmentTitle(null);
         return;
       }
       const data = snapshot.data() as FirestoreChatDoc;
       setChatStatus(data.status === "pending" ? "pending" : "active");
+      setChatType(data.type === "host" ? "host" : "roommate");
+      setHostApartmentId(typeof data.apartmentId === "string" && data.apartmentId.trim().length > 0 ? data.apartmentId : null);
+      setHostApartmentTitle(typeof data.apartmentTitle === "string" && data.apartmentTitle.trim().length > 0 ? data.apartmentTitle : null);
     });
 
     const q = query(
@@ -226,6 +274,44 @@ export default function ChatScreen() {
       unsubChat();
     };
   }, [chatRoomId, currentUserId, sortMessages]);
+
+  useEffect(() => {
+    if (chatType !== "host" || !hostApartmentId) {
+      setHostApartment(null);
+      return;
+    }
+
+    const apartmentRef = doc(db, "apartments", hostApartmentId);
+    const unsubscribe = onSnapshot(
+      apartmentRef,
+      async (snapshot) => {
+        if (snapshot.exists()) {
+          setHostApartment(buildApartmentRoutePayload(hostApartmentId, snapshot.data() as FirestoreApartmentDoc, hostApartmentTitle ?? undefined));
+          return;
+        }
+
+        if (hostApartmentTitle) {
+          setHostApartment({
+            id: hostApartmentId,
+            title: hostApartmentTitle,
+            area: t("apartments.unknownArea"),
+            city: t("apartments.unknownCity"),
+            rent: 0,
+            rooms: 1,
+            size: 0,
+            image: "https://images.unsplash.com/photo-1564078516393-cf04bd966897?crop=entropy&cs=srgb&fm=jpg&w=1200&q=85",
+            tags: [t("apartments.newListing")],
+            hostId: undefined,
+          });
+        } else {
+          setHostApartment(null);
+        }
+      },
+      () => setHostApartment(null),
+    );
+
+    return () => unsubscribe();
+  }, [chatType, hostApartmentId, hostApartmentTitle]);
 
   // Mark incoming messages as read when user enters this chat
   useEffect(() => {
@@ -302,10 +388,22 @@ export default function ChatScreen() {
   const showAvatarImage = !deletedCounterpart && !!activeProfile.photo?.trim();
   const inputBlocked = chatStatus === "pending" || deletedCounterpart;
 
+  const handleApartmentPillPress = () => {
+    if (!hostApartment) return;
+    router.push({ pathname: "/apartment-detail", params: { data: JSON.stringify(hostApartment) } });
+  };
+
   return (
     <View style={styles.container} testID="chat-screen">
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
+        {chatType === "host" && hostApartment ? (
+          <Pressable style={styles.apartmentPill} onPress={handleApartmentPillPress} testID="chat-apartment-pill">
+            <Text style={styles.apartmentPillText} numberOfLines={1}>
+              {hostApartment.title}
+            </Text>
+          </Pressable>
+        ) : null}
         <View style={styles.headerTop}>
           <Pressable
             style={styles.iconBtn}
@@ -465,6 +563,22 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
     gap: spacing.md,
+  },
+  apartmentPill: {
+    alignSelf: "center",
+    maxWidth: "88%",
+    backgroundColor: "#D9F0FF",
+    borderWidth: 1,
+    borderColor: "#A8D9FF",
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 5,
+  },
+  apartmentPillText: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.sm,
+    color: colors.onBrandTertiary,
+    textAlign: "center",
   },
   headerTop: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   iconBtn: {
