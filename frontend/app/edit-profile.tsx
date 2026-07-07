@@ -69,6 +69,7 @@ export default function EditProfileScreen() {
   const [linkedin, setLinkedin] = useState("");
   const [twitter, setTwitter] = useState("");
   const [cityError, setCityError] = useState(false);
+  const [budgetError, setBudgetError] = useState<string | null>(null);
   const guestLocked = auth.isGuest;
   const housingPromptAnim = useRef(new Animated.Value(0)).current;
   const [cityOffsetY, setCityOffsetY] = useState(0);
@@ -196,19 +197,37 @@ export default function EditProfileScreen() {
 
   const submit = useCallback(async () => {
     if (submitting) return;
+    const sanitizedCity = city?.trim() ?? "";
+    const rawBudget = budget.trim();
+
     if (about.length > ABOUT_LIMIT) {
       setError(t("editProfile.errors.aboutTooLong", { limit: ABOUT_LIMIT }));
       return;
     }
-    if (!city || !city.trim()) {
+    if (!sanitizedCity) {
       setCityError(true);
+      setBudgetError(null);
       setError(null);
       requestAnimationFrame(() => {
         scrollRef.current?.scrollToPosition?.(0, Math.max(0, cityOffsetY - spacing.lg * 2), true);
       });
       return;
     }
+
+    const hasOnlyDigits = /^\d+$/.test(rawBudget);
+    const parsedBudget = Number(rawBudget);
+    const isBudgetValid = hasOnlyDigits && !Number.isNaN(parsedBudget) && parsedBudget > 0;
+    if (!isBudgetValid) {
+      setBudgetError("Please enter a valid budget greater than 0");
+      setCityError(false);
+      setError(null);
+      return;
+    }
+
+    const monthlyBudget = Math.trunc(parsedBudget);
+
     setCityError(false);
+    setBudgetError(null);
     setError(null);
     setSubmitting(true);
     try {
@@ -222,13 +241,13 @@ export default function EditProfileScreen() {
         age: age ? parseInt(age, 10) : null,
         about,
         gender,
-        city,
+        city: sanitizedCity,
         has_place: hasPlace,
         already_have_apartment_to_share: hasPlace,
         looking_for_apartment: lookingForApartment,
         university,
         year_of_study: year,
-        budget: budget ? parseInt(budget, 10) : null,
+        budget: monthlyBudget,
         move_in: moveIn,
         instagram: instagram.trim(),
         facebook: facebook.trim(),
@@ -565,6 +584,7 @@ export default function EditProfileScreen() {
             editable={!guestLocked}
             testID="budget-input"
           />
+          {budgetError && !guestLocked && <Text style={styles.cityErrorText}>{budgetError}</Text>}
 
           <Text style={styles.label}>{t("editProfile.moveIn")}</Text>
           <View style={guestLocked ? styles.guestReadOnlyControl : undefined}>
