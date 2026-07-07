@@ -1,10 +1,14 @@
 import {
   collection,
+  doc,
+  getDoc,
   query,
   where,
   getDocs,
   writeBatch,
   Timestamp,
+  serverTimestamp,
+  setDoc,
 } from "firebase/firestore";
 import { db } from "@/src/config/firebase";
 
@@ -112,4 +116,52 @@ export async function hasUnreadMessagesFrom(
     console.error("Error checking for unread messages:", error);
     return false;
   }
+}
+
+function buildChatRoomId(userA: string, userB: string, apartmentId?: string): string {
+  const parts = apartmentId ? [userA, userB, apartmentId] : [userA, userB];
+  return parts.sort().join("_");
+}
+
+export async function getOrCreateHostChat(params: {
+  currentUserId: string;
+  hostId: string;
+  apartmentId: string;
+  apartmentTitle?: string;
+}): Promise<string> {
+  const { currentUserId, hostId, apartmentId, apartmentTitle } = params;
+  const chatRoomId = buildChatRoomId(currentUserId, hostId, apartmentId);
+  const chatRef = doc(db, "chats", chatRoomId);
+  const snapshot = await getDoc(chatRef);
+
+  if (!snapshot.exists()) {
+    await setDoc(
+      chatRef,
+      {
+        users: [currentUserId, hostId],
+        status: "active",
+        initiatedBy: currentUserId,
+        type: "host",
+        apartmentId,
+        apartmentTitle: apartmentTitle ?? "",
+        updatedAt: serverTimestamp(),
+        createdAt: serverTimestamp(),
+      },
+      { merge: true },
+    );
+    return chatRoomId;
+  }
+
+  await setDoc(
+    chatRef,
+    {
+      type: "host",
+      apartmentId,
+      apartmentTitle: apartmentTitle ?? "",
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true },
+  );
+
+  return chatRoomId;
 }

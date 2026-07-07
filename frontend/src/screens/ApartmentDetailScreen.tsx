@@ -15,11 +15,10 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Linking from "expo-linking";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 
 import { colors, fonts, fontSize, radius, spacing } from "@/src/theme";
 import { useAuth } from "@/src/context/auth";
-import { db } from "@/src/config/firebase";
+import { getOrCreateHostChat } from "@/src/api/chat";
 import { subscribeUserLikedApartmentIds, toggleApartmentLike } from "@/src/api/apartmentLikes";
 import { t } from "@/src/locales";
 
@@ -133,23 +132,19 @@ export default function ApartmentDetailScreen() {
       return;
     }
 
-    const chatRoomId = `${currentUid}_${hostId}`;
-
     try {
-      await setDoc(
-        doc(db, "chats", chatRoomId),
+      const chatRoomId = await getOrCreateHostChat({
+        currentUserId: currentUid,
+        hostId,
+        apartmentId: apt.id,
+        apartmentTitle: apt.title,
+      });
+      router.push(
         {
-          users: [currentUid, hostId],
-          status: "active",
-          initiatedBy: currentUid,
-          apartmentId: apt?.id,
-          apartmentTitle: apt?.title,
-          updatedAt: serverTimestamp(),
-          createdAt: serverTimestamp(),
+          pathname: "/chat/[id]",
+          params: { id: hostId, chatRoomId },
         },
-        { merge: true },
       );
-      router.push({ pathname: "/chat/[id]", params: { id: hostId, chatRoomId } });
     } catch {
       Alert.alert(t("apartmentDetail.chatUnavailableTitle"), t("apartmentDetail.chatUnavailableMessage"));
     }

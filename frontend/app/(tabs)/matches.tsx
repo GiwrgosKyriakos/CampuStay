@@ -300,7 +300,7 @@ export default function MatchesScreen() {
   const handleNavigateToChat = (profile: ChatListItem) => {
     const chatStatus = profile.chat_status ?? "active";
     if (chatStatus === "active") {
-      router.push({ pathname: "/chat/[id]", params: { id: profile.id } });
+      router.push({ pathname: "/chat/[id]", params: { id: profile.id, chatRoomId: profile.chatRoomId } });
     }
   };
 
