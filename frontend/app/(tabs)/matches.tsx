@@ -45,6 +45,7 @@ interface FirestoreUserDoc {
 
 interface FirestoreChatDoc {
   users?: string[];
+  type?: "roommate" | "host" | string;
   status?: "pending" | "active";
   initiatedBy?: string | null;
   deletedUsers?: Record<string, boolean>;
@@ -150,6 +151,7 @@ export default function MatchesScreen() {
   const router = useRouter();
   const auth = useAuth();
   const [matches, setMatches] = useState<ChatListItem[]>([]);
+  const [selectedChatType, setSelectedChatType] = useState<"roommate" | "host">("roommate");
   const [lastMessageByChat, setLastMessageByChat] = useState<Record<string, LastMessageMeta>>({});
   const [acceptingChatId, setAcceptingChatId] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string>("");
@@ -170,6 +172,8 @@ export default function MatchesScreen() {
     let mounted = true;
     let unsub: (() => void) | null = null;
 
+    setMatches([]);
+
     (async () => {
       try {
         const uid = await getUserId();
@@ -183,6 +187,11 @@ export default function MatchesScreen() {
         );
         unsub = onSnapshot(chatsQ, (snapshot) => {
           const activeChatIds = new Set(snapshot.docs.map((d) => d.id));
+          const visibleChatDocs = snapshot.docs.filter((chatDoc) => {
+            const chatData = chatDoc.data() as FirestoreChatDoc;
+            const chatType = chatData.type ?? "roommate";
+            return selectedChatType === "host" ? chatType === "host" : chatType !== "host";
+          });
 
           // Keep per-room last-message listeners in sync with current chat rooms.
           Object.entries(messageUnsubsRef.current).forEach(([chatId, off]) => {
@@ -234,7 +243,7 @@ export default function MatchesScreen() {
 
           void (async () => {
             const rows = await Promise.all(
-              snapshot.docs.map(async (chatDoc) => {
+              visibleChatDocs.map(async (chatDoc) => {
                 const chatData = chatDoc.data() as FirestoreChatDoc;
                 const sortKey =
                   toMillis(chatData.lastMessageTimestamp) ||
@@ -283,7 +292,7 @@ export default function MatchesScreen() {
       Object.values(messageUnsubsRef.current).forEach((off) => off());
       messageUnsubsRef.current = {};
     };
-  }, [auth.isGuest]);
+  }, [auth.isGuest, selectedChatType]);
 
   const handleAcceptChat = async (profile: ChatListItem) => {
     if (!currentUserId || !profile.chatRoomId) return;
@@ -306,7 +315,27 @@ export default function MatchesScreen() {
 
   return (
     <View style={styles.container} testID="matches-screen">
-      <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
+      <View style={[styles.toggleShell, { marginTop: insets.top + spacing.sm, marginHorizontal: spacing.lg }]}> 
+        <Pressable
+          style={[styles.toggleOption, selectedChatType === "roommate" && styles.toggleOptionActive]}
+          onPress={() => setSelectedChatType("roommate")}
+          testID="matches-toggle-roommates"
+        >
+          <Text style={[styles.toggleText, selectedChatType === "roommate" && styles.toggleTextActive]}>
+            Συγκάτοικοι
+          </Text>
+        </Pressable>
+        <Pressable
+          style={[styles.toggleOption, selectedChatType === "host" && styles.toggleOptionActive]}
+          onPress={() => setSelectedChatType("host")}
+          testID="matches-toggle-hosts"
+        >
+          <Text style={[styles.toggleText, selectedChatType === "host" && styles.toggleTextActive]}>
+            Ιδιοκτήτες
+          </Text>
+        </Pressable>
+      </View>
+      <View style={styles.header}> 
         <Text style={styles.title}>{t("matches.title")}</Text>
         <Text style={styles.subtitle}>
           {auth.isGuest
@@ -413,7 +442,32 @@ export default function MatchesScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
-  header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md, gap: spacing.xs },
+  toggleShell: {
+    flexDirection: "row",
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: radius.pill,
+    padding: 4,
+    gap: 4,
+  },
+  toggleOption: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: spacing.sm,
+    borderRadius: radius.pill,
+  },
+  toggleOptionActive: {
+    backgroundColor: colors.brand,
+  },
+  toggleText: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.base,
+    color: colors.onSurface,
+  },
+  toggleTextActive: {
+    color: colors.onBrand,
+  },
+  header: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.md, gap: spacing.xs },
   title: { fontFamily: fonts.displayExtra, fontSize: fontSize["3xl"], color: colors.onSurface },
   subtitle: { fontFamily: fonts.regular, fontSize: fontSize.lg, color: colors.onSurfaceTertiary },
   list: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
