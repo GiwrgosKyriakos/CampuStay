@@ -4,21 +4,21 @@
     "slug": "campustay",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/campuStayLogo.png",
     "scheme": "campustay",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.emergent.housinghub.ieo21a"
+      "bundleIdentifier": "io.github.giwrgoskyriakos.CampuStay"
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#000000"
+        "foregroundImage": "./assets/campuStayLogoTransparent.png",
+        "backgroundColor": "#07404C"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.emergent.housinghub.ieo21a",
+      "package": "io.github.giwrgoskyriakos.CampuStay",
       "permissions": [
         "android.permission.RECORD_AUDIO"
       ]
@@ -26,7 +26,7 @@
     "web": {
       "bundler": "metro",
       "output": "single",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/campuStayLogo.png"
     },
     "plugins": [
       "expo-router",
@@ -39,10 +39,10 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-image.png",
+          "image": "./assets/campuStayLogoTransparent.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#000000"
+          "backgroundColor": "#07404C"
         }
       ],
       "expo-font",
