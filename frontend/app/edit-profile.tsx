@@ -212,6 +212,7 @@ export default function EditProfileScreen() {
         gender,
         city,
         has_place: hasPlace,
+        already_have_apartment_to_share: hasPlace,
         looking_for_apartment: lookingForApartment,
         university,
         year_of_study: year,

@@ -87,6 +87,7 @@ async function syncUserDocument(firebaseUser: FirebaseUser): Promise<void> {
       about: "",
       city: null,
       has_place: false,
+        already_have_apartment_to_share: false,
       looking_for_apartment: false,
       year_of_study: null,
       budget: null,

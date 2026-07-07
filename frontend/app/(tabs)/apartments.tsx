@@ -5,7 +5,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
-import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
+import { collection, doc, getDocs, onSnapshot, orderBy, query, where } from "firebase/firestore";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import { getUserProfile } from "@/src/api/userProfile";
@@ -44,6 +44,16 @@ interface FirestoreApartmentDoc {
   tags?: string[];
   amenities?: string[];
   hostId?: string;
+}
+
+interface FirestoreHostChatDoc {
+  users?: string[];
+  type?: "roommate" | "host" | string;
+}
+
+interface FirestoreHostInboxUserDoc {
+  already_have_apartment_to_share?: boolean;
+  has_place?: boolean;
 }
 
 function buildSeedApartments(): Apartment[] {
@@ -119,6 +129,9 @@ export default function ApartmentsScreen() {
   const [nearMetro, setNearMetro] = useState(false);
   const [showOnlyLiked, setShowOnlyLiked] = useState(false);
   const [hideCreateFab, setHideCreateFab] = useState(false);
+  const [hasPublishedHostApartment, setHasPublishedHostApartment] = useState(false);
+  const [hasApartmentShareFlag, setHasApartmentShareFlag] = useState(false);
+  const [hostInboxHasUnread, setHostInboxHasUnread] = useState(false);
   const [likedApartmentIds, setLikedApartmentIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -188,6 +201,79 @@ export default function ApartmentsScreen() {
       };
     }, [auth.isGuest]),
   );
+
+  useEffect(() => {
+    if (auth.isGuest || !auth.userId) {
+      setHasPublishedHostApartment(false);
+      setHasApartmentShareFlag(false);
+      return;
+    }
+
+    const apartmentsQ = query(collection(db, "apartments"), where("hostId", "==", auth.userId));
+    const unsubscribeApartments = onSnapshot(apartmentsQ, (snapshot) => {
+      setHasPublishedHostApartment(snapshot.size > 0);
+    });
+
+    const userRef = doc(db, "users", auth.userId);
+    const unsubscribeUser = onSnapshot(userRef, (snapshot) => {
+      const data = snapshot.exists() ? (snapshot.data() as FirestoreHostInboxUserDoc) : null;
+      setHasApartmentShareFlag(snapshot.exists() && !!(data?.already_have_apartment_to_share || data?.has_place));
+    });
+
+    return () => {
+      unsubscribeApartments();
+      unsubscribeUser();
+    };
+  }, [auth.isGuest, auth.userId]);
+
+  const canOpenHostInbox = hasPublishedHostApartment || hasApartmentShareFlag;
+
+  useEffect(() => {
+    if (auth.isGuest || !auth.userId || !canOpenHostInbox) {
+      setHostInboxHasUnread(false);
+      return;
+    }
+
+    let mounted = true;
+    const hostChatsQ = query(
+      collection(db, "chats"),
+      where("users", "array-contains", auth.userId),
+      where("type", "==", "host"),
+    );
+
+    const unsubscribe = onSnapshot(hostChatsQ, (snapshot) => {
+      void (async () => {
+        try {
+          const unreadFlags = await Promise.all(
+            snapshot.docs.map(async (chatDoc) => {
+              const chatData = chatDoc.data() as FirestoreHostChatDoc;
+              const counterpartId = (Array.isArray(chatData.users) ? chatData.users : []).find((uid) => uid !== auth.userId);
+              if (!counterpartId) return false;
+
+              const unreadQuery = query(
+                collection(db, "chats", chatDoc.id, "messages"),
+                where("senderId", "==", counterpartId),
+                where("isRead", "==", false),
+              );
+              const unreadSnapshot = await getDocs(unreadQuery);
+              return !unreadSnapshot.empty;
+            }),
+          );
+
+          if (mounted) {
+            setHostInboxHasUnread(unreadFlags.some(Boolean));
+          }
+        } catch {
+          if (mounted) setHostInboxHasUnread(false);
+        }
+      })();
+    });
+
+    return () => {
+      mounted = false;
+      unsubscribe();
+    };
+  }, [auth.isGuest, auth.userId, canOpenHostInbox]);
 
   const apartments = useMemo(() => [...publishedApartments, ...buildSeedApartments()], [publishedApartments]);
 
@@ -430,13 +516,24 @@ export default function ApartmentsScreen() {
         )}
       </ScrollView>
       {!auth.isGuest && !hideCreateFab && (
-        <Pressable
-          style={[styles.fab, { bottom: TAB_BAR_SPACE + insets.bottom + spacing.md }]}
-          onPress={() => router.push("/create-listing" as any)}
-          testID="apartments-create-fab"
-        >
-          <Text style={styles.fabText}>+</Text>
-        </Pressable>
+        <View style={[styles.fabCluster, { bottom: TAB_BAR_SPACE + insets.bottom + spacing.md }]}>
+          {canOpenHostInbox && (
+            <Pressable
+              style={[styles.hostInboxFab, hostInboxHasUnread && styles.hostInboxFabUnread]}
+              onPress={() => router.push("/host-inbox" as any)}
+              testID="apartments-host-inbox-fab"
+            >
+              <Text style={[styles.hostInboxFabText, hostInboxHasUnread && styles.hostInboxFabTextUnread]}>✉️</Text>
+            </Pressable>
+          )}
+          <Pressable
+            style={styles.fab}
+            onPress={() => router.push("/create-listing" as any)}
+            testID="apartments-create-fab"
+          >
+            <Text style={styles.fabText}>+</Text>
+          </Pressable>
+        </View>
       )}
     </View>
   );
@@ -607,9 +704,14 @@ const styles = StyleSheet.create({
   },
   emptyTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize.xl, color: colors.onSurface },
   emptySub: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary, textAlign: "center" },
-  fab: {
+  fabCluster: {
     position: "absolute",
     right: spacing.lg,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  fab: {
     width: 62,
     height: 62,
     borderRadius: 31,
@@ -623,4 +725,30 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   fabText: { fontFamily: fonts.displayExtra, fontSize: 32, color: colors.onBrand },
+  hostInboxFab: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#D9F0FF",
+    borderWidth: 1,
+    borderColor: "#A8D9FF",
+    shadowColor: "#000",
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 7,
+  },
+  hostInboxFabUnread: {
+    backgroundColor: colors.brand,
+    borderColor: colors.brand,
+  },
+  hostInboxFabText: {
+    fontSize: 22,
+    color: colors.brandTertiary,
+  },
+  hostInboxFabTextUnread: {
+    color: colors.brandTertiary,
+  },
 });
