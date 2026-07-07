@@ -91,10 +91,12 @@ async function getExcludedCandidateIds(userId: string): Promise<{ swipedTo: Set<
   return { swipedTo, chattedWith };
 }
 
-async function getPotentialCandidateRecords(userId: string): Promise<CandidateMatchRecord[]> {
+async function getPotentialCandidateRecords(userId: string, currentCity?: string | null): Promise<CandidateMatchRecord[]> {
   const usersRef = collection(db, "users");
   const { swipedTo, chattedWith } = await getExcludedCandidateIds(userId);
-  const usersSnap = await getDocs(usersRef);
+  const normalizedCity = currentCity?.trim() || "";
+  const usersQuery = normalizedCity ? query(usersRef, where("city", "==", normalizedCity)) : usersRef;
+  const usersSnap = await getDocs(usersQuery);
 
   const candidateEntries: { uid: string; profile: RoommateProfile }[] = [];
 
@@ -125,13 +127,13 @@ function buildChatRoomId(userA: string, userB: string): string {
   return [userA, userB].sort().join("_");
 }
 
-export async function getCandidates(userId: string): Promise<RoommateProfile[]> {
-  const records = await getPotentialCandidateRecords(userId);
+export async function getCandidates(userId: string, currentCity?: string | null): Promise<RoommateProfile[]> {
+  const records = await getPotentialCandidateRecords(userId, currentCity);
   return records.map((record) => record.profile);
 }
 
-export async function getCandidateMatchRecords(userId: string): Promise<CandidateMatchRecord[]> {
-  return getPotentialCandidateRecords(userId);
+export async function getCandidateMatchRecords(userId: string, currentCity?: string | null): Promise<CandidateMatchRecord[]> {
+  return getPotentialCandidateRecords(userId, currentCity);
 }
 
 export async function postSwipe(

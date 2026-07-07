@@ -108,11 +108,12 @@ useEffect(() => {
       const uid = auth.isGuest ? "guest" : await getUserId();
       userIdRef.current = uid;
 
-      const [profile, quizSnap, candidateRecords] = await Promise.all([
+      const [profile, quizSnap] = await Promise.all([
         auth.isGuest ? Promise.resolve(null) : getUserProfile(uid).catch(() => null),
         auth.isGuest ? Promise.resolve(null) : getDoc(doc(db, "quiz_answers", uid)).catch(() => null),
-        getCandidateMatchRecords(uid).catch(() => []),
       ]);
+
+      const candidateRecords = await getCandidateMatchRecords(uid, profile?.city ?? null).catch(() => []);
 
       const quizData = quizSnap?.exists() ? (quizSnap.data() as { answers?: Record<string, string> }) : null;
       const currentMatchProfile = toMatchProfile(uid, profile ?? {}, quizData?.answers ?? {});

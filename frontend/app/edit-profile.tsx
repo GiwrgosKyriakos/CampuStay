@@ -44,6 +44,7 @@ export default function EditProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const auth = useAuth();
+  const scrollRef = useRef<KeyboardAwareScrollView | null>(null);
 
   const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -67,8 +68,10 @@ export default function EditProfileScreen() {
   const [facebook, setFacebook] = useState("");
   const [linkedin, setLinkedin] = useState("");
   const [twitter, setTwitter] = useState("");
+  const [cityError, setCityError] = useState(false);
   const guestLocked = auth.isGuest;
   const housingPromptAnim = useRef(new Animated.Value(0)).current;
+  const [cityOffsetY, setCityOffsetY] = useState(0);
   const cities = t("editProfile.options.cities") as unknown as string[];
   const universities = t("editProfile.options.universities") as unknown as string[];
   const years = t("editProfile.options.years") as unknown as string[];
@@ -197,6 +200,15 @@ export default function EditProfileScreen() {
       setError(t("editProfile.errors.aboutTooLong", { limit: ABOUT_LIMIT }));
       return;
     }
+    if (!city || !city.trim()) {
+      setCityError(true);
+      setError(null);
+      requestAnimationFrame(() => {
+        scrollRef.current?.scrollToPosition?.(0, Math.max(0, cityOffsetY - spacing.lg * 2), true);
+      });
+      return;
+    }
+    setCityError(false);
     setError(null);
     setSubmitting(true);
     try {
@@ -267,6 +279,7 @@ export default function EditProfileScreen() {
     userId,
     router,
     auth,
+    cityOffsetY,
   ]);
 
   if (loading) {
@@ -299,6 +312,7 @@ export default function EditProfileScreen() {
       </View>
 
       <KeyboardAwareScrollView
+        ref={scrollRef}
         bottomOffset={120}
         contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + STICKY_FOOTER_PADDING }]}
         showsVerticalScrollIndicator={false}
@@ -436,8 +450,25 @@ export default function EditProfileScreen() {
           </View>
 
           <Text style={styles.label}>{t("editProfile.city")}</Text>
-          <View style={guestLocked ? styles.guestReadOnlyControl : undefined}>
-            <Dropdown value={city} options={cities} placeholder={t("editProfile.cityPlaceholder")} onSelect={setCity} testID="city-dropdown" disabled={guestLocked} />
+          <View
+            collapsable={false}
+            onLayout={(event) => setCityOffsetY(event.nativeEvent.layout.y)}
+            style={guestLocked ? styles.guestReadOnlyControl : undefined}
+          >
+            <Dropdown
+              value={city}
+              options={cities}
+              placeholder={t("editProfile.cityPlaceholder")}
+              onSelect={(nextCity) => {
+                setCity(nextCity);
+                setCityError(false);
+              }}
+              testID="city-dropdown"
+              disabled={guestLocked}
+            />
+            {cityError && !guestLocked && (
+              <Text style={styles.cityErrorText}>Παρακαλώ επιλέξτε την πόλη σας / Please select your city</Text>
+            )}
           </View>
 
           <Pressable
@@ -697,6 +728,12 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     fontSize: fontSize.base,
     color: colors.onSurface,
+  },
+  cityErrorText: {
+    marginTop: spacing.xs,
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+    color: colors.brand,
   },
   guestReadOnlyControl: { opacity: 0.45 },
   textArea: { minHeight: 110, textAlignVertical: "top", paddingTop: spacing.md },
