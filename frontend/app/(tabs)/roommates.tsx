@@ -4,21 +4,94 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useFocusEffect, useRouter } from "expo-router";
-import { doc, onSnapshot, updateDoc } from "firebase/firestore";
+import { doc, getDoc, onSnapshot, updateDoc } from "firebase/firestore";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import type { RoommateProfile } from "@/src/data/profiles";
 import SwipeDeck, { SwipeDeckHandle } from "@/src/components/SwipeDeck";
 import FilterSheet, { Filters, DEFAULT_FILTERS } from "@/src/components/FilterSheet";
 import { getUserId } from "@/src/utils/userId";
-import { getCandidates, postSwipe, resetDislikedSwipes } from "@/src/api/discover";
+import { getCandidateMatchRecords, postSwipe, resetDislikedSwipes } from "@/src/api/discover";
+import { getUserProfile } from "@/src/api/userProfile";
 import { useAuth } from "@/src/context/auth";
 import { db, firebaseAuth } from "@/src/config/firebase";
 import { t } from "@/src/locales";
 import { registerForPushNotificationsAsync } from "@/src/utils/notificationService";
+import { calculateMatchScore } from "@/src/utils/matchAlgorithm";
+import type { CompatibilityQuiz, UserProfile as MatchUserProfile } from "@/src/utils/matchAlgorithm";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 84;
+
+const MATCH_QUIZ_KEYS: (keyof CompatibilityQuiz)[] = [
+  "q1_bills",
+  "q2_sharing",
+  "q3_food",
+  "q4_cleanliness",
+  "q5_cleaning_freq",
+  "q6_dishes",
+  "q7_smoke",
+  "q8_pets",
+  "q9_sleep",
+  "q10_quiet",
+  "q11_guests",
+  "q12_parties",
+  "q13_cook",
+  "q14_drinking",
+  "q15_roommate_type",
+];
+
+type MatchUserProfileInput = Omit<MatchUserProfile, "quiz"> & { quiz?: CompatibilityQuiz };
+
+function normalizeMatchGender(gender: string | null | undefined): MatchUserProfile["gender"] {
+  if (gender === "Male" || gender === "Female" || gender === "Prefer Not To Say") return gender;
+  return "Prefer Not To Say";
+}
+
+function buildCompatibilityQuiz(answers: Record<string, string>): CompatibilityQuiz | undefined {
+  const complete = MATCH_QUIZ_KEYS.every((key) => typeof answers[key] === "string" && answers[key].trim().length > 0);
+  if (!complete) return undefined;
+
+  return {
+    q1_bills: answers.q1_bills as CompatibilityQuiz["q1_bills"],
+    q2_sharing: answers.q2_sharing as CompatibilityQuiz["q2_sharing"],
+    q3_food: answers.q3_food as CompatibilityQuiz["q3_food"],
+    q4_cleanliness: answers.q4_cleanliness as CompatibilityQuiz["q4_cleanliness"],
+    q5_cleaning_freq: answers.q5_cleaning_freq as CompatibilityQuiz["q5_cleaning_freq"],
+    q6_dishes: answers.q6_dishes as CompatibilityQuiz["q6_dishes"],
+    q7_smoke: answers.q7_smoke as CompatibilityQuiz["q7_smoke"],
+    q8_pets: answers.q8_pets as CompatibilityQuiz["q8_pets"],
+    q9_sleep: answers.q9_sleep as CompatibilityQuiz["q9_sleep"],
+    q10_quiet: answers.q10_quiet as CompatibilityQuiz["q10_quiet"],
+    q11_guests: answers.q11_guests as CompatibilityQuiz["q11_guests"],
+    q12_parties: answers.q12_parties as CompatibilityQuiz["q12_parties"],
+    q13_cook: answers.q13_cook as CompatibilityQuiz["q13_cook"],
+    q14_drinking: answers.q14_drinking as CompatibilityQuiz["q14_drinking"],
+    q15_roommate_type: answers.q15_roommate_type as CompatibilityQuiz["q15_roommate_type"],
+  };
+}
+
+function toMatchProfile(
+  userId: string,
+  profile: { city?: string | null; budget?: number | null; gender?: string | null },
+  answers: Record<string, string>,
+): MatchUserProfileInput {
+  return {
+    uid: userId,
+    city: profile.city?.trim() || "",
+    gender: normalizeMatchGender(profile.gender),
+    monthlyBudget: typeof profile.budget === "number" ? profile.budget : 0,
+    quiz: buildCompatibilityQuiz(answers),
+  };
+}
+
+function toScoredCandidate(candidate: RoommateProfile, matchScore: number): RoommateProfile {
+  return {
+    ...candidate,
+    matchScore,
+  };
+}
+
 export default function RoommatesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -64,8 +137,29 @@ useEffect(() => {
       setLoading(true);
       const uid = auth.isGuest ? "guest" : await getUserId();
       userIdRef.current = uid;
-      const list = await getCandidates(uid);
-      setCandidates(list);
+
+      const [profile, quizSnap, candidateRecords] = await Promise.all([
+        auth.isGuest ? Promise.resolve(null) : getUserProfile(uid).catch(() => null),
+        auth.isGuest ? Promise.resolve(null) : getDoc(doc(db, "quiz_answers", uid)).catch(() => null),
+        getCandidateMatchRecords(uid).catch(() => []),
+      ]);
+
+      const quizData = quizSnap?.exists() ? (quizSnap.data() as { answers?: Record<string, string> }) : null;
+      const currentMatchProfile = toMatchProfile(uid, profile ?? {}, quizData?.answers ?? {});
+
+      const scoredCandidates = candidateRecords
+        .map(({ profile: candidateProfile, quizAnswers }) => {
+          const candidateMatchProfile = toMatchProfile(candidateProfile.id, candidateProfile, quizAnswers);
+          const matchScore = calculateMatchScore(
+            currentMatchProfile as MatchUserProfile,
+            candidateMatchProfile as MatchUserProfile,
+          );
+
+          return toScoredCandidate(candidateProfile, matchScore);
+        })
+        .sort((left, right) => (right.matchScore ?? 0) - (left.matchScore ?? 0));
+
+      setCandidates(scoredCandidates);
     } catch {
       setCandidates([]);
     } finally {
@@ -114,16 +208,18 @@ useEffect(() => {
 
   const filtered = useMemo(
     () =>
-      candidates.filter(
-        (p) =>
-          (filters.gender === "all" ||
-            (filters.gender === "female" && p.gender === "Female") ||
-            (filters.gender === "male" && p.gender === "Male") ||
-            (filters.gender === "nonBinary" && p.gender === "Non-binary")) &&
-          p.age >= filters.ageMin &&
-          p.age <= filters.ageMax &&
-          p.budget <= filters.budgetMax,
-      ),
+      candidates
+        .filter(
+          (p) =>
+            (filters.gender === "all" ||
+              (filters.gender === "female" && p.gender === "Female") ||
+              (filters.gender === "male" && p.gender === "Male") ||
+              (filters.gender === "nonBinary" && p.gender === "Non-binary")) &&
+            p.age >= filters.ageMin &&
+            p.age <= filters.ageMax &&
+            p.budget <= filters.budgetMax,
+        )
+        .sort((left, right) => (right.matchScore ?? 0) - (left.matchScore ?? 0)),
     [candidates, filters],
   );
 

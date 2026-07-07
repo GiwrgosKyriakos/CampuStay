@@ -19,6 +19,7 @@ interface FirestoreUserDoc {
   name?: string | null;
   age?: number | null;
   gender?: string | null;
+  city?: string | null;
   maxBudget?: number | null;
   budget?: number | null;
   university?: string | null;
@@ -31,6 +32,15 @@ interface FirestoreUserDoc {
   deleted?: boolean;
 }
 
+interface FirestoreQuizDoc {
+  answers?: Record<string, string>;
+}
+
+interface CandidateMatchRecord {
+  profile: RoommateProfile;
+  quizAnswers: Record<string, string>;
+}
+
 function normalizeCandidate(uid: string, data: FirestoreUserDoc): RoommateProfile {
   const photos = Array.isArray(data.photos) ? data.photos : [];
   const firstPhoto = data.photoUrl || photos[0] || "";
@@ -41,6 +51,7 @@ function normalizeCandidate(uid: string, data: FirestoreUserDoc): RoommateProfil
     age: typeof data.age === "number" ? data.age : 20,
     gender: (data.gender as RoommateProfile["gender"]) || "Non-binary",
     budget: typeof data.maxBudget === "number" ? data.maxBudget : typeof data.budget === "number" ? data.budget : 0,
+    city: data.city?.trim() || "",
     university: data.university || "",
     program: data.year || data.year_of_study || "Student",
     bio: data.about || data.bio || "",
@@ -50,46 +61,77 @@ function normalizeCandidate(uid: string, data: FirestoreUserDoc): RoommateProfil
   };
 }
 
-function buildChatRoomId(userA: string, userB: string): string {
-  return [userA, userB].sort().join("_");
-}
-
-export async function getCandidates(userId: string): Promise<RoommateProfile[]> {
+async function getExcludedCandidateIds(userId: string): Promise<{ swipedTo: Set<string>; chattedWith: Set<string> }> {
   const swipesRef = collection(db, "swipes");
-  const usersRef = collection(db, "users");
   const chatsRef = collection(db, "chats");
 
-  const swipedSnap = await getDocs(query(swipesRef, where("fromUid", "==", userId)));
+  const [swipedSnap, chatsSnap] = await Promise.all([
+    getDocs(query(swipesRef, where("fromUid", "==", userId))),
+    getDocs(query(chatsRef, where("users", "array-contains", userId))),
+  ]);
+
   const swipedTo = new Set<string>();
   swipedSnap.forEach((d) => {
     const toUid = d.data()?.toUid;
     if (typeof toUid === "string" && toUid) swipedTo.add(toUid);
   });
 
-  const chatsSnap = await getDocs(query(chatsRef, where("users", "array-contains", userId)));
   const chattedWith = new Set<string>();
   chatsSnap.forEach((chatDoc) => {
     const data = chatDoc.data() as { users?: string[]; status?: "pending" | "active" | string };
     const status = data.status;
     const isActiveOrPending = status === "pending" || status === "active";
     if (!isActiveOrPending) return;
+
     const users = Array.isArray(data.users) ? data.users : [];
     const counterpart = users.find((uid) => uid !== userId);
     if (typeof counterpart === "string" && counterpart) chattedWith.add(counterpart);
   });
 
+  return { swipedTo, chattedWith };
+}
+
+async function getPotentialCandidateRecords(userId: string): Promise<CandidateMatchRecord[]> {
+  const usersRef = collection(db, "users");
+  const { swipedTo, chattedWith } = await getExcludedCandidateIds(userId);
   const usersSnap = await getDocs(usersRef);
-  const candidates: RoommateProfile[] = [];
+
+  const candidateEntries: { uid: string; profile: RoommateProfile }[] = [];
 
   usersSnap.forEach((u) => {
     const uid = u.id;
     if (!uid || uid === userId || swipedTo.has(uid) || chattedWith.has(uid)) return;
 
     const data = u.data() as FirestoreUserDoc;
-    candidates.push(normalizeCandidate(uid, data));
+    candidateEntries.push({ uid, profile: normalizeCandidate(uid, data) });
   });
 
-  return candidates;
+  const quizEntries = await Promise.all(
+    candidateEntries.map(async ({ uid, profile }) => {
+      const quizSnap = await getDoc(doc(db, "quiz_answers", uid));
+      const quizData = quizSnap.exists() ? (quizSnap.data() as FirestoreQuizDoc) : null;
+
+      return {
+        profile,
+        quizAnswers: quizData?.answers ?? {},
+      } satisfies CandidateMatchRecord;
+    }),
+  );
+
+  return quizEntries;
+}
+
+function buildChatRoomId(userA: string, userB: string): string {
+  return [userA, userB].sort().join("_");
+}
+
+export async function getCandidates(userId: string): Promise<RoommateProfile[]> {
+  const records = await getPotentialCandidateRecords(userId);
+  return records.map((record) => record.profile);
+}
+
+export async function getCandidateMatchRecords(userId: string): Promise<CandidateMatchRecord[]> {
+  return getPotentialCandidateRecords(userId);
 }
 
 export async function postSwipe(

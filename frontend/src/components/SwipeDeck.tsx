@@ -132,6 +132,17 @@ const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck(
 
   const renderCard = (p: RoommateProfile) => (
     <View style={styles.card}>
+      {typeof p.matchScore === "number" && (
+        <LinearGradient
+          colors={[colors.brandTertiary, colors.brand]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.matchBadge}
+        >
+          <Ionicons name="sparkles" size={12} color={colors.onSurfaceInverse} />
+          <Text style={styles.matchBadgeText}>{`${Math.max(0, Math.min(100, Math.round(p.matchScore)))}% Match`}</Text>
+        </LinearGradient>
+      )}
       {p.photo?.trim() ? (
         <Image
           source={{ uri: p.photo }}
@@ -207,6 +218,26 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceTertiary,
     overflow: "hidden",
   },
+  matchBadge: {
+    position: "absolute",
+    top: spacing.md,
+    right: spacing.md,
+    zIndex: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.24)",
+    shadowColor: colors.surfaceInverse,
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+  },
+  matchBadgeText: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onSurfaceInverse },
   photo: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
   photoFallbackWrap: {
     ...StyleSheet.absoluteFillObject,
