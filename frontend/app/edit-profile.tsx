@@ -216,7 +216,7 @@ export default function EditProfileScreen() {
 
     const hasOnlyDigits = /^\d+$/.test(rawBudget);
     const parsedBudget = Number(rawBudget);
-    const isBudgetValid = hasOnlyDigits && !Number.isNaN(parsedBudget) && parsedBudget > 0;
+    const isBudgetValid = !(budget === null) || (hasOnlyDigits && !Number.isNaN(parsedBudget) && parsedBudget > 0);
     if (!isBudgetValid) {
       setBudgetError("Please enter a valid budget greater than 0");
       setCityError(false);
@@ -264,7 +264,7 @@ export default function EditProfileScreen() {
       // Clear profile setup flag if this was a post-login flow
       if (auth.needsProfileSetup) {
         console.log("[EditProfile] → Clearing profile setup flag");
-        auth.clearProfileSetup();
+        await auth.clearProfileSetup();
         console.log("[EditProfile] ✓ Profile setup flag cleared");
         console.log("[EditProfile] → Navigating to roommates...");
         router.replace("/(tabs)/roommates");
@@ -896,7 +896,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
-    backgroundColor: "rgba(17,17,17,0.9)",
+    backgroundColor: colors.surfaceSecondary,
     borderTopWidth: 1,
     borderTopColor: colors.border,
     gap: spacing.sm,

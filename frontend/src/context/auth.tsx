@@ -47,7 +47,7 @@ interface AuthContextValue {
   continueAsGuest: () => Promise<void>;
   logout: () => Promise<void>;
   enterGuestMode: () => Promise<void>;
-  clearProfileSetup: () => void;
+  clearProfileSetup: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -63,16 +63,35 @@ function mapFirebaseUser(firebaseUser: FirebaseUser): AuthUser {
   };
 }
 
-async function syncUserDocument(firebaseUser: FirebaseUser): Promise<void> {
+interface SyncUserDocumentOptions {
+  email?: string | null;
+  name?: string | null;
+  needsProfileSetup?: boolean;
+}
+
+async function syncUserDocument(
+  firebaseUser: FirebaseUser,
+  options: SyncUserDocumentOptions = {},
+): Promise<boolean> {
   const userRef = doc(db, "users", firebaseUser.uid);
   const userSnap = await getDoc(userRef);
+  const existingData = userSnap.exists() ? userSnap.data() : null;
+  const resolvedNeedsProfileSetup =
+    typeof options.needsProfileSetup === "boolean"
+      ? options.needsProfileSetup
+      : typeof existingData?.needsProfileSetup === "boolean"
+        ? existingData.needsProfileSetup
+        : false;
+  const resolvedName = options.name ?? firebaseUser.displayName ?? null;
+  const resolvedEmail = options.email ?? firebaseUser.email ?? null;
 
   const payload: Record<string, unknown> = {
-    email: firebaseUser.email ?? null,
-    name: firebaseUser.displayName ?? null,
+    email: resolvedEmail,
+    name: resolvedName,
     photoUrl: firebaseUser.photoURL ?? "",
     photos: firebaseUser.photoURL ? [firebaseUser.photoURL] : [],
     authProvider: firebaseUser.providerData?.[0]?.providerId ?? "password",
+    needsProfileSetup: resolvedNeedsProfileSetup,
     lastLoginAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   };
@@ -101,6 +120,7 @@ async function syncUserDocument(firebaseUser: FirebaseUser): Promise<void> {
   }
 
   await setDoc(userRef, payload, { merge: true });
+  return resolvedNeedsProfileSetup;
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -196,9 +216,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const loginEmail = useCallback(
     async (email: string, password: string) => {
       const userCredential = await signInWithEmailAndPassword(firebaseAuth, email.trim(), password);
-      await syncUserDocument(userCredential.user);
+      const needsSetup = await syncUserDocument(userCredential.user);
       const idToken = await userCredential.user.getIdToken();
-      await persist(idToken, mapFirebaseUser(userCredential.user), false);
+      await persist(idToken, mapFirebaseUser(userCredential.user), needsSetup);
     },
     [persist],
   );
@@ -212,7 +232,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await updateProfile(userCredential.user, { displayName: trimmedName });
       }
 
-      await syncUserDocument(userCredential.user);
+      await syncUserDocument(userCredential.user, {
+        email: email.trim(),
+        name: trimmedName || userCredential.user.displayName,
+        needsProfileSetup: true,
+      });
       const idToken = await userCredential.user.getIdToken();
       await persist(idToken, mapFirebaseUser(userCredential.user), true);
     },
@@ -241,9 +265,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const firebaseToken = await firebaseUser.getIdToken();
     const mappedUser = mapFirebaseUser(firebaseUser);
     const additionalUserInfo = getAdditionalUserInfo(userCredential);
+    const needsSetup = await syncUserDocument(firebaseUser, {
+      needsProfileSetup: additionalUserInfo?.isNewUser === true ? true : undefined,
+    });
 
-    await syncUserDocument(firebaseUser);
-    await persist(firebaseToken, mappedUser, additionalUserInfo?.isNewUser === true);
+    await persist(firebaseToken, mappedUser, needsSetup);
     return mappedUser;
   }, [promptAsync, request, persist]);
 
@@ -251,10 +277,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await enterGuestMode();
   }, [enterGuestMode]);
 
-  const clearProfileSetup = useCallback(() => {
+  const clearProfileSetup = useCallback(async () => {
     setNeedsProfileSetup(false);
-    storage.removeItem(SETUP_KEY);
-  }, []);
+    if (user?.user_id) {
+      await setDoc(
+        doc(db, "users", user.user_id),
+        {
+          needsProfileSetup: false,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+    }
+    await storage.removeItem(SETUP_KEY);
+  }, [user]);
 
   const logout = useCallback(async () => {
     try {

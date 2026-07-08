@@ -279,7 +279,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: spacing.sm,
   },
-  emptyTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface },
+  emptyTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface, textAlign: "center"  },
   emptySub: { fontFamily: fonts.regular, fontSize: fontSize.lg, color: colors.onSurfaceTertiary, textAlign: "center" },
   emptyBtn: {
     flexDirection: "row",

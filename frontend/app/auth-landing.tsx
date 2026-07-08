@@ -20,8 +20,10 @@ export default function AuthLandingScreen() {
     try {
       setGoogleLoading(true);
       console.log("[AuthLanding] -> User tapped Google Sign-In button");
-      await auth.signInWithGoogle();
-      router.replace("/");
+      const user = await auth.signInWithGoogle();
+      if (user) {
+        router.replace("/");
+      }
     } catch (err: any) {
       console.error("[AuthLanding] X Google login error:", err);
     } finally {

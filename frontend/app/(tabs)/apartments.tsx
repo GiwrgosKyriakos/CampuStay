@@ -369,7 +369,13 @@ export default function ApartmentsScreen() {
               onPress={() => setShowOnlyLiked(true)}
               testID="apartments-view-liked"
             >
-              <Text style={[styles.viewToggleText, showOnlyLiked && styles.viewToggleTextActive]}>{t("apartments.liked")}</Text>
+              <Text 
+                style={[styles.viewToggleText, showOnlyLiked && styles.viewToggleTextActive]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+              >
+                {t("apartments.liked")}
+              </Text>
             </Pressable>
           </View>
         </View>
@@ -554,33 +560,40 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: spacing.sm,
     backgroundColor: "#D9F0FF",
     borderRadius: radius.pill,
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
+    height: 46,
     borderWidth: 1,
     borderColor: "#A8D9FF",
   },
   filterToggleActive: { backgroundColor: "#C8E9FF" },
-  filterToggleText: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onBrandTertiary },
+  filterToggleText: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onBrandTertiary, 
+    // --- ΠΡΟΣΘΗΚΕΣ ΓΙΑ ΚΕΝΤΡΑΡΙΣΜΑ ---
+    includeFontPadding: false,  // 1. Αφαιρεί το κρυφό έξτρα padding του Android
+    textAlignVertical: "center", // 2. Αναγκάζει το κείμενο να κάθισε στο κέντρο του
+    transform: [{ translateY: -1 }] // 3. (Προαιρετικό) "Κλέβει" 1 pixel προς τα πάνω αν το font σου είναι πολύ περίεργο
+   },
   viewToggle: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#D9F0FF",
     borderRadius: radius.pill,
-    padding: 4,
+    height: 46,
     borderWidth: 1,
     borderColor: "#A8D9FF",
   },
   viewToggleOption: {
     flex: 1,
+    height: "100%",
     alignItems: "center",
     justifyContent: "center",
     borderRadius: radius.pill,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    // paddingVertical: spacing.sm,
   },
   viewToggleOptionActive: {
     backgroundColor: colors.brand,
@@ -589,6 +602,10 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
     fontSize: fontSize.base,
     color: colors.onBrandTertiary,
+    // --- ΠΡΟΣΘΗΚΕΣ ΓΙΑ ΚΕΝΤΡΑΡΙΣΜΑ ---
+    includeFontPadding: false,  // 1. Αφαιρεί το κρυφό έξτρα padding του Android
+    textAlignVertical: "center", // 2. Αναγκάζει το κείμενο να κάθισε στο κέντρο του
+    transform: [{ translateY: -1 }] // 3. (Προαιρετικό) "Κλέβει" 1 pixel προς τα πάνω αν το font σου είναι πολύ περίεργο
   },
   viewToggleTextActive: {
     color: colors.onBrand,
@@ -631,7 +648,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 2,
   },
-  switchText: { fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onSurface },
+  switchText: { 
+    fontFamily: fonts.semibold, 
+    fontSize: fontSize.base, 
+    color: colors.onSurface,
+  },
+
   list: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, gap: spacing.lg },
   cardWrap: { position: "relative" },
   card: {

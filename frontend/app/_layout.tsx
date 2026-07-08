@@ -1,5 +1,6 @@
 import { Stack, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
+//import * as NavigationBar from "expo-navigation-bar";
 import { useEffect, useState } from "react";
 import { LogBox } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -73,42 +74,18 @@ function AppContent() {
       SplashScreen.hideAsync().catch((err) => {
         console.warn("[App] Splash screen hide failed:", err);
       });
+      // NavigationBar.setBackgroundColorAsync("transparent");
+      // NavigationBar.setButtonStyleAsync("light");
     }
   }, [appReady]);
 
   useEffect(() => {
-    // Αν ακόμα φορτώνουν τα fonts ή το auth state από το Firebase, περιμένουμε
-    if (!authReady) return;
+  if (!authReady) return;
 
-    // Βοηθητικές μεταβλητές για να ξέρουμε σε ποιο "γκρουπ" σελίδων βρίσκεται ο χρήστης τώρα
-    const inTabs = topSegment === "(tabs)";
-    const inEditProfile = topSegment === "edit-profile";
-
-    if (isUnauthenticated) {
-      // Σενάριο 1: Δεν είναι συνδεδεμένος και δεν είναι guest -> Πάει στην Auth οθόνη
-      if (!isAuthRoute) {
-        router.replace("/auth-landing");
-      }
-    } else if (auth.isLoggedIn) {
-      // Σενάριο 2: Είναι κανονικά συνδεδεμένος (Mail, Google, Τηλέφωνο)
-      if (auth.needsProfileSetup) {
-        // Πρέπει να φτιάξει προφίλ για πρώτη φορά -> Πάει στο edit-profile
-        if (!inEditProfile) {
-          router.replace("/edit-profile");
-        }
-      } else {
-        // Έχει έτοιμο προφίλ -> Πάει στην αρχική (Roommates)
-        if (!inTabs) {
-          router.replace("/(tabs)/roommates");
-        }
-      }
-    } else if (auth.isGuestMode) {
-      // Σενάριο 3: Συνεχίζει ως Guest -> Πάει κατευθείαν στην αρχική (Roommates)
-      if (!inTabs) {
-        router.replace("/(tabs)/roommates");
-      }
-    }
-  }, [authReady, isUnauthenticated, isAuthRoute, topSegment, auth.isLoggedIn, auth.isGuestMode, auth.needsProfileSetup, router]);
+  if (isUnauthenticated && !isAuthRoute) {
+    router.replace("/auth-landing");
+  }
+}, [authReady, isUnauthenticated, isAuthRoute, router, segments]);
   
   if (!fontsReady || !authReady) {
     console.log("[App] Waiting for app readiness...", { fontsReady, authReady });
