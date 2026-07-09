@@ -57,7 +57,7 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
   const draftRef = useRef(draft);
   const modalRef = useRef<BottomSheetModal>(null);
   const isPresentedRef = useRef(false);
-  const snapPoints = useMemo(() => ["88.6%"], []);
+  const snapPoints = useMemo(() => ["86.4%"], []);
   const actionsBottomOffset = 0 // Math.max(insets.bottom + spacing.md, 40);
   const actionsTopOffset = 0 //Math.max(insets.top + spacing.md, 40);
 
@@ -137,7 +137,6 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
     >
       <BottomSheetView style={[styles.sheetBody, { paddingBottom: insets.bottom + spacing.lg }]}> 
         <View style={[styles.sheetHandleArea]}>
-          <View style={styles.handleIndicator} />
           <View style={styles.headerRow}>
             <View>
               <Text style={styles.title} testID="filter-sheet-title">

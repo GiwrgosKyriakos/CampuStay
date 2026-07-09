@@ -29,17 +29,35 @@ function normalizeMatchGender(gender: string | null | undefined): MatchUserProfi
 }
 
 function buildCompatibilityQuiz(answers: Record<string, string>): CompatibilityQuizAnswers {
-  const quiz: CompatibilityQuizAnswers = {};
+  // 1. Δηλώνουμε το quiz ως any προσωρινά για να μας αφήσει να το γεμίσουμε ελεύθερα
+  const quiz: any = {};
 
-  (Object.keys(answers) as (keyof CompatibilityQuiz)[]).forEach((key) => {
+  // 2. Κάνουμε ένα απλό, καθαρό loop χωρίς πολύπλοκα τρέιλερ από casts
+  Object.keys(answers).forEach((key) => {
     const value = answers[key];
+    
     if (typeof value === "string" && value.trim().length > 0) {
-      quiz[key] = value as CompatibilityQuiz[typeof key];
+      // Τώρα το TypeScript δεν παραπονιέται καθόλου εδώ!
+      quiz[key] = value;
     }
   });
 
-  return quiz;
+  // 3. Εδώ γίνεται η μαγεία: Επιστρέφουμε το έτοιμο αντικείμενο κάνοντάς το cast ΜΙΑ ΚΑΙ ΕΞΩ
+  return quiz as CompatibilityQuizAnswers;
 }
+
+//function buildCompatibilityQuiz(answers: Record<string, string>): CompatibilityQuizAnswers {
+//  const quiz: CompatibilityQuizAnswers = {};
+
+//  (Object.keys(answers) as (keyof CompatibilityQuiz)[]).forEach((key) => {
+//    const value = answers[key];
+//    if (typeof value === "string" && value.trim().length > 0) {
+//      quiz[key] = value as CompatibilityQuiz[typeof key];
+//    }
+//  });
+
+//  return quiz;
+//}
 
 function toMatchProfile(
   userId: string,
@@ -266,7 +284,7 @@ useEffect(() => {
             currency={CURRENCY}
             onLike={onLike}
             onNope={onNope}
-            onSwipeAction={ActionFeedbacktrigger}
+            onSwipeAction={triggerActionFeedback}
             onEmptyReset={handleDeckReset}
           />
         )}
