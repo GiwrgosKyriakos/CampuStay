@@ -266,7 +266,7 @@ useEffect(() => {
             currency={CURRENCY}
             onLike={onLike}
             onNope={onNope}
-            ///onSwipeAction={ActionFeedbacktrigger}
+            onSwipeAction={ActionFeedbacktrigger}
             onEmptyReset={handleDeckReset}
           />
         )}
