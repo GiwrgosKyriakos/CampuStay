@@ -44,7 +44,7 @@ export default function EditProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const auth = useAuth();
-  const scrollRef = useRef<KeyboardAwareScrollView | null>(null);
+  const scrollRef = useRef<React.ElementRef<typeof KeyboardAwareScrollView> | null>(null);
 
   const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -209,7 +209,7 @@ export default function EditProfileScreen() {
       setBudgetError(null);
       setError(null);
       requestAnimationFrame(() => {
-        scrollRef.current?.scrollToPosition?.(0, Math.max(0, cityOffsetY - spacing.lg * 2), true);
+        scrollRef.current?.scrollTo?.({ x: 0, y: Math.max(0, cityOffsetY - spacing.lg * 2), animated: true });
       });
       return;
     }

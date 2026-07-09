@@ -5,7 +5,6 @@ import {
   BottomSheetBackdrop,
   BottomSheetModal,
   BottomSheetView,
-  BottomSheetHandle,
   type BottomSheetBackdropProps,
 } from "@gorhom/bottom-sheet";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -120,6 +119,8 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
     onClose();
   }, [onChange, onClose]);
 
+  const [isSliding, setIsSliding] = useState(false);
+
   return (
     <BottomSheetModal
       ref={modalRef}
@@ -130,13 +131,13 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
       onDismiss={handleDismiss}
       enablePanDownToClose
       enableHandlePanningGesture
-      enableContentPanningGesture
+      enableContentPanningGesture={!isSliding} // <- Αν sliding=true, τότε το panning γίνεται false!
       handleIndicatorStyle={styles.handleIndicator}
       backgroundStyle={styles.sheetBackground}
     >
       <BottomSheetView style={[styles.sheetBody, { paddingBottom: insets.bottom + spacing.lg }]}> 
         <View style={[styles.sheetHandleArea]}>
-          <BottomSheetHandle indicatorStyle={styles.hiddenIndicator} />
+          <View style={styles.handleIndicator} />
           <View style={styles.headerRow}>
             <View>
               <Text style={styles.title} testID="filter-sheet-title">
@@ -174,30 +175,38 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
                 {draft.ageMin} – {draft.ageMax}
               </Text>
             </View>
-            <PreferenceSlider
-              label={t("filters.minimumAge")}
-              minimum={18}
-              maximum={40}
-              step={1}
-              value={draft.ageMin}
-              lowerBound={18}
-              upperBound={draft.ageMax}
-              onChange={(value) => set({ ageMin: value })}
-              onCommit={(value) => setAndCommit({ ageMin: value })}
-              testID="filter-age-min-slider"
-            />
-            <PreferenceSlider
-              label={t("filters.maximumAge")}
-              minimum={18}
-              maximum={40}
-              step={1}
-              value={draft.ageMax}
-              lowerBound={draft.ageMin}
-              upperBound={40}
-              onChange={(value) => set({ ageMax: value })}
-              onCommit={(value) => setAndCommit({ ageMax: value })}
-              testID="filter-age-max-slider"
-            />
+            <View onTouchStart={() => setIsSliding(true)}  // Μόλις το ακουμπάει, "παγώνει" το modal
+              onTouchEnd={() => setIsSliding(false)}   // Μόλις το αφήνει, ξεπαγώνει
+            >
+              <PreferenceSlider
+                label={t("filters.minimumAge")}
+                minimum={18}
+                maximum={40}
+                step={1}
+                value={draft.ageMin}
+                lowerBound={18}
+                upperBound={draft.ageMax}
+                onChange={(value) => set({ ageMin: value })}
+                onCommit={(value) => setAndCommit({ ageMin: value })}
+                testID="filter-age-min-slider"
+              />
+            </View>
+            <View onTouchStart={() => setIsSliding(true)}  // Μόλις το ακουμπάει, "παγώνει" το modal
+              onTouchEnd={() => setIsSliding(false)}   // Μόλις το αφήνει, ξεπαγώνει
+            >
+              <PreferenceSlider
+                label={t("filters.maximumAge")}
+                minimum={18}
+                maximum={40}
+                step={1}
+                value={draft.ageMax}
+                lowerBound={draft.ageMin}
+                upperBound={40}
+                onChange={(value) => set({ ageMax: value })}
+                onCommit={(value) => setAndCommit({ ageMax: value })}
+                testID="filter-age-max-slider"
+              />
+            </View>
 
             <View style={styles.rowBetween}>
               <Text style={styles.label}>{t("filters.maxBudget")}</Text>
@@ -206,19 +215,23 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
                 {draft.budgetMax}{t("common.format.perMonthShort")}
               </Text>
             </View>
-            <PreferenceSlider
-              label={t("filters.budget")}
-              minimum={300}
-              maximum={1500}
-              step={50}
-              value={draft.budgetMax}
-              lowerBound={300}
-              upperBound={1500}
-              onChange={(value) => set({ budgetMax: value })}
-              onCommit={(value) => setAndCommit({ budgetMax: value })}
-              valueFormatter={(value) => `${currency}${value}${t("common.format.perMonthShort")}`}
-              testID="filter-budget-slider"
-            />
+            <View onTouchStart={() => setIsSliding(true)}  // Μόλις το ακουμπάει, "παγώνει" το modal
+                  onTouchEnd={() => setIsSliding(false)}   // Μόλις το αφήνει, ξεπαγώνει
+            >
+              <PreferenceSlider
+                label={t("filters.budget")}
+                minimum={300}
+                maximum={1500}
+                step={1}
+                value={draft.budgetMax}
+                lowerBound={300}
+                upperBound={1500}
+                onChange={(value) => set({ budgetMax: value })}
+                onCommit={(value) => setAndCommit({ budgetMax: value })}
+                valueFormatter={(value) => `${currency}${value}${t("common.format.perMonthShort")}`}
+                testID="filter-budget-slider"
+                />
+            </View>
 
             <View style={[styles.actions, { marginBottom: actionsBottomOffset }, { marginTop: actionsTopOffset }]}>
               <Pressable
@@ -310,7 +323,6 @@ function PreferenceSlider({
         onValueChange={(next) => {
           const clamped = clampValue(next);
           setLiveValue(clamped);
-          onChange(clamped);
         }}
         onSlidingComplete={(next) => {
           const clamped = clampValue(next);
@@ -327,17 +339,14 @@ function PreferenceSlider({
 const styles = StyleSheet.create({
   sheetBackground: {
     backgroundColor: colors.surface,
-    borderTopLeftRadius: radius.xl,
-    borderTopRightRadius: radius.xl,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
   },
   handleIndicator: {
     width: 48,
     height: 5,
     borderRadius: radius.pill,
     backgroundColor: colors.borderStrong,
-  },
-  hiddenIndicator: {
-    opacity: 0,
   },
   sheetBody: { flex: 1 },
   sheetHandleArea: { paddingTop: spacing.sm, paddingBottom: spacing.sm, paddingHorizontal: spacing.xl },
@@ -381,11 +390,11 @@ const styles = StyleSheet.create({
   resetText: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface },
   applyBtn: {
     flex: 1,
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.lg,
     borderRadius: radius.pill,
     backgroundColor: colors.brand,
     alignItems: "center",
     justifyContent: "center",
   },
-  applyText: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onBrand },
+  applyText: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onBrand, textAlign: "center" },
 });

@@ -315,7 +315,20 @@ export default function MatchesScreen() {
 
   return (
     <View style={styles.container} testID="matches-screen">
-      <View style={[styles.toggleShell, { marginTop: insets.top + spacing.sm, marginHorizontal: spacing.lg }]}> 
+      <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}> 
+        <Text style={styles.title}>{t("matches.title")}</Text>
+        <Text style={styles.subtitle}>
+          {auth.isGuest
+            ? t("matches.subtitleGuest")
+            : matches.length > 0
+            ? t("matches.subtitleCount", {
+                count: matches.length,
+                roommateLabel: matches.length === 1 ? t("matches.roommateSingular") : t("matches.roommatePlural"),
+              })
+            : t("matches.subtitleNone")}
+        </Text>
+      </View>
+      <View style={[styles.toggleShell, { marginHorizontal: spacing.lg }]}> 
         <Pressable
           style={[styles.toggleOption, selectedChatType === "roommate" && styles.toggleOptionActive]}
           onPress={() => setSelectedChatType("roommate")}
@@ -334,19 +347,6 @@ export default function MatchesScreen() {
             Ιδιοκτήτες
           </Text>
         </Pressable>
-      </View>
-      <View style={styles.header}> 
-        <Text style={styles.title}>{t("matches.title")}</Text>
-        <Text style={styles.subtitle}>
-          {auth.isGuest
-            ? t("matches.subtitleGuest")
-            : matches.length > 0
-            ? t("matches.subtitleCount", {
-                count: matches.length,
-                roommateLabel: matches.length === 1 ? t("matches.roommateSingular") : t("matches.roommatePlural"),
-              })
-            : t("matches.subtitleNone")}
-        </Text>
       </View>
 
       {auth.isGuest ? (
