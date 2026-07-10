@@ -7,6 +7,7 @@ import * as Linking from "expo-linking";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import { GuestModeStickyFooter, GuestModeTopBanner } from "@/src/components/GuestModeLayout";
+import ScreenHeader from "@/src/components/ScreenHeader";
 import { useAuth } from "@/src/context/auth";
 import { t } from "@/src/locales";
 
@@ -46,17 +47,22 @@ export default function HelpSupportScreen() {
 
   return (
     <View style={styles.root}>
+      <ScreenHeader
+        title={t("helpSupport.title")}
+        onBackPress={() => router.back()}
+        backButtonTestID="help-support-back-button"
+      />
+
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={[
           styles.contentContainer,
-          { paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + (auth.isGuest ? STICKY_FOOTER_PADDING : spacing.xl) },
+          { paddingBottom: insets.bottom + (auth.isGuest ? STICKY_FOOTER_PADDING : spacing.xl) },
         ]}
         showsVerticalScrollIndicator={false}
         testID="help-support-screen"
       >
         <View style={styles.header}>
-          <Text style={styles.title}>{t("helpSupport.title")}</Text>
           <Text style={styles.subtitle}>{t("helpSupport.subtitle")}</Text>
         </View>
 
@@ -141,9 +147,8 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.surface },
   scroll: { flex: 1 },
   contentContainer: { minHeight: "100%", paddingHorizontal: spacing.lg },
-  header: { marginBottom: spacing.xl },
+  header: { marginTop: spacing.lg, marginBottom: spacing.xl },
   container: { backgroundColor: colors.surface, paddingHorizontal: spacing.lg },
-  title: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface, marginBottom: spacing.sm },
   subtitle: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary, marginBottom: spacing.lg },
   accordion: {
     backgroundColor: colors.surfaceSecondary,

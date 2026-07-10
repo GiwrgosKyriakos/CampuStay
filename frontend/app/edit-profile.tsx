@@ -21,6 +21,7 @@ import * as ImagePicker from "expo-image-picker";
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import Dropdown from "@/src/components/Dropdown";
 import { GuestModeStickyFooter, GuestModeTopBanner } from "@/src/components/GuestModeLayout";
+import ScreenHeader from "@/src/components/ScreenHeader";
 import { getUserId } from "@/src/utils/userId";
 import { getUserProfile, saveUserProfile, UserProfile } from "@/src/api/userProfile";
 import { useAuth } from "@/src/context/auth";
@@ -311,24 +312,16 @@ export default function EditProfileScreen() {
 
   return (
     <View style={styles.container} testID="edit-profile-screen">
-      {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
-        <Pressable
-          style={[styles.iconBtn, auth.needsProfileSetup && styles.iconBtnDisabled]}
-          onPress={() => {
-            if (!auth.needsProfileSetup) {
-              router.back();
-            }
-          }}
-          disabled={auth.needsProfileSetup}
-          testID="edit-back-button"
-          hitSlop={8}
-        >
-          <Ionicons name="chevron-back" size={24} color={colors.onSurface} />
-        </Pressable>
-        <Text style={styles.headerTitle}>{t("editProfile.title")}</Text>
-        <View style={{ width: 40 }} />
-      </View>
+      <ScreenHeader
+        title={t("editProfile.title")}
+        onBackPress={() => {
+          if (!auth.needsProfileSetup) {
+            router.back();
+          }
+        }}
+        backDisabled={auth.needsProfileSetup}
+        backButtonTestID="edit-back-button"
+      />
 
       <KeyboardAwareScrollView
         ref={scrollRef}
@@ -702,28 +695,6 @@ export default function EditProfileScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
   center: { alignItems: "center", justifyContent: "center" },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.md,
-    backgroundColor: colors.surfaceSecondary,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  iconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: radius.pill,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.surfaceTertiary,
-  },
-  iconBtnDisabled: {
-    opacity: 0.5,
-  },
-  headerTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize.xl, color: colors.onSurface },
   scroll: { padding: spacing.lg, gap: spacing.lg },
   card: {
     backgroundColor: colors.surfaceSecondary,

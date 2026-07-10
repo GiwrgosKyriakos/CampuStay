@@ -1,10 +1,10 @@
 import React from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
+import { View, Text, StyleSheet, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
 
 import { colors, spacing, fonts, fontSize } from "@/src/theme";
+import ScreenHeader from "@/src/components/ScreenHeader";
 import { formatMonthYear, t } from "@/src/locales";
 
 export default function PrivacyPolicyScreen() {
@@ -13,19 +13,20 @@ export default function PrivacyPolicyScreen() {
 
   return (
     <View style={styles.container}>
+      <ScreenHeader
+        title={t("privacyPolicy.title")}
+        onBackPress={() => router.back()}
+        backButtonTestID="privacy-policy-back-button"
+      />
+
       <ScrollView
         contentContainerStyle={[
           styles.content,
-          { paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + spacing.xl },
+          { paddingBottom: insets.bottom + spacing.xl },
         ]}
         showsVerticalScrollIndicator={false}
         testID="privacy-policy-screen"
       >
-        <Pressable style={styles.backButton} onPress={() => router.back()} testID="privacy-policy-back-button">
-          <Ionicons name="chevron-back" size={22} color={colors.onSurface} />
-          <Text style={styles.backText}>{t("common.actions.back")}</Text>
-        </Pressable>
-
         <Text style={styles.title}>{t("privacyPolicy.title")}</Text>
         <Text style={styles.updated}>{t("privacyPolicy.lastUpdated", { date: formatMonthYear(new Date(2026, 6, 1)) })}</Text>
 
@@ -51,21 +52,11 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: spacing.lg,
-  },
-  backButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    alignSelf: "flex-start",
-    marginBottom: spacing.lg,
-  },
-  backText: {
-    fontFamily: fonts.semibold,
-    fontSize: fontSize.base,
-    color: colors.onSurface,
+    paddingTop: spacing.lg,
   },
   title: {
     fontFamily: fonts.displayExtra,
-    fontSize: fontSize["3xl"],
+    fontSize: fontSize["2xl"],
     color: colors.onSurface,
     marginBottom: spacing.sm,
   },

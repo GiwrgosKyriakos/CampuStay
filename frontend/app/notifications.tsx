@@ -14,6 +14,7 @@ import { useAuth } from "@/src/context/auth";
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import { getUserSettings, saveUserNotifications } from "@/src/api/accountSettings";
 import { GuestModeStickyFooter, GuestModeTopBanner } from "@/src/components/GuestModeLayout";
+import ScreenHeader from "@/src/components/ScreenHeader";
 import { t } from "@/src/locales";
 
 const NOTIFICATION_ROWS = [
@@ -104,17 +105,22 @@ export default function NotificationsScreen() {
 
   return (
     <View style={styles.root}>
+      <ScreenHeader
+        title={t("notifications.title")}
+        onBackPress={() => router.back()}
+        backButtonTestID="notifications-back-button"
+      />
+
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={[
           styles.contentContainer,
-          { paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + (isGuest ? STICKY_FOOTER_PADDING : spacing.xl) },
+          { paddingBottom: insets.bottom + (isGuest ? STICKY_FOOTER_PADDING : spacing.xl) },
         ]}
         showsVerticalScrollIndicator={false}
         testID="notifications-screen"
       >
         <View style={styles.header}>
-          <Text style={styles.title}>{t("notifications.title")}</Text>
           <Text style={styles.subtitle}>{t("notifications.subtitle")}</Text>
         </View>
 
@@ -139,7 +145,7 @@ export default function NotificationsScreen() {
                   value={preferences[row.id]}
                   onValueChange={(value) => updatePreference(row.id, value)}
                   disabled={isGuest}
-                  trackColor={{ false: isGuest ? colors.border : colors.muted, true: isGuest ? colors.surfaceSecondary : colors.brand }}
+                  trackColor={{ false: isGuest ? colors.muted : colors.muted, true: isGuest ? colors.surfaceSecondary : colors.brand }}
                   thumbColor={isGuest ? colors.surface : preferences[row.id] ? colors.surface : colors.surface}
                 />
               </View>
@@ -165,11 +171,10 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.surface },
   scroll: { flex: 1, backgroundColor: colors.surface },
   contentContainer: { minHeight: "100%", paddingHorizontal: spacing.lg, justifyContent: "center" },
-  header: { marginBottom: spacing.xl, alignItems: "center" },
+  header: { marginTop: spacing.lg, marginBottom: spacing.xl, alignItems: "center" },
   centerBlock: { flex: 1, justifyContent: "center", gap: spacing.sm },
   container: { backgroundColor: colors.surface, paddingHorizontal: spacing.lg },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  title: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface, marginBottom: spacing.sm },
   subtitle: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary, textAlign: "center" },
   settingRow: {
     flexDirection: "row",
