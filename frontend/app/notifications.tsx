@@ -139,8 +139,8 @@ export default function NotificationsScreen() {
                   value={preferences[row.id]}
                   onValueChange={(value) => updatePreference(row.id, value)}
                   disabled={isGuest}
-                  trackColor={{ false: isGuest ? colors.border : colors.surfaceSecondary, true: isGuest ? colors.onSurfaceTertiary : colors.brand }}
-                  thumbColor={isGuest ? colors.surfaceTertiary : preferences[row.id] ? colors.surface : colors.surfaceSecondary}
+                  trackColor={{ false: isGuest ? colors.border : colors.muted, true: isGuest ? colors.surfaceSecondary : colors.brand }}
+                  thumbColor={isGuest ? colors.surface : preferences[row.id] ? colors.surface : colors.surface}
                 />
               </View>
             </View>

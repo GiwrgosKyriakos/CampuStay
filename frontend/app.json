@@ -19,6 +19,11 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "io.github.giwrgoskyriakos.CampuStay",
+      "googleServicesFile": "./google-services.json",
+      "navigationBar": {
+        "backgroundColor": "#00000000",
+        "barStyle": "light-content"
+      },
       "permissions": [
         "android.permission.RECORD_AUDIO"
       ]

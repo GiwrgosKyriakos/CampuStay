@@ -1,6 +1,6 @@
 import { Stack, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-//import * as NavigationBar from "expo-navigation-bar";
+import * as NavigationBar from "expo-navigation-bar";
 import { useEffect, useState } from "react";
 import { LogBox } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -9,6 +9,7 @@ import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { useFonts } from "expo-font";
 import { StatusBar } from "expo-status-bar";
+import { Platform } from 'react-native';
 
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { colors } from "@/src/theme";
@@ -74,8 +75,10 @@ function AppContent() {
       SplashScreen.hideAsync().catch((err) => {
         console.warn("[App] Splash screen hide failed:", err);
       });
-      // NavigationBar.setBackgroundColorAsync("transparent");
-      // NavigationBar.setButtonStyleAsync("light");
+      if (Platform.OS === 'android') {
+        NavigationBar.setBackgroundColorAsync("transparent");
+        NavigationBar.setButtonStyleAsync("light");
+      }
     }
   }, [appReady]);
 
@@ -114,10 +117,39 @@ function AppContent() {
 export default function RootLayout() {
   const [splashReady, setSplashReady] = useState(false);
 
+  //useEffect(() => {
+  //  SplashScreen.preventAutoHideAsync()
+  //    .then(() => {
+  //      console.log("[App] Splash screen preventAutoHideAsync called");
+  //      setSplashReady(true);
+  //    })
+  //    .catch((err) => {
+  //      console.warn("[App] preventAutoHideAsync failed:", err);
+  //      setSplashReady(true);
+  //    });
+  //}, []);
+
   useEffect(() => {
     SplashScreen.preventAutoHideAsync()
-      .then(() => {
+      // 1. SOS: Προσθέτουμε το async πριν το () για να μπορούμε να χρησιμοποιήσουμε await
+      .then(async () => { 
         console.log("[App] Splash screen preventAutoHideAsync called");
+        
+        // 2. ΕΔΩ ΜΠΑΙΝΕΙ Η ΡΥΘΜΙΣΗ ΤΗΣ ΜΠΑΡΑΣ ΓΙΑ ANDROID
+        if (Platform.OS === 'android') {
+          try {
+            // Σπρώχνει την εφαρμογή να απλωθεί πίσω από τη μπάρα
+            await NavigationBar.setPositionAsync('absolute');
+            // Κάνει τη μπάρα 100% διάφανη
+            await NavigationBar.setBackgroundColorAsync('#00000000');
+            // Κάνει τα κουμπιά της μπάρας λευκά για να φαίνονται στο σκούρο φόντο σου
+            await NavigationBar.setButtonStyleAsync('light');
+          } catch (navError) {
+            console.warn("[App] NavigationBar setup failed:", navError);
+          }
+        }
+
+        // 3. Αφού γίνουν όλα, ενημερώνουμε ότι η splash screen είναι έτοιμη
         setSplashReady(true);
       })
       .catch((err) => {
