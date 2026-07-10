@@ -9,6 +9,7 @@ import { useAuth } from "@/src/context/auth";
 import { getUserSettings, saveUserPrivacy, PrivacyPreferences } from "@/src/api/accountSettings";
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import { GuestModeStickyFooter, GuestModeTopBanner } from "@/src/components/GuestModeLayout";
+import ScreenHeader from "@/src/components/ScreenHeader";
 import { t } from "@/src/locales";
 
 const STICKY_FOOTER_PADDING = 152;
@@ -25,6 +26,15 @@ export default function PrivacySafetyScreen() {
     blocked_profiles: [],
   });
   const [error, setError] = useState<string | null>(null);
+
+  const handleBack = useCallback(() => {
+    const routerWithCanGoBack = router as { canGoBack?: () => boolean };
+    if (routerWithCanGoBack.canGoBack?.()) {
+      router.back();
+      return;
+    }
+    router.replace("/(tabs)/profile");
+  }, [router]);
 
   useEffect(() => {
     let active = true;
@@ -96,21 +106,21 @@ export default function PrivacySafetyScreen() {
   }
 
   return (
-    <View style={styles.root}>
+    <View style={styles.container}>
+      <ScreenHeader
+        title={t("privacySafety.title")}
+        onBackPress={handleBack}
+        backButtonTestID="privacy-safety-back-button"
+      />
+
       <ScrollView
-        style={styles.scroll}
         contentContainerStyle={[
-          styles.contentContainer,
-          { paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + (auth.isGuest ? STICKY_FOOTER_PADDING : spacing.xl) },
+          styles.scroll,
+          { paddingBottom: insets.bottom + (auth.isGuest ? STICKY_FOOTER_PADDING : spacing.xl) },
         ]}
         showsVerticalScrollIndicator={false}
         testID="privacy-safety-screen"
       >
-        <View style={styles.header}>
-          <Text style={styles.title}>{t("privacySafety.title")}</Text>
-          <Text style={styles.subtitle}>{t("privacySafety.subtitle")}</Text>
-        </View>
-
         {auth.isGuest && (
           <GuestModeTopBanner
             onPress={() => router.push("/auth-landing")}
@@ -120,14 +130,14 @@ export default function PrivacySafetyScreen() {
           />
         )}
 
-        <View style={styles.toggleCard}>
-          <View style={styles.toggleHeader}>
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
             <View style={styles.iconWrap}>
               <Ionicons name="eye-outline" size={20} color={colors.onSurface} />
             </View>
-            <View style={styles.toggleText}>
-              <Text style={styles.toggleTitle}>{t("privacySafety.visibilityTitle")}</Text>
-              <Text style={styles.toggleSubtitle}>{t("privacySafety.visibilityHelp")}</Text>
+            <View style={styles.cardHeaderTextWrap}>
+              <Text style={styles.cardTitle}>{t("privacySafety.visibilityTitle")}</Text>
+              <Text style={styles.subtitle}>{t("privacySafety.visibilityHelp")}</Text>
             </View>
           </View>
           <View style={isGuest ? styles.disabledControl : undefined}>
@@ -141,7 +151,13 @@ export default function PrivacySafetyScreen() {
           </View>
         </View>
 
-        <View style={styles.settingsList}>
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <Ionicons name="shield-checkmark-outline" size={22} color={colors.onSurface} />
+            <Text style={styles.cardTitle}>{t("privacySafety.subtitle")}</Text>
+          </View>
+
+          <View style={styles.settingsList}>
           <Pressable
             style={styles.settingsRow}
             onPress={() => WebBrowser.openBrowserAsync("https://giwrgoskyriakos.github.io/CampuStay/privacy.html")}
@@ -153,10 +169,15 @@ export default function PrivacySafetyScreen() {
             <Text style={styles.settingsRowLabel}>{t("common.labels.privacyPolicy")}</Text>
             <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
           </Pressable>
+          </View>
         </View>
 
-        <View style={styles.blockedCard}>
-          <Text style={styles.blockedTitle}>{t("privacySafety.blockedTitle")}</Text>
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <Ionicons name="ban-outline" size={22} color={colors.onSurface} />
+            <Text style={styles.cardTitle}>{t("privacySafety.blockedTitle")}</Text>
+          </View>
+
           {privacy.blocked_profiles.length === 0 ? (
             <Text style={styles.blockedEmpty}>{t("privacySafety.blockedEmpty")}</Text>
           ) : (
@@ -194,23 +215,21 @@ export default function PrivacySafetyScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.surface },
-  scroll: { flex: 1 },
-  contentContainer: { minHeight: "100%", paddingHorizontal: spacing.lg },
-  header: { marginBottom: spacing.xl },
-  container: { backgroundColor: colors.surface, paddingHorizontal: spacing.lg },
+  container: { flex: 1, backgroundColor: colors.surface },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  title: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface, marginBottom: spacing.sm },
-  subtitle: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary, marginBottom: spacing.lg },
-  toggleCard: {
+  scroll: { padding: spacing.lg, gap: spacing.lg },
+  card: {
     backgroundColor: colors.surfaceSecondary,
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
     padding: spacing.lg,
-    marginBottom: spacing.lg,
+    gap: spacing.sm,
   },
-  toggleHeader: { flexDirection: "row", alignItems: "center", gap: spacing.md, marginBottom: spacing.lg },
+  cardHeader: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginBottom: spacing.xs },
+  cardHeaderTextWrap: { flex: 1 },
+  cardTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize.xl, color: colors.onSurface },
+  subtitle: { fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onSurfaceTertiary },
   iconWrap: {
     width: 42,
     height: 42,
@@ -219,16 +238,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  toggleText: { flex: 1 },
-  toggleTitle: { fontFamily: fonts.semibold, fontSize: fontSize.lg, color: colors.onSurface },
-  toggleSubtitle: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary, marginTop: 6 },
   settingsList: {
     backgroundColor: colors.surfaceSecondary,
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
     overflow: "hidden",
-    marginBottom: spacing.lg,
   },
   settingsRow: {
     flexDirection: "row",
@@ -250,20 +265,12 @@ const styles = StyleSheet.create({
     fontSize: fontSize.lg,
     color: colors.onSurface,
   },
-  blockedCard: {
-    backgroundColor: colors.surfaceSecondary,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.lg,
-  },
-  blockedTitle: { fontFamily: fonts.semibold, fontSize: fontSize.lg, color: colors.onSurface, marginBottom: spacing.sm },
   blockedEmpty: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary },
   blockedRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginTop: spacing.sm,
+    marginTop: spacing.md,
     padding: spacing.sm,
     borderRadius: radius.md,
     backgroundColor: colors.surface,
@@ -284,6 +291,6 @@ const styles = StyleSheet.create({
   saveText: { fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.brand, marginTop: spacing.sm, textAlign: "center" },
   errorText: { fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.error, marginTop: spacing.sm, textAlign: "center" },
   guestBannerSpacing: {
-    marginBottom: spacing.lg,
+    marginBottom: spacing.xs,
   },
 });

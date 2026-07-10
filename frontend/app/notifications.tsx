@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   Switch,
   ActivityIndicator,
 } from "react-native";
@@ -111,13 +110,11 @@ export default function NotificationsScreen() {
         backButtonTestID="notifications-back-button"
       />
 
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={[
+      <View
+        style={[
           styles.contentContainer,
           { paddingBottom: insets.bottom + (isGuest ? STICKY_FOOTER_PADDING : spacing.xl) },
         ]}
-        showsVerticalScrollIndicator={false}
         testID="notifications-screen"
       >
         <View style={styles.header}>
@@ -152,9 +149,18 @@ export default function NotificationsScreen() {
             </View>
           ))}
         </View>
+      </View>
+
+      <View
+        style={[
+          styles.bottomStatus,
+          { bottom: insets.bottom + (isGuest ? STICKY_FOOTER_PADDING + spacing.sm : spacing.lg) },
+        ]}
+        pointerEvents="none"
+      >
         {saving && <Text style={styles.saveText}>{t("notifications.saving")}</Text>}
         {error && <Text style={styles.errorText}>{error}</Text>}
-      </ScrollView>
+      </View>
 
       {isGuest && (
         <GuestModeStickyFooter
@@ -169,8 +175,7 @@ export default function NotificationsScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.surface },
-  scroll: { flex: 1, backgroundColor: colors.surface },
-  contentContainer: { minHeight: "100%", paddingHorizontal: spacing.lg, justifyContent: "center" },
+  contentContainer: { flex: 1, paddingHorizontal: spacing.lg, justifyContent: "center" },
   header: { marginTop: spacing.lg, marginBottom: spacing.xl, alignItems: "center" },
   centerBlock: { flex: 1, justifyContent: "center", gap: spacing.sm },
   container: { backgroundColor: colors.surface, paddingHorizontal: spacing.lg },
@@ -190,8 +195,40 @@ const styles = StyleSheet.create({
   rowText: { flex: 1, paddingRight: spacing.sm },
   settingTitle: { fontFamily: fonts.semibold, fontSize: fontSize.lg, color: colors.onSurface },
   settingSubtitle: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary, marginTop: 4 },
-  saveText: { fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.brand, marginTop: spacing.sm, textAlign: "center" },
-  errorText: { fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.error, marginTop: spacing.sm, textAlign: "center" },
+  bottomStatus: {
+    position: "absolute",
+    left: spacing.lg,
+    right: spacing.lg,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.xs,
+  },
+  saveText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.base,
+    color: colors.brand,
+    textAlign: "center",
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    minWidth: "70%",
+  },
+  errorText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.base,
+    color: colors.error,
+    textAlign: "center",
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.error,
+    minWidth: "70%",
+  },
   guestBannerSpacing: { marginBottom: spacing.lg },
   disabledControl: { opacity: 0.6 },
 });
