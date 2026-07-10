@@ -91,11 +91,10 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
 
   const setAndCommit = useCallback(
     (patch: Partial<Filters>) => {
-      setDraft((prev) => {
-        const next = { ...prev, ...patch };
-        onChange(next);
-        return next;
-      });
+      const next = { ...draftRef.current, ...patch };
+      draftRef.current = next;
+      setDraft(next);
+      onChange(next);
     },
     [onChange],
   );
@@ -115,8 +114,11 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
 
   const handleDismiss = useCallback(() => {
     isPresentedRef.current = false;
-    onChange(draftRef.current);
-    onClose();
+    const next = draftRef.current;
+    setTimeout(() => {
+      onChange(next);
+      onClose();
+    }, 0);
   }, [onChange, onClose]);
 
   const [isSliding, setIsSliding] = useState(false);
