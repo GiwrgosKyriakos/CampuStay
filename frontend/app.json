@@ -18,7 +18,7 @@
         "backgroundColor": "#07404C"
       },
       "edgeToEdgeEnabled": true,
-      "package": "io.github.giwrgoskyriakos.CampuStay",
+      "package": "CampuStay.Android",
       "googleServicesFile": "./google-services.json",
       "navigationBar": {
         "backgroundColor": "#00000000",
