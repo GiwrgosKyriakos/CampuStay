@@ -44,12 +44,9 @@
       ["expo-navigation-bar", {
         "enforceContrast": false
       }],
-      ["expo-notifications", {
+      ["expo-notifications", {        
         "icon": "./assets/campuStayLogoTransparent.png",
-        "color": "#07404C",
-        "sounds": [
-          "./assets/notificationSound.wav"
-        ]
+        "color": "#07404C"
       }],
       [
         "expo-splash-screen",
