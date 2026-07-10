@@ -41,6 +41,16 @@
           "photosPermission": "Upload photos to complete your roommate profile"
         }
       ],
+      ["expo-navigation-bar", {
+        "enforceContrast": false
+      }],
+      ["expo-notifications", {
+        "icon": "./assets/campuStayLogoTransparent.png",
+        "color": "#07404C",
+        "sounds": [
+          "./assets/notificationSound.wav"
+        ]
+      }],
       [
         "expo-splash-screen",
         {

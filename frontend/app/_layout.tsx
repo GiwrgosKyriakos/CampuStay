@@ -139,9 +139,9 @@ export default function RootLayout() {
         if (Platform.OS === 'android') {
           try {
             // Σπρώχνει την εφαρμογή να απλωθεί πίσω από τη μπάρα
-            await NavigationBar.setPositionAsync('absolute');
+            // await NavigationBar.setPositionAsync('absolute');
             // Κάνει τη μπάρα 100% διάφανη
-            await NavigationBar.setBackgroundColorAsync('#00000000');
+            // await NavigationBar.setBackgroundColorAsync('#ffffffff');
             // Κάνει τα κουμπιά της μπάρας λευκά για να φαίνονται στο σκούρο φόντο σου
             await NavigationBar.setButtonStyleAsync('light');
           } catch (navError) {

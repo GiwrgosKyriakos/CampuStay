@@ -132,7 +132,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const redirectUri = AuthSession.makeRedirectUri();
   // const redirectUri = "https://auth.expo.io/@gkyriakos92/frontend";
 
-  const [request, , promptAsync] = Google.useIdTokenAuthRequest({
+  const [request, response, promptAsync] = Google.useIdTokenAuthRequest({
     webClientId: process.env.EXPO_PUBLIC_WEB_CLIENT_ID,
     iosClientId: process.env.EXPO_PUBLIC_IOS_CLIENT_ID,
     androidClientId: process.env.EXPO_PUBLIC_ANDROID_CLIENT_ID,
