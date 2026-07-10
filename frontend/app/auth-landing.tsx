@@ -17,15 +17,12 @@ export default function AuthLandingScreen() {
   const [googleLoading, setGoogleLoading] = useState(false);
 
   const handleGoogleLogin = async () => {
+    setGoogleLoading(true);
     try {
-      setGoogleLoading(true);
       console.log("[AuthLanding] -> User tapped Google Sign-In button");
-      const user = await auth.signInWithGoogle();
-      if (user) {
-        router.replace("/");
-      }
+      await auth.signInWithGoogle();
     } catch (err: any) {
-      console.error("[AuthLanding] X Google login error:", err);
+      console.error("[AuthLanding] X Google sign-in initialization failed:", err);
     } finally {
       setGoogleLoading(false);
     }

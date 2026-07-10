@@ -1,10 +1,8 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from "react";
-import * as AuthSession from "expo-auth-session";
 import * as Google from "expo-auth-session/providers/google";
 import * as WebBrowser from "expo-web-browser";
 import {
   createUserWithEmailAndPassword,
-  getAdditionalUserInfo,
   onAuthStateChanged,
   signInWithCredential,
   signInWithEmailAndPassword,
@@ -43,7 +41,7 @@ interface AuthContextValue {
   needsProfileSetup: boolean;
   loginEmail: (email: string, password: string) => Promise<void>;
   registerEmail: (email: string, password: string, name?: string) => Promise<void>;
-  signInWithGoogle: () => Promise<AuthUser | null>;
+  signInWithGoogle: () => Promise<void>;
   continueAsGuest: () => Promise<void>;
   logout: () => Promise<void>;
   enterGuestMode: () => Promise<void>;
@@ -129,14 +127,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [needsProfileSetup, setNeedsProfileSetup] = useState(false);
 
-  const redirectUri = AuthSession.makeRedirectUri();
-  // const redirectUri = "https://auth.expo.io/@gkyriakos92/frontend";
-
   const [request, response, promptAsync] = Google.useIdTokenAuthRequest({
     webClientId: process.env.EXPO_PUBLIC_WEB_CLIENT_ID,
     iosClientId: process.env.EXPO_PUBLIC_IOS_CLIENT_ID,
     androidClientId: process.env.EXPO_PUBLIC_ANDROID_CLIENT_ID,
-    redirectUri,
     selectAccount: true,
   });
 
@@ -243,35 +237,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [persist],
   );
 
-  const signInWithGoogle = useCallback(async (): Promise<AuthUser | null> => {
+  const signInWithGoogle = useCallback(async (): Promise<void> => {
     if (!request) {
       throw new Error("Google authentication is not ready yet.");
     }
 
-    const result = await promptAsync({ showInRecents: true });
+    await promptAsync({ showInRecents: true });
+  }, [promptAsync, request]);
 
-    if (result.type !== "success") {
-      return null;
+  useEffect(() => {
+    if (response?.type !== "success") {
+      return;
     }
 
-    const idToken = result.authentication?.idToken ?? result.params?.id_token;
+    const idToken = response.authentication?.idToken;
     if (!idToken) {
-      throw new Error("Google sign-in did not return an ID token.");
+      console.error("[Auth] Google sign-in succeeded but no ID token was returned.");
+      return;
     }
 
-    const credential = GoogleAuthProvider.credential(idToken);
-    const userCredential = await signInWithCredential(firebaseAuth, credential);
-    const firebaseUser = userCredential.user;
-    const firebaseToken = await firebaseUser.getIdToken();
-    const mappedUser = mapFirebaseUser(firebaseUser);
-    const additionalUserInfo = getAdditionalUserInfo(userCredential);
-    const needsSetup = await syncUserDocument(firebaseUser, {
-      needsProfileSetup: additionalUserInfo?.isNewUser === true ? true : undefined,
-    });
+    const authenticateWithFirebase = async () => {
+      try {
+        const credential = GoogleAuthProvider.credential(idToken);
+        const userCredential = await signInWithCredential(firebaseAuth, credential);
+        const needsSetup = await syncUserDocument(userCredential.user);
+        const firebaseToken = await userCredential.user.getIdToken();
+        await persist(firebaseToken, mapFirebaseUser(userCredential.user), needsSetup);
+        console.log("[Auth] Google sign-in completed via Firebase.", {
+          userId: userCredential.user.uid,
+          operationType: userCredential.operationType,
+        });
+      } catch (error) {
+        console.error("[Auth] Firebase Google authentication failed:", error);
+      }
+    };
 
-    await persist(firebaseToken, mappedUser, needsSetup);
-    return mappedUser;
-  }, [promptAsync, request, persist]);
+    void authenticateWithFirebase();
+  }, [persist, response]);
 
   const continueAsGuest = useCallback(async () => {
     await enterGuestMode();
