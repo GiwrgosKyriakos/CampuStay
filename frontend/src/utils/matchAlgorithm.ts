@@ -62,8 +62,130 @@ const QUESTION_MAX_POINTS: Record<keyof CompatibilityQuiz, number> = {
   q15_roommate_type: 5,
 };
 
+const QUESTION_KEY_SET = new Set<keyof CompatibilityQuiz>(QUESTION_KEYS);
+
+const LEGACY_QUESTION_KEY_MAP: Record<string, keyof CompatibilityQuiz> = {
+  q1: 'q4_cleanliness',
+  q2: 'q5_cleaning_freq',
+  q3: 'q6_dishes',
+  q4: 'q1_bills',
+  q5: 'q7_smoke',
+  q6: 'q10_quiet',
+  q7: 'q9_sleep',
+  q8: 'q11_guests',
+  q9: 'q12_parties',
+  q10: 'q15_roommate_type',
+  q11: 'q2_sharing',
+  q12: 'q3_food',
+  q13: 'q8_pets',
+  q14: 'q14_drinking',
+  q15: 'q13_cook',
+};
+
+const LEGACY_ANSWER_MAP: Partial<Record<keyof CompatibilityQuiz, Record<string, string>>> = {
+  q1_bills: {
+    'Split everything strictly down the middle': 'Split everything evenly',
+    'Each person takes responsibility for a specific bill': 'Each person pays for a different one',
+    'Figure it out dynamically month by month': 'We’ll figure it out as we go',
+  },
+  q2_sharing: {
+    'Share everything freely': 'Share freely',
+    'Always ask before using my things': 'Ask first',
+    'I completely prefer not to share': 'Prefer not to share',
+  },
+  q3_food: {
+    'Take turns buying shared supplies': 'Take turns buying',
+    'Split the grocery costs evenly': 'Split evenly',
+    'Everyone buys and consumes their own stuff': 'Everyone buys their own',
+  },
+  q4_cleanliness: {
+    'Very tidy and highly organized': 'Very tidy',
+    'Average and reasonably clean': 'Average',
+    'Pretty relaxed or messy': 'Messy',
+  },
+  q5_cleaning_freq: {
+    'At least once a week': 'Weekly',
+    'Every now and then': 'Every now and then',
+    'Only when it gets absolutely necessary': 'Only when it’s really needed',
+  },
+  q6_dishes: {
+    'Wash them immediately or daily': 'Wash daily',
+    'Leave them for the next day': 'Next day',
+    'Wash them only when no clean ones are left': 'When there are no clean ones left',
+  },
+  q7_smoke: {
+    'I smoke regularly': 'Yes',
+    'I only smoke outside or on the balcony': 'Only outside',
+    'I am a strict non-smoker': 'No',
+  },
+  q8_pets: {
+    'I have a pet or definitely want to get one': 'Yes',
+    "I don't have one, but pets are totally fine with me": 'Pets are fine',
+    'Strictly no pets allowed': 'No pets please',
+  },
+  q9_sleep: {
+    'Early bird (asleep before 11 PM)': 'Before 11pm',
+    'Normal student routine (asleep between 11 PM and 1 AM)': '11pm–1am',
+    'Night owl (asleep after 1 AM)': 'After 1am',
+  },
+  q10_quiet: {
+    'I need absolute quiet most of the time': 'Quiet always',
+    'I only need it quiet during late-night hours': 'Quiet at night',
+    "Noise doesn't bother me at all": 'Noise is fine anytime',
+  },
+  q11_guests: {
+    'Guests can come over anytime without notice': 'Come anytime',
+    'Please ask or give a heads-up first': 'Ask first',
+    'Rare visits only, I prefer privacy': 'Rare visits only',
+  },
+  q12_parties: {
+    'Love them, the more the merrier': 'Love them',
+    'Occasional small gatherings are perfectly fine': 'Occasionally is fine',
+    'Strictly no parties at home': 'No parties please',
+  },
+  q13_cook: {
+    'I cook every single day': 'Every day',
+    'A few times a week': 'Few times a week',
+    'Rarely, I mostly order out or eat on campus': 'Rarely',
+  },
+  q14_drinking: {
+    'I enjoy drinking frequently at home': 'I drink often',
+    'I only drink occasionally on weekends': 'Only weekends',
+    "I don't drink or prefer an alcohol-free home": 'I prefer no alcohol at home',
+  },
+  q15_roommate_type: {
+    'I want us to become close friends and hang out together': 'Let’s hang out and be friends',
+    'Friendly and polite, but we keep our separate lives': 'Friendly co-living',
+    'Just roommates co-existing quietly': 'Just split the bills',
+  },
+};
+
 function hasAnswer(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
+}
+
+export function normalizeCompatibilityQuizAnswers(
+  answers?: Record<string, unknown> | null,
+): CompatibilityQuizAnswers {
+  const normalized: CompatibilityQuizAnswers = {};
+  if (!answers) return normalized;
+
+  for (const [rawKey, rawValue] of Object.entries(answers)) {
+    if (!hasAnswer(rawValue)) continue;
+
+    const normalizedKey = QUESTION_KEY_SET.has(rawKey as keyof CompatibilityQuiz)
+      ? (rawKey as keyof CompatibilityQuiz)
+      : LEGACY_QUESTION_KEY_MAP[rawKey];
+
+    if (!normalizedKey) continue;
+
+    const normalizedValue = LEGACY_ANSWER_MAP[normalizedKey]?.[rawValue] ?? rawValue;
+    if (!hasAnswer(normalizedValue)) continue;
+
+    normalized[normalizedKey] = normalizedValue as CompatibilityQuiz[typeof normalizedKey];
+  }
+
+  return normalized;
 }
 
 function scoreAnsweredQuestion(

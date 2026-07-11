@@ -33,12 +33,16 @@ interface FirestoreUserDoc {
 }
 
 interface FirestoreQuizDoc {
-  answers?: Record<string, string>;
+  answers?: Record<string, unknown>;
 }
 
 interface CandidateMatchRecord {
   profile: RoommateProfile;
-  quizAnswers: Record<string, string>;
+  quizAnswers: Record<string, unknown>;
+}
+
+function normalizeCityValue(city?: string | null): string {
+  return typeof city === "string" ? city.trim().toLocaleLowerCase() : "";
 }
 
 function normalizeCandidate(uid: string, data: FirestoreUserDoc): RoommateProfile {
@@ -94,18 +98,49 @@ async function getExcludedCandidateIds(userId: string): Promise<{ swipedTo: Set<
 async function getPotentialCandidateRecords(userId: string, currentCity?: string | null): Promise<CandidateMatchRecord[]> {
   const usersRef = collection(db, "users");
   const { swipedTo, chattedWith } = await getExcludedCandidateIds(userId);
-  const normalizedCity = currentCity?.trim() || "";
-  const usersQuery = normalizedCity ? query(usersRef, where("city", "==", normalizedCity)) : usersRef;
-  const usersSnap = await getDocs(usersQuery);
+  const normalizedCurrentCity = normalizeCityValue(currentCity);
+  const cityQueryValue = currentCity?.trim() || "";
+  const initialUsersSnap = await getDocs(cityQueryValue ? query(usersRef, where("city", "==", cityQueryValue)) : usersRef);
+  let totalRawUsersPulled = initialUsersSnap.size;
 
-  const candidateEntries: { uid: string; profile: RoommateProfile }[] = [];
+  let rawUserDocs = initialUsersSnap.docs;
+  let queryStrategy = cityQueryValue ? "exact-city" : "all-users";
 
-  usersSnap.forEach((u) => {
-    const uid = u.id;
-    if (!uid || uid === userId || swipedTo.has(uid) || chattedWith.has(uid)) return;
+  if (cityQueryValue && initialUsersSnap.empty) {
+    const fallbackUsersSnap = await getDocs(usersRef);
+    totalRawUsersPulled = fallbackUsersSnap.size;
+    rawUserDocs = fallbackUsersSnap.docs.filter((candidateDoc) => {
+      const data = candidateDoc.data() as FirestoreUserDoc;
+      return normalizeCityValue(data.city) === normalizedCurrentCity;
+    });
+    queryStrategy = "fallback-normalized-city";
+  }
 
-    const data = u.data() as FirestoreUserDoc;
-    candidateEntries.push({ uid, profile: normalizeCandidate(uid, data) });
+  const rawUsers = rawUserDocs.map((candidateDoc) => ({
+    uid: candidateDoc.id,
+    data: candidateDoc.data() as FirestoreUserDoc,
+  }));
+
+  const activeUsers = rawUsers.filter(({ uid, data }) => Boolean(uid) && !data.deleted);
+  const candidateEntries = activeUsers
+    .filter(({ uid }) => uid !== userId)
+    .filter(({ uid }) => !swipedTo.has(uid) && !chattedWith.has(uid))
+    .map(({ uid, data }) => ({
+      uid,
+      profile: normalizeCandidate(uid, data),
+    }));
+
+  console.log("[Discover] Firestore candidate query breakdown", {
+    userId,
+    currentCity: currentCity ?? null,
+    queryStrategy,
+    rawUsersPulled: totalRawUsersPulled,
+    rawUsersAfterCityNormalization: rawUsers.length,
+    activeUsers: activeUsers.length,
+    alreadySwipedCount: activeUsers.filter(({ uid }) => swipedTo.has(uid)).length,
+    activeChatCount: activeUsers.filter(({ uid }) => chattedWith.has(uid)).length,
+    selfExcluded: activeUsers.some(({ uid }) => uid === userId),
+    remainingAfterSwipeFilter: candidateEntries.length,
   });
 
   const quizEntries = await Promise.all(

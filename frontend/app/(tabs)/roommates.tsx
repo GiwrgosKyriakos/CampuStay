@@ -17,8 +17,8 @@ import { useAuth } from "@/src/context/auth";
 import { db, firebaseAuth } from "@/src/config/firebase";
 import { t } from "@/src/locales";
 import { registerForPushNotificationsAsync } from "@/src/utils/notificationService";
-import { calculateMatchScore } from "@/src/utils/matchAlgorithm";
-import type { CompatibilityQuiz, CompatibilityQuizAnswers, UserProfile as MatchUserProfile } from "@/src/utils/matchAlgorithm";
+import { calculateMatchScore, normalizeCompatibilityQuizAnswers } from "@/src/utils/matchAlgorithm";
+import type { UserProfile as MatchUserProfile } from "@/src/utils/matchAlgorithm";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 84;
@@ -28,48 +28,17 @@ function normalizeMatchGender(gender: string | null | undefined): MatchUserProfi
   return "Prefer Not To Say";
 }
 
-function buildCompatibilityQuiz(answers: Record<string, string>): CompatibilityQuizAnswers {
-  // 1. Δηλώνουμε το quiz ως any προσωρινά για να μας αφήσει να το γεμίσουμε ελεύθερα
-  const quiz: any = {};
-
-  // 2. Κάνουμε ένα απλό, καθαρό loop χωρίς πολύπλοκα τρέιλερ από casts
-  Object.keys(answers).forEach((key) => {
-    const value = answers[key];
-    
-    if (typeof value === "string" && value.trim().length > 0) {
-      // Τώρα το TypeScript δεν παραπονιέται καθόλου εδώ!
-      quiz[key] = value;
-    }
-  });
-
-  // 3. Εδώ γίνεται η μαγεία: Επιστρέφουμε το έτοιμο αντικείμενο κάνοντάς το cast ΜΙΑ ΚΑΙ ΕΞΩ
-  return quiz as CompatibilityQuizAnswers;
-}
-
-//function buildCompatibilityQuiz(answers: Record<string, string>): CompatibilityQuizAnswers {
-//  const quiz: CompatibilityQuizAnswers = {};
-
-//  (Object.keys(answers) as (keyof CompatibilityQuiz)[]).forEach((key) => {
-//    const value = answers[key];
-//    if (typeof value === "string" && value.trim().length > 0) {
-//      quiz[key] = value as CompatibilityQuiz[typeof key];
-//    }
-//  });
-
-//  return quiz;
-//}
-
 function toMatchProfile(
   userId: string,
   profile: { city?: string | null; budget?: number | null; gender?: string | null },
-  answers: Record<string, string>,
+  answers: Record<string, unknown>,
 ): MatchUserProfile {
   return {
     uid: userId,
     city: profile.city?.trim() || "",
     gender: normalizeMatchGender(profile.gender),
     monthlyBudget: typeof profile.budget === "number" ? profile.budget : 0,
-    quiz: buildCompatibilityQuiz(answers),
+    quiz: normalizeCompatibilityQuizAnswers(answers),
   };
 }
 
@@ -125,15 +94,26 @@ useEffect(() => {
       setLoading(true);
       const uid = auth.isGuest ? "guest" : await getUserId();
       userIdRef.current = uid;
+      console.log("[Roommates] Starting candidate fetch", { uid, isGuest: auth.isGuest });
 
       const [profile, quizSnap] = await Promise.all([
-        auth.isGuest ? Promise.resolve(null) : getUserProfile(uid).catch(() => null),
-        auth.isGuest ? Promise.resolve(null) : getDoc(doc(db, "quiz_answers", uid)).catch(() => null),
+        auth.isGuest
+          ? Promise.resolve(null)
+          : getUserProfile(uid).catch((error) => {
+              console.warn("[Roommates] Failed to load current user profile for discovery:", error);
+              return null;
+            }),
+        auth.isGuest
+          ? Promise.resolve(null)
+          : getDoc(doc(db, "quiz_answers", uid)).catch((error) => {
+              console.warn("[Roommates] Failed to load current user quiz answers for discovery:", error);
+              return null;
+            }),
       ]);
 
-      const candidateRecords = await getCandidateMatchRecords(uid, profile?.city ?? null).catch(() => []);
+      const candidateRecords = await getCandidateMatchRecords(uid, profile?.city ?? null);
 
-      const quizData = quizSnap?.exists() ? (quizSnap.data() as { answers?: Record<string, string> }) : null;
+      const quizData = quizSnap?.exists() ? (quizSnap.data() as { answers?: Record<string, unknown> }) : null;
       const currentMatchProfile = toMatchProfile(uid, profile ?? {}, quizData?.answers ?? {});
 
       const scoredCandidates = candidateRecords
@@ -145,8 +125,17 @@ useEffect(() => {
         })
         .sort((left, right) => (right.matchScore ?? 0) - (left.matchScore ?? 0));
 
+      console.log("[Roommates] Candidate breakdown after quiz scoring", {
+        uid,
+        currentCity: currentMatchProfile.city,
+        rawCandidateCount: candidateRecords.length,
+        quizCompatibleCount: scoredCandidates.filter((candidate) => (candidate.matchScore ?? 0) > 0).length,
+        zeroScoreCount: scoredCandidates.filter((candidate) => (candidate.matchScore ?? 0) <= 0).length,
+      });
+
       setCandidates(scoredCandidates);
-    } catch {
+    } catch (error) {
+      console.error("[Roommates] Failed to load roommate candidates:", error);
       setCandidates([]);
     } finally {
       setLoading(false);
@@ -208,6 +197,14 @@ useEffect(() => {
         .sort((left, right) => (right.matchScore ?? 0) - (left.matchScore ?? 0)),
     [candidates, filters],
   );
+
+  useEffect(() => {
+    console.log("[Roommates] Candidate breakdown after frontend filters", {
+      totalCandidates: candidates.length,
+      filteredCandidates: filtered.length,
+      filters,
+    });
+  }, [candidates.length, filtered.length, filters]);
 
   const deckKey = `${filters.gender}-${filters.ageMin}-${filters.ageMax}-${filters.budgetMax}-${candidates.length}`;
 
