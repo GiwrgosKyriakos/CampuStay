@@ -4,7 +4,7 @@ import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { arrayRemove, arrayUnion, collection, doc, getDoc, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
+import { arrayRemove, arrayUnion, collection, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import type { RoommateProfile } from "@/src/data/profiles";
@@ -163,6 +163,50 @@ export default function MatchesScreen() {
   const SWIPE_THRESHOLD = 56;
   const messageUnsubsRef = React.useRef<Record<string, () => void>>({});
 
+  const ensureRoommateChatsFromLikes = React.useCallback(async (uid: string) => {
+    const likesQ = query(
+      collection(db, "swipes"),
+      where("fromUid", "==", uid),
+      where("type", "==", "like"),
+    );
+    const likesSnap = await getDocs(likesQ);
+    if (likesSnap.empty) return;
+
+    await Promise.all(
+      likesSnap.docs.map(async (swipeDoc) => {
+        const toUid = swipeDoc.data()?.toUid;
+        if (typeof toUid !== "string" || !toUid) return;
+
+        const chatRoomId = [uid, toUid].sort().join("_");
+        const chatRef = doc(db, "chats", chatRoomId);
+        const chatSnap = await getDoc(chatRef);
+        const chatData = chatSnap.exists()
+          ? (chatSnap.data() as { status?: "pending" | "active" | "rejected"; initiatedBy?: string | null })
+          : null;
+
+        await setDoc(
+          chatRef,
+          {
+            users: [uid, toUid],
+            type: "roommate",
+            status: chatData?.status ?? "pending",
+            initiatedBy: chatData?.initiatedBy ?? uid,
+            updatedAt: serverTimestamp(),
+            ...(chatSnap.exists()
+              ? {}
+              : {
+                  createdAt: serverTimestamp(),
+                  lastMessage: "",
+                  lastMessageTimestamp: serverTimestamp(),
+                }),
+            deletedBy: arrayRemove(uid, toUid),
+          },
+          { merge: true },
+        );
+      }),
+    );
+  }, []);
+
   const handleSwipeTabChange = React.useCallback((direction: "left" | "right") => {
     if (direction === "left") {
       setSelectedChatType("host");
@@ -221,13 +265,23 @@ export default function MatchesScreen() {
 
     (async () => {
       try {
-        const uid = auth.userId ?? (await getUserId());
+        const uid = auth.userId;
+        if (!uid) {
+          if (mounted) {
+            setCurrentUserId("");
+            setMatches([]);
+          }
+          return;
+        }
         if (!mounted) return;
         setCurrentUserId(uid);
         console.log("[Matches] Subscribing with resolved user id", {
           authUserId: auth.userId,
           resolvedUid: uid,
         });
+
+        // Reconcile any previously liked users into roommate chats so they always appear in Matches.
+        await ensureRoommateChatsFromLikes(uid);
 
         const chatsQ = query(collection(db, "chats"), where("users", "array-contains", uid));
         unsub = onSnapshot(chatsQ, (snapshot) => {
@@ -363,7 +417,7 @@ export default function MatchesScreen() {
       Object.values(messageUnsubsRef.current).forEach((off) => off());
       messageUnsubsRef.current = {};
     };
-  }, [auth.isGuest, auth.userId, selectedChatType]);
+  }, [auth.isGuest, auth.userId, ensureRoommateChatsFromLikes, selectedChatType]);
 
   const handleAcceptChat = async (profile: ChatListItem) => {
     if (!currentUserId || !profile.chatRoomId) return;
@@ -380,6 +434,7 @@ export default function MatchesScreen() {
         chatRoomId: profile.chatRoomId,
         currentUserId,
       });
+      router.push({ pathname: "/chat/[id]", params: { id: profile.id, chatRoomId: profile.chatRoomId } });
     } catch (err) {
       console.error("Accept chat failed:", err);
     } finally {

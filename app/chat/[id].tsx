@@ -19,7 +19,7 @@ import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import type { RoommateProfile } from "@/src/data/profiles";
-import { getUserId } from "@/src/utils/userId";
+import { useAuth } from "@/src/context/auth";
 import { db } from "@/src/config/firebase";
 import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, setDoc, getDoc, arrayUnion } from "firebase/firestore";
 import { markIncomingMessagesAsRead } from "@/src/api/chat";
@@ -205,6 +205,7 @@ function normalizeSocialUrl(platform: "instagram" | "facebook" | "linkedin" | "t
 export default function ChatScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const auth = useAuth();
   const { id, chatRoomId: chatRoomIdParam } = useLocalSearchParams<{ id: string; chatRoomId?: string }>();
   const counterpartId = typeof id === "string" ? id : "";
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -252,8 +253,8 @@ export default function ChatScreen() {
   }, [counterpartId]);
 
   useEffect(() => {
-    getUserId().then(setCurrentUserId);
-  }, []);
+    setCurrentUserId(auth.userId ?? null);
+  }, [auth.userId]);
 
   const chatRoomId = useMemo(() => {
     if (typeof chatRoomIdParam === "string" && chatRoomIdParam.trim().length > 0) {

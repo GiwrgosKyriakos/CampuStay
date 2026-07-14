@@ -123,7 +123,11 @@ useEffect(() => {
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const uid = auth.isGuest ? "guest" : auth.userId ?? (await getUserId());
+      if (!auth.isGuest && !auth.userId) {
+        setCandidates([]);
+        return;
+      }
+      const uid = auth.isGuest ? "guest" : auth.userId;
       userIdRef.current = uid;
       console.log("[Roommates] Loading candidates for user", {
         isGuest: auth.isGuest,
@@ -231,7 +235,7 @@ useEffect(() => {
       return;
     }
 
-    const uid = userIdRef.current;
+    const uid = auth.userId ?? userIdRef.current;
     if (!uid) {
       console.error("[Roommates] Missing userId while persisting right swipe", { profileId: p.id });
       return;
@@ -250,7 +254,7 @@ useEffect(() => {
         });
       }
     })();
-  }, [auth.isGuest]);
+  }, [auth.isGuest, auth.userId]);
 
   const onNope = useCallback((p: RoommateProfile) => {
     console.log("[Roommates] Swipe left received", { profileId: p.id, isGuest: auth.isGuest });
@@ -261,7 +265,7 @@ useEffect(() => {
       return;
     }
 
-    const uid = userIdRef.current;
+    const uid = auth.userId ?? userIdRef.current;
     if (!uid) {
       console.error("[Roommates] Missing userId while persisting left swipe", { profileId: p.id });
       return;
@@ -280,7 +284,7 @@ useEffect(() => {
         });
       }
     })();
-  }, [auth.isGuest]);
+  }, [auth.isGuest, auth.userId]);
 
   const triggerActionFeedback = useCallback((action: "left" | "right") => {
     console.log("[Roommates] Swipe action feedback triggered", { action });
