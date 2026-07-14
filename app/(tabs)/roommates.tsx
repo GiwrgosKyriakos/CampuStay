@@ -123,8 +123,13 @@ useEffect(() => {
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const uid = auth.isGuest ? "guest" : await getUserId();
+      const uid = auth.isGuest ? "guest" : auth.userId ?? (await getUserId());
       userIdRef.current = uid;
+      console.log("[Roommates] Loading candidates for user", {
+        isGuest: auth.isGuest,
+        authUserId: auth.userId,
+        resolvedUid: uid,
+      });
 
       const [profile, quizSnap] = await Promise.all([
         auth.isGuest ? Promise.resolve(null) : getUserProfile(uid).catch(() => null),
@@ -151,7 +156,7 @@ useEffect(() => {
     } finally {
       setLoading(false);
     }
-  }, [auth.isGuest]);
+  }, [auth.isGuest, auth.userId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -218,15 +223,67 @@ useEffect(() => {
   }, []);
 
   const onLike = useCallback((p: RoommateProfile) => {
-    if (auth.isGuest) return;
-    if (userIdRef.current) postSwipe(userIdRef.current, p.id, "right");
+    console.log("[Roommates] Swipe right received", { profileId: p.id, isGuest: auth.isGuest });
+    setCandidates((prev) => prev.filter((candidate) => candidate.id !== p.id));
+
+    if (auth.isGuest) {
+      console.log("[Roommates] Guest mode: skipping swipe persistence", { profileId: p.id, direction: "right" });
+      return;
+    }
+
+    const uid = userIdRef.current;
+    if (!uid) {
+      console.error("[Roommates] Missing userId while persisting right swipe", { profileId: p.id });
+      return;
+    }
+
+    void (async () => {
+      try {
+        console.log("[Roommates] Persisting right swipe", { userId: uid, profileId: p.id });
+        await postSwipe(uid, p.id, "right");
+        console.log("[Roommates] Right swipe persisted", { userId: uid, profileId: p.id });
+      } catch (error) {
+        console.error("[Roommates] Failed to persist right swipe", {
+          userId: uid,
+          profileId: p.id,
+          error,
+        });
+      }
+    })();
   }, [auth.isGuest]);
+
   const onNope = useCallback((p: RoommateProfile) => {
-    if (auth.isGuest) return;
-    if (userIdRef.current) postSwipe(userIdRef.current, p.id, "left");
+    console.log("[Roommates] Swipe left received", { profileId: p.id, isGuest: auth.isGuest });
+    setCandidates((prev) => prev.filter((candidate) => candidate.id !== p.id));
+
+    if (auth.isGuest) {
+      console.log("[Roommates] Guest mode: skipping swipe persistence", { profileId: p.id, direction: "left" });
+      return;
+    }
+
+    const uid = userIdRef.current;
+    if (!uid) {
+      console.error("[Roommates] Missing userId while persisting left swipe", { profileId: p.id });
+      return;
+    }
+
+    void (async () => {
+      try {
+        console.log("[Roommates] Persisting left swipe", { userId: uid, profileId: p.id });
+        await postSwipe(uid, p.id, "left");
+        console.log("[Roommates] Left swipe persisted", { userId: uid, profileId: p.id });
+      } catch (error) {
+        console.error("[Roommates] Failed to persist left swipe", {
+          userId: uid,
+          profileId: p.id,
+          error,
+        });
+      }
+    })();
   }, [auth.isGuest]);
 
   const triggerActionFeedback = useCallback((action: "left" | "right") => {
+    console.log("[Roommates] Swipe action feedback triggered", { action });
     setActiveAction(action);
     if (actionTimeout.current) clearTimeout(actionTimeout.current);
     actionTimeout.current = setTimeout(() => setActiveAction(null), 220);

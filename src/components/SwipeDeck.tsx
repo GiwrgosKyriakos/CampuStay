@@ -45,25 +45,56 @@ const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck(
   const [cardStack, setCardStack] = useState<RoommateProfile[]>(profiles);
   const x = useSharedValue(0);
   const y = useSharedValue(0);
+  const lastLoggedX = useSharedValue(0);
 
   React.useEffect(() => {
     setCardStack(profiles);
+    console.log("[SwipeDeck] Card stack refreshed from parent profiles", {
+      profileCount: profiles.length,
+    });
   }, [profiles]);
+
+  const logSwipeStart = (profileId?: string) => {
+    console.log("[SwipeDeck] Swipe started", { profileId });
+  };
+
+  const logSwipeMove = (profileId: string | undefined, translationX: number, translationY: number) => {
+    console.log("[SwipeDeck] Swipe moving", {
+      profileId,
+      translationX,
+      translationY,
+    });
+  };
+
+  const logSwipeComplete = (dir: "left" | "right", profileId?: string) => {
+    console.log("[SwipeDeck] Swipe completed", { direction: dir, profileId });
+  };
 
   const finish = (dir: "left" | "right") => {
     const p = cardStack[0];
+    console.log("[SwipeDeck] Finalizing swipe", {
+      direction: dir,
+      profileId: p?.id,
+      currentStackSize: cardStack.length,
+    });
     if (p) {
       if (dir === "right") onLike(p);
       else onNope(p);
     }
     x.value = 0;
     y.value = 0;
+    lastLoggedX.value = 0;
     setCardStack((prev) => prev.slice(1));
   };
 
   const fly = (dir: "left" | "right") => {
+    console.log("[SwipeDeck] Triggering programmatic swipe", {
+      direction: dir,
+      profileId: cardStack[0]?.id,
+    });
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     onSwipeAction?.(dir);
+    logSwipeComplete(dir, cardStack[0]?.id);
     x.value = withTiming(dir === "right" ? OUT_X : -OUT_X, { duration: 280 }, () => {
       runOnJS(finish)(dir);
     });
@@ -75,18 +106,37 @@ const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck(
   }));
 
   const pan = Gesture.Pan()
+    .onBegin(() => {
+      runOnJS(logSwipeStart)(cardStack[0]?.id);
+    })
     .onUpdate((e) => {
       x.value = e.translationX;
       y.value = e.translationY;
+
+      if (Math.abs(e.translationX - lastLoggedX.value) > 40) {
+        lastLoggedX.value = e.translationX;
+        runOnJS(logSwipeMove)(cardStack[0]?.id, e.translationX, e.translationY);
+      }
     })
     .onEnd(() => {
       if (x.value > SWIPE_THRESHOLD) {
-        runOnJS(onSwipeAction)?.("right");
+        if (onSwipeAction) {
+          runOnJS(onSwipeAction)("right");
+        }
+        runOnJS(logSwipeComplete)("right", cardStack[0]?.id);
         x.value = withTiming(OUT_X, { duration: 250 }, () => runOnJS(finish)("right"));
       } else if (x.value < -SWIPE_THRESHOLD) {
-        runOnJS(onSwipeAction)?.("left");
+        if (onSwipeAction) {
+          runOnJS(onSwipeAction)("left");
+        }
+        runOnJS(logSwipeComplete)("left", cardStack[0]?.id);
         x.value = withTiming(-OUT_X, { duration: 250 }, () => runOnJS(finish)("left"));
       } else {
+        runOnJS(console.log)("[SwipeDeck] Swipe canceled (below threshold)", {
+          profileId: cardStack[0]?.id,
+          translationX: x.value,
+          translationY: y.value,
+        });
         x.value = withSpring(0);
         y.value = withSpring(0);
       }

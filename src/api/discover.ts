@@ -1,5 +1,6 @@
 import type { RoommateProfile } from "@/src/data/profiles";
 import {
+  arrayRemove,
   collection,
   deleteDoc,
   doc,
@@ -41,6 +42,10 @@ interface CandidateMatchRecord {
   quizAnswers: Record<string, string>;
 }
 
+function normalizeCityValue(city?: string | null): string {
+  return (city ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
 function normalizeCandidate(uid: string, data: FirestoreUserDoc): RoommateProfile {
   const photos = Array.isArray(data.photos) ? data.photos : [];
   const firstPhoto = data.photoUrl || photos[0] || "";
@@ -80,8 +85,8 @@ async function getExcludedCandidateIds(userId: string): Promise<{ swipedTo: Set<
   chatsSnap.forEach((chatDoc) => {
     const data = chatDoc.data() as { users?: string[]; status?: "pending" | "active" | string };
     const status = data.status;
-    const isActiveOrPending = status === "pending" || status === "active";
-    if (!isActiveOrPending) return;
+    const isActiveChat = status === "active";
+    if (!isActiveChat) return;
 
     const users = Array.isArray(data.users) ? data.users : [];
     const counterpart = users.find((uid) => uid !== userId);
@@ -94,9 +99,8 @@ async function getExcludedCandidateIds(userId: string): Promise<{ swipedTo: Set<
 async function getPotentialCandidateRecords(userId: string, currentCity?: string | null): Promise<CandidateMatchRecord[]> {
   const usersRef = collection(db, "users");
   const { swipedTo, chattedWith } = await getExcludedCandidateIds(userId);
-  const normalizedCity = currentCity?.trim() || "";
-  const usersQuery = normalizedCity ? query(usersRef, where("city", "==", normalizedCity)) : usersRef;
-  const usersSnap = await getDocs(usersQuery);
+  const normalizedCity = normalizeCityValue(currentCity);
+  const usersSnap = await getDocs(usersRef);
 
   const candidateEntries: { uid: string; profile: RoommateProfile }[] = [];
 
@@ -105,7 +109,10 @@ async function getPotentialCandidateRecords(userId: string, currentCity?: string
     if (!uid || uid === userId || swipedTo.has(uid) || chattedWith.has(uid)) return;
 
     const data = u.data() as FirestoreUserDoc;
-    candidateEntries.push({ uid, profile: normalizeCandidate(uid, data) });
+    const candidate = normalizeCandidate(uid, data);
+    if (candidate.deleted) return;
+    if (normalizedCity && normalizeCityValue(candidate.city) !== normalizedCity) return;
+    candidateEntries.push({ uid, profile: candidate });
   });
 
   const quizEntries = await Promise.all(
@@ -159,21 +166,37 @@ export async function postSwipe(
     const chatRoomId = buildChatRoomId(userId, targetId);
     const chatRef = doc(db, "chats", chatRoomId);
     const existingChat = await getDoc(chatRef);
+    const existingData = existingChat.exists()
+      ? (existingChat.data() as { status?: "pending" | "active"; initiatedBy?: string | null })
+      : null;
 
-    if (!existingChat.exists()) {
-      await setDoc(
-        chatRef,
-        {
-          users: [userId, targetId],
-          status: "pending",
-          initiatedBy: userId,
-          createdAt: serverTimestamp(),
-          lastMessageTimestamp: serverTimestamp(),
-          lastMessage: "",
-        },
-        { merge: true },
-      );
-    }
+    await setDoc(
+      chatRef,
+      {
+        users: [userId, targetId],
+        type: "roommate",
+        status: existingData?.status ?? "pending",
+        initiatedBy: existingData?.initiatedBy ?? userId,
+        updatedAt: serverTimestamp(),
+        lastMessageTimestamp: serverTimestamp(),
+        ...(existingChat.exists()
+          ? {}
+          : {
+              createdAt: serverTimestamp(),
+              lastMessage: "",
+            }),
+      },
+      { merge: true },
+    );
+
+    // Re-open chat visibility for a user that had previously hidden this thread.
+    await setDoc(
+      chatRef,
+      {
+        deletedBy: arrayRemove(userId),
+      },
+      { merge: true },
+    );
   }
 
   // Legacy return contract maintained for existing callers.

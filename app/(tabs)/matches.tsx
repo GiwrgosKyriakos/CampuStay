@@ -4,7 +4,7 @@ import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { arrayUnion, collection, doc, getDoc, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
+import { arrayRemove, arrayUnion, collection, doc, getDoc, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import type { RoommateProfile } from "@/src/data/profiles";
@@ -221,25 +221,46 @@ export default function MatchesScreen() {
 
     (async () => {
       try {
-        const uid = await getUserId();
+        const uid = auth.userId ?? (await getUserId());
         if (!mounted) return;
         setCurrentUserId(uid);
+        console.log("[Matches] Subscribing with resolved user id", {
+          authUserId: auth.userId,
+          resolvedUid: uid,
+        });
 
-        const chatsQ = query(
-          collection(db, "chats"),
-          where("users", "array-contains", uid),
-          orderBy("lastMessageTimestamp", "desc"),
-        );
+        const chatsQ = query(collection(db, "chats"), where("users", "array-contains", uid));
         unsub = onSnapshot(chatsQ, (snapshot) => {
+          console.log("[Matches] Chats snapshot received", {
+            uid,
+            selectedChatType,
+            totalChats: snapshot.docs.length,
+          });
           const activeChatIds = new Set(snapshot.docs.map((d) => d.id));
           const visibleChatDocs = snapshot.docs.filter((chatDoc) => {
             const chatData = chatDoc.data() as FirestoreChatDoc;
             const deletedBy = Array.isArray(chatData.deletedBy) ? chatData.deletedBy : [];
             if (deletedBy.includes(uid)) {
+              console.log("[Matches] Hiding chat because deletedBy includes current user", {
+                chatId: chatDoc.id,
+              });
               return false;
             }
             const chatType = chatData.type ?? "roommate";
-            return selectedChatType === "host" ? chatType === "host" : chatType !== "host";
+            const isVisibleForTab = selectedChatType === "host" ? chatType === "host" : chatType !== "host";
+            if (!isVisibleForTab) {
+              console.log("[Matches] Hiding chat due to tab/type split", {
+                chatId: chatDoc.id,
+                selectedChatType,
+                chatType,
+              });
+            }
+            return isVisibleForTab;
+          });
+
+          console.log("[Matches] Visible chats after filtering", {
+            selectedChatType,
+            visibleCount: visibleChatDocs.length,
           });
 
           // Keep per-room last-message listeners in sync with current chat rooms.
@@ -330,7 +351,8 @@ export default function MatchesScreen() {
             }
           })();
         });
-      } catch {
+      } catch (error) {
+        console.error("[Matches] Failed to initialize chats subscription", error);
         if (mounted) setMatches([]);
       }
     })();
@@ -341,13 +363,21 @@ export default function MatchesScreen() {
       Object.values(messageUnsubsRef.current).forEach((off) => off());
       messageUnsubsRef.current = {};
     };
-  }, [auth.isGuest, selectedChatType]);
+  }, [auth.isGuest, auth.userId, selectedChatType]);
 
   const handleAcceptChat = async (profile: ChatListItem) => {
     if (!currentUserId || !profile.chatRoomId) return;
     setAcceptingChatId(profile.chatRoomId);
     try {
-      await updateDoc(doc(db, "chats", profile.chatRoomId), { status: "active" });
+      await updateDoc(doc(db, "chats", profile.chatRoomId), {
+        status: "active",
+        updatedAt: serverTimestamp(),
+        deletedBy: arrayRemove(currentUserId),
+      });
+      console.log("[Matches] Accepted pending roommate chat", {
+        chatRoomId: profile.chatRoomId,
+        currentUserId,
+      });
     } catch (err) {
       console.error("Accept chat failed:", err);
     } finally {
