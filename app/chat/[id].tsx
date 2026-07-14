@@ -21,7 +21,7 @@ import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import type { RoommateProfile } from "@/src/data/profiles";
 import { getUserId } from "@/src/utils/userId";
 import { db } from "@/src/config/firebase";
-import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, setDoc, getDoc } from "firebase/firestore";
+import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, setDoc, getDoc, arrayUnion } from "firebase/firestore";
 import { markIncomingMessagesAsRead } from "@/src/api/chat";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import CenteredActionModal, { type CenteredModalAction } from "@/src/components/CenteredActionModal";
@@ -57,7 +57,7 @@ interface FirestoreChatDoc {
   apartmentId?: string;
   apartmentTitle?: string;
   apartmentUnavailable?: boolean;
-  status?: "pending" | "active";
+  status?: "pending" | "active" | "rejected";
   deletedUsers?: Record<string, boolean>;
   participantDisplayNames?: Record<string, string>;
   mutedByUsers?: Record<string, boolean>;
@@ -266,7 +266,7 @@ export default function ChatScreen() {
   const scrollRef = useRef<ScrollView>(null);
   const [text, setText] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
-  const [chatStatus, setChatStatus] = useState<"pending" | "active">("active");
+  const [chatStatus, setChatStatus] = useState<"pending" | "active" | "rejected">("active");
   const [chatType, setChatType] = useState<"roommate" | "host">("roommate");
   const [hostApartmentId, setHostApartmentId] = useState<string | null>(null);
   const [hostApartmentTitle, setHostApartmentTitle] = useState<string | null>(null);
@@ -311,7 +311,7 @@ export default function ChatScreen() {
         return;
       }
       const data = snapshot.data() as FirestoreChatDoc;
-      setChatStatus(data.status === "pending" ? "pending" : "active");
+      setChatStatus(data.status === "pending" ? "pending" : data.status === "rejected" ? "rejected" : "active");
       setChatType(data.type === "host" ? "host" : "roommate");
       setHostApartmentId(typeof data.apartmentId === "string" && data.apartmentId.trim().length > 0 ? data.apartmentId : null);
       setHostApartmentTitle(typeof data.apartmentTitle === "string" && data.apartmentTitle.trim().length > 0 ? data.apartmentTitle : null);
@@ -470,7 +470,7 @@ export default function ChatScreen() {
     const trimmed = text.trim();
     const counterpartDeleted = !counterpartExists;
     const apartmentLocked = chatType === "host" && isApartmentUnavailable;
-    if (!trimmed || !currentUserId || !id || !chatRoomId || chatStatus === "pending" || counterpartDeleted || apartmentLocked) return;
+    if (!trimmed || !currentUserId || !id || !chatRoomId || chatStatus === "pending" || chatStatus === "rejected" || counterpartDeleted || apartmentLocked) return;
 
     const optimisticMessage: Message = {
       id: `temp-${Date.now()}`,
@@ -569,7 +569,7 @@ export default function ChatScreen() {
     : counterpartDetails?.about?.trim() || counterpartDetails?.bio?.trim() || t("common.values.notAvailable");
   const showAvatarImage = !deletedCounterpart && !!activeProfile.photo?.trim();
   const apartmentLocked = chatType === "host" && isApartmentUnavailable;
-  const inputBlocked = chatStatus === "pending" || deletedCounterpart || apartmentLocked;
+  const inputBlocked = chatStatus === "pending" || chatStatus === "rejected" || deletedCounterpart || apartmentLocked;
   const shouldShowSocialLinks = !deletedCounterpart && !!counterpartDetails?.looking_for_apartment;
   const apartmentPillTitle = apartmentLocked ? t("chat.unavailable") : hostApartment?.title || hostApartmentTitle || t("chat.unavailable");
 
@@ -634,6 +634,34 @@ export default function ChatScreen() {
     setExpandReport(false);
     setReportReason("");
   }, []);
+
+  const handleDeleteRejectedChat = useCallback(async () => {
+    if (!currentUserId || !chatRoomId) return;
+
+    try {
+      await setDoc(
+        doc(db, "chats", chatRoomId),
+        {
+          deletedBy: arrayUnion(currentUserId),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+      router.back();
+    } catch {
+      setActionModal({
+        title: t("chat.modals.actionFailedTitle"),
+        description: t("common.messages.tryAgain"),
+        actions: [
+          {
+            label: t("common.actions.gotIt"),
+            iconName: "alert-circle-outline",
+            onPress: () => setActionModal(null),
+          },
+        ],
+      });
+    }
+  }, [chatRoomId, currentUserId, router]);
 
   const handleBlockFlow = useCallback(
     async (withReport: boolean) => {
@@ -923,6 +951,21 @@ export default function ChatScreen() {
             <Ionicons name="paper-plane" size={20} color={colors.onBrand} />
           </Pressable>
         </View>
+
+        {chatStatus === "rejected" ? (
+          <View style={styles.rejectedActionWrap}>
+            <Pressable
+              style={styles.rejectedDeleteBtn}
+              onPress={() => {
+                void handleDeleteRejectedChat();
+              }}
+              testID="chat-rejected-delete-button"
+            >
+              <Ionicons name="trash-outline" size={16} color={colors.onBrand} />
+              <Text style={styles.rejectedDeleteBtnText}>Delete Chat</Text>
+            </Pressable>
+          </View>
+        ) : null}
       </KeyboardAvoidingView>
 
       <Modal
@@ -1441,4 +1484,24 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   sendBtnDisabled: { opacity: 0.4 },
+  rejectedActionWrap: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
+    backgroundColor: colors.surface,
+  },
+  rejectedDeleteBtn: {
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    borderRadius: radius.pill,
+    backgroundColor: colors.brand,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+  },
+  rejectedDeleteBtnText: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.base,
+    color: colors.onBrand,
+  },
 });

@@ -23,7 +23,7 @@ function isDeletedCounterpart(profile: RoommateProfile): boolean {
 
 interface ChatListItem extends RoommateProfile {
   chatRoomId: string;
-  chat_status?: "pending" | "active";
+  chat_status?: "pending" | "active" | "rejected";
   chat_initiated_by?: string | null;
 }
 
@@ -46,7 +46,7 @@ interface FirestoreUserDoc {
 interface FirestoreChatDoc {
   users?: string[];
   type?: "roommate" | "host" | string;
-  status?: "pending" | "active";
+  status?: "pending" | "active" | "rejected";
   initiatedBy?: string | null;
   deletedBy?: string[];
   deletedUsers?: Record<string, boolean>;
@@ -95,7 +95,7 @@ function isMessageRead(msg: FirestoreLastMessageDoc | null, currentUserId: strin
 function buildDeletedCandidate(
   uid: string,
   chatRoomId: string,
-  status?: "pending" | "active",
+  status?: "pending" | "active" | "rejected",
   initiatedBy?: string | null,
   label?: string,
 ): ChatListItem {
@@ -120,7 +120,7 @@ function buildDeletedCandidate(
 function mapUserToChatItem(
   uid: string,
   chatRoomId: string,
-  status?: "pending" | "active",
+  status?: "pending" | "active" | "rejected",
   initiatedBy?: string | null,
   data?: FirestoreUserDoc | null,
 ): ChatListItem {
@@ -371,8 +371,10 @@ export default function MatchesScreen() {
     try {
       await updateDoc(doc(db, "chats", profile.chatRoomId), {
         status: "active",
+        approvedBy: currentUserId,
         updatedAt: serverTimestamp(),
-        deletedBy: arrayRemove(currentUserId),
+        // Unhide the thread for both sender and receiver on approval.
+        deletedBy: arrayRemove(currentUserId, profile.id),
       });
       console.log("[Matches] Accepted pending roommate chat", {
         chatRoomId: profile.chatRoomId,
@@ -385,13 +387,34 @@ export default function MatchesScreen() {
     }
   };
 
+  const handleRejectChat = async (profile: ChatListItem) => {
+    if (!currentUserId || !profile.chatRoomId) return;
+    setAcceptingChatId(profile.chatRoomId);
+    try {
+      await updateDoc(doc(db, "chats", profile.chatRoomId), {
+        status: "rejected",
+        rejectedBy: currentUserId,
+        updatedAt: serverTimestamp(),
+      });
+      console.log("[Matches] Rejected pending roommate chat", {
+        chatRoomId: profile.chatRoomId,
+        currentUserId,
+      });
+      router.push({ pathname: "/chat/[id]", params: { id: profile.id, chatRoomId: profile.chatRoomId } });
+    } catch (err) {
+      console.error("Reject chat failed:", err);
+    } finally {
+      setAcceptingChatId(null);
+    }
+  };
+
   const handleNavigateToChat = (profile: ChatListItem) => {
     if (activeContextChatId) {
       setActiveContextChatId(null);
       return;
     }
     const chatStatus = profile.chat_status ?? "active";
-    if (chatStatus === "active") {
+    if (chatStatus === "active" || chatStatus === "rejected") {
       router.push({ pathname: "/chat/[id]", params: { id: profile.id, chatRoomId: profile.chatRoomId } });
     }
   };
@@ -483,11 +506,16 @@ export default function MatchesScreen() {
             const hasAvatar = !isDeleted && !!p.photo?.trim();
             const chatStatus = p.chat_status ?? "active";
             const isPending = chatStatus === "pending";
+            const isRejected = chatStatus === "rejected";
             const isInitiator = isPending && p.chat_initiated_by === currentUserId;
             const isReceiver = isPending && p.chat_initiated_by !== currentUserId;
             const lastMessage = lastMessageByChat[p.chatRoomId];
             const defaultPreview = isPending ? t("matches.previewPending") : t("matches.previewStart");
-            const lastPreviewText = isPending ? t("matches.previewPending") : (lastMessage?.text || defaultPreview);
+            const lastPreviewText = isPending
+              ? t("matches.previewPending")
+              : isRejected && p.chat_initiated_by === currentUserId
+              ? "Unavailable communication"
+              : (lastMessage?.text || defaultPreview);
             const unreadFromCounterparty =
               !isPending &&
               !!lastMessage &&
@@ -527,24 +555,51 @@ export default function MatchesScreen() {
                   <Text style={styles.rowName} numberOfLines={1}>
                     {displayName}
                   </Text>
-                  <Text
-                    style={[styles.rowMsg, previewIsFaded ? styles.rowMsgFaded : styles.rowMsgUnread]}
-                    numberOfLines={1}
-                    ellipsizeMode="tail"
-                  >
-                    {lastPreviewText}
-                  </Text>
+                  {isPending ? (
+                    isReceiver ? (
+                      acceptingChatId === p.chatRoomId ? (
+                        <View style={styles.pendingActionRow}>
+                          <ActivityIndicator size="small" color={colors.brand} />
+                        </View>
+                      ) : (
+                        <View style={styles.pendingActionRow}>
+                          <Pressable
+                            style={[styles.pendingPillBtn, styles.pendingApproveBtn]}
+                            onPress={() => handleAcceptChat(p)}
+                            testID={`pending-approve-btn-${p.id}`}
+                          >
+                            <Text style={styles.pendingApproveBtnText}>{t("common.actions.accept")}</Text>
+                          </Pressable>
+                          <Pressable
+                            style={[styles.pendingPillBtn, styles.pendingRejectBtn]}
+                            onPress={() => handleRejectChat(p)}
+                            testID={`pending-reject-btn-${p.id}`}
+                          >
+                            <Text style={styles.pendingRejectBtnText}>{t("common.actions.reject")}</Text>
+                          </Pressable>
+                        </View>
+                      )
+                    ) : (
+                      <Text
+                        style={[styles.rowMsg, styles.rowMsgFaded]}
+                        numberOfLines={1}
+                        ellipsizeMode="tail"
+                      >
+                        Pending Approval...
+                      </Text>
+                    )
+                  ) : (
+                    <Text
+                      style={[styles.rowMsg, previewIsFaded ? styles.rowMsgFaded : styles.rowMsgUnread]}
+                      numberOfLines={1}
+                      ellipsizeMode="tail"
+                    >
+                      {lastPreviewText}
+                    </Text>
+                  )}
                 </View>
-                {isReceiver && acceptingChatId !== p.chatRoomId ? (
-                  <Pressable
-                    style={styles.acceptBtn}
-                    onPress={() => handleAcceptChat(p)}
-                    testID={`accept-btn-${p.id}`}
-                  >
-                      <Text style={styles.acceptBtnText}>{t("common.actions.accept")}</Text>
-                  </Pressable>
-                ) : isReceiver && acceptingChatId === p.chatRoomId ? (
-                  <ActivityIndicator size="small" color={colors.brand} />
+                {isPending ? (
+                  <Ionicons name="time-outline" size={22} color={colors.onSurfaceTertiary} />
                 ) : unreadFromCounterparty ? (
                   <View style={styles.unreadDot} testID={`chat-unread-dot-${p.id}`} />
                 ) : (
@@ -643,6 +698,35 @@ const styles = StyleSheet.create({
   rowMsg: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary },
   rowMsgFaded: { color: colors.onSurfaceTertiary, opacity: 0.55 },
   rowMsgUnread: { color: colors.onSurface, fontFamily: fonts.semibold },
+  pendingActionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    marginTop: 2,
+  },
+  pendingPillBtn: {
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+  },
+  pendingApproveBtn: {
+    backgroundColor: colors.brandTertiary,
+  },
+  pendingRejectBtn: {
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  pendingApproveBtnText: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.sm,
+    color: colors.brand,
+  },
+  pendingRejectBtnText: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.sm,
+    color: colors.onSurface,
+  },
   contextTooltip: {
     position: "absolute",
     top: -42,
@@ -676,13 +760,6 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     backgroundColor: colors.brand,
   },
-  acceptBtn: {
-    backgroundColor: colors.brandTertiary,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.sm,
-  },
-  acceptBtnText: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.brand },
   empty: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.xl, gap: spacing.sm },
   emptyIcon: {
     width: 88,

@@ -63,12 +63,15 @@ function normalizeCandidate(uid: string, data: FirestoreUserDoc): RoommateProfil
   };
 }
 
-async function getExcludedCandidateIds(userId: string): Promise<{ swipedTo: Set<string>; chattedWith: Set<string> }> {
+async function getExcludedCandidateIds(
+  userId: string,
+): Promise<{ swipedTo: Set<string>; chattedWith: Set<string>; likedYou: Set<string> }> {
   const swipesRef = collection(db, "swipes");
   const chatsRef = collection(db, "chats");
 
-  const [swipedSnap, chatsSnap] = await Promise.all([
+  const [swipedSnap, incomingLikesSnap, chatsSnap] = await Promise.all([
     getDocs(query(swipesRef, where("fromUid", "==", userId))),
+    getDocs(query(swipesRef, where("toUid", "==", userId), where("type", "==", "like"))),
     getDocs(query(chatsRef, where("users", "array-contains", userId))),
   ]);
 
@@ -76,6 +79,12 @@ async function getExcludedCandidateIds(userId: string): Promise<{ swipedTo: Set<
   swipedSnap.forEach((d) => {
     const toUid = d.data()?.toUid;
     if (typeof toUid === "string" && toUid) swipedTo.add(toUid);
+  });
+
+  const likedYou = new Set<string>();
+  incomingLikesSnap.forEach((d) => {
+    const fromUid = d.data()?.fromUid;
+    if (typeof fromUid === "string" && fromUid) likedYou.add(fromUid);
   });
 
   const chattedWith = new Set<string>();
@@ -90,12 +99,12 @@ async function getExcludedCandidateIds(userId: string): Promise<{ swipedTo: Set<
     if (typeof counterpart === "string" && counterpart) chattedWith.add(counterpart);
   });
 
-  return { swipedTo, chattedWith };
+  return { swipedTo, chattedWith, likedYou };
 }
 
 async function getPotentialCandidateRecords(userId: string, currentCity?: string | null): Promise<CandidateMatchRecord[]> {
   const usersRef = collection(db, "users");
-  const { swipedTo, chattedWith } = await getExcludedCandidateIds(userId);
+  const { swipedTo, chattedWith, likedYou } = await getExcludedCandidateIds(userId);
   const normalizedCity = normalizeCity(currentCity);
   const usersSnap = await getDocs(usersRef);
 
@@ -103,7 +112,7 @@ async function getPotentialCandidateRecords(userId: string, currentCity?: string
 
   usersSnap.forEach((u) => {
     const uid = u.id;
-    if (!uid || uid === userId || swipedTo.has(uid) || chattedWith.has(uid)) return;
+    if (!uid || uid === userId || swipedTo.has(uid) || chattedWith.has(uid) || likedYou.has(uid)) return;
 
     const data = u.data() as FirestoreUserDoc;
     const candidate = normalizeCandidate(uid, data);
@@ -190,7 +199,8 @@ export async function postSwipe(
     await setDoc(
       chatRef,
       {
-        deletedBy: arrayRemove(userId),
+        // Ensure the chat stays visible in the roommates list for both participants.
+        deletedBy: arrayRemove(userId, targetId),
       },
       { merge: true },
     );
