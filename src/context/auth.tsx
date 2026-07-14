@@ -235,6 +235,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const signInWithGoogle = useCallback(async (): Promise<void> => {
+    const wasGuest = status === "guest";
     try {
       await GoogleSignin.hasPlayServices();
       const userInfo = await GoogleSignin.signIn();
@@ -252,11 +253,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log("[Auth] Native Google sign-in completed via Firebase.", {
         userId: userCredential.user.uid,
         operationType: userCredential.operationType,
+        upgradedFromGuest: wasGuest,
       });
     } catch (error) {
       console.error("Native Google Sign-In Error:", error);
+      throw error;
     }
-  }, [persist]);
+  }, [persist, status]);
 
   const continueAsGuest = useCallback(async () => {
     await enterGuestMode();

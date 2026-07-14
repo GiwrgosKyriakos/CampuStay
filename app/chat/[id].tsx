@@ -501,6 +501,36 @@ export default function ChatScreen() {
     }
   }, [chatRoomId, chatStatus, chatType, counterpartExists, currentUserId, id, isApartmentUnavailable, sortMessages, text]);
 
+  const socialLinks = useMemo(
+    () => [
+      {
+        id: "instagram",
+        label: t("chat.socialPlatforms.instagram"),
+        icon: "logo-instagram" as const,
+        url: normalizeSocialUrl("instagram", counterpartDetails?.instagram ?? ""),
+      },
+      {
+        id: "facebook",
+        label: t("chat.socialPlatforms.facebook"),
+        icon: "logo-facebook" as const,
+        url: normalizeSocialUrl("facebook", counterpartDetails?.facebook ?? ""),
+      },
+      {
+        id: "linkedin",
+        label: t("chat.socialPlatforms.linkedin"),
+        icon: "logo-linkedin" as const,
+        url: normalizeSocialUrl("linkedin", counterpartDetails?.linkedin ?? ""),
+      },
+      {
+        id: "twitter",
+        label: t("chat.socialPlatforms.twitter"),
+        icon: "logo-twitter" as const,
+        url: normalizeSocialUrl("twitter", counterpartDetails?.twitter ?? ""),
+      },
+    ].filter((item) => item.url.length > 0),
+    [counterpartDetails?.facebook, counterpartDetails?.instagram, counterpartDetails?.linkedin, counterpartDetails?.twitter],
+  );
+
   if (!profile && loadingProfile) {
     return (
       <View style={[styles.container, styles.center]} testID="chat-screen">
@@ -542,36 +572,6 @@ export default function ChatScreen() {
   const inputBlocked = chatStatus === "pending" || deletedCounterpart || apartmentLocked;
   const shouldShowSocialLinks = !deletedCounterpart && !!counterpartDetails?.looking_for_apartment;
   const apartmentPillTitle = apartmentLocked ? t("chat.unavailable") : hostApartment?.title || hostApartmentTitle || t("chat.unavailable");
-
-  const socialLinks = useMemo(
-    () => [
-      {
-        id: "instagram",
-        label: t("chat.socialPlatforms.instagram"),
-        icon: "logo-instagram" as const,
-        url: normalizeSocialUrl("instagram", counterpartDetails?.instagram ?? ""),
-      },
-      {
-        id: "facebook",
-        label: t("chat.socialPlatforms.facebook"),
-        icon: "logo-facebook" as const,
-        url: normalizeSocialUrl("facebook", counterpartDetails?.facebook ?? ""),
-      },
-      {
-        id: "linkedin",
-        label: t("chat.socialPlatforms.linkedin"),
-        icon: "logo-linkedin" as const,
-        url: normalizeSocialUrl("linkedin", counterpartDetails?.linkedin ?? ""),
-      },
-      {
-        id: "twitter",
-        label: t("chat.socialPlatforms.twitter"),
-        icon: "logo-twitter" as const,
-        url: normalizeSocialUrl("twitter", counterpartDetails?.twitter ?? ""),
-      },
-    ].filter((item) => item.url.length > 0),
-    [counterpartDetails?.facebook, counterpartDetails?.instagram, counterpartDetails?.linkedin, counterpartDetails?.twitter],
-  );
 
   const handleApartmentPillPress = () => {
     if (!hostApartment || apartmentLocked) return;

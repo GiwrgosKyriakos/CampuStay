@@ -486,8 +486,8 @@ export default function MatchesScreen() {
             const isInitiator = isPending && p.chat_initiated_by === currentUserId;
             const isReceiver = isPending && p.chat_initiated_by !== currentUserId;
             const lastMessage = lastMessageByChat[p.chatRoomId];
-            const defaultPreview = isInitiator ? t("matches.previewPending") : t("matches.previewStart");
-            const lastPreviewText = lastMessage?.text || defaultPreview;
+            const defaultPreview = isPending ? t("matches.previewPending") : t("matches.previewStart");
+            const lastPreviewText = isPending ? t("matches.previewPending") : (lastMessage?.text || defaultPreview);
             const unreadFromCounterparty =
               !isPending &&
               !!lastMessage &&
@@ -503,7 +503,7 @@ export default function MatchesScreen() {
                 onPress={() => handleNavigateToChat(p)}
                 onLongPress={() => setActiveContextChatId(p.chatRoomId)}
                 delayLongPress={350}
-                disabled={isPending && isInitiator}
+                disabled={isPending}
               >
                 {activeContextChatId === p.chatRoomId ? (
                   <View style={styles.contextTooltip} testID={`matches-delete-tooltip-${p.chatRoomId}`}>

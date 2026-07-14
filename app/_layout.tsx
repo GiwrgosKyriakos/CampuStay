@@ -2,7 +2,7 @@ import { Stack, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import * as NavigationBar from "expo-navigation-bar";
 import { useEffect, useState } from "react";
-import { Animated, Easing, LogBox, Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Animated, Easing, LogBox, Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
@@ -63,6 +63,7 @@ function AppContent() {
     topSegment === "auth-email" ||
     topSegment === "privacy-policy";
   const isUnauthenticated = auth.user === null && !auth.isGuest;
+  const isAuthenticated = auth.user !== null;
 
   useEffect(() => {
     let mounted = true;
@@ -163,11 +164,18 @@ function AppContent() {
   if (isUnauthenticated && !isAuthRoute) {
     router.replace("/auth-landing");
   }
-}, [authReady, isUnauthenticated, isAuthRoute, router, segments]);
+  if (isAuthenticated && isAuthRoute) {
+    router.replace("/(tabs)/roommates");
+  }
+}, [authReady, isUnauthenticated, isAuthenticated, isAuthRoute, router, segments]);
   
   if (!fontsReady || !authReady || !languagePromptResolved) {
     console.log("[App] Waiting for app readiness...", { fontsReady, authReady });
-    return null;
+    return (
+      <View style={styles.bootLoaderWrap}>
+        <ActivityIndicator size="large" color={colors.brand} />
+      </View>
+    );
   }
 
   if (isUnauthenticated && !isAuthRoute) {
@@ -298,6 +306,12 @@ export default function RootLayout() {
 }
 
 const styles = StyleSheet.create({
+  bootLoaderWrap: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surface,
+  },
   languageModalRoot: {
     flex: 1,
     justifyContent: "center",

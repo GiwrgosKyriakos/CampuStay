@@ -3,17 +3,18 @@ import { View, Text, Pressable, StyleSheet, ViewStyle, StyleProp } from "react-n
 import { LinearGradient } from "expo-linear-gradient";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
+import { useAuth } from "@/src/context/auth";
 import { t } from "@/src/locales";
 
 type GuestModeTopBannerProps = {
-  onPress: () => void;
+  onPress?: () => void;
   testID?: string;
   buttonTestID?: string;
   style?: StyleProp<ViewStyle>;
 };
 
 type GuestModeStickyFooterProps = {
-  onPress: () => void;
+  onPress?: () => void;
   testID?: string;
   buttonTestID?: string;
   bottomInset: number;
@@ -21,10 +22,20 @@ type GuestModeStickyFooterProps = {
 };
 
 export function GuestModeTopBanner({ onPress, testID, buttonTestID, style }: GuestModeTopBannerProps) {
+  const auth = useAuth();
+
+  const handlePress = async () => {
+    try {
+      await auth.signInWithGoogle();
+    } catch {
+      onPress?.();
+    }
+  };
+
   return (
     <View style={[styles.topBanner, style]} testID={testID}>
       <Text style={styles.topBannerText}>{t("common.guest.readOnlyBanner")}</Text>
-      <Pressable style={styles.topBannerButton} onPress={onPress} testID={buttonTestID}>
+      <Pressable style={styles.topBannerButton} onPress={() => void handlePress()} testID={buttonTestID}>
         <Text style={styles.topBannerButtonText}>{t("common.cta.signInOrRegister")}</Text>
       </Pressable>
     </View>
@@ -32,9 +43,19 @@ export function GuestModeTopBanner({ onPress, testID, buttonTestID, style }: Gue
 }
 
 export function GuestModeStickyFooter({ onPress, testID, buttonTestID, bottomInset, style }: GuestModeStickyFooterProps) {
+  const auth = useAuth();
+
+  const handlePress = async () => {
+    try {
+      await auth.signInWithGoogle();
+    } catch {
+      onPress?.();
+    }
+  };
+
   return (
     <View style={[styles.footer, { paddingBottom: bottomInset + spacing.md }, style]} testID={testID}>
-      <Pressable onPress={onPress} testID={buttonTestID}>
+      <Pressable onPress={() => void handlePress()} testID={buttonTestID}>
         <LinearGradient
           colors={[colors.brand, colors.brandSecondary]}
           start={{ x: 0, y: 0 }}

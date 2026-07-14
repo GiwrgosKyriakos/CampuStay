@@ -16,6 +16,20 @@ export default function AuthLandingScreen() {
   const auth = useAuth();
   const [googleLoading, setGoogleLoading] = useState(false);
 
+  React.useEffect(() => {
+    if (!auth.isLoading && auth.isLoggedIn) {
+      router.replace("/(tabs)/roommates");
+    }
+  }, [auth.isLoading, auth.isLoggedIn, router]);
+
+  if (auth.isLoading || auth.isLoggedIn) {
+    return (
+      <View style={styles.loadingContainer} testID="auth-landing-loading">
+        <ActivityIndicator size="large" color={colors.brand} />
+      </View>
+    );
+  }
+
   const handleGoogleLogin = async () => {
     setGoogleLoading(true);
     try {
@@ -122,6 +136,12 @@ export default function AuthLandingScreen() {
 }
 
 const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surface,
+  },
   container: {
     flex: 1,
     backgroundColor: colors.surface,

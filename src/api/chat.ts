@@ -123,6 +123,26 @@ function buildChatRoomId(userA: string, userB: string, apartmentId?: string): st
   return parts.sort().join("_");
 }
 
+async function findExistingHostChatRoomId(params: {
+  currentUserId: string;
+  hostId: string;
+  apartmentId: string;
+}): Promise<string | null> {
+  const { currentUserId, hostId, apartmentId } = params;
+  const hostChatsQ = query(
+    collection(db, "chats"),
+    where("type", "==", "host"),
+    where("apartmentId", "==", apartmentId),
+    where("users", "array-contains", currentUserId),
+  );
+  const hostChatsSnap = await getDocs(hostChatsQ);
+  const existing = hostChatsSnap.docs.find((chatDoc) => {
+    const users = chatDoc.data()?.users;
+    return Array.isArray(users) && users.includes(hostId);
+  });
+  return existing?.id ?? null;
+}
+
 export async function getOrCreateHostChat(params: {
   currentUserId: string;
   hostId: string;
@@ -130,6 +150,22 @@ export async function getOrCreateHostChat(params: {
   apartmentTitle?: string;
 }): Promise<string> {
   const { currentUserId, hostId, apartmentId, apartmentTitle } = params;
+  const existingRoomId = await findExistingHostChatRoomId({ currentUserId, hostId, apartmentId });
+  if (existingRoomId) {
+    await setDoc(
+      doc(db, "chats", existingRoomId),
+      {
+        users: [currentUserId, hostId],
+        type: "host",
+        apartmentId,
+        apartmentTitle: apartmentTitle ?? "",
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true },
+    );
+    return existingRoomId;
+  }
+
   const chatRoomId = buildChatRoomId(currentUserId, hostId, apartmentId);
   const chatRef = doc(db, "chats", chatRoomId);
   const snapshot = await getDoc(chatRef);

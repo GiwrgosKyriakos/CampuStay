@@ -1,3 +1,5 @@
+import { areCitiesEquivalent } from "@/src/utils/cityNormalization";
+
 export interface CompatibilityQuiz {
   q1_bills: 'Split everything evenly' | 'Each person pays for a different one' | 'We’ll figure it out as we go';
   q2_sharing: 'Share freely' | 'Ask first' | 'Prefer not to share';
@@ -66,10 +68,6 @@ function hasAnswer(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
-function normalizeCityValue(city: string): string {
-  return city.trim().replace(/\s+/g, ' ').toLowerCase();
-}
-
 function scoreAnsweredQuestion(
   key: keyof CompatibilityQuiz,
   currentQuiz: CompatibilityQuizAnswers,
@@ -131,7 +129,7 @@ function scoreAnsweredQuestion(
 
 export function calculateMatchScore(currentUser: UserProfile, potentialMatch: UserProfile): number {
   // Αν ψάχνουν σε διαφορετική πόλη, τους βγάζουμε τελείως εκτός στοίβας (0%)
-  if (normalizeCityValue(currentUser.city) !== normalizeCityValue(potentialMatch.city)) return 0;
+  if (!areCitiesEquivalent(currentUser.city, potentialMatch.city)) return 0;
 
   const currentQuiz = currentUser.quiz ?? {};
   const matchQuiz = potentialMatch.quiz ?? {};

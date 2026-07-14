@@ -14,6 +14,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Linking from "expo-linking";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { doc, getDoc } from "firebase/firestore";
 
 import { colors, fonts, fontSize, radius, spacing } from "@/src/theme";
 import { useAuth } from "@/src/context/auth";
@@ -22,6 +23,7 @@ import { subscribeUserLikedApartmentIds, toggleApartmentLike } from "@/src/api/a
 import { deleteListingPermanently } from "@/src/api/listings";
 import CenteredActionModal from "@/src/components/CenteredActionModal";
 import { t } from "@/src/locales";
+import { db } from "@/src/config/firebase";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const CURRENCY = "€";
@@ -37,6 +39,11 @@ interface Apartment {
   size: number;
   image: string;
   tags: string[];
+  hostId?: string;
+  ownerId?: string;
+}
+
+interface FirestoreApartmentDoc {
   hostId?: string;
   ownerId?: string;
 }
@@ -123,11 +130,26 @@ export default function ApartmentDetailScreen() {
 
   const startHostChat = async () => {
     const currentUid = auth.userId;
-    const hostId = apt?.hostId;
+    let hostId = apt?.hostId || apt?.ownerId || null;
 
     if (!currentUid) {
       router.push("/auth-landing");
       return;
+    }
+
+    if (!hostId && apt?.id) {
+      try {
+        const apartmentSnap = await getDoc(doc(db, "apartments", apt.id));
+        if (apartmentSnap.exists()) {
+          const apartmentData = apartmentSnap.data() as FirestoreApartmentDoc;
+          hostId = apartmentData.hostId || apartmentData.ownerId || null;
+        }
+      } catch (error) {
+        console.error("[ApartmentDetail] Failed to resolve host from apartment document", {
+          apartmentId: apt.id,
+          error,
+        });
+      }
     }
 
     if (!hostId) {

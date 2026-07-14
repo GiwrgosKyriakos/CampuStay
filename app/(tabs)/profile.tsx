@@ -136,7 +136,13 @@ export default function ProfileScreen() {
         <View style={[styles.hero, { paddingTop: spacing.xl }]}> 
           <View style={styles.avatarWrap}>
             <Pressable
-              onPress={auth.isGuest ? () => router.push("/auth-landing") : updatePhoto}
+              onPress={
+                auth.isGuest
+                  ? () => {
+                      void auth.signInWithGoogle();
+                    }
+                  : updatePhoto
+              }
               disabled={updatingPhoto && !auth.isGuest}
               testID="profile-avatar-button"
               style={({ pressed }) => [styles.avatarButton, pressed && !auth.isGuest && styles.avatarButtonPressed]}
@@ -267,7 +273,9 @@ export default function ProfileScreen() {
           <Pressable
             style={styles.guestSignUpButton}
             testID="guest-signup-button"
-            onPress={() => router.navigate("auth-landing" as any)}
+            onPress={() => {
+              void auth.signInWithGoogle();
+            }}
           >
             <Text style={styles.guestSignUpText}>{t("common.cta.signInOrRegister")}</Text>
           </Pressable>

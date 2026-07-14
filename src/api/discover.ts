@@ -13,6 +13,7 @@ import {
 } from "firebase/firestore";
 
 import { db } from "@/src/config/firebase";
+import { normalizeCity } from "@/src/utils/cityNormalization";
 
 const BASE = process.env.EXPO_PUBLIC_BACKEND_URL;
 
@@ -40,10 +41,6 @@ interface FirestoreQuizDoc {
 interface CandidateMatchRecord {
   profile: RoommateProfile;
   quizAnswers: Record<string, string>;
-}
-
-function normalizeCityValue(city?: string | null): string {
-  return (city ?? "").trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 function normalizeCandidate(uid: string, data: FirestoreUserDoc): RoommateProfile {
@@ -99,7 +96,7 @@ async function getExcludedCandidateIds(userId: string): Promise<{ swipedTo: Set<
 async function getPotentialCandidateRecords(userId: string, currentCity?: string | null): Promise<CandidateMatchRecord[]> {
   const usersRef = collection(db, "users");
   const { swipedTo, chattedWith } = await getExcludedCandidateIds(userId);
-  const normalizedCity = normalizeCityValue(currentCity);
+  const normalizedCity = normalizeCity(currentCity);
   const usersSnap = await getDocs(usersRef);
 
   const candidateEntries: { uid: string; profile: RoommateProfile }[] = [];
@@ -111,7 +108,7 @@ async function getPotentialCandidateRecords(userId: string, currentCity?: string
     const data = u.data() as FirestoreUserDoc;
     const candidate = normalizeCandidate(uid, data);
     if (candidate.deleted) return;
-    if (normalizedCity && normalizeCityValue(candidate.city) !== normalizedCity) return;
+    if (normalizedCity && normalizeCity(candidate.city) !== normalizedCity) return;
     candidateEntries.push({ uid, profile: candidate });
   });
 
