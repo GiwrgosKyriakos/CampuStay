@@ -4,10 +4,10 @@ import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { arrayRemove, arrayUnion, collection, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
+import { arrayRemove, arrayUnion, collection, deleteDoc, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
-import type { RoommateProfile } from "@/src/data/profiles";
+import type { Gender, RoommateProfile } from "@/src/data/profiles";
 import { getUserId } from "@/src/utils/userId";
 import { useAuth } from "@/src/context/auth";
 import { db } from "@/src/config/firebase";
@@ -23,6 +23,7 @@ function isDeletedCounterpart(profile: RoommateProfile): boolean {
 
 interface ChatListItem extends RoommateProfile {
   chatRoomId: string;
+  chat_users?: string[];
   chat_status?: "pending" | "active" | "rejected";
   chat_initiated_by?: string | null;
 }
@@ -103,7 +104,7 @@ function buildDeletedCandidate(
     id: uid,
     name: label || DELETED_ACCOUNT_LABEL,
     age: 0,
-    gender: t("common.values.nonBinary"),
+    gender: t("common.values.nonBinary") as Gender,
     budget: 0,
     university: "",
     program: "",
@@ -120,6 +121,7 @@ function buildDeletedCandidate(
 function mapUserToChatItem(
   uid: string,
   chatRoomId: string,
+  users?: string[],
   status?: "pending" | "active" | "rejected",
   initiatedBy?: string | null,
   data?: FirestoreUserDoc | null,
@@ -133,7 +135,7 @@ function mapUserToChatItem(
     id: uid,
     name: data.name?.trim() || DELETED_ACCOUNT_LABEL,
     age: typeof data.age === "number" ? data.age : 0,
-    gender: (data.gender as RoommateProfile["gender"]) || t("common.values.nonBinary"),
+    gender: (data.gender as Gender) || (t("common.values.nonBinary") as Gender),
     budget: typeof data.maxBudget === "number" ? data.maxBudget : typeof data.budget === "number" ? data.budget : 0,
     university: data.university || "",
     program: data.year || data.year_of_study || "",
@@ -142,6 +144,7 @@ function mapUserToChatItem(
     photo,
     deleted: !!data.deleted,
     chatRoomId,
+    chat_users: Array.isArray(users) ? users : undefined,
     chat_status: status,
     chat_initiated_by: initiatedBy ?? null,
   };
@@ -152,6 +155,7 @@ export default function MatchesScreen() {
   const router = useRouter();
   const auth = useAuth();
   const [matches, setMatches] = useState<ChatListItem[]>([]);
+  const [loading, setLoading] = useState(true);
   const [selectedChatType, setSelectedChatType] = useState<"roommate" | "host">("roommate");
   const [lastMessageByChat, setLastMessageByChat] = useState<Record<string, LastMessageMeta>>({});
   const [acceptingChatId, setAcceptingChatId] = useState<string | null>(null);
@@ -167,13 +171,15 @@ export default function MatchesScreen() {
     const likesQ = query(
       collection(db, "swipes"),
       where("fromUid", "==", uid),
-      where("type", "==", "like"),
     );
     const likesSnap = await getDocs(likesQ);
     if (likesSnap.empty) return;
 
     await Promise.all(
       likesSnap.docs.map(async (swipeDoc) => {
+        const swipeType = swipeDoc.data()?.type;
+        if (swipeType !== "like") return;
+
         const toUid = swipeDoc.data()?.toUid;
         if (typeof toUid !== "string" || !toUid) return;
 
@@ -255,6 +261,7 @@ export default function MatchesScreen() {
       setCurrentUserId("");
       setMatches([]);
       setLastMessageByChat({});
+      setLoading(false);
       return;
     }
 
@@ -262,6 +269,7 @@ export default function MatchesScreen() {
     let unsub: (() => void) | null = null;
 
     setMatches([]);
+    setLoading(true);
 
     (async () => {
       try {
@@ -270,6 +278,7 @@ export default function MatchesScreen() {
           if (mounted) {
             setCurrentUserId("");
             setMatches([]);
+            setLoading(false);
           }
           return;
         }
@@ -281,10 +290,16 @@ export default function MatchesScreen() {
         });
 
         // Reconcile any previously liked users into roommate chats so they always appear in Matches.
-        await ensureRoommateChatsFromLikes(uid);
+        try {
+          await ensureRoommateChatsFromLikes(uid);
+        } catch (reconcileError) {
+          // Never block the live chats subscription when backfill fails.
+          console.warn("[Matches] Roommate chat backfill skipped", reconcileError);
+        }
 
         const chatsQ = query(collection(db, "chats"), where("users", "array-contains", uid));
         unsub = onSnapshot(chatsQ, (snapshot) => {
+          if (mounted) setLoading(false);
           console.log("[Matches] Chats snapshot received", {
             uid,
             selectedChatType,
@@ -369,10 +384,36 @@ export default function MatchesScreen() {
             const rows = await Promise.all(
               visibleChatDocs.map(async (chatDoc) => {
                 const chatData = chatDoc.data() as FirestoreChatDoc;
+                const toSafeMillis = (value: unknown): number => {
+                  if (typeof value === "number" && Number.isFinite(value)) return value;
+                  if (!value || typeof value !== "object") return 0;
+
+                  const ts = value as {
+                    toMillis?: () => number;
+                    toDate?: () => Date;
+                    seconds?: number;
+                    nanoseconds?: number;
+                  };
+
+                  if (typeof ts.toMillis === "function") {
+                    const millis = ts.toMillis();
+                    return Number.isFinite(millis) ? millis : 0;
+                  }
+                  if (typeof ts.toDate === "function") {
+                    const millis = ts.toDate().getTime();
+                    return Number.isFinite(millis) ? millis : 0;
+                  }
+                  if (typeof ts.seconds === "number") {
+                    return ts.seconds * 1000 + Math.floor((ts.nanoseconds ?? 0) / 1_000_000);
+                  }
+                  return 0;
+                };
+
                 const sortKey =
-                  toMillis(chatData.lastMessageTimestamp) ||
-                  toMillis(chatData.updatedAt) ||
-                  toMillis(chatData.createdAt);
+                  toSafeMillis(chatData.lastMessageTimestamp) ||
+                  toSafeMillis(chatData.updatedAt) ||
+                  toSafeMillis(chatData.createdAt) ||
+                  0;
                 const users = Array.isArray(chatData.users) ? chatData.users : [];
                 const counterpartUid = users.find((u) => u !== uid);
                 if (!counterpartUid) {
@@ -381,25 +422,61 @@ export default function MatchesScreen() {
 
                 const userSnap = await getDoc(doc(db, "users", counterpartUid));
                 const userData = userSnap.exists() ? (userSnap.data() as FirestoreUserDoc) : null;
+                const chat_status = chatData.status ?? "active";
+                const chat_initiated_by = chatData.initiatedBy ?? null;
 
                 return {
                   sortKey,
                   item: mapUserToChatItem(
                     counterpartUid,
                     chatDoc.id,
-                    chatData.status ?? "active",
-                    chatData.initiatedBy ?? null,
+                    users,
+                    chat_status,
+                    chat_initiated_by,
                     userData,
                   ),
                 };
               }),
             );
 
-            if (mounted) {
-              setMatches(
+            let fallbackRows: Array<{ sortKey: number; item: ChatListItem }> = [];
+            if (selectedChatType !== "host") {
+              const existingChatIds = new Set(
                 rows
                   .filter((r): r is { sortKey: number; item: ChatListItem } => !!r)
-                  .sort((a, b) => b.sortKey - a.sortKey)
+                  .map((r) => r.item.chatRoomId),
+              );
+
+              const likesSnap = await getDocs(query(collection(db, "swipes"), where("fromUid", "==", uid)));
+              const likedTargets = likesSnap.docs
+                .map((d) => d.data() as { toUid?: string; type?: string })
+                .filter((d) => d.type === "like" && typeof d.toUid === "string" && !!d.toUid)
+                .map((d) => d.toUid as string);
+
+              const missingTargets = likedTargets.filter((targetUid) => {
+                const chatRoomId = [uid, targetUid].sort().join("_");
+                return !existingChatIds.has(chatRoomId);
+              });
+
+              fallbackRows = await Promise.all(
+                missingTargets.map(async (targetUid) => {
+                  const userSnap = await getDoc(doc(db, "users", targetUid));
+                  const userData = userSnap.exists() ? (userSnap.data() as FirestoreUserDoc) : null;
+                  const chatRoomId = [uid, targetUid].sort().join("_");
+
+                  return {
+                    sortKey: 0,
+                    item: mapUserToChatItem(targetUid, chatRoomId, [uid, targetUid], "pending", uid, userData),
+                  };
+                }),
+              );
+            }
+
+            if (mounted) {
+              setMatches(
+                [...rows, ...fallbackRows]
+                  .filter((r): r is { sortKey: number; item: ChatListItem } => !!r)
+                  .sort((a, b) => (Number.isFinite(b.sortKey) ? b.sortKey : 0) - (Number.isFinite(a.sortKey) ? a.sortKey : 0))
                   .map((row) => row.item),
               );
             }
@@ -407,7 +484,10 @@ export default function MatchesScreen() {
         });
       } catch (error) {
         console.error("[Matches] Failed to initialize chats subscription", error);
-        if (mounted) setMatches([]);
+        if (mounted) {
+          setMatches([]);
+          setLoading(false);
+        }
       }
     })();
 
@@ -425,10 +505,6 @@ export default function MatchesScreen() {
     try {
       await updateDoc(doc(db, "chats", profile.chatRoomId), {
         status: "active",
-        approvedBy: currentUserId,
-        updatedAt: serverTimestamp(),
-        // Unhide the thread for both sender and receiver on approval.
-        deletedBy: arrayRemove(currentUserId, profile.id),
       });
       console.log("[Matches] Accepted pending roommate chat", {
         chatRoomId: profile.chatRoomId,
@@ -448,14 +524,11 @@ export default function MatchesScreen() {
     try {
       await updateDoc(doc(db, "chats", profile.chatRoomId), {
         status: "rejected",
-        rejectedBy: currentUserId,
-        updatedAt: serverTimestamp(),
       });
       console.log("[Matches] Rejected pending roommate chat", {
         chatRoomId: profile.chatRoomId,
         currentUserId,
       });
-      router.push({ pathname: "/chat/[id]", params: { id: profile.id, chatRoomId: profile.chatRoomId } });
     } catch (err) {
       console.error("Reject chat failed:", err);
     } finally {
@@ -489,6 +562,17 @@ export default function MatchesScreen() {
       );
       setChatToDelete(null);
       setActiveContextChatId(null);
+    } finally {
+      setDeletingChatId(null);
+    }
+  };
+
+  const handleDeleteRejectedChat = async (profile: ChatListItem) => {
+    if (!currentUserId || !profile.chatRoomId) return;
+    setDeletingChatId(profile.chatRoomId);
+    try {
+      await deleteDoc(doc(db, "chats", profile.chatRoomId));
+      setMatches((prev) => prev.filter((item) => item.chatRoomId !== profile.chatRoomId));
     } finally {
       setDeletingChatId(null);
     }
@@ -542,6 +626,10 @@ export default function MatchesScreen() {
             <Text style={styles.ctaText}>{t("common.cta.signInOrRegister")}</Text>
           </Pressable>
         </View>
+      ) : loading ? (
+        <View style={styles.empty} testID="matches-loading">
+          <ActivityIndicator size="large" color={colors.brand} />
+        </View>
       ) : matches.length === 0 ? (
         <View style={styles.empty} testID="matches-empty">
           <View style={styles.emptyIcon}>
@@ -562,13 +650,15 @@ export default function MatchesScreen() {
             const chatStatus = p.chat_status ?? "active";
             const isPending = chatStatus === "pending";
             const isRejected = chatStatus === "rejected";
-            const isInitiator = isPending && p.chat_initiated_by === currentUserId;
-            const isReceiver = isPending && p.chat_initiated_by !== currentUserId;
+            const participants = Array.isArray(p.chat_users) ? p.chat_users : [];
+            const isCurrentUserParticipant = !!currentUserId && participants.includes(currentUserId);
+            const isInitiator = isPending && isCurrentUserParticipant && p.chat_initiated_by === currentUserId;
+            const isReceiver = isPending && isCurrentUserParticipant && p.chat_initiated_by !== currentUserId;
             const lastMessage = lastMessageByChat[p.chatRoomId];
             const defaultPreview = isPending ? t("matches.previewPending") : t("matches.previewStart");
             const lastPreviewText = isPending
               ? t("matches.previewPending")
-              : isRejected && p.chat_initiated_by === currentUserId
+              : isRejected
               ? "Unavailable communication"
               : (lastMessage?.text || defaultPreview);
             const unreadFromCounterparty =
@@ -644,13 +734,29 @@ export default function MatchesScreen() {
                       </Text>
                     )
                   ) : (
-                    <Text
-                      style={[styles.rowMsg, previewIsFaded ? styles.rowMsgFaded : styles.rowMsgUnread]}
-                      numberOfLines={1}
-                      ellipsizeMode="tail"
-                    >
-                      {lastPreviewText}
-                    </Text>
+                    <>
+                      <Text
+                        style={[styles.rowMsg, previewIsFaded ? styles.rowMsgFaded : styles.rowMsgUnread]}
+                        numberOfLines={1}
+                        ellipsizeMode="tail"
+                      >
+                        {lastPreviewText}
+                      </Text>
+                      {isRejected ? (
+                        <Pressable
+                          style={styles.rejectedInlineDeleteBtn}
+                          onPress={() => {
+                            void handleDeleteRejectedChat(p);
+                          }}
+                          disabled={deletingChatId === p.chatRoomId}
+                          testID={`rejected-delete-btn-${p.id}`}
+                        >
+                          <Text style={styles.rejectedInlineDeleteBtnText}>
+                            {deletingChatId === p.chatRoomId ? t("common.actions.loading") : "Delete Chat"}
+                          </Text>
+                        </Pressable>
+                      ) : null}
+                    </>
                   )}
                 </View>
                 {isPending ? (
@@ -770,7 +876,7 @@ const styles = StyleSheet.create({
   pendingRejectBtn: {
     backgroundColor: colors.surfaceSecondary,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.error,
   },
   pendingApproveBtnText: {
     fontFamily: fonts.bold,
@@ -780,7 +886,20 @@ const styles = StyleSheet.create({
   pendingRejectBtnText: {
     fontFamily: fonts.bold,
     fontSize: fontSize.sm,
-    color: colors.onSurface,
+    color: colors.error,
+  },
+  rejectedInlineDeleteBtn: {
+    alignSelf: "flex-start",
+    marginTop: spacing.xs,
+    borderRadius: radius.pill,
+    backgroundColor: "#F59E0B",
+    paddingHorizontal: spacing.md,
+    paddingVertical: 5,
+  },
+  rejectedInlineDeleteBtnText: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.sm,
+    color: colors.onBrand,
   },
   contextTooltip: {
     position: "absolute",

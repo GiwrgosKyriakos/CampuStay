@@ -223,7 +223,7 @@ export default function ApartmentDetailScreen() {
     try {
       await deleteListingPermanently(apt.id);
       setDeleteModalVisible(false);
-      router.replace("/(tabs)/apartments");
+      router.replace("/apartments");
     } catch {
       setDeleteModalVisible(false);
       setActionModal({

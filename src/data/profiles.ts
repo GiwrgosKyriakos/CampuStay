@@ -14,6 +14,6 @@ export interface RoommateProfile {
   photo: string;
   matchScore?: number;
   deleted?: boolean;
-  chat_status?: "pending" | "active";
+  chat_status?: "pending" | "active" | "rejected";
   chat_initiated_by?: string | null;
 }

@@ -10,6 +10,7 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { useFonts } from "expo-font";
 import { StatusBar } from "expo-status-bar";
 import { BlurView } from "expo-blur";
+import { doc, getDoc } from "firebase/firestore";
 
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { colors } from "@/src/theme";
@@ -17,6 +18,7 @@ import { AuthProvider, useAuth } from "@/src/context/auth";
 import { LocaleProvider, useLocale } from "@/src/context/locale";
 import { AppLocale } from "@/src/locales";
 import { storage } from "@/src/utils/storage";
+import { db } from "@/src/config/firebase";
 
 const HAS_SELECTED_LANGUAGE_KEY = "has_selected_language";
 const SELECTED_LANGUAGE_KEY = "selected_language";
@@ -64,6 +66,8 @@ function AppContent() {
     topSegment === "privacy-policy";
   const isUnauthenticated = auth.user === null && !auth.isGuest;
   const isAuthenticated = auth.user !== null;
+  const [isProfileGateLoading, setIsProfileGateLoading] = useState(false);
+  const [requiresProfileSetup, setRequiresProfileSetup] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -159,28 +163,76 @@ function AppContent() {
   }, [appReady]);
 
   useEffect(() => {
-  if (!authReady) return;
+    let mounted = true;
+
+    if (!authReady) {
+      setIsProfileGateLoading(true);
+      return () => {
+        mounted = false;
+      };
+    }
+
+    if (!isAuthenticated || !auth.userId) {
+      setIsProfileGateLoading(false);
+      setRequiresProfileSetup(false);
+      return () => {
+        mounted = false;
+      };
+    }
+
+    setIsProfileGateLoading(true);
+    void (async () => {
+      try {
+        const userSnap = await getDoc(doc(db, "users", auth.userId));
+        const data = userSnap.exists() ? (userSnap.data() as { needsProfileSetup?: boolean }) : null;
+        const isIncomplete = !userSnap.exists() || data?.needsProfileSetup === true;
+        if (mounted) {
+          setRequiresProfileSetup(isIncomplete);
+        }
+      } catch {
+        if (mounted) {
+          setRequiresProfileSetup(!!auth.needsProfileSetup);
+        }
+      } finally {
+        if (mounted) {
+          setIsProfileGateLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [authReady, isAuthenticated, auth.userId, auth.needsProfileSetup]);
+
+  const shouldForceProfileSetup = isAuthenticated && (requiresProfileSetup || auth.needsProfileSetup);
+
+  useEffect(() => {
+  if (!authReady || isProfileGateLoading) return;
 
   if (isUnauthenticated && !isAuthRoute) {
     router.replace("/auth-landing");
   }
-  if (isAuthenticated && isAuthRoute) {
-    router.replace("/(tabs)/roommates");
+  if (shouldForceProfileSetup && topSegment !== "edit-profile") {
+    router.replace("/edit-profile");
+    return;
   }
-}, [authReady, isUnauthenticated, isAuthenticated, isAuthRoute, router, segments]);
+  if (isAuthenticated && isAuthRoute) {
+    router.replace(shouldForceProfileSetup ? "/edit-profile" : "/roommates");
+  }
+}, [authReady, isProfileGateLoading, isUnauthenticated, isAuthenticated, isAuthRoute, shouldForceProfileSetup, topSegment, router, segments]);
+
+  const isRedirectingProtectedRoute =
+    (isUnauthenticated && !isAuthRoute) ||
+    (shouldForceProfileSetup && topSegment !== "edit-profile");
   
-  if (!fontsReady || !authReady || !languagePromptResolved) {
+  if (!fontsReady || !authReady || !languagePromptResolved || isProfileGateLoading) {
     console.log("[App] Waiting for app readiness...", { fontsReady, authReady });
     return (
       <View style={styles.bootLoaderWrap}>
         <ActivityIndicator size="large" color={colors.brand} />
       </View>
     );
-  }
-
-  if (isUnauthenticated && !isAuthRoute) {
-    // Block protected navigator mounting until redirect lands on auth gateway.
-    return null;
   }
 
   return (
@@ -190,6 +242,11 @@ function AppContent() {
           <BottomSheetModalProvider>
             <StatusBar style="light" />
             <AppNavigator />
+            {isRedirectingProtectedRoute ? (
+              <View style={styles.routeGateOverlay} pointerEvents="none">
+                <ActivityIndicator size="large" color={colors.brand} />
+              </View>
+            ) : null}
             <Modal
               transparent
               animationType="none"
@@ -311,6 +368,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.surface,
+  },
+  routeGateOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surface,
+    zIndex: 50,
   },
   languageModalRoot: {
     flex: 1,

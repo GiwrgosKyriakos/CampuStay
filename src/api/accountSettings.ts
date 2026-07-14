@@ -114,15 +114,3 @@ export async function saveUserPrivacy(userId: string, privacy: PrivacyPreference
     privacy: normalizePrivacy(privacy),
   };
 }
-
-export async function deleteAccount(userId: string, credential: string): Promise<void> {
-  const base = process.env.EXPO_PUBLIC_BACKEND_URL;
-  const res = await fetch(`${base}/api/delete-account/${userId}`, {
-    method: "DELETE",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ credential }),
-  });
-  if (!res.ok) {
-    throw new Error(`Failed to delete account (${res.status})`);
-  }
-}

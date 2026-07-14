@@ -5,13 +5,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
-import { doc, getDoc } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import { useAuth } from "@/src/context/auth";
 import { getUserId } from "@/src/utils/userId";
 import { getUserProfile, saveUserProfile, UserProfile } from "@/src/api/userProfile";
-import { getMyMatches } from "@/src/api/discover";
 import { db } from "@/src/config/firebase";
 import { TOTAL_QUESTIONS } from "@/src/data/quiz";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
@@ -52,15 +51,22 @@ export default function ProfileScreen() {
       (async () => {
         try {
           const uid = await getUserId();
-          const [p, m, quizDoc] = await Promise.all([
+          const [p, chatsSnap, quizDoc] = await Promise.all([
             getUserProfile(uid).catch(() => null),
-            getMyMatches(uid).catch(() => []),
+            getDocs(query(collection(db, "chats"), where("users", "array-contains", uid))).catch(() => null),
             getDoc(doc(db, "quiz_answers", uid)).catch(() => null),
           ]);
           const quizData = quizDoc?.exists() ? (quizDoc.data() as { answers?: Record<string, string> }) : null;
           const answeredCount = Object.keys(quizData?.answers || {}).length;
+          const activeRoommateChatCount = chatsSnap
+            ? chatsSnap.docs.filter((chatDoc) => {
+                const chatData = chatDoc.data() as { type?: string; status?: string; deletedBy?: string[] };
+                const deletedBy = Array.isArray(chatData.deletedBy) ? chatData.deletedBy : [];
+                return !deletedBy.includes(uid) && (chatData.type ?? "roommate") !== "host" && chatData.status === "active";
+              }).length
+            : 0;
           setProfile(p);
-          setMatchCount(m.length);
+          setMatchCount(activeRoommateChatCount);
           setQuizAnsweredCount(answeredCount);
         } catch {
           /* keep placeholders */

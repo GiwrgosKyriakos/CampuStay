@@ -268,10 +268,10 @@ export default function EditProfileScreen() {
         await auth.clearProfileSetup();
         console.log("[EditProfile] ✓ Profile setup flag cleared");
         console.log("[EditProfile] → Navigating to roommates...");
-        router.replace("/(tabs)/roommates");
+        router.replace("/roommates");
       } else {
-        console.log("[EditProfile] → Returning to previous screen...");
-        router.back();
+        console.log("[EditProfile] → Redirecting to roommates...");
+        router.replace("/roommates");
       }
     } catch (err) {
       console.error("[EditProfile] ✗ Error saving profile:", err);

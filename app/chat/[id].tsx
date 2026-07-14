@@ -8,6 +8,7 @@ import {
   ScrollView,
   ActivityIndicator,
   Platform,
+  StatusBar,
   Modal,
   Linking,
 } from "react-native";
@@ -18,7 +19,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
-import type { RoommateProfile } from "@/src/data/profiles";
+import type { Gender, RoommateProfile } from "@/src/data/profiles";
 import { useAuth } from "@/src/context/auth";
 import { db } from "@/src/config/firebase";
 import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, setDoc, getDoc, arrayUnion } from "firebase/firestore";
@@ -122,7 +123,7 @@ function mapFirestoreUserToProfile(uid: string, data: FirestoreUserDoc): Roommat
     id: uid,
     name: data.name?.trim() || t("common.values.unknown"),
     age: typeof data.age === "number" ? data.age : 0,
-    gender: (data.gender as RoommateProfile["gender"]) || t("common.values.nonBinary"),
+    gender: (data.gender as Gender) || (t("common.values.nonBinary") as Gender),
     budget: typeof data.maxBudget === "number" ? data.maxBudget : typeof data.budget === "number" ? data.budget : 0,
     university: data.university || "",
     program: data.year || data.year_of_study || "",
@@ -204,6 +205,7 @@ function normalizeSocialUrl(platform: "instagram" | "facebook" | "linkedin" | "t
 
 export default function ChatScreen() {
   const insets = useSafeAreaInsets();
+  const safeMenuTop = Math.max(insets.top + 12, (Platform.OS === "android" ? (StatusBar.currentHeight ?? 0) + 12 : 12));
   const router = useRouter();
   const auth = useAuth();
   const { id, chatRoomId: chatRoomIdParam } = useLocalSearchParams<{ id: string; chatRoomId?: string }>();
@@ -532,19 +534,11 @@ export default function ChatScreen() {
     [counterpartDetails?.facebook, counterpartDetails?.instagram, counterpartDetails?.linkedin, counterpartDetails?.twitter],
   );
 
-  if (!profile && loadingProfile) {
-    return (
-      <View style={[styles.container, styles.center]} testID="chat-screen">
-        <ActivityIndicator size="large" color={colors.brand} />
-      </View>
-    );
-  }
-
   const deletedProfileFallback: RoommateProfile = {
     id,
     name: t("common.account.deleted"),
     age: 0,
-    gender: t("common.values.nonBinary"),
+    gender: t("common.values.nonBinary") as Gender,
     budget: 0,
     university: "",
     program: "",
@@ -747,6 +741,14 @@ export default function ChatScreen() {
     [chatRoomId, counterpartId, currentUserId, displayName, isSubmittingBlockAction, reportReason],
   );
 
+  if (!profile && loadingProfile) {
+    return (
+      <View style={[styles.container, styles.center]} testID="chat-screen">
+        <ActivityIndicator size="large" color={colors.brand} />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container} testID="chat-screen">
       {/* Header */}
@@ -819,7 +821,7 @@ export default function ChatScreen() {
         </View>
 
         {showContextMenu ? (
-          <View style={styles.contextMenu} testID="chat-context-menu">
+          <View style={[styles.contextMenu, { top: safeMenuTop, right: 16 }]} testID="chat-context-menu">
             <Pressable
               style={styles.contextMenuItem}
               onPress={() => {
@@ -1199,14 +1201,16 @@ const styles = StyleSheet.create({
   },
   contextMenu: {
     position: "absolute",
-    top: spacing.sm,
-    right: spacing.lg,
+    top: spacing.md,
+    right: spacing.md,
     minWidth: 210,
+    maxWidth: "92%",
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
-    paddingVertical: spacing.xs,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.xs,
     zIndex: 20,
     shadowColor: "#000",
     shadowOpacity: 0.2,
@@ -1496,7 +1500,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing.xs,
     borderRadius: radius.pill,
-    backgroundColor: colors.brand,
+    backgroundColor: "#F59E0B",
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
   },

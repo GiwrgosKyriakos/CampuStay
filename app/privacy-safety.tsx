@@ -59,7 +59,7 @@ export default function PrivacySafetyScreen() {
       router.back();
       return;
     }
-    router.replace("/(tabs)/profile");
+    router.replace("/profile");
   }, [router]);
 
   useEffect(() => {

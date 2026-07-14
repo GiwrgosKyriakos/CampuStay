@@ -7,10 +7,10 @@ export default function Index() {
   if (isLoading) return null;
 
   if (isLoggedIn) {
-    return <Redirect href={needsProfileSetup ? "/edit-profile" : "/(tabs)/roommates"} />;
+    return <Redirect href={needsProfileSetup ? "/edit-profile" : "/roommates"} />;
   }
   if (isGuestMode) {
-    return <Redirect href="/(tabs)/roommates" />;
+    return <Redirect href="/roommates" />;
   }
   return <Redirect href="/auth-landing" />;
 }

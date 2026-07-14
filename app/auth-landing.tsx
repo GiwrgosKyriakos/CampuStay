@@ -18,9 +18,9 @@ export default function AuthLandingScreen() {
 
   React.useEffect(() => {
     if (!auth.isLoading && auth.isLoggedIn) {
-      router.replace("/(tabs)/roommates");
+      router.replace(auth.needsProfileSetup ? "/edit-profile" : "/roommates");
     }
-  }, [auth.isLoading, auth.isLoggedIn, router]);
+  }, [auth.isLoading, auth.isLoggedIn, auth.needsProfileSetup, router]);
 
   if (auth.isLoading || auth.isLoggedIn) {
     return (
@@ -112,7 +112,7 @@ export default function AuthLandingScreen() {
           style={styles.buttonGuest}
           onPress={async () => {
             await auth.continueAsGuest();
-            router.replace("/(tabs)/roommates");
+            router.replace("/roommates");
           }}
           testID="guest-mode-button"
         >

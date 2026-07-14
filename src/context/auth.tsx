@@ -76,7 +76,7 @@ async function syncUserDocument(
       ? options.needsProfileSetup
       : typeof existingData?.needsProfileSetup === "boolean"
         ? existingData.needsProfileSetup
-        : false;
+        : !userSnap.exists();
   const resolvedName = options.name ?? firebaseUser.displayName ?? null;
   const resolvedEmail = options.email ?? firebaseUser.email ?? null;
 
@@ -286,6 +286,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       console.warn("[Auth] Firebase signOut failed; clearing local session anyway:", err);
     }
+
+    try {
+      await GoogleSignin.revokeAccess();
+    } catch (err) {
+      console.warn("[Auth] Google revokeAccess failed; continuing sign out:", err);
+    }
+
+    try {
+      await GoogleSignin.signOut();
+    } catch (err) {
+      console.warn("[Auth] Google signOut failed; clearing local session anyway:", err);
+    }
+
     await enterGuestMode();
   }, [enterGuestMode]);
 

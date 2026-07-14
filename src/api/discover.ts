@@ -15,8 +15,6 @@ import {
 import { db } from "@/src/config/firebase";
 import { normalizeCity } from "@/src/utils/cityNormalization";
 
-const BASE = process.env.EXPO_PUBLIC_BACKEND_URL;
-
 interface FirestoreUserDoc {
   name?: string | null;
   age?: number | null;
@@ -91,8 +89,8 @@ async function getExcludedCandidateIds(
   chatsSnap.forEach((chatDoc) => {
     const data = chatDoc.data() as { users?: string[]; status?: "pending" | "active" | string };
     const status = data.status;
-    const isActiveChat = status === "active";
-    if (!isActiveChat) return;
+    const shouldExcludeFromRecommendations = status === "active" || status === "pending";
+    if (!shouldExcludeFromRecommendations) return;
 
     const users = Array.isArray(data.users) ? data.users : [];
     const counterpart = users.find((uid) => uid !== userId);
@@ -222,28 +220,3 @@ export async function resetDislikedSwipes(userId: string): Promise<void> {
   await Promise.all(dislikesSnap.docs.map((swipeDoc) => deleteDoc(swipeDoc.ref)));
 }
 
-export async function getMyMatches(userId: string): Promise<RoommateProfile[]> {
-  const res = await fetch(`${BASE}/api/my-matches/${userId}`);
-  if (!res.ok) throw new Error(`matches ${res.status}`);
-  const data = await res.json();
-  return data.matches as RoommateProfile[];
-}
-
-export async function acceptChatRequest(chatRoomId: string, userId: string): Promise<boolean> {
-  const res = await fetch(`${BASE}/api/chat/${chatRoomId}/accept`, {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-      "current-user-id": userId,
-    },
-  });
-  if (!res.ok) return false;
-  return true;
-}
-
-export async function getUserPublic(userId: string): Promise<RoommateProfile | null> {
-  const res = await fetch(`${BASE}/api/user-public/${userId}`);
-  if (!res.ok) return null;
-  const data = await res.json();
-  return data.user as RoommateProfile;
-}

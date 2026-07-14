@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useFocusEffect, useRouter } from "expo-router";
-import { doc, getDoc, onSnapshot, updateDoc } from "firebase/firestore";
+import { doc, getDoc, onSnapshot, setDoc, updateDoc } from "firebase/firestore";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import type { RoommateProfile } from "@/src/data/profiles";
@@ -106,9 +106,7 @@ useEffect(() => {
     if (token) {
       try {
         const userDocRef = doc(db, 'users', firebaseAuth.currentUser.uid);
-        await updateDoc(userDocRef, {
-          expoPushToken: token,
-        });
+        await setDoc(userDocRef, { expoPushToken: token }, { merge: true });
         console.log('[Notifications] Push token saved to Firestore.');
       } catch (error) {
         console.error('[Notifications] Failed saving push token to Firestore:', error);
@@ -127,23 +125,27 @@ useEffect(() => {
         setCandidates([]);
         return;
       }
-      const uid = auth.isGuest ? "guest" : auth.userId;
-      userIdRef.current = uid;
+      const userId = auth.isGuest ? "guest" : auth.userId;
+      if (!userId) {
+        setCandidates([]);
+        return;
+      }
+      userIdRef.current = userId;
       console.log("[Roommates] Loading candidates for user", {
         isGuest: auth.isGuest,
         authUserId: auth.userId,
-        resolvedUid: uid,
+        resolvedUid: userId,
       });
 
       const [profile, quizSnap] = await Promise.all([
-        auth.isGuest ? Promise.resolve(null) : getUserProfile(uid).catch(() => null),
-        auth.isGuest ? Promise.resolve(null) : getDoc(doc(db, "quiz_answers", uid)).catch(() => null),
+        auth.isGuest ? Promise.resolve(null) : getUserProfile(userId).catch(() => null),
+        auth.isGuest ? Promise.resolve(null) : getDoc(doc(db, "quiz_answers", userId)).catch(() => null),
       ]);
 
-      const candidateRecords = await getCandidateMatchRecords(uid, profile?.city ?? null).catch(() => []);
+      const candidateRecords = await getCandidateMatchRecords(userId, profile?.city ?? null).catch(() => []);
 
       const quizData = quizSnap?.exists() ? (quizSnap.data() as { answers?: Record<string, string> }) : null;
-      const currentMatchProfile = toMatchProfile(uid, profile ?? {}, quizData?.answers ?? {});
+      const currentMatchProfile = toMatchProfile(userId, profile ?? {}, quizData?.answers ?? {});
 
       const scoredCandidates = candidateRecords
         .map(({ profile: candidateProfile, quizAnswers }) => {
