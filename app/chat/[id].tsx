@@ -1,3 +1,4 @@
+import { sendPushNotification } from '@/src/utils/notificationService'; // Προσάρμοσε το path ανάλογα με το φάκελό σου
 import React, { useRef, useState, useCallback, useEffect, useMemo } from "react";
 import {
   View,
@@ -487,6 +488,7 @@ export default function ChatScreen() {
     requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
 
     try {
+      // 1. Αποθήκευση μηνύματος στο Firestore (Subcollection)
       await addDoc(collection(db, "chats", chatRoomId, "messages"), {
         text: trimmed,
         senderId: currentUserId,
@@ -495,11 +497,35 @@ export default function ChatScreen() {
         isRead: false,
       });
 
+      // 2. Ενημέρωση τελευταίου μηνύματος στο Chat Document
       await updateDoc(doc(db, "chats", chatRoomId), {
         lastMessage: trimmed,
         lastMessageTimestamp: serverTimestamp(),
       });
-    } catch {
+
+      // 3. Ανάκτηση Token & Αποστολή Push Notification στον Παραλήπτη
+      const receiverDocRef = doc(db, "users", id);
+      const receiverSnap = await getDoc(receiverDocRef);
+
+      if (receiverSnap.exists()) {
+        const receiverData = receiverSnap.data();
+        const receiverToken = receiverData?.expoPushToken;
+
+        if (receiverToken) {
+          await sendPushNotification(
+            receiverToken,
+            "Νέο μήνυμα στο CampuStay! 💬",
+            trimmed,
+            { chatRoomId, senderId: currentUserId }
+          );
+        } else {
+          console.log("[Notifications] Ο παραλήπτης δεν έχει καταχωρημένο expoPushToken.");
+        }
+      }
+
+    } catch (error) {
+      console.error("Error sending message/notification:", error);
+      // Επαναφορά του UI (αφαίρεση του optimistic message) σε περίπτωση αποτυχίας
       setMessages((prev) => prev.filter((m) => m.id !== optimisticMessage.id));
     }
   }, [chatRoomId, chatStatus, chatType, counterpartExists, currentUserId, id, isApartmentUnavailable, sortMessages, text]);

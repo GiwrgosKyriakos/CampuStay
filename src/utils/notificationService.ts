@@ -71,3 +71,31 @@ export async function registerForPushNotificationsAsync() {
 
   return token;
 }
+
+// Συνάρτηση που στέλνει το Push Notification μέσω του Expo Push API
+export async function sendPushNotification(expoPushToken: string, title: string, body: string, data?: any) {
+  const message = {
+    to: expoPushToken,
+    sound: 'default',
+    title: title,
+    body: body,
+    data: data || {},
+  };
+
+  try {
+    const response = await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Accept-encoding': 'gzip, deflate',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(message),
+    });
+    
+    const resData = await response.json();
+    console.log('[Notifications] Push Sent Response:', resData);
+  } catch (error) {
+    console.error('[Notifications] Error sending push:', error);
+  }
+}
