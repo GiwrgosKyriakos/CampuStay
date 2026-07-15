@@ -21,7 +21,7 @@
       "package": "CampuStay.Android",
       "googleServicesFile": "./google-services.json",
       "androidNavigationBar": {
-        "backgroundColor": "#00000000",
+        "backgroundColor": "#004D27",
         "visible": "sticky-immersive"
       },
       "permissions": [
