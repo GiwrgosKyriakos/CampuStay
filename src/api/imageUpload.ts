@@ -1,10 +1,9 @@
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { doc, serverTimestamp, setDoc } from "firebase/firestore";
-
 import { db, storage } from "@/src/config/firebase";
 
 function isRemoteUrl(uri: string): boolean {
-  return /^https?:\/\//i.test(uri);
+  return /^https?:\/\//.test(uri);
 }
 
 function buildApartmentImageFileName(uri: string, index: number): string {
@@ -25,21 +24,26 @@ function guessContentType(uri: string): string {
   return "image/jpeg";
 }
 
+// 🟢 Η ΔΙΟΡΘΩΜΕΝΗ ΣΥΝΑΡΤΗΣΗ: Μετατροπή τοπικού URI σε Blob με XMLHttpRequest
 async function uriToBlob(uri: string): Promise<Blob> {
-  try {
-    const response = await fetch(uri);
-    const blob = await response.blob();
-    if (!blob || typeof blob.size !== "number" || blob.size <= 0) {
-      throw new Error("Fetched blob is empty");
-    }
-    return blob;
-  } catch (error) {
-    console.error("[ImageUpload] Failed to convert URI to Blob", {
-      uri,
-      error,
-    });
-    throw error;
-  }
+  return new Promise<Blob>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.onload = function () {
+      const blob = xhr.response as Blob;
+      if (!blob || typeof blob.size !== "number" || blob.size <= 0) {
+        reject(new Error("Fetched blob is empty"));
+      } else {
+        resolve(blob);
+      }
+    };
+    xhr.onerror = function (e) {
+      console.error("[ImageUpload] Failed to convert URI to Blob via XHR:", e);
+      reject(new TypeError("Network request failed during local file conversion."));
+    };
+    xhr.responseType = "blob";
+    xhr.open("GET", uri, true);
+    xhr.send(null);
+  });
 }
 
 export async function uploadImageAsync(uri: string, path: string): Promise<string> {
@@ -65,8 +69,9 @@ export async function uploadImageAsync(uri: string, path: string): Promise<strin
     });
     throw error;
   } finally {
-    if (typeof (blob as Blob & { close?: () => void }).close === "function") {
-      (blob as Blob & { close?: () => void }).close?.();
+    // Ασφαλές κλείσιμο του blob για αποφυγή memory leaks
+    if (blob && typeof (blob as any).close === "function") {
+      (blob as any).close();
     }
   }
 }
@@ -98,7 +103,7 @@ export async function uploadApartmentImages(imageUris: string[], apartmentId: st
         photos: [],
         updatedAt: serverTimestamp(),
       },
-      { merge: true },
+      { merge: true }
     );
     return [];
   }
@@ -123,11 +128,11 @@ export async function uploadApartmentImages(imageUris: string[], apartmentId: st
         });
         throw error;
       } finally {
-        if (typeof (blob as Blob & { close?: () => void }).close === "function") {
-          (blob as Blob & { close?: () => void }).close?.();
+        if (blob && typeof (blob as any).close === "function") {
+          (blob as any).close();
         }
       }
-    }),
+    })
   );
 
   await setDoc(
@@ -136,7 +141,7 @@ export async function uploadApartmentImages(imageUris: string[], apartmentId: st
       photos: downloadUrls,
       updatedAt: serverTimestamp(),
     },
-    { merge: true },
+    { merge: true }
   );
 
   return downloadUrls;

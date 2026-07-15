@@ -206,6 +206,7 @@ function normalizeSocialUrl(platform: "instagram" | "facebook" | "linkedin" | "t
 
 export default function ChatScreen() {
   const insets = useSafeAreaInsets();
+  
   const safeMenuTop = Math.max(insets.top + 12, (Platform.OS === "android" ? (StatusBar.currentHeight ?? 0) + 12 : 12));
   const router = useRouter();
   const auth = useAuth();

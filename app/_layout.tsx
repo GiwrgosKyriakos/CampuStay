@@ -1,3 +1,4 @@
+import * as Notifications from 'expo-notifications';
 import { Stack, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import * as NavigationBar from "expo-navigation-bar";
@@ -183,7 +184,8 @@ function AppContent() {
     setIsProfileGateLoading(true);
     void (async () => {
       try {
-        const userSnap = await getDoc(doc(db, "users", auth.userId));
+        // Προσθέσαμε το ! μετά το auth.userId
+        const userSnap = await getDoc(doc(db, "users", auth.userId!));
         const data = userSnap.exists() ? (userSnap.data() as { needsProfileSetup?: boolean }) : null;
         const isIncomplete = !userSnap.exists() || data?.needsProfileSetup === true;
         if (mounted) {
@@ -309,6 +311,36 @@ function AppContent() {
 
 export default function RootLayout() {
   const [splashReady, setSplashReady] = useState(false);
+  const router = useRouter();
+
+  useEffect(() => {
+    // Listener για όταν ο χρήστης ΠΑΤΑΕΙ την ειδοποίηση
+    const subscription = Notifications.addNotificationResponseReceivedListener(response => {
+      // 1. Κάνουμε cast το data ώστε ο TypeScript να γνωρίζει ότι περιέχει strings
+      const data = response.notification.request.content.data as {
+        senderId?: string;
+        chatRoomId?: string;
+      };
+      
+      console.log("[Notifications] Notification tapped with data:", data);
+
+      if (data && data.senderId) {
+        // Καθυστέρηση ελάχιστων milliseconds για να σιγουρευτούμε ότι το Navigation Tree έχει φορτώσει
+        setTimeout(() => {
+          router.push({
+            pathname: "/chat/[id]", // Χρησιμοποιούμε το στατικό path του αρχείου σου [id].tsx
+            params: { 
+              id: data.senderId, // Περνάμε το id του counterpart στο δυναμικό segment [id]
+              chatRoomId: data.chatRoomId // Περνάμε και το chatRoomId ως extra query param
+            }
+          } as any); // Χρησιμοποιούμε as any για να παρακάμψουμε τις υπερβολικά αυστηρές TS ρυθμίσεις του Expo Router
+        }, 100);
+      }
+    });
+
+    // Cleanup του listener όταν το component γίνει unmount
+    return () => subscription.remove();
+  }, []);
 
   //useEffect(() => {
   //  SplashScreen.preventAutoHideAsync()
