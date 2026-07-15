@@ -17,24 +17,58 @@ function buildApartmentImageFileName(uri: string, index: number): string {
   return `${Date.now()}-${index}-${baseName}${extension}`;
 }
 
+function guessContentType(uri: string): string {
+  const cleanUri = uri.split("?")[0].toLowerCase();
+  if (cleanUri.endsWith(".png")) return "image/png";
+  if (cleanUri.endsWith(".webp")) return "image/webp";
+  if (cleanUri.endsWith(".heic") || cleanUri.endsWith(".heif")) return "image/heic";
+  return "image/jpeg";
+}
+
+async function uriToBlob(uri: string): Promise<Blob> {
+  try {
+    const response = await fetch(uri);
+    const blob = await response.blob();
+    if (!blob || typeof blob.size !== "number" || blob.size <= 0) {
+      throw new Error("Fetched blob is empty");
+    }
+    return blob;
+  } catch (error) {
+    console.error("[ImageUpload] Failed to convert URI to Blob", {
+      uri,
+      error,
+    });
+    throw error;
+  }
+}
+
 export async function uploadImageAsync(uri: string, path: string): Promise<string> {
   if (isRemoteUrl(uri)) {
     return uri;
   }
 
-  const response = await fetch(uri);
-  const blob = await response.blob();
+  if (!path?.trim()) {
+    throw new Error("Storage upload path is required");
+  }
+
+  const blob = await uriToBlob(uri);
   const imageRef = ref(storage, path);
 
   try {
-    await uploadBytes(imageRef, blob, { contentType: "image/jpeg" });
+    await uploadBytes(imageRef, blob, { contentType: guessContentType(uri) });
+    return await getDownloadURL(imageRef);
+  } catch (error) {
+    console.error("[ImageUpload] Firebase Storage upload failed", {
+      path,
+      uri,
+      error,
+    });
+    throw error;
   } finally {
     if (typeof (blob as Blob & { close?: () => void }).close === "function") {
       (blob as Blob & { close?: () => void }).close?.();
     }
   }
-
-  return getDownloadURL(imageRef);
 }
 
 export async function uploadProfileImageAsync(uri: string, userId: string, index: number): Promise<string> {
@@ -50,7 +84,14 @@ export async function uploadApartmentImages(imageUris: string[], apartmentId: st
     .map((uri) => uri?.trim())
     .filter((uri): uri is string => typeof uri === "string" && uri.length > 0);
 
-  if (!apartmentId || validUris.length === 0) {
+  if (!apartmentId?.trim()) {
+    console.error("[ImageUpload] Missing apartmentId while uploading apartment images", {
+      imageCount: validUris.length,
+    });
+    throw new Error("Apartment id is required for image uploads");
+  }
+
+  if (validUris.length === 0) {
     await setDoc(
       doc(db, "apartments", apartmentId),
       {
@@ -66,20 +107,26 @@ export async function uploadApartmentImages(imageUris: string[], apartmentId: st
     validUris.map(async (uri, index) => {
       if (isRemoteUrl(uri)) return uri;
 
-      const response = await fetch(uri);
-      const blob = await response.blob();
+      const blob = await uriToBlob(uri);
       const fileName = buildApartmentImageFileName(uri, index);
       const imageRef = ref(storage, `apartments/${apartmentId}/${fileName}`);
 
       try {
-        await uploadBytes(imageRef, blob);
+        await uploadBytes(imageRef, blob, { contentType: guessContentType(uri) });
+        return await getDownloadURL(imageRef);
+      } catch (error) {
+        console.error("[ImageUpload] Failed apartment image upload", {
+          apartmentId,
+          fileName,
+          uri,
+          error,
+        });
+        throw error;
       } finally {
         if (typeof (blob as Blob & { close?: () => void }).close === "function") {
           (blob as Blob & { close?: () => void }).close?.();
         }
       }
-
-      return getDownloadURL(imageRef);
     }),
   );
 

@@ -192,25 +192,21 @@ export default function CreateListingScreen() {
         if (Platform.OS !== "web") {
           if (source === "library") {
             const current = await ImagePicker.getMediaLibraryPermissionsAsync();
-            let status = current.status;
-            if (status !== "granted" && current.canAskAgain) {
+            if (current.status !== "granted") {
               const requested = await ImagePicker.requestMediaLibraryPermissionsAsync();
-              status = requested.status;
-            }
-            if (status !== "granted") {
-              setPermBlocked(true);
-              return;
+              if (requested.status !== "granted") {
+                setPermBlocked(requested.status === "denied");
+                return;
+              }
             }
           } else {
             const current = await ImagePicker.getCameraPermissionsAsync();
-            let status = current.status;
-            if (status !== "granted" && current.canAskAgain) {
+            if (current.status !== "granted") {
               const requested = await ImagePicker.requestCameraPermissionsAsync();
-              status = requested.status;
-            }
-            if (status !== "granted") {
-              setPermBlocked(true);
-              return;
+              if (requested.status !== "granted") {
+                setPermBlocked(requested.status === "denied");
+                return;
+              }
             }
           }
         }

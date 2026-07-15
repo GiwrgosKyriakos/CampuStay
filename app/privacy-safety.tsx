@@ -369,7 +369,6 @@ export default function PrivacySafetyScreen() {
                         )}
                         <View style={styles.blockedTextWrap}>
                           <Text style={styles.blockedName} numberOfLines={1}>{profileRow.displayName}</Text>
-                          <Text style={styles.blockedId} numberOfLines={1}>{profileRow.id}</Text>
                         </View>
                       </View>
 
@@ -491,7 +490,7 @@ const styles = StyleSheet.create({
   blockedLeftSection: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.sm,
+    gap: spacing.xs,
     flex: 1,
   },
   blockedAvatar: {
@@ -512,8 +511,9 @@ const styles = StyleSheet.create({
   },
   rowMenuPopover: {
     position: "absolute",
-    top: 30,
-    right: 0,
+    top: "50%",
+    right: 36,
+    transform: [{ translateY: -18 }],
     minWidth: 110,
     backgroundColor: colors.surface,
     borderWidth: 1,

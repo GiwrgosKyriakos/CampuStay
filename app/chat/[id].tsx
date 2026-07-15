@@ -785,7 +785,7 @@ export default function ChatScreen() {
             ) : (
               <DefaultProfileAvatar size={44} iconSize={22} testID="chat-header-avatar-fallback" />
             )}
-            <View style={{ flex: 1 }}>
+            <View style={styles.headerTextWrap}>
               <Text style={styles.headerName} numberOfLines={1}>
                 {displayName}
               </Text>
@@ -1172,6 +1172,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing.md,
   },
+  headerTextWrap: {
+    flex: 1,
+    justifyContent: "center",
+    paddingTop: 2,
+  },
   iconBtn: {
     width: 40,
     height: 40,
@@ -1181,7 +1186,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceTertiary,
   },
   headerAvatar: { width: 44, height: 44, borderRadius: radius.pill, backgroundColor: colors.surfaceTertiary },
-  headerName: { fontFamily: fonts.displayExtra, fontSize: fontSize.xl, color: colors.onSurface },
+  headerName: {
+    fontFamily: fonts.displayExtra,
+    fontSize: fontSize.xl,
+    color: colors.onSurface,
+    transform: [{ translateY: 7 }],
+  },
   headerUni: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
   detailRow: { flexDirection: "row", gap: spacing.sm },
   detailPill: {
