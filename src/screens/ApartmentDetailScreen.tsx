@@ -206,8 +206,12 @@ export default function ApartmentDetailScreen() {
     }
   };
 
-  const isListingOwner = !!auth.userId && !!apt.ownerId && auth.userId === apt.ownerId;
-
+  // Έλεγχος αν ο χρήστης είναι ο ιδιοκτήτης, ελέγχοντας τόσο το ownerId όσο και το hostId
+  const isListingOwner =
+    !!auth.userId &&
+    ((!!apt.ownerId && auth.userId === apt.ownerId) ||
+     (!!apt.hostId && auth.userId === apt.hostId));
+  
   const handleEditListing = () => {
     if (!isListingOwner) return;
     router.push({
