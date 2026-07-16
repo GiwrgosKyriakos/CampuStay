@@ -1,18 +1,22 @@
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { arrayUnion, collection, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, setDoc, where, orderBy, limit } from "firebase/firestore";
+import { arrayUnion, collection, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, setDoc, where, orderBy, limit, updateDoc, deleteDoc } from "firebase/firestore";
 
 import { colors, fonts, fontSize, radius, spacing } from "@/src/theme";
 import { useAuth } from "@/src/context/auth";
 import { db } from "@/src/config/firebase";
 import { DELETED_ACCOUNT_LABEL } from "@/src/api/accountDeletion";
 import { t } from "@/src/locales";
+import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 
 interface FirestoreUserDoc {
   name?: string | null;
+  photoUrl?: string;
+  photos?: string[];
   deleted?: boolean;
 }
 
@@ -22,7 +26,7 @@ interface FirestoreHostChatDoc {
   deletedBy?: string[];
   apartmentTitle?: string;
   apartmentId?: string;
-  status?: "pending" | "active";
+  status?: "pending" | "active" | "rejected";
   initiatedBy?: string | null;
   lastMessageTimestamp?: { toMillis?: () => number } | number | null;
   updatedAt?: { toMillis?: () => number } | number | null;
@@ -30,22 +34,34 @@ interface FirestoreHostChatDoc {
 }
 
 interface HostInboxItem {
-  id: string;
+  id: string; 
   customerId: string;
   customerName: string;
+  customerAvatar: string;
   apartmentTitle: string;
   chatRoomId: string;
+  status: "pending" | "active" | "rejected";
+  initiatedBy: string | null;
   isUnread: boolean;
+  lastMessageText: string;
   sortKey: number;
 }
 
 function toMillis(value: unknown): number {
-  if (typeof value === "number") return value;
-  if (value && typeof value === "object" && "toMillis" in value) {
-    const fn = (value as { toMillis?: () => number }).toMillis;
-    if (typeof fn === "function") {
-      return fn() ?? 0;
-    }
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (!value || typeof value !== "object") return 0;
+
+  const ts = value as any;
+  if (typeof ts.toMillis === "function") {
+    const millis = ts.toMillis();
+    return Number.isFinite(millis) ? millis : 0;
+  }
+  if (typeof ts.toDate === "function") {
+    const millis = ts.toDate().getTime();
+    return Number.isFinite(millis) ? millis : 0;
+  }
+  if (typeof ts.seconds === "number") {
+    return ts.seconds * 1000 + Math.floor((ts.nanoseconds ?? 0) / 1_000_000);
   }
   return 0;
 }
@@ -59,6 +75,7 @@ export default function HostInboxScreen() {
   const [activeContextChatId, setActiveContextChatId] = useState<string | null>(null);
   const [chatToDelete, setChatToDelete] = useState<HostInboxItem | null>(null);
   const [deletingChatId, setDeletingChatId] = useState<string | null>(null);
+  const [acceptingChatId, setAcceptingChatId] = useState<string | null>(null);
 
   useEffect(() => {
     if (auth.isGuest || !auth.userId) {
@@ -71,7 +88,6 @@ export default function HostInboxScreen() {
     let mounted = true;
     const currentUid = auth.userId;
 
-    // 🚨 Βγάλαμε το where("type", "==", "host") για να μην "σκάει" το Firestore index
     const hostChatsQ = query(
       collection(db, "chats"),
       where("users", "array-contains", currentUid)
@@ -90,80 +106,83 @@ export default function HostInboxScreen() {
 
         void (async () => {
           try {
+            // 1. Φιλτράρουμε τα έγγραφα
+            const approvedDocs = snapshot.docs.filter((chatDoc) => {
+              const chatData = chatDoc.data() as FirestoreHostChatDoc;
+              const isHostChat = chatData.type === "host" || !!chatData.apartmentId;
+              if (!isHostChat) return false;
+              
+              const deletedBy = Array.isArray(chatData.deletedBy) ? chatData.deletedBy : [];
+              if (chatData.initiatedBy === currentUid) return false;
+              if (deletedBy.includes(currentUid)) return false;
+              
+              return true;
+            });
+
+            // 2. Επεξεργαζόμαστε ΜΟΝΟ τα εγκεκριμένα με απόλυτη ασφάλεια (try/catch ανά chat)
             const rows = await Promise.all(
-              snapshot.docs
-                .filter((chatDoc) => {
+              approvedDocs.map(async (chatDoc) => {
+                try {
                   const chatData = chatDoc.data() as FirestoreHostChatDoc;
-                  // 🚨 Κάνουμε το φιλτράρισμα του τύπου τοπικά με ασφάλεια!
-                  if (chatData.type !== "host") return false;
+                  const users = Array.isArray(chatData.users) ? chatData.users : [];
+                  const customerId = users.find((uid) => uid !== currentUid) || "";
                   
-                  const deletedBy = Array.isArray(chatData.deletedBy) ? chatData.deletedBy : [];
-                  if (chatData.initiatedBy === currentUid) return false;
-                  return !deletedBy.includes(currentUid);
-                })
-                .map(async (chatDoc) => {
+                  if (!customerId) return null; // Λείπει ο χρήστης
+
+                  const customerSnap = await getDoc(doc(db, "users", customerId));
+                  const customerData = customerSnap.exists() ? (customerSnap.data() as FirestoreUserDoc) : null;
+                  
+                  let isUnread = false;
+                  let lastMessageText = "";
+
                   try {
-                    const chatData = chatDoc.data() as FirestoreHostChatDoc;
-                    const users = Array.isArray(chatData.users) ? chatData.users : [];
-                    const customerId = users.find((uid) => uid !== currentUid) || "";
-                    if (!customerId) return null;
-
-                    const customerSnap = await getDoc(doc(db, "users", customerId));
-                    let isUnread = false;
-
-                    try {
-                      // Προσπαθούμε να βρούμε τα αδιάβαστα. 
-                      const unreadSnap = await getDocs(
-                        query(
-                          collection(db, "chats", chatDoc.id, "messages"),
-                          where("senderId", "==", customerId),
-                          where("isRead", "==", false),
-                        ),
-                      );
-                      isUnread = !unreadSnap.empty;
-                    } catch (indexError) {
-                      // 🛡️ Αν λείπει το index στο Firestore, κάνουμε fallback στο τελευταίο μήνυμα!
-                      const lastMsgSnap = await getDocs(
-                        query(collection(db, "chats", chatDoc.id, "messages"), orderBy("createdAt", "desc"), limit(1))
-                      );
-                      if (!lastMsgSnap.empty) {
-                        const lastMsg = lastMsgSnap.docs[0].data();
-                        isUnread = lastMsg.senderId === customerId && lastMsg.isRead === false;
-                      }
+                    const lastMsgSnap = await getDocs(
+                      query(collection(db, "chats", chatDoc.id, "messages"), orderBy("createdAt", "desc"), limit(1))
+                    );
+                    if (!lastMsgSnap.empty) {
+                      const lastMsg = lastMsgSnap.docs[0].data();
+                      lastMessageText = lastMsg.text || "";
+                      isUnread = lastMsg.senderId === customerId && lastMsg.isRead === false;
                     }
-
-                    const customerData = customerSnap.exists() ? (customerSnap.data() as FirestoreUserDoc) : null;
-                    const apartmentTitle = chatData.apartmentTitle?.trim() || t("apartmentDetail.dataUnavailable");
-                    const customerName = customerData?.name?.trim() || DELETED_ACCOUNT_LABEL;
-
-                    return {
-                      id: chatDoc.id,
-                      customerId,
-                      customerName,
-                      apartmentTitle,
-                      chatRoomId: chatDoc.id,
-                      isUnread,
-                      sortKey:
-                        toMillis(chatData.lastMessageTimestamp) ||
-                        toMillis(chatData.updatedAt) ||
-                        toMillis(chatData.createdAt),
-                    } as HostInboxItem;
-                  } catch (itemError) {
-                    console.error("[HostInbox] Item error:", itemError);
-                    return null;
+                  } catch (msgError) {
+                    console.log(`[HostInbox] Σφάλμα ανάγνωσης μηνυμάτων για chat ${chatDoc.id}:`, msgError);
                   }
-                }),
+
+                  const apartmentTitle = chatData.apartmentTitle?.trim() || "Apartment";
+                  const customerName = customerData?.name?.trim() || DELETED_ACCOUNT_LABEL;
+                  const photos = Array.isArray(customerData?.photos) ? customerData.photos : [];
+                  const customerAvatar = customerData?.photoUrl || photos[0] || "";
+
+                  return {
+                    id: chatDoc.id,
+                    customerId,
+                    customerName,
+                    customerAvatar,
+                    apartmentTitle,
+                    chatRoomId: chatDoc.id,
+                    status: chatData.status ?? "active",
+                    initiatedBy: chatData.initiatedBy ?? null,
+                    isUnread,
+                    lastMessageText,
+                    sortKey: toMillis(chatData.lastMessageTimestamp) || toMillis(chatData.updatedAt) || toMillis(chatData.createdAt),
+                  } as HostInboxItem;
+
+                } catch (itemError) {
+                  console.error(`[HostInbox] Κρασάρισμα στο chat ${chatDoc.id}:`, itemError);
+                  return null; // Αν σκάσει 1 chat, δεν καταστρέφεται η υπόλοιπη λίστα!
+                }
+              })
             );
 
             if (mounted) {
-              setItems(
-                rows
-                  .filter((row): row is HostInboxItem => !!row)
-                  .sort((a, b) => b.sortKey - a.sortKey),
-              );
+              const finalItems = rows
+                .filter((row): row is HostInboxItem => !!row)
+                .sort((a, b) => b.sortKey - a.sortKey);
+                
+              setItems(finalItems);
             }
           } catch (globalError) {
-            console.error("[HostInbox] Mapping error:", globalError);
+            console.error("[HostInbox] Χοντρό κρασάρισμα στο Promise.all:", globalError);
             if (mounted) setItems([]);
           } finally {
             if (mounted) setLoading(false);
@@ -171,12 +190,12 @@ export default function HostInboxScreen() {
         })();
       },
       (error) => {
-        console.error("[HostInbox] Snapshot error:", error);
+        console.error("[HostInbox] Σφάλμα Snapshot:", error);
         if (mounted) {
           setItems([]);
           setLoading(false);
         }
-      },
+      }
     );
 
     return () => {
@@ -190,12 +209,13 @@ export default function HostInboxScreen() {
       setActiveContextChatId(null);
       return;
     }
-    router.push({ pathname: "/chat/[id]", params: { id: item.customerId, chatRoomId: item.chatRoomId } });
+    if (item.status === "active" || item.status === "rejected") {
+      router.push({ pathname: "/chat/[id]", params: { id: item.customerId, chatRoomId: item.chatRoomId } });
+    }
   };
 
   const handleConfirmDeleteChat = async () => {
     if (!auth.userId || !chatToDelete) return;
-
     setDeletingChatId(chatToDelete.chatRoomId);
     try {
       await setDoc(
@@ -213,10 +233,49 @@ export default function HostInboxScreen() {
     }
   };
 
+  const handleAcceptChat = async (item: HostInboxItem) => {
+    if (!auth.userId || !item.chatRoomId) return;
+    setAcceptingChatId(item.chatRoomId);
+    try {
+      await updateDoc(doc(db, "chats", item.chatRoomId), {
+        status: "active",
+      });
+      router.push({ pathname: "/chat/[id]", params: { id: item.customerId, chatRoomId: item.chatRoomId } });
+    } catch (err) {
+      console.error("Accept chat failed:", err);
+    } finally {
+      setAcceptingChatId(null);
+    }
+  };
+
+  const handleRejectChat = async (item: HostInboxItem) => {
+    if (!auth.userId || !item.chatRoomId) return;
+    setAcceptingChatId(item.chatRoomId);
+    try {
+      await updateDoc(doc(db, "chats", item.chatRoomId), {
+        status: "rejected",
+      });
+    } catch (err) {
+      console.error("Reject chat failed:", err);
+    } finally {
+      setAcceptingChatId(null);
+    }
+  };
+  
+  const handleDeleteRejectedChat = async (item: HostInboxItem) => {
+    if (!auth.userId || !item.chatRoomId) return;
+    setDeletingChatId(item.chatRoomId);
+    try {
+      await deleteDoc(doc(db, "chats", item.chatRoomId));
+    } finally {
+      setDeletingChatId(null);
+    }
+  };
+
   return (
     <View style={styles.container} testID="host-inbox-screen">
       <View style={[styles.header, { paddingTop: insets.top + spacing.lg }]}> 
-        <Pressable onPress={() => router.back()} style={styles.backBtn} testID="host-inbox-back-button">
+        <Pressable onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="chevron-back" size={20} color={colors.onSurface} />
         </Pressable>
         <View style={styles.headerCopy}>
@@ -240,44 +299,108 @@ export default function HostInboxScreen() {
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
-          {items.map((item) => (
-            <Pressable
-              key={item.id}
-              style={styles.row}
-              onPress={() => handleOpenChat(item)}
-              onLongPress={() => setActiveContextChatId(item.id)}
-              delayLongPress={350}
-              testID={`host-inbox-row-${item.id}`}
-            >
-              {activeContextChatId === item.id ? (
-                <View style={styles.contextTooltip} testID={`host-inbox-delete-tooltip-${item.id}`}>
-                  <Pressable
-                    style={styles.contextTooltipAction}
-                    onPress={() => setChatToDelete(item)}
-                    testID={`host-inbox-delete-action-${item.id}`}
-                  >
-                    <Ionicons name="trash-outline" size={16} color={colors.error} />
-                    <Text style={styles.contextTooltipText}>{t("chatList.deleteThisChat")}</Text>
-                  </Pressable>
-                </View>
-              ) : null}
+          {items.map((item) => {
+            const hasAvatar = !!item.customerAvatar;
+            const isPending = item.status === "pending";
+            const isRejected = item.status === "rejected";
+            const isReceiver = isPending && item.initiatedBy !== auth.userId;
+            const defaultPreview = isPending ? t("matches.previewPending") : t("matches.previewStart");
+            const lastPreviewText = isPending
+              ? t("matches.previewPending")
+              : isRejected
+              ? "Unavailable communication"
+              : (item.lastMessageText || defaultPreview);
+            const previewIsFaded = !item.isUnread;
 
-              <View style={styles.rowMain}>
-                <View style={styles.rowTop}>
-                  <Text style={styles.customerName} numberOfLines={1}>
-                    {item.customerName}
-                  </Text>
-                  <Text style={styles.apartmentTitle} numberOfLines={1}>
-                    {item.apartmentTitle}
-                  </Text>
+            return (
+              <Pressable
+                key={item.id}
+                style={styles.row}
+                onPress={() => handleOpenChat(item)}
+                onLongPress={() => setActiveContextChatId(item.id)}
+                delayLongPress={350}
+                disabled={isPending}
+              >
+                {activeContextChatId === item.id ? (
+                  <View style={styles.contextTooltip}>
+                    <Pressable
+                      style={styles.contextTooltipAction}
+                      onPress={() => setChatToDelete(item)}
+                    >
+                      <Ionicons name="trash-outline" size={16} color={colors.error} />
+                      <Text style={styles.contextTooltipText}>{t("chatList.deleteThisChat")}</Text>
+                    </Pressable>
+                  </View>
+                ) : null}
+
+                {hasAvatar ? (
+                  <Image source={{ uri: item.customerAvatar }} style={styles.avatar} contentFit="cover" transition={150} />
+                ) : (
+                  <DefaultProfileAvatar size={60} iconSize={28} />
+                )}
+
+                <View style={styles.rowText}>
+                  <View style={styles.rowNameHeader}>
+                    <Text style={styles.rowName} numberOfLines={1}>{item.customerName}</Text>
+                    <Text style={styles.apartmentTitle} numberOfLines={1}>{item.apartmentTitle}</Text>
+                  </View>
+
+                  {isPending ? (
+                    isReceiver ? (
+                      acceptingChatId === item.chatRoomId ? (
+                        <View style={styles.pendingActionRow}>
+                          <ActivityIndicator size="small" color={colors.brand} />
+                        </View>
+                      ) : (
+                        <View style={styles.pendingActionRow}>
+                          <Pressable
+                            style={[styles.pendingPillBtn, styles.pendingApproveBtn]}
+                            onPress={() => handleAcceptChat(item)}
+                          >
+                            <Text style={styles.pendingApproveBtnText}>{t("common.actions.accept")}</Text>
+                          </Pressable>
+                          <Pressable
+                            style={[styles.pendingPillBtn, styles.pendingRejectBtn]}
+                            onPress={() => handleRejectChat(item)}
+                          >
+                            <Text style={styles.pendingRejectBtnText}>{t("common.actions.reject")}</Text>
+                          </Pressable>
+                        </View>
+                      )
+                    ) : (
+                      <Text style={[styles.rowMsg, styles.rowMsgFaded]} numberOfLines={1} ellipsizeMode="tail">
+                       {t("matches.pendingApproval")}
+                      </Text>
+                    )
+                  ) : (
+                    <Text style={[styles.rowMsg, previewIsFaded ? styles.rowMsgFaded : styles.rowMsgUnread]} numberOfLines={1} ellipsizeMode="tail">
+                      {lastPreviewText}
+                    </Text>
+                  )}
                 </View>
-              </View>
-              <View style={styles.rowSide}>
-                {item.isUnread && <View style={styles.unreadDot} />}
-                <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-              </View>
-            </Pressable>
-          ))}
+
+                {isPending ? (
+                  <Ionicons name="time-outline" size={22} color={colors.onSurfaceTertiary} />
+                ) : isRejected ? (
+                  <Pressable
+                    style={styles.rejectedInlineDeleteBtn}
+                    onPress={() => {
+                      void handleDeleteRejectedChat(item);
+                    }}
+                    disabled={deletingChatId === item.chatRoomId}
+                  >
+                    <Text style={styles.rejectedInlineDeleteBtnText}>
+                      {deletingChatId === item.chatRoomId ? t("common.actions.loading") : "Delete"}
+                    </Text>
+                  </Pressable>
+                ) : item.isUnread ? (
+                  <View style={styles.unreadDot} />
+                ) : (
+                  <Ionicons name="paper-plane-outline" size={22} color={colors.onSurfaceTertiary} />
+                )}
+              </Pressable>
+            );
+          })}
         </ScrollView>
       )}
 
@@ -347,26 +470,66 @@ const styles = StyleSheet.create({
     position: "relative",
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
     gap: spacing.md,
     paddingVertical: spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: colors.divider,
   },
-  rowMain: { flex: 1 },
-  rowTop: {
+  avatar: { width: 60, height: 60, borderRadius: radius.pill, backgroundColor: colors.surfaceTertiary },
+  rowText: { flex: 1, gap: 3, justifyContent: 'center' },
+  rowNameHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
+  rowName: { flex: 1, fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface },
+  apartmentTitle: { flexShrink: 1, fontFamily: fonts.semibold, fontSize: 13, color: colors.brand, textAlign: "right" },
+  rowMsg: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary },
+  rowMsgFaded: { color: colors.onSurfaceTertiary, opacity: 0.55 },
+  rowMsgUnread: { color: colors.onSurface, fontFamily: fonts.semibold },
+  pendingActionRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: spacing.md,
+    gap: spacing.sm,
+    marginTop: 2,
   },
-  customerName: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface },
-  apartmentTitle: { fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onSurfaceTertiary, textAlign: "right", flexShrink: 1 },
-  rowSide: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  pendingPillBtn: {
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+  },
+  pendingApproveBtn: {
+    backgroundColor: colors.brandTertiary,
+  },
+  pendingRejectBtn: {
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.error,
+  },
+  pendingApproveBtnText: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.sm,
+    color: colors.brand,
+  },
+  pendingRejectBtnText: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.sm,
+    color: colors.error,
+  },
+  rejectedInlineDeleteBtn: {
+    alignSelf: "center",
+    borderRadius: radius.pill,
+    backgroundColor: "#F59E0B",
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  rejectedInlineDeleteBtnText: {
+    fontFamily: fonts.bold,
+    fontSize: 12,
+    color: colors.onBrand,
+  },
   contextTooltip: {
     position: "absolute",
-    top: -42,
-    right: spacing.sm,
+    top: 20,
+    right: 48,
     zIndex: 20,
     backgroundColor: colors.surface,
     borderWidth: 1,
