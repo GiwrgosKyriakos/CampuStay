@@ -12,6 +12,7 @@ import {
   StatusBar,
   Modal,
   Linking,
+  Keyboard,
 } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
@@ -206,7 +207,33 @@ function normalizeSocialUrl(platform: "instagram" | "facebook" | "linkedin" | "t
 
 export default function ChatScreen() {
   const insets = useSafeAreaInsets();
-  
+  const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
+
+  useEffect(() => {
+    const showListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => {
+        setIsKeyboardOpen(true);
+        
+        // 🚀 Δίνουμε ένα ελάχιστο delay (50-100ms) για να προλάβει το KeyboardAvoidingView 
+        // να μικρύνει το layout, και μετά κάνουμε scroll στο τελευταίο μήνυμα.
+        setTimeout(() => {
+          scrollRef.current?.scrollToEnd({ animated: true });
+        }, 80);
+      }
+    );
+    
+    const hideListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => setIsKeyboardOpen(false)
+    );
+
+    return () => {
+      showListener.remove();
+      hideListener.remove();
+    };
+  }, []);
+
   const safeMenuTop = Math.max(insets.top + 12, (Platform.OS === "android" ? (StatusBar.currentHeight ?? 0) + 12 : 12));
   const router = useRouter();
   const auth = useAuth();
@@ -885,7 +912,7 @@ export default function ChatScreen() {
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? insets.top : 0}
+        keyboardVerticalOffset={Platform.OS === "ios" ? insets.top + 8 : 0}
       >
         <ScrollView
           ref={scrollRef}
@@ -950,7 +977,11 @@ export default function ChatScreen() {
         </ScrollView>
 
         <View
-          style={[styles.inputBar, { paddingBottom: insets.bottom + spacing.sm }, inputBlocked && styles.inputBarLocked]}
+          style={[styles.inputBar, 
+            { 
+              paddingBottom: isKeyboardOpen ? spacing.sm : insets.bottom + spacing.sm
+            }, 
+            inputBlocked && styles.inputBarLocked]}
           pointerEvents={inputBlocked ? "none" : "auto"}
         >
           <TextInput

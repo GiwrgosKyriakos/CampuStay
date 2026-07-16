@@ -196,8 +196,8 @@ export default function HostInboxScreen() {
           <Ionicons name="chevron-back" size={20} color={colors.onSurface} />
         </Pressable>
         <View style={styles.headerCopy}>
-          <Text style={styles.title}>Incoming Requests</Text>
-          <Text style={styles.subtitle}>Host inbox</Text>
+          <Text style={styles.title}>{t("host-inbox.title")}</Text>
+          <Text style={styles.subtitle}>{t("host-inbox.subtitle")}</Text>
         </View>
       </View>
 
@@ -211,8 +211,8 @@ export default function HostInboxScreen() {
         </View>
       ) : items.length === 0 ? (
         <View style={styles.empty}>
-          <Text style={styles.emptyTitle}>No inquiries or messages yet as a host</Text>
-          <Text style={styles.emptySub}>When guests contact you about your listings, those conversations will appear here.</Text>
+          <Text style={styles.emptyTitle}>{t("host-inbox.emptyTitle")}</Text>
+          <Text style={styles.emptySub}>{t("host-inbox.emptySub")}</Text>
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>

@@ -600,7 +600,7 @@ export default function MatchesScreen() {
           testID="matches-toggle-roommates"
         >
           <Text style={[styles.toggleText, selectedChatType === "roommate" && styles.toggleTextActive]}>
-            Συγκάτοικοι
+            {t("matches.roommatePlural")}
           </Text>
         </Pressable>
         <Pressable
@@ -609,7 +609,7 @@ export default function MatchesScreen() {
           testID="matches-toggle-hosts"
         >
           <Text style={[styles.toggleText, selectedChatType === "host" && styles.toggleTextActive]}>
-            Ιδιοκτήτες
+            {t("matches.hostPlural")}
           </Text>
         </Pressable>
       </View>
@@ -730,7 +730,7 @@ export default function MatchesScreen() {
                         numberOfLines={1}
                         ellipsizeMode="tail"
                       >
-                        Pending Approval...
+                       {t("matches.pendingApproval")}
                       </Text>
                     )
                   ) : (

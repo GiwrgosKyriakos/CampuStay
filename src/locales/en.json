@@ -18,6 +18,12 @@
       "reject": "Reject",
       "unblock": "Unblock"
     },
+    "host-inbox": {
+      "title": "Incoming Requests",
+      "subtitle": "Host Inbox",
+      "emptyTitle": "No inquiries or messages yet as a host",
+      "emptySub": "When guests contact you about your listings, those conversations will appear here."
+    },
     "labels": {
       "termsOfService": "Terms of Service",
       "privacyPolicy": "Privacy Policy",
@@ -326,11 +332,13 @@
     "subtitleCount": "{{count}} {{roommateLabel}} you liked",
     "roommateSingular": "roommate",
     "roommatePlural": "roommates",
+    "hostPlural": "hosts",
     "emptyGuestTitle": "Sign up to see your matches",
     "emptyGuestBody": "Your likes, matches, and chats appear here after you log in.",
     "emptyTitle": "No matches yet",
     "emptyBody": "Start swiping to find your future flatmate!",
     "previewPending": "Pending approval",
+    "pendingApproval":  " Pending Approval...",
     "previewStart": "Start the conversation"
   },
   "profile": {
