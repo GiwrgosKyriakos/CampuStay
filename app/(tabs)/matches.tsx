@@ -498,7 +498,7 @@ export default function MatchesScreen() {
       messageUnsubsRef.current = {};
     };
   }, [auth.isGuest, auth.userId, ensureRoommateChatsFromLikes, selectedChatType]);
-  
+
   const handleAcceptChat = async (profile: ChatListItem) => {
     if (!currentUserId || !profile.chatRoomId) return;
     setAcceptingChatId(profile.chatRoomId);
@@ -903,10 +903,10 @@ const styles = StyleSheet.create({
   },
   contextTooltip: {
     position: "absolute",
-    top: -42,
-    right: spacing.sm,
+    top: 50,
+    right: 0,
     zIndex: 20,
-    backgroundColor: colors.surface,
+    backgroundColor: "rgba(255,23,68,0.08)",
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.md,
