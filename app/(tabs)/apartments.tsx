@@ -52,6 +52,7 @@ interface FirestoreApartmentDoc {
 interface FirestoreHostChatDoc {
   users?: string[];
   type?: "roommate" | "host" | string;
+  initiatedBy?: string | null;
 }
 
 interface FirestoreHostInboxUserDoc {
@@ -287,6 +288,12 @@ export default function ApartmentsScreen() {
           const unreadFlags = await Promise.all(
             snapshot.docs.map(async (chatDoc) => {
               const chatData = chatDoc.data() as FirestoreHostChatDoc;
+              
+              // 🚨 ΚΑΘΟΡΙΣΤΙΚΟΣ ΕΛΕΓΧΟΣ:
+              // Αν το chat αυτό το ξεκινήσαμε εμείς (auth.userId), τότε είμαστε ο Guest/Student.
+              // Επομένως, το chat αυτό ανήκει στο Matches Screen και ΟΧΙ στο δικό μας Host Inbox!
+              if (chatData.initiatedBy === auth.userId) return false;
+
               const counterpartId = (Array.isArray(chatData.users) ? chatData.users : []).find((uid) => uid !== auth.userId);
               if (!counterpartId) return false;
 
