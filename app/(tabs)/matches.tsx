@@ -293,13 +293,12 @@ export default function MatchesScreen() {
         try {
           await ensureRoommateChatsFromLikes(uid);
         } catch (reconcileError) {
-          // Never block the live chats subscription when backfill fails.
           console.warn("[Matches] Roommate chat backfill skipped", reconcileError);
         }
 
         const chatsQ = query(collection(db, "chats"), where("users", "array-contains", uid));
         unsub = onSnapshot(chatsQ, (snapshot) => {
-          if (mounted) setLoading(false);
+          // 🚨 Αφαιρέσαμε το πρόωρο setLoading(false) από εδώ!
           console.log("[Matches] Chats snapshot received", {
             uid,
             selectedChatType,
@@ -327,12 +326,6 @@ export default function MatchesScreen() {
             return isVisibleForTab;
           });
 
-          console.log("[Matches] Visible chats after filtering", {
-            selectedChatType,
-            visibleCount: visibleChatDocs.length,
-          });
-
-          // Keep per-room last-message listeners in sync with current chat rooms.
           Object.entries(messageUnsubsRef.current).forEach(([chatId, off]) => {
             if (!activeChatIds.has(chatId)) {
               off();
@@ -381,104 +374,111 @@ export default function MatchesScreen() {
           });
 
           void (async () => {
-            const rows = await Promise.all(
-              visibleChatDocs.map(async (chatDoc) => {
-                const chatData = chatDoc.data() as FirestoreChatDoc;
-                const toSafeMillis = (value: unknown): number => {
-                  if (typeof value === "number" && Number.isFinite(value)) return value;
-                  if (!value || typeof value !== "object") return 0;
+            try { // 🚀 ΠΡΟΣΘΗΚΗ ΤΟΥ TRY ΓΙΑ ΑΣΦΑΛΕΙΑ
+              const rows = await Promise.all(
+                visibleChatDocs.map(async (chatDoc) => {
+                  const chatData = chatDoc.data() as FirestoreChatDoc;
+                  const toSafeMillis = (value: unknown): number => {
+                    if (typeof value === "number" && Number.isFinite(value)) return value;
+                    if (!value || typeof value !== "object") return 0;
 
-                  const ts = value as {
-                    toMillis?: () => number;
-                    toDate?: () => Date;
-                    seconds?: number;
-                    nanoseconds?: number;
+                    const ts = value as {
+                      toMillis?: () => number;
+                      toDate?: () => Date;
+                      seconds?: number;
+                      nanoseconds?: number;
+                    };
+
+                    if (typeof ts.toMillis === "function") {
+                      const millis = ts.toMillis();
+                      return Number.isFinite(millis) ? millis : 0;
+                    }
+                    if (typeof ts.toDate === "function") {
+                      const millis = ts.toDate().getTime();
+                      return Number.isFinite(millis) ? millis : 0;
+                    }
+                    if (typeof ts.seconds === "number") {
+                      return ts.seconds * 1000 + Math.floor((ts.nanoseconds ?? 0) / 1_000_000);
+                    }
+                    return 0;
                   };
 
-                  if (typeof ts.toMillis === "function") {
-                    const millis = ts.toMillis();
-                    return Number.isFinite(millis) ? millis : 0;
+                  const sortKey =
+                    toSafeMillis(chatData.lastMessageTimestamp) ||
+                    toSafeMillis(chatData.updatedAt) ||
+                    toSafeMillis(chatData.createdAt) ||
+                    0;
+                  const users = Array.isArray(chatData.users) ? chatData.users : [];
+                  const counterpartUid = users.find((u) => u !== uid);
+                  if (!counterpartUid) {
+                    return null;
                   }
-                  if (typeof ts.toDate === "function") {
-                    const millis = ts.toDate().getTime();
-                    return Number.isFinite(millis) ? millis : 0;
-                  }
-                  if (typeof ts.seconds === "number") {
-                    return ts.seconds * 1000 + Math.floor((ts.nanoseconds ?? 0) / 1_000_000);
-                  }
-                  return 0;
-                };
 
-                const sortKey =
-                  toSafeMillis(chatData.lastMessageTimestamp) ||
-                  toSafeMillis(chatData.updatedAt) ||
-                  toSafeMillis(chatData.createdAt) ||
-                  0;
-                const users = Array.isArray(chatData.users) ? chatData.users : [];
-                const counterpartUid = users.find((u) => u !== uid);
-                if (!counterpartUid) {
-                  return null;
-                }
-
-                const userSnap = await getDoc(doc(db, "users", counterpartUid));
-                const userData = userSnap.exists() ? (userSnap.data() as FirestoreUserDoc) : null;
-                const chat_status = chatData.status ?? "active";
-                const chat_initiated_by = chatData.initiatedBy ?? null;
-
-                return {
-                  sortKey,
-                  item: mapUserToChatItem(
-                    counterpartUid,
-                    chatDoc.id,
-                    users,
-                    chat_status,
-                    chat_initiated_by,
-                    userData,
-                  ),
-                };
-              }),
-            );
-
-            let fallbackRows: Array<{ sortKey: number; item: ChatListItem }> = [];
-            if (selectedChatType !== "host") {
-              const existingChatIds = new Set(
-                rows
-                  .filter((r): r is { sortKey: number; item: ChatListItem } => !!r)
-                  .map((r) => r.item.chatRoomId),
-              );
-
-              const likesSnap = await getDocs(query(collection(db, "swipes"), where("fromUid", "==", uid)));
-              const likedTargets = likesSnap.docs
-                .map((d) => d.data() as { toUid?: string; type?: string })
-                .filter((d) => d.type === "like" && typeof d.toUid === "string" && !!d.toUid)
-                .map((d) => d.toUid as string);
-
-              const missingTargets = likedTargets.filter((targetUid) => {
-                const chatRoomId = [uid, targetUid].sort().join("_");
-                return !existingChatIds.has(chatRoomId);
-              });
-
-              fallbackRows = await Promise.all(
-                missingTargets.map(async (targetUid) => {
-                  const userSnap = await getDoc(doc(db, "users", targetUid));
+                  const userSnap = await getDoc(doc(db, "users", counterpartUid));
                   const userData = userSnap.exists() ? (userSnap.data() as FirestoreUserDoc) : null;
-                  const chatRoomId = [uid, targetUid].sort().join("_");
+                  const chat_status = chatData.status ?? "active";
+                  const chat_initiated_by = chatData.initiatedBy ?? null;
 
                   return {
-                    sortKey: 0,
-                    item: mapUserToChatItem(targetUid, chatRoomId, [uid, targetUid], "pending", uid, userData),
+                    sortKey,
+                    item: mapUserToChatItem(
+                      counterpartUid,
+                      chatDoc.id,
+                      users,
+                      chat_status,
+                      chat_initiated_by,
+                      userData,
+                    ),
                   };
                 }),
               );
-            }
 
-            if (mounted) {
-              setMatches(
-                [...rows, ...fallbackRows]
-                  .filter((r): r is { sortKey: number; item: ChatListItem } => !!r)
-                  .sort((a, b) => (Number.isFinite(b.sortKey) ? b.sortKey : 0) - (Number.isFinite(a.sortKey) ? a.sortKey : 0))
-                  .map((row) => row.item),
-              );
+              let fallbackRows: Array<{ sortKey: number; item: ChatListItem }> = [];
+              if (selectedChatType !== "host") {
+                const existingChatIds = new Set(
+                  rows
+                    .filter((r): r is { sortKey: number; item: ChatListItem } => !!r)
+                    .map((r) => r.item.chatRoomId),
+                );
+
+                const likesSnap = await getDocs(query(collection(db, "swipes"), where("fromUid", "==", uid)));
+                const likedTargets = likesSnap.docs
+                  .map((d) => d.data() as { toUid?: string; type?: string })
+                  .filter((d) => d.type === "like" && typeof d.toUid === "string" && !!d.toUid)
+                  .map((d) => d.toUid as string);
+
+                const missingTargets = likedTargets.filter((targetUid) => {
+                  const chatRoomId = [uid, targetUid].sort().join("_");
+                  return !existingChatIds.has(chatRoomId);
+                });
+
+                fallbackRows = await Promise.all(
+                  missingTargets.map(async (targetUid) => {
+                    const userSnap = await getDoc(doc(db, "users", targetUid));
+                    const userData = userSnap.exists() ? (userSnap.data() as FirestoreUserDoc) : null;
+                    const chatRoomId = [uid, targetUid].sort().join("_");
+
+                    return {
+                      sortKey: 0,
+                      item: mapUserToChatItem(targetUid, chatRoomId, [uid, targetUid], "pending", uid, userData),
+                    };
+                  }),
+                );
+              }
+
+              if (mounted) {
+                setMatches(
+                  [...rows, ...fallbackRows]
+                    .filter((r): r is { sortKey: number; item: ChatListItem } => !!r)
+                    .sort((a, b) => (Number.isFinite(b.sortKey) ? b.sortKey : 0) - (Number.isFinite(a.sortKey) ? a.sortKey : 0))
+                    .map((row) => row.item),
+                );
+              }
+            } catch (error) {
+              console.error("[Matches] Error mapping users to chat items:", error);
+            } finally {
+              // 🚀 ΕΔΩ είναι το κλειδί: Κλείνει το loading ΑΦΟΥ ολοκληρωθεί το UI update, είτε πετύχει είτε όχι
+              if (mounted) setLoading(false);
             }
           })();
         });
@@ -498,7 +498,7 @@ export default function MatchesScreen() {
       messageUnsubsRef.current = {};
     };
   }, [auth.isGuest, auth.userId, ensureRoommateChatsFromLikes, selectedChatType]);
-
+  
   const handleAcceptChat = async (profile: ChatListItem) => {
     if (!currentUserId || !profile.chatRoomId) return;
     setAcceptingChatId(profile.chatRoomId);
