@@ -149,8 +149,7 @@ function buildApartmentRoutePayload(apartmentId: string, data: FirestoreApartmen
     rooms: typeof data.rooms === "number" ? data.rooms : 1,
     size: typeof data.size === "number" ? data.size : typeof data.sqft === "number" ? data.sqft : 0,
     image:
-      data.image ||
-      "https://images.unsplash.com/photo-1564078516393-cf04bd966897?crop=entropy&cs=srgb&fm=jpg&w=1200&q=85",
+      data.image || "",
     tags: tags.length ? tags : [t("apartments.newListing")],
     hostId: data.hostId,
   };
