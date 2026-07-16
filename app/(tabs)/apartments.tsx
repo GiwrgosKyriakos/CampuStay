@@ -5,7 +5,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
-import { collection, doc, getDocs, onSnapshot, orderBy, query, where } from "firebase/firestore";
+import { collection, doc, getDocs, onSnapshot, orderBy, query, where, limit } from "firebase/firestore";
 
 import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
 import { getUserProfile } from "@/src/api/userProfile";
@@ -123,16 +123,72 @@ export default function ApartmentsScreen() {
   const [likeErrorModalVisible, setLikeErrorModalVisible] = useState(false);
   const swipeX = React.useRef(new Animated.Value(0)).current;
   const SWIPE_THRESHOLD = 56;
+  const canOpenHostInbox = hasPublishedHostApartment || hasApartmentShareFlag;
+  const canManageListings = !auth.isGuest && (hasPublishedHostApartment || hasApartmentShareFlag);
+
 
   useEffect(() => {
-    if (auth.isGuest || !auth.userId) {
-      setLikedApartmentIds(new Set());
+    if (auth.isGuest || !auth.userId || !canOpenHostInbox) {
+      setHostInboxHasUnread(false);
       return;
     }
 
-    const unsubscribe = subscribeUserLikedApartmentIds(auth.userId, setLikedApartmentIds);
-    return () => unsubscribe();
-  }, [auth.isGuest, auth.userId]);
+    let mounted = true;
+    
+    // 🚨 Βγάλαμε το where("type", "==", "host")
+    const hostChatsQ = query(
+      collection(db, "chats"),
+      where("users", "array-contains", auth.userId)
+    );
+
+    const unsubscribe = onSnapshot(hostChatsQ, (snapshot) => {
+      void (async () => {
+        try {
+          const unreadFlags = await Promise.all(
+            snapshot.docs.map(async (chatDoc) => {
+              const chatData = chatDoc.data() as FirestoreHostChatDoc;
+              
+              // 🚨 Τοπικό φιλτράρισμα ρόλων
+              if (chatData.type !== "host") return false;
+              if (chatData.initiatedBy === auth.userId) return false;
+
+              const counterpartId = (Array.isArray(chatData.users) ? chatData.users : []).find((uid) => uid !== auth.userId);
+              if (!counterpartId) return false;
+
+              try {
+                const unreadQuery = query(
+                  collection(db, "chats", chatDoc.id, "messages"),
+                  where("senderId", "==", counterpartId),
+                  where("isRead", "==", false),
+                );
+                const unreadSnapshot = await getDocs(unreadQuery);
+                return !unreadSnapshot.empty;
+              } catch (e) {
+                // 🛡️ Fallback ασφαλείας
+                const lastMsgSnap = await getDocs(query(collection(db, "chats", chatDoc.id, "messages"), orderBy("createdAt", "desc"), limit(1)));
+                if (!lastMsgSnap.empty) {
+                  const lastMsg = lastMsgSnap.docs[0].data();
+                  return lastMsg.senderId === counterpartId && lastMsg.isRead === false;
+                }
+                return false;
+              }
+            }),
+          );
+
+          if (mounted) {
+            setHostInboxHasUnread(unreadFlags.some(Boolean));
+          }
+        } catch {
+          if (mounted) setHostInboxHasUnread(false);
+        }
+      })();
+    });
+
+    return () => {
+      mounted = false;
+      unsubscribe();
+    };
+  }, [auth.isGuest, auth.userId, canOpenHostInbox]);
 
   useEffect(() => {
     const apartmentsQuery = query(collection(db, "apartments"), orderBy("createdAt", "desc"));
@@ -217,9 +273,6 @@ export default function ApartmentsScreen() {
       unsubscribeUser();
     };
   }, [auth.isGuest, auth.userId]);
-
-  const canOpenHostInbox = hasPublishedHostApartment || hasApartmentShareFlag;
-  const canManageListings = !auth.isGuest && (hasPublishedHostApartment || hasApartmentShareFlag);
 
   const handleSwipeTabChange = useCallback(
     (direction: "left" | "right") => {

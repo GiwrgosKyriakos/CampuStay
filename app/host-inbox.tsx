@@ -3,7 +3,7 @@ import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { arrayUnion, collection, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, setDoc, where } from "firebase/firestore";
+import { arrayUnion, collection, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, setDoc, where, orderBy, limit } from "firebase/firestore";
 
 import { colors, fonts, fontSize, radius, spacing } from "@/src/theme";
 import { useAuth } from "@/src/context/auth";
@@ -71,10 +71,10 @@ export default function HostInboxScreen() {
     let mounted = true;
     const currentUid = auth.userId;
 
+    // 🚨 Βγάλαμε το where("type", "==", "host") για να μην "σκάει" το Firestore index
     const hostChatsQ = query(
       collection(db, "chats"),
-      where("users", "array-contains", currentUid),
-      where("type", "==", "host"),
+      where("users", "array-contains", currentUid)
     );
 
     const unsubscribe = onSnapshot(
@@ -94,43 +94,65 @@ export default function HostInboxScreen() {
               snapshot.docs
                 .filter((chatDoc) => {
                   const chatData = chatDoc.data() as FirestoreHostChatDoc;
+                  // 🚨 Κάνουμε το φιλτράρισμα του τύπου τοπικά με ασφάλεια!
+                  if (chatData.type !== "host") return false;
+                  
                   const deletedBy = Array.isArray(chatData.deletedBy) ? chatData.deletedBy : [];
+                  if (chatData.initiatedBy === currentUid) return false;
                   return !deletedBy.includes(currentUid);
                 })
                 .map(async (chatDoc) => {
-                const chatData = chatDoc.data() as FirestoreHostChatDoc;
-                const users = Array.isArray(chatData.users) ? chatData.users : [];
-                const customerId = users.find((uid) => uid !== currentUid) || "";
-                if (!customerId) return null;
+                  try {
+                    const chatData = chatDoc.data() as FirestoreHostChatDoc;
+                    const users = Array.isArray(chatData.users) ? chatData.users : [];
+                    const customerId = users.find((uid) => uid !== currentUid) || "";
+                    if (!customerId) return null;
 
-                const [customerSnap, unreadSnap] = await Promise.all([
-                  getDoc(doc(db, "users", customerId)),
-                  getDocs(
-                    query(
-                      collection(db, "chats", chatDoc.id, "messages"),
-                      where("senderId", "==", customerId),
-                      where("isRead", "==", false),
-                    ),
-                  ),
-                ]);
+                    const customerSnap = await getDoc(doc(db, "users", customerId));
+                    let isUnread = false;
 
-                const customerData = customerSnap.exists() ? (customerSnap.data() as FirestoreUserDoc) : null;
-                const apartmentTitle = chatData.apartmentTitle?.trim() || t("apartmentDetail.dataUnavailable");
-                const customerName = customerData?.name?.trim() || DELETED_ACCOUNT_LABEL;
+                    try {
+                      // Προσπαθούμε να βρούμε τα αδιάβαστα. 
+                      const unreadSnap = await getDocs(
+                        query(
+                          collection(db, "chats", chatDoc.id, "messages"),
+                          where("senderId", "==", customerId),
+                          where("isRead", "==", false),
+                        ),
+                      );
+                      isUnread = !unreadSnap.empty;
+                    } catch (indexError) {
+                      // 🛡️ Αν λείπει το index στο Firestore, κάνουμε fallback στο τελευταίο μήνυμα!
+                      const lastMsgSnap = await getDocs(
+                        query(collection(db, "chats", chatDoc.id, "messages"), orderBy("createdAt", "desc"), limit(1))
+                      );
+                      if (!lastMsgSnap.empty) {
+                        const lastMsg = lastMsgSnap.docs[0].data();
+                        isUnread = lastMsg.senderId === customerId && lastMsg.isRead === false;
+                      }
+                    }
 
-                return {
-                  id: chatDoc.id,
-                  customerId,
-                  customerName,
-                  apartmentTitle,
-                  chatRoomId: chatDoc.id,
-                  isUnread: !unreadSnap.empty,
-                  sortKey:
-                    toMillis(chatData.lastMessageTimestamp) ||
-                    toMillis(chatData.updatedAt) ||
-                    toMillis(chatData.createdAt),
-                } as HostInboxItem;
-              }),
+                    const customerData = customerSnap.exists() ? (customerSnap.data() as FirestoreUserDoc) : null;
+                    const apartmentTitle = chatData.apartmentTitle?.trim() || t("apartmentDetail.dataUnavailable");
+                    const customerName = customerData?.name?.trim() || DELETED_ACCOUNT_LABEL;
+
+                    return {
+                      id: chatDoc.id,
+                      customerId,
+                      customerName,
+                      apartmentTitle,
+                      chatRoomId: chatDoc.id,
+                      isUnread,
+                      sortKey:
+                        toMillis(chatData.lastMessageTimestamp) ||
+                        toMillis(chatData.updatedAt) ||
+                        toMillis(chatData.createdAt),
+                    } as HostInboxItem;
+                  } catch (itemError) {
+                    console.error("[HostInbox] Item error:", itemError);
+                    return null;
+                  }
+                }),
             );
 
             if (mounted) {
@@ -140,14 +162,16 @@ export default function HostInboxScreen() {
                   .sort((a, b) => b.sortKey - a.sortKey),
               );
             }
-          } catch {
+          } catch (globalError) {
+            console.error("[HostInbox] Mapping error:", globalError);
             if (mounted) setItems([]);
           } finally {
             if (mounted) setLoading(false);
           }
         })();
       },
-      () => {
+      (error) => {
+        console.error("[HostInbox] Snapshot error:", error);
         if (mounted) {
           setItems([]);
           setLoading(false);

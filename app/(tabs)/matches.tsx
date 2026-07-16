@@ -315,7 +315,11 @@ export default function MatchesScreen() {
               return false;
             }
             const chatType = chatData.type ?? "roommate";
-            const isVisibleForTab = selectedChatType === "host" ? chatType === "host" : chatType !== "host";
+            // 🚨 ΔΙΑΧΩΡΙΣΜΟΣ ΡΟΛΩΝ:
+            // Αν είμαστε στο Tab "Hosts", δείχνουμε ΜΟΝΟ τα chats που ξεκινήσαμε ΕΜΕΙΣ (ως guests).
+            const isVisibleForTab = selectedChatType === "host" 
+              ? (chatType === "host" && chatData.initiatedBy === uid) 
+              : (chatType !== "host");
             if (!isVisibleForTab) {
               console.log("[Matches] Hiding chat due to tab/type split", {
                 chatId: chatDoc.id,
