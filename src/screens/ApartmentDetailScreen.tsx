@@ -90,6 +90,7 @@ export default function ApartmentDetailScreen() {
     title: string;
     description: string;
   } | null>(null);
+  const [dbImages, setDbImages] = useState<string[]>([]);
 
   React.useEffect(() => {
     if (auth.isGuest || !auth.userId || !apt?.id) {
@@ -115,8 +116,35 @@ export default function ApartmentDetailScreen() {
     );
   }
 
+React.useEffect(() => {
+    if (!apt?.id) return;
+    
+    const fetchRealImages = async () => {
+      try {
+        const docSnap = await getDoc(doc(db, "apartments", apt!.id));
+        if (docSnap.exists()) {
+          const docData = docSnap.data();
+          // Παίρνουμε το images array ή εναλλακτικά τη μονή εικόνα image/imageUrl
+          const imgs = Array.isArray(docData.images)
+            ? docData.images.filter((uri: any) => typeof uri === "string" && uri.trim().length > 0)
+            : [docData.image || docData.imageUrl].filter((uri: any) => typeof uri === "string" && uri.trim().length > 0);
+          setDbImages(imgs);
+        } else {
+          setDbImages([]);
+        }
+      } catch (error) {
+        console.error("[ApartmentDetail] Error fetching listing images:", error);
+        setDbImages([]);
+      }
+    };
+
+    void fetchRealImages();
+  }, [apt?.id]);
+
   // Build an array of images — currently one per listing; slot for future multi-image support.
-  const images: string[] = [apt.image];
+  const images = (dbImages.length > 0 ? dbImages : [apt.image]).filter(
+    (uri) => typeof uri === "string" && uri.trim().length > 0
+  );
 
   const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const page = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
@@ -256,33 +284,47 @@ export default function ApartmentDetailScreen() {
         contentContainerStyle={{ paddingBottom: 100 + insets.bottom }}
         showsVerticalScrollIndicator={false}
       >
-        {/* ── Image Carousel ── */}
-        <View style={styles.carouselWrap}>
-          <ScrollView
-            ref={scrollRef}
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            onScroll={handleScroll}
-            scrollEventThrottle={16}
-            testID="apartment-detail-carousel"
-          >
-            {images.map((uri, i) => (
-              <Image
-                key={i}
-                source={{ uri }}
-                style={styles.carouselImage}
-                contentFit="cover"
-                transition={200}
-              />
-            ))}
-          </ScrollView>
+        {/* ── Image Carousel / Fallback Placeholder ── */}
+        <View style={[styles.carouselWrap, images.length === 0 && styles.carouselWrapPlaceholder]}>
+          {images.length > 0 ? (
+            <>
+              <ScrollView
+                ref={scrollRef}
+                horizontal
+                pagingEnabled
+                showsHorizontalScrollIndicator={false}
+                onScroll={handleScroll}
+                scrollEventThrottle={16}
+                testID="apartment-detail-carousel"
+              >
+                {images.map((uri, i) => (
+                  <Image
+                    key={i}
+                    source={{ uri }}
+                    style={styles.carouselImage}
+                    contentFit="cover"
+                    transition={200}
+                  />
+                ))}
+              </ScrollView>
 
-          {images.length > 1 && (
-            <View style={styles.dotRow}>
-              {images.map((_, i) => (
-                <View key={i} style={[styles.dot, i === activePage && styles.dotActive]} />
-              ))}
+              {images.length > 1 && (
+                <View style={styles.dotRow}>
+                  {images.map((_, i) => (
+                    <View key={i} style={[styles.dot, i === activePage && styles.dotActive]} />
+                  ))}
+                </View>
+              )}
+            </>
+          ) : (
+            <View style={styles.placeholderContainer} testID="apartment-detail-placeholder">
+              <View style={styles.placeholderIconContainer}>
+                <Ionicons name="images-outline" size={44} color={colors.brand} style={styles.placeholderSubIcon} />
+              </View>
+              <Text style={styles.placeholderText}>CampuStay</Text>
+              <Text style={styles.placeholderSubText}>
+                {t("apartmentDetail.noPhotosAvailable") || "Δεν υπάρχει διαθέσιμη φωτογραφία αγγελίας"}
+              </Text>
             </View>
           )}
 
@@ -483,9 +525,54 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
 
-  /* Carousel */
-  carouselWrap: { position: "relative" },
+  /* Carousel & Placeholders */
+  carouselWrap: { 
+    position: "relative",
+    borderBottomWidth: 1.5,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceSecondary,
+  },
+  carouselWrapPlaceholder: {
+    height: 280,
+    justifyContent: "center",
+    alignItems: "center",
+  },
   carouselImage: { width: SCREEN_WIDTH, height: 280 },
+  placeholderContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    padding: spacing.xl,
+    gap: spacing.xs,
+  },
+  placeholderIconContainer: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "center",
+    marginBottom: spacing.xs,
+  },
+  placeholderLogoIcon: {
+    marginRight: -12,
+  },
+  placeholderSubIcon: {
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    padding: 2,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+  },
+  placeholderText: {
+    fontFamily: fonts.displayExtra,
+    fontSize: fontSize.xl,
+    color: colors.brand,
+    letterSpacing: 0.5,
+  },
+  placeholderSubText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+    color: colors.onSurfaceTertiary,
+    marginTop: 2,
+    textAlign: "center",
+  },
   dotRow: {
     position: "absolute",
     bottom: spacing.sm,

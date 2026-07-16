@@ -428,6 +428,7 @@
     }
   },
   "apartmentDetail": {
+    "noPhotosAvailable": "Δεν υπάρχει διαθέσιμη φωτογραφία αγγελίας.",
     "dataUnavailable": "Τα δεδομένα του διαμερίσματος δεν είναι διαθέσιμα.",
     "emailSubject": "Ερώτημα για: {{title}}",
     "hostListingTitle": "Καταχώριση ιδιοκτήτη",

@@ -78,23 +78,6 @@ function normalizeTagSlug(tag: string): string {
   return LEGACY_TAG_TO_SLUG[trimmedTag] ?? trimmedTag.toLowerCase();
 }
 
-function buildSeedApartments(): Apartment[] {
-  return [
-    {
-      id: "a1",
-      title: t("apartments.sample.a1.title"),
-      area: "Kreuzberg",
-      city: "Berlin",
-      rent: 720,
-      rooms: 3,
-      size: 78,
-      image:
-        "https://images.unsplash.com/photo-1564078516393-cf04bd966897?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzZ8MHwxfHNlYXJjaHwxfHxlbXB0eSUyMGFwYXJ0bWVudCUyMGxpdmluZyUyMHJvb20lMjB3YXJtJTIwbGlnaHR8ZW58MHx8fHwxNzgyNzc4MzA0fDA&ixlib=rb-4.1.0&q=85",
-      tags: ["furnished", "balcony", "wifi"],
-    }
-  ];
-}
-
 function translateApartmentTag(tag: string): string {
   const translated = t(`apartments.tags.${tag}`);
   return translated === `apartments.tags.${tag}` ? tag.replace(/_/g, " ") : translated;
@@ -374,7 +357,7 @@ export default function ApartmentsScreen() {
     };
   }, [auth.isGuest, auth.userId, canOpenHostInbox]);
 
-  const apartments = useMemo(() => [...publishedApartments, ...buildSeedApartments()], [publishedApartments]);
+  const apartments = useMemo(() => [...publishedApartments], [publishedApartments]);
 
   const handleToggleLike = useCallback(
     async (apartmentId: string) => {
@@ -589,7 +572,14 @@ export default function ApartmentsScreen() {
                 }
                 testID={`apartment-card-${apt.id}`}
               >
-                <Image source={{ uri: apt.image }} style={styles.photo} contentFit="cover" transition={150} />
+                {apt.image ? (
+                  <Image source={{ uri: apt.image }} style={styles.photo} contentFit="cover" transition={150} />
+                ) : (
+                  <View style={[styles.photo, styles.cardPlaceholder]}>
+                    <Ionicons name="home" size={44} color={colors.brand} />
+                    <Text style={styles.cardPlaceholderText}>CampuStay</Text>
+                  </View>
+                )}
                 <LinearGradient
                   colors={["transparent", "rgba(26,26,26,0.95)"]}
                   locations={[0.4, 1]}
@@ -603,7 +593,7 @@ export default function ApartmentsScreen() {
                   <Text style={styles.rentMo}>{t("apartments.perMonthShort")}</Text>
                 </View>
                 <View style={styles.cardBody}>
-                  <Text style={styles.aptTitle}>{apt.title}</Text>
+                  {/*<Text style={styles.aptTitle}>{apt.title}</Text>*/}
                   <View style={styles.locRow}>
                     <Ionicons name="location-outline" size={14} color="rgba(255,255,255,0.85)" />
                     <Text style={styles.loc}>
@@ -701,7 +691,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: spacing.sm,
   },
-  title: { fontFamily: fonts.displayExtra, fontSize: fontSize["3xl"], color: colors.onSurface },
+  title: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface },
   myListingsPill: {
     borderRadius: radius.pill,
     borderWidth: 1,
@@ -722,7 +712,7 @@ const styles = StyleSheet.create({
   myListingsPillTextActive: {
     color: colors.onBrand,
   },
-  subtitle: { fontFamily: fonts.regular, fontSize: fontSize.lg, color: colors.onSurfaceTertiary },
+  subtitle: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary },
   headerControlsRow: {
     marginTop: spacing.sm,
     flexDirection: "row",
@@ -897,7 +887,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing.xs,
   },
-  emptyTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize.xl, color: colors.onSurface },
+  emptyTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize.xl, color: colors.onSurface, textAlign: "center" },
   emptySub: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary, textAlign: "center" },
   fabCluster: {
     position: "absolute",
@@ -907,10 +897,10 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   fab: {
-    width: 62,
-    height: 62,
-    borderRadius: 31,
-    backgroundColor: "#FF8A1E",
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: colors.brand,
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "#000",
@@ -921,12 +911,12 @@ const styles = StyleSheet.create({
   },
   fabText: { fontFamily: fonts.displayExtra, fontSize: 32, color: colors.onBrand },
   hostInboxFab: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#D9F0FF",
+    backgroundColor: colors.muted,
     borderWidth: 1,
     borderColor: "#A8D9FF",
     shadowColor: "#000",
@@ -945,5 +935,18 @@ const styles = StyleSheet.create({
   },
   hostInboxFabTextUnread: {
     color: colors.brandTertiary,
+  },
+  cardPlaceholder: {
+    backgroundColor: colors.surfaceSecondary,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.xs,
+    transform: [{ translateY: -20 }],
+  },
+  cardPlaceholderText: {
+    fontFamily: fonts.displayExtra,
+    fontSize: fontSize.base,
+    color: colors.brand,
+    letterSpacing: 1,
   },
 });

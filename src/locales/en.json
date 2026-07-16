@@ -428,6 +428,7 @@
     }
   },
   "apartmentDetail": {
+    "noPhotosAvailable": "No photos available for this listing.",
     "dataUnavailable": "Apartment data unavailable.",
     "emailSubject": "Inquiry about: {{title}}",
     "hostListingTitle": "Host listing",
