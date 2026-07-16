@@ -18,12 +18,6 @@
       "reject": "Reject",
       "unblock": "Unblock"
     },
-    "host-inbox": {
-      "title": "Incoming Requests",
-      "subtitle": "Host Inbox",
-      "emptyTitle": "No inquiries or messages yet as a host",
-      "emptySub": "When guests contact you about your listings, those conversations will appear here."
-    },
     "labels": {
       "termsOfService": "Terms of Service",
       "privacyPolicy": "Privacy Policy",
@@ -86,6 +80,12 @@
     "messages": {
       "tryAgain": "Please try again."
     }
+  },
+  "host-inbox": {
+      "title": "Incoming Requests",
+      "subtitle": "Host Inbox",
+      "emptyTitle": "No inquiries or messages yet as a host",
+      "emptySub": "When guests contact you about your listings, those conversations will appear here."
   },
   "tabs": {
     "roommates": "Roommates",
