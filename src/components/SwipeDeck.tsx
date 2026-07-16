@@ -54,11 +54,14 @@ const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck(
     });
   }, [profiles]);
 
-  const logSwipeStart = (profileId?: string) => {
+  // 🟢 ΑΣΦΑΛΕΙΣ JS ΣΥΝΑΡΤΗΣΕΙΣ ΓΙΑ LOGGING (Εκτελούνται στο JS Thread και διαβάζουν με ασφάλεια το State)
+  const logSwipeStart = () => {
+    const profileId = cardStack[0]?.id;
     console.log("[SwipeDeck] Swipe started", { profileId });
   };
 
-  const logSwipeMove = (profileId: string | undefined, translationX: number, translationY: number) => {
+  const logSwipeMove = (translationX: number, translationY: number) => {
+    const profileId = cardStack[0]?.id;
     console.log("[SwipeDeck] Swipe moving", {
       profileId,
       translationX,
@@ -66,8 +69,18 @@ const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck(
     });
   };
 
-  const logSwipeComplete = (dir: "left" | "right", profileId?: string) => {
+  const logSwipeComplete = (dir: "left" | "right") => {
+    const profileId = cardStack[0]?.id;
     console.log("[SwipeDeck] Swipe completed", { direction: dir, profileId });
+  };
+
+  const logSwipeCanceled = (translationX: number, translationY: number) => {
+    const profileId = cardStack[0]?.id;
+    console.log("[SwipeDeck] Swipe canceled (below threshold)", {
+      profileId,
+      translationX,
+      translationY,
+    });
   };
 
   const finish = (dir: "left" | "right") => {
@@ -94,7 +107,7 @@ const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck(
     });
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     onSwipeAction?.(dir);
-    logSwipeComplete(dir, cardStack[0]?.id);
+    logSwipeComplete(dir);
     x.value = withTiming(dir === "right" ? OUT_X : -OUT_X, { duration: 280 }, () => {
       runOnJS(finish)(dir);
     });
@@ -107,7 +120,7 @@ const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck(
 
   const pan = Gesture.Pan()
     .onBegin(() => {
-      runOnJS(logSwipeStart)(cardStack[0]?.id);
+      runOnJS(logSwipeStart)();
     })
     .onUpdate((e) => {
       x.value = e.translationX;
@@ -115,7 +128,7 @@ const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck(
 
       if (Math.abs(e.translationX - lastLoggedX.value) > 40) {
         lastLoggedX.value = e.translationX;
-        runOnJS(logSwipeMove)(cardStack[0]?.id, e.translationX, e.translationY);
+        runOnJS(logSwipeMove)(e.translationX, e.translationY);
       }
     })
     .onEnd(() => {
@@ -123,20 +136,17 @@ const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck(
         if (onSwipeAction) {
           runOnJS(onSwipeAction)("right");
         }
-        runOnJS(logSwipeComplete)("right", cardStack[0]?.id);
+        runOnJS(logSwipeComplete)("right");
         x.value = withTiming(OUT_X, { duration: 250 }, () => runOnJS(finish)("right"));
       } else if (x.value < -SWIPE_THRESHOLD) {
         if (onSwipeAction) {
           runOnJS(onSwipeAction)("left");
         }
-        runOnJS(logSwipeComplete)("left", cardStack[0]?.id);
+        runOnJS(logSwipeComplete)("left");
         x.value = withTiming(-OUT_X, { duration: 250 }, () => runOnJS(finish)("left"));
       } else {
-        runOnJS(console.log)("[SwipeDeck] Swipe canceled (below threshold)", {
-          profileId: cardStack[0]?.id,
-          translationX: x.value,
-          translationY: y.value,
-        });
+        // 🟢 Ασφαλής κλήση της custom log function αντί για runOnJS(console.log)
+        runOnJS(logSwipeCanceled)(x.value, y.value);
         x.value = withSpring(0);
         y.value = withSpring(0);
       }
