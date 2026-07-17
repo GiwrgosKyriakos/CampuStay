@@ -624,8 +624,16 @@ export default function MatchesScreen() {
           <View style={styles.emptyIcon}>
             <Ionicons name="lock-closed-outline" size={42} color={colors.onBrandTertiary} />
           </View>
-          <Text style={styles.emptyTitle}>{t("matches.emptyGuestTitle")}</Text>
-          <Text style={styles.emptySub}>{t("matches.emptyGuestBody")}</Text>
+          <Text style={styles.emptyTitle}>
+            {selectedChatType === "roommate" 
+              ? t("matches.emptyGuestTitleRoommates")
+              : t("matches.emptyGuestTitleHosts")}
+          </Text>
+          <Text style={styles.emptySub}>
+            {selectedChatType === "roommate" 
+              ? t("matches.emptyGuestBodyRoommates") 
+              : t("matches.emptyGuestBodyHosts")}
+          </Text>
           <Pressable style={styles.ctaBtn} onPress={() => router.push("/auth-landing")} testID="matches-signin-button">
             <Text style={styles.ctaText}>{t("common.cta.signInOrRegister")}</Text>
           </Pressable>
@@ -639,8 +647,16 @@ export default function MatchesScreen() {
           <View style={styles.emptyIcon}>
             <Ionicons name="chatbubbles-outline" size={42} color={colors.onBrandTertiary} />
           </View>
-          <Text style={styles.emptyTitle}>{t("matches.emptyTitle")}</Text>
-          <Text style={styles.emptySub}>{t("matches.emptyBody")}</Text>
+          <Text style={styles.emptyTitle}>
+            {selectedChatType === "roommate" 
+              ? t("matches.emptyTitleRoommates") 
+              : t("matches.emptyTitleHosts")}
+          </Text>
+          <Text style={styles.emptySub}>
+            {selectedChatType === "roommate" 
+              ? t("matches.emptyBodyRoommates") 
+              : t("matches.emptyBodyHosts")}
+          </Text>
         </View>
       ) : (
         <ScrollView
@@ -948,8 +964,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: spacing.sm,
   },
-  emptyTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface, textAlign: "center" },
-  emptySub: { fontFamily: fonts.regular, fontSize: fontSize.lg, color: colors.onSurfaceTertiary, textAlign: "center" },
+  emptyTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize["xl"], color: colors.onSurface, textAlign: "center" },
+  emptySub: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary, textAlign: "center" },
   ctaBtn: {
     marginTop: spacing.md,
     backgroundColor: colors.brand,
