@@ -588,7 +588,7 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: "rgba(255,255,255,0.45)",
   },
-  dotActive: { backgroundColor: colors.onBrand, width: 14 },
+  dotActive: { backgroundColor: colors.brand, width: 14 },
   rentBadge: {
     position: "absolute",
     bottom: spacing.md,
