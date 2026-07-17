@@ -328,6 +328,7 @@
   "matches": {
     "title": "Matches",
     "subtitleGuest": "Log in to see your matches",
+    "subtitleHosts": "Hosts you contacted will show up here",
     "subtitleNone": "People you like will show up here",
     "subtitleCount": "{{count}} {{roommateLabel}} you liked",
     "roommateSingular": "roommate",

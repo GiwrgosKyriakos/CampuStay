@@ -589,12 +589,15 @@ export default function MatchesScreen() {
         <Text style={styles.subtitle}>
           {auth.isGuest
             ? t("matches.subtitleGuest")
-            : matches.length > 0
+            : matches.length > 0 && selectedChatType === "roommate"
             ? t("matches.subtitleCount", {
                 count: matches.length,
                 roommateLabel: matches.length === 1 ? t("matches.roommateSingular") : t("matches.roommatePlural"),
               })
+            : selectedChatType === "host"
+            ? t("matches.subtitleHosts")
             : t("matches.subtitleNone")}
+            
         </Text>
       </View>
       <View style={[styles.toggleShell, { marginHorizontal: spacing.lg }]}> 
