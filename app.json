@@ -21,8 +21,7 @@
       "package": "CampuStay.Android",
       "googleServicesFile": "./google-services.json",
       "androidNavigationBar": {
-        "backgroundColor": "#004D27",
-        "visible": "sticky-immersive"
+        "backgroundColor": "#00000000"
       },
       "permissions": [
         "android.permission.RECORD_AUDIO"
