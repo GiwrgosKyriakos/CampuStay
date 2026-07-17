@@ -1390,7 +1390,7 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   profileModalCard: {
-    maxHeight: "84%",
+    maxHeight: "100%",
     backgroundColor: colors.surface,
     borderTopLeftRadius: radius.lg,
     borderTopRightRadius: radius.lg,
@@ -1398,6 +1398,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     padding: spacing.lg,
     gap: spacing.md,
+    paddingBottom: 60,
   },
   profileModalTopRow: {
     flexDirection: "row",
