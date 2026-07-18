@@ -47,21 +47,21 @@ const QUESTION_KEYS: (keyof CompatibilityQuiz)[] = [
 ];
 
 const QUESTION_MAX_POINTS: Record<keyof CompatibilityQuiz, number> = {
-  q1_bills: 3,
-  q2_sharing: 3,
-  q3_food: 3,
-  q4_cleanliness: 8,
-  q5_cleaning_freq: 6,
-  q6_dishes: 6,
-  q7_smoke: 7,
-  q8_pets: 6,
-  q9_sleep: 6,
-  q10_quiet: 6,
-  q11_guests: 5,
-  q12_parties: 5,
-  q13_cook: 3,
-  q14_drinking: 3,
-  q15_roommate_type: 5,
+  q1_bills: 1.5,
+  q2_sharing: 1.5,
+  q3_food: 1.5,
+  q4_cleanliness: 4.5,
+  q5_cleaning_freq: 3,
+  q6_dishes: 3,
+  q7_smoke: 4.5,
+  q8_pets: 3,
+  q9_sleep: 3,
+  q10_quiet: 3,
+  q11_guests: 3,
+  q12_parties: 3,
+  q13_cook: 1.5,
+  q14_drinking: 1.5,
+  q15_roommate_type: 3,
 };
 
 function hasAnswer(value: unknown): value is string {
