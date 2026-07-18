@@ -112,7 +112,12 @@ async function getPotentialCandidateRecords(userId: string, currentCity?: string
     const uid = u.id;
     if (!uid || uid === userId || swipedTo.has(uid) || chattedWith.has(uid) || likedYou.has(uid)) return;
 
-    const data = u.data() as FirestoreUserDoc;
+    // 🎯 ΔΙΟΡΘΩΣΗ: Ορίζουμε σωστά τη δομή του privacy όπως αποθηκεύεται από τα settings
+    const data = u.data() as FirestoreUserDoc & { privacy?: { is_visible?: boolean } };
+    
+    // 🎯 Έλεγχος του σωστού φωλιασμένου πεδίου
+    if (data.privacy?.is_visible === false) return;
+
     const candidate = normalizeCandidate(uid, data);
     if (candidate.deleted) return;
     if (normalizedCity && normalizeCity(candidate.city) !== normalizedCity) return;

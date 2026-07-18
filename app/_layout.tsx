@@ -43,6 +43,8 @@ function AppContent() {
   const { setLocale } = useLocale();
   const segments = useSegments();
   const router = useRouter();
+  // 🚨 ΠΡΟΣΘΕΣΗ: Κρατάει το loading screen ενεργό κατά τις native μεταβάσεις
+  const [isTransitioning, setIsTransitioning] = useState(false);
   const [isLanguagePromptVisible, setIsLanguagePromptVisible] = useState(false);
   const [languagePromptResolved, setLanguagePromptResolved] = useState(false);
   const [isPersistingLanguage, setIsPersistingLanguage] = useState(false);
@@ -213,14 +215,22 @@ function AppContent() {
   if (!authReady || isProfileGateLoading) return;
 
   if (isUnauthenticated && !isAuthRoute) {
+    // 🚨 Ενεργοποιούμε το transition loading πριν αλλάξουμε οθόνη
+    setIsTransitioning(true);
     router.replace("/auth-landing");
+
+    // Δίνουμε 250ms στο state να κατασταλάξει πλήρως πριν σβήσουμε το loader
+    setTimeout(() => setIsTransitioning(false), 500);
+    return;
   }
   if (shouldForceProfileSetup && topSegment !== "edit-profile") {
     router.replace("/edit-profile");
     return;
   }
   if (isAuthenticated && isAuthRoute) {
+    setIsTransitioning(true);
     router.replace(shouldForceProfileSetup ? "/edit-profile" : "/roommates");
+    setTimeout(() => setIsTransitioning(false), 500);
   }
 }, [authReady, isProfileGateLoading, isUnauthenticated, isAuthenticated, isAuthRoute, shouldForceProfileSetup, topSegment, router, segments]);
 
@@ -244,8 +254,8 @@ function AppContent() {
           <BottomSheetModalProvider>
             <StatusBar style="light" />
             <AppNavigator />
-            {isRedirectingProtectedRoute ? (
-              <View style={styles.routeGateOverlay} pointerEvents="none">
+            {isRedirectingProtectedRoute || isTransitioning ? (
+              <View style={styles.routeGateOverlay}>
                 <ActivityIndicator size="large" color={colors.brand} />
               </View>
             ) : null}

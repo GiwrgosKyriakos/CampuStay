@@ -45,6 +45,9 @@ interface HostInboxItem {
   isUnread: boolean;
   lastMessageText: string;
   sortKey: number;
+  // 🎯 ΠΡΟΣΘΗΚΗ: Flags για το blocking
+  isBlocker?: boolean;
+  isBlocked?: boolean;
 }
 
 function toMillis(value: unknown): number {
@@ -153,6 +156,11 @@ export default function HostInboxScreen() {
                   const photos = Array.isArray(customerData?.photos) ? customerData.photos : [];
                   const customerAvatar = customerData?.photoUrl || photos[0] || "";
 
+                  // 🎯 ΔΙΟΡΘΩΣΗ: Διαβάζουμε το blockedByUsers map
+                  const blockedMap = (chatData as any).blockedByUsers ?? {};
+                  const isBlocker = blockedMap[currentUid] === true;
+                  const isBlocked = blockedMap[customerId] === true;
+
                   return {
                     id: chatDoc.id,
                     customerId,
@@ -164,7 +172,9 @@ export default function HostInboxScreen() {
                     initiatedBy: chatData.initiatedBy ?? null,
                     isUnread,
                     lastMessageText,
-                    sortKey: toMillis(chatData.lastMessageTimestamp) || toMillis(chatData.updatedAt) || toMillis(chatData.createdAt),
+                    sortKey: toMillis(chatData.lastMessageTimestamp) || toMillis(chatData.updatedAt) || toMillis(chatData.createdAt), 
+                    isBlocker,
+                    isBlocked,
                   } as HostInboxItem;
 
                 } catch (itemError) {
@@ -300,7 +310,19 @@ export default function HostInboxScreen() {
       ) : (
         <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
           {items.map((item) => {
-            const hasAvatar = !!item.customerAvatar;
+            
+            // 🎯 ΔΙΟΡΘΩΣΗ: Δυναμική αλλαγή ονόματος και avatar βάσει block state
+            let customerName = item.customerName;
+            let hasAvatar = !!item.customerAvatar;
+
+            if (item.isBlocker) {
+              customerName = "Blocked Account";
+              hasAvatar = false;
+            } else if (item.isBlocked) {
+              customerName = t("common.account.deleted") || "Deleted Account";
+              hasAvatar = false;
+            }
+            
             const isPending = item.status === "pending";
             const isRejected = item.status === "rejected";
             const isReceiver = isPending && item.initiatedBy !== auth.userId;

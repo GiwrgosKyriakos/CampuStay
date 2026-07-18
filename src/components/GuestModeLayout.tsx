@@ -24,12 +24,8 @@ type GuestModeStickyFooterProps = {
 export function GuestModeTopBanner({ onPress, testID, buttonTestID, style }: GuestModeTopBannerProps) {
   const auth = useAuth();
 
-  const handlePress = async () => {
-    try {
-      await auth.signInWithGoogle();
-    } catch {
-      onPress?.();
-    }
+  const handlePress = () => {
+    onPress?.();
   };
 
   return (
@@ -45,12 +41,8 @@ export function GuestModeTopBanner({ onPress, testID, buttonTestID, style }: Gue
 export function GuestModeStickyFooter({ onPress, testID, buttonTestID, bottomInset, style }: GuestModeStickyFooterProps) {
   const auth = useAuth();
 
-  const handlePress = async () => {
-    try {
-      await auth.signInWithGoogle();
-    } catch {
-      onPress?.();
-    }
+  const handlePress = () => {
+    onPress?.();
   };
 
   return (

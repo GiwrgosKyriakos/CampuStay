@@ -68,100 +68,129 @@ function hasAnswer(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
-function scoreAnsweredQuestion(
-  key: keyof CompatibilityQuiz,
-  currentQuiz: CompatibilityQuizAnswers,
-  matchQuiz: CompatibilityQuizAnswers,
-): number {
-  const currentAnswer = currentQuiz[key];
-  const matchAnswer = matchQuiz[key];
+/**
+ * 🎯 Μεταφράζει τα δεδομένα του Firestore (q1, q2...) στα μεγάλα κλειδιά του αλγορίθμου
+ */
+function normalizeQuizData(rawQuiz: any): CompatibilityQuizAnswers {
+  const normalized: any = {};
+  const keyMap: Record<string, keyof CompatibilityQuiz> = {
+    q1: 'q4_cleanliness',
+    q2: 'q5_cleaning_freq',
+    q3: 'q6_dishes',
+    q4: 'q1_bills',
+    q5: 'q2_sharing',
+    q6: 'q3_food',
+    q7: 'q7_smoke',
+    q8: 'q8_pets',
+    q9: 'q9_sleep',
+    q10: 'q10_quiet',
+    q11: 'q11_guests',
+    q12: 'q12_parties',
+    q13: 'q13_cook',
+    q14: 'q14_drinking',
+    q15: 'q15_roommate_type'
+  };
 
-  if (!hasAnswer(currentAnswer) || !hasAnswer(matchAnswer)) return 0;
+  const source = rawQuiz?.answers ?? rawQuiz ?? {};
+  Object.keys(source).forEach((k) => {
+    if (hasAnswer(source[k])) {
+      const targetKey = keyMap[k] || k;
+      normalized[targetKey] = source[k];
+    }
+  });
+  return normalized;
+}
+
+/**
+ * 🎯 Υπολογίζει τον συντελεστή Συμβιβασμού (S) βάσει των υπαρχουσών ποσοστώσεων
+ * S = 1.0 για πλήρη ταύτιση, S = 0.5 για συμβιβασμό, S = 0.0 για ασυμβατότητα
+ */
+function getCompromiseFactor(
+  key: keyof CompatibilityQuiz,
+  currentAnswer: string,
+  matchAnswer: string,
+): number {
+  if (currentAnswer === matchAnswer) return 1.0;
+
+  const cur = currentAnswer.toLowerCase();
+  const mat = matchAnswer.toLowerCase();
 
   switch (key) {
     case 'q7_smoke':
-      if (currentAnswer === matchAnswer) return 7;
-      if (currentAnswer === 'Only outside' && matchAnswer === 'No') return 5;
-      return 0;
+      // "Only outside" / "Μόνο έξω" & "No" / "Όχι"
+      if ((cur.includes('outside') || cur.includes('έξω')) && (mat.includes('no') || mat.includes('όχι'))) return 0.5;
+      return 0.0;
     case 'q8_pets':
-      if (currentAnswer === matchAnswer) return 6;
-      if (currentAnswer === 'Pets are fine' && matchAnswer === 'Yes') return 5;
-      return 0;
+      // "Pets are fine" / "δεκτά" & "Yes" / "Ναι"
+      if ((cur.includes('fine') || cur.includes('οκ') || cur.includes('δεκτά')) && (mat.includes('yes') || mat.includes('ναι'))) return 0.5;
+      return 0.0;
     case 'q9_sleep':
-      if (currentAnswer === matchAnswer) return 6;
-      if (
-        (currentAnswer === 'Before 11pm' && matchAnswer === '11pm–1am') ||
-        (currentAnswer === '11pm–1am' && matchAnswer === 'After 1am')
-      ) {
-        return 3;
-      }
-      return 0;
-    case 'q10_quiet':
-      return currentAnswer === matchAnswer ? 6 : 0;
+      // Υπολογισμός διαφοράς φάσης ύπνου (Πριν τις 11, 11-1, Μετά τις 1)
+      let slotCur = 0;
+      if (cur.includes('before') || cur.includes('πριν')) slotCur = 1;
+      else if (cur.includes('11') || cur.includes('1–') || cur.includes('1μμ')) slotCur = 2;
+      else if (cur.includes('after') || cur.includes('μετά')) slotCur = 3;
+
+      let slotMat = 0;
+      if (mat.includes('before') || mat.includes('πριν')) slotMat = 1;
+      else if (mat.includes('11') || mat.includes('1–') || mat.includes('1μμ')) slotMat = 2;
+      else if (mat.includes('after') || mat.includes('μετά')) slotMat = 3;
+
+      if (slotCur > 0 && slotMat > 0 && Math.abs(slotCur - slotMat) === 1) return 0.5;
+      return 0.0;
     case 'q4_cleanliness':
-      if (currentAnswer === matchAnswer) return 8;
-      if (currentAnswer === 'Very tidy' && matchAnswer === 'Average') return 4;
-      return 0;
-    case 'q5_cleaning_freq':
-      return currentAnswer === matchAnswer ? 6 : 0;
-    case 'q6_dishes':
-      return currentAnswer === matchAnswer ? 6 : 0;
-    case 'q11_guests':
-      return currentAnswer === matchAnswer ? 5 : 0;
-    case 'q12_parties':
-      return currentAnswer === matchAnswer ? 5 : 0;
-    case 'q15_roommate_type':
-      return currentAnswer === matchAnswer ? 5 : 0;
-    case 'q1_bills':
-      return currentAnswer === matchAnswer ? 3 : 0;
-    case 'q2_sharing':
-      return currentAnswer === matchAnswer ? 3 : 0;
-    case 'q3_food':
-      return currentAnswer === matchAnswer ? 3 : 0;
-    case 'q13_cook':
-      return currentAnswer === matchAnswer ? 3 : 0;
-    case 'q14_drinking':
-      return currentAnswer === matchAnswer ? 3 : 0;
+      // "Very tidy" / "Πολύ τακτικός" & "Average" / "Μέτριος" / "Κανονικός"
+      if ((cur.includes('very') || cur.includes('πολύ')) && (mat.includes('average') || mat.includes('μέτριος') || mat.includes('κανονικός'))) return 0.5;
+      return 0.0;
     default:
-      return 0;
+      return 0.0;
   }
 }
 
 export function calculateMatchScore(currentUser: UserProfile, potentialMatch: UserProfile): number {
-  // Αν ψάχνουν σε διαφορετική πόλη, τους βγάζουμε τελείως εκτός στοίβας (0%)
-  if (!areCitiesEquivalent(currentUser.city, potentialMatch.city)) return 0;
-
-  const currentQuiz = currentUser.quiz ?? {};
-  const matchQuiz = potentialMatch.quiz ?? {};
-
-  let totalPoints = 0;
-  let maxPossiblePoints = 25;
-  let mutuallyAnsweredCount = 0;
-
-  // ==========================================
-  // 1. MONTHLY BUDGET (Μέγιστο: 25 πόντοι)
-  // ==========================================
-  const budgetDiff = Math.abs(currentUser.monthlyBudget - potentialMatch.monthlyBudget);
-  if (budgetDiff <= 30) totalPoints += 25;
-  else if (budgetDiff <= 80) totalPoints += 15;
-  else if (budgetDiff <= 150) totalPoints += 5;
-
-  for (const key of QUESTION_KEYS) {
-    const currentAnswer = currentQuiz[key];
-    const matchAnswer = matchQuiz[key];
-
-    if (!hasAnswer(currentAnswer) || !hasAnswer(matchAnswer)) {
-      continue;
-    }
-
-    mutuallyAnsweredCount += 1;
-    totalPoints += scoreAnsweredQuestion(key, currentQuiz, matchQuiz);
-    maxPossiblePoints += QUESTION_MAX_POINTS[key];
+  // Έλεγχος Πόλης: Αν έχουν δηλώσει διαφορετική πόλη, το σκορ παραμένει 0%[cite: 14]
+  if (currentUser.city && potentialMatch.city && !areCitiesEquivalent(currentUser.city, potentialMatch.city)) {
+    return 0; //[cite: 14]
   }
 
-  const baseScore = maxPossiblePoints > 0 ? (totalPoints / maxPossiblePoints) * 100 : 0;
-  const completionPercentage = mutuallyAnsweredCount / QUESTION_KEYS.length;
-  const scalingFactor = 0.5 + 0.5 * completionPercentage;
+  // ΒΑΣΗ: Όλοι όσοι είναι στην ίδια πόλη ξεκινάνε αυτόματα από το 50%
+  let finalScore = 50;
 
-  return Math.max(0, Math.min(100, Math.round(baseScore * scalingFactor)));
+  // 🎯 ΕΞΟΜΑΛΥΝΣΗ ΔΕΔΟΜΕΝΩΝ: Μετατρέπουμε τα q1, q2 σε q4_cleanliness κλπ.
+  const currentQuiz = normalizeQuizData(currentUser.quiz);
+  const matchQuiz = normalizeQuizData(potentialMatch.quiz);
+
+  // 🎯 QUIZ QUESTIONS BONUS
+  for (const key of QUESTION_KEYS) { //[cite: 14]
+    const currentAnswer = currentQuiz[key]; //[cite: 14]
+    const matchAnswer = matchQuiz[key]; //[cite: 14]
+
+    if (!hasAnswer(currentAnswer) || !hasAnswer(matchAnswer)) { //[cite: 14]
+      continue; //[cite: 14]
+    }
+
+    const S = getCompromiseFactor(key, currentAnswer, matchAnswer);
+
+    if (S > 0) {
+      let B = 1.0;
+      const maxPoints = QUESTION_MAX_POINTS[key]; //[cite: 14]
+      
+      if (maxPoints >= 7) {
+        B = 1.5; 
+      } else if (maxPoints === 3) {
+        B = 0.5; 
+      }
+
+      // Εφαρμογή του τύπου σου: +5% + 3% * B * S
+      finalScore += 5 + (3 * B * S);
+    }
+  }
+
+  // 🎯 COMPLETION REWARD FOR CURRENT USER
+  const currentUserAnsweredCount = QUESTION_KEYS.filter(key => hasAnswer(currentQuiz[key])).length;
+  const completionReward = Math.floor(currentUserAnsweredCount / 5) * 1.5;
+  finalScore += completionReward;
+
+  // CLAMPING & ROUNDING
+  return Math.max(0, Math.min(100, Math.round(finalScore))); //[cite: 14]
 }

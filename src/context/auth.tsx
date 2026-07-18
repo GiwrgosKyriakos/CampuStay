@@ -281,6 +281,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [user]);
 
   const logout = useCallback(async () => {
+    // 🎯 ΔΙΟΡΘΩΣΗ: Γράφουμε ΠΡΩΤΑ τα flags του Guest mode στο storage. 
+    // Έτσι, όταν πυροδοτηθεί το ασύγχρονο signOut, η εφαρμογή θα ξέρει ήδη ότι είσαι Guest και δεν θα κάνει flash στο auth-landing.
+    try {
+      await storage.setItem(GUEST_KEY, true);
+      await storage.secureRemove(TOKEN_KEY);
+      await storage.removeItem(SETUP_KEY);
+      await storage.removeItem("roomie_user_id");
+      setUserIdCache(null);
+    } catch (storageErr) {
+      console.warn("[Auth] Failed to pre-set guest storage:", storageErr);
+    }
+
     try {
       await signOut(firebaseAuth);
     } catch (err) {
@@ -299,8 +311,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.warn("[Auth] Google signOut failed; clearing local session anyway:", err);
     }
 
-    await enterGuestMode();
-  }, [enterGuestMode]);
+    // Ενημέρωση των τοπικών states
+    setToken(null);
+    setUser(null);
+    setNeedsProfileSetup(false);
+    setStatus("guest");
+  }, []);
 
   const value = useMemo<AuthContextValue>(
     () => ({

@@ -1,6 +1,7 @@
 import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { initializeFirestore, persistentLocalCache } from "firebase/firestore";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+// @ts-ignore
 import { getAuth, getReactNativePersistence, initializeAuth } from "firebase/auth";
 import { getStorage } from "firebase/storage";
 
@@ -27,5 +28,7 @@ export const firebaseAuth = (() => {
   }
 })();
 
-export const db = getFirestore(app);
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({}),
+});
 export const storage = getStorage(app);

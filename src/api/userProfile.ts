@@ -111,17 +111,36 @@ function buildFirestoreDocument(
   };
 }
 
+// 1. Ο πίνακας μνήμης RAM που κρατάει τα προφίλ καθ' όλη τη διάρκεια του session
+const profileCache: Record<string, UserProfile> = {};
+
 export async function userProfileExists(userId: string): Promise<boolean> {
+  // Αν το έχουμε ήδη στο cache, ξέρουμε σίγουρα ότι υπάρχει!
+  if (profileCache[userId]) return true;
+
   const ref = doc(db, "users", userId);
   const snapshot = await getDoc(ref);
   return snapshot.exists();
 }
 
 export async function getUserProfile(userId: string): Promise<UserProfile | null> {
+  if (!userId) return null;
+
+  // 2. ΕΛΕΓΧΟΣ CACHE: Αν το προφίλ υπάρχει στη μνήμη, επιστρέφει ΑΜΕΣΩΣ σε 0ms
+  if (profileCache[userId]) {
+    return profileCache[userId];
+  }
+
   const ref = doc(db, "users", userId);
   const snapshot = await getDoc(ref);
   if (!snapshot.exists()) return null;
-  return normalizeProfile(snapshot.data() as Partial<FirestoreUserDocument>);
+
+  const profile = normalizeProfile(snapshot.data() as Partial<FirestoreUserDocument>);
+  
+  // 3. ΑΠΟΘΗΚΕΥΣΗ ΣΤΟ CACHE: Το κρατάμε στη μνήμη για την επόμενη φορά
+  profileCache[userId] = profile;
+  
+  return profile;
 }
 
 export async function saveUserProfile(
@@ -132,4 +151,7 @@ export async function saveUserProfile(
   const ref = doc(db, "users", userId);
   const payload = buildFirestoreDocument(profile, options);
   await setDoc(ref, payload, { merge: true });
+
+  // 4. ΣΥΓΧΡΟΝΙΣΜΟΣ: Ενημερώνουμε το cache με τα νέα στοιχεία για να μην δείχνει παλιά δεδομένα
+  profileCache[userId] = profile;
 }

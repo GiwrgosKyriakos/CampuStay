@@ -26,6 +26,9 @@ interface ChatListItem extends RoommateProfile {
   chat_users?: string[];
   chat_status?: "pending" | "active" | "rejected";
   chat_initiated_by?: string | null;
+  // 🎯 ΠΡΟΣΘΗΚΗ: Flags για την κατάσταση blocking
+  isBlocker?: boolean;
+  isBlocked?: boolean;
 }
 
 interface FirestoreUserDoc {
@@ -423,6 +426,11 @@ export default function MatchesScreen() {
                   const chat_status = chatData.status ?? "active";
                   const chat_initiated_by = chatData.initiatedBy ?? null;
 
+                  // 🎯 ΔΙΟΡΘΩΣΗ: Διαβάζουμε το blockedByUsers map από το metadata του chat document
+                  const blockedMap = (chatData as any).blockedByUsers ?? {};
+                  const isBlocker = blockedMap[uid] === true;
+                  const isBlocked = blockedMap[counterpartUid] === true;
+
                   return {
                     sortKey,
                     item: mapUserToChatItem(
@@ -433,15 +441,18 @@ export default function MatchesScreen() {
                       chat_initiated_by,
                       userData,
                     ),
+                    // Περνάμε τα flags στο αντικείμενο
+                    isBlocker,
+                    isBlocked,
                   };
-                }),
+                })
               );
 
               let fallbackRows: Array<{ sortKey: number; item: ChatListItem }> = [];
               if (selectedChatType !== "host") {
                 const existingChatIds = new Set(
                   rows
-                    .filter((r): r is { sortKey: number; item: ChatListItem } => !!r)
+                    .filter((r): r is any => !!r)
                     .map((r) => r.item.chatRoomId),
                 );
 
@@ -668,8 +679,19 @@ export default function MatchesScreen() {
         >
           {matches.map((p) => {
             const isDeleted = isDeletedCounterpart(p);
-            const displayName = isDeleted ? t("common.account.deleted") : p.name;
-            const hasAvatar = !isDeleted && !!p.photo?.trim();
+            
+            // 🎯 ΔΙΟΡΘΩΣΗ: Καθαρό conditional mapping για blocking και deletion
+            let displayName = isDeleted ? t("common.account.deleted") : p.name;
+            let hasAvatar = !isDeleted && !!p.photo?.trim();
+
+            if (p.isBlocker) {
+              displayName = "Blocked Account";
+              hasAvatar = false; // Αναγκάζει το UI να δείξει το DefaultProfileAvatar
+            } else if (p.isBlocked) {
+              displayName = t("common.account.deleted") || "Deleted Account";
+              hasAvatar = false; // Εξομοιώνει τη διαγραφή λογαριασμού στον μπλοκαρισμένο
+            }
+            
             const chatStatus = p.chat_status ?? "active";
             const isPending = chatStatus === "pending";
             const isRejected = chatStatus === "rejected";

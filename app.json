@@ -44,7 +44,7 @@
         "enforceContrast": false
       }],
       ["expo-notifications", {        
-        "icon": "./assets/notification_icon.png",
+        "icon": "./assets/campuStayLogoTransparentOld.png",
         "color": "#07404C"
       }],
       [

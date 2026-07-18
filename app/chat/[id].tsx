@@ -1,3 +1,10 @@
+import {
+  BottomSheetBackdrop,
+  BottomSheetModal,
+  BottomSheetView,
+  type BottomSheetBackdropProps,
+} from "@gorhom/bottom-sheet";
+import { getUserProfile } from "@/src/api/userProfile";
 import { sendPushNotification } from '@/src/utils/notificationService'; // Προσάρμοσε το path ανάλογα με το φάκελό σου
 import React, { useRef, useState, useCallback, useEffect, useMemo } from "react";
 import {
@@ -361,7 +368,7 @@ export default function ChatScreen() {
           id: doc.id,
           text: data.text ?? "",
           senderId: data.senderId ?? "",
-          createdAt: data.createdAt ?? 0,
+          createdAt: data.createdAt ?? Date.now(),
           isRead: data.isRead ?? true,
         };
       });
@@ -430,54 +437,61 @@ export default function ChatScreen() {
 
     void (async () => {
       try {
-        const [currentSnap, counterpartSnap, currentQuizSnap, counterpartQuizSnap] = await Promise.all([
-          getDoc(doc(db, "users", currentUserId)),
-          getDoc(doc(db, "users", counterpartId)),
+        // 1. Χρησιμοποιούμε το Cache API μας για ακαριαία, ομαλοποιημένα προφίλ
+        const [currentProfile, counterpartProfile, currentQuizSnap, counterpartQuizSnap] = await Promise.all([
+          getUserProfile(currentUserId),
+          getUserProfile(counterpartId),
           getDoc(doc(db, "quiz_answers", currentUserId)),
           getDoc(doc(db, "quiz_answers", counterpartId)),
         ]);
 
-        if (!active || !currentSnap.exists() || !counterpartSnap.exists()) {
+        if (!active || !currentProfile || !counterpartProfile) {
           if (active) setCompatibilityScore(null);
           return;
         }
 
-        const currentData = currentSnap.data() as FirestoreUserDoc;
-        const counterpartData = counterpartSnap.data() as FirestoreUserDoc;
-        const currentQuiz = (currentQuizSnap.exists() ? (currentQuizSnap.data() as FirestoreQuizDoc).answers : {}) ?? {};
-        const counterpartQuiz = (counterpartQuizSnap.exists() ? (counterpartQuizSnap.data() as FirestoreQuizDoc).answers : {}) ?? {};
+        // 2. Καθαρίζουμε τις απαντήσεις του Quiz όπως ακριβώς κάνουμε και στο roommates.tsx
+        const rawCurrentQuiz = (currentQuizSnap.exists() ? (currentQuizSnap.data() as FirestoreQuizDoc).answers : {}) ?? {};
+        const rawCounterpartQuiz = (counterpartQuizSnap.exists() ? (counterpartQuizSnap.data() as FirestoreQuizDoc).answers : {}) ?? {};
 
+        const cleanCurrentQuiz: any = {};
+        Object.keys(rawCurrentQuiz).forEach(key => {
+          if (typeof rawCurrentQuiz[key] === "string" && rawCurrentQuiz[key].trim().length > 0) {
+            cleanCurrentQuiz[key] = rawCurrentQuiz[key];
+          }
+        });
+
+        const cleanCounterpartQuiz: any = {};
+        Object.keys(rawCounterpartQuiz).forEach(key => {
+          if (typeof rawCounterpartQuiz[key] === "string" && rawCounterpartQuiz[key].trim().length > 0) {
+            cleanCounterpartQuiz[key] = rawCounterpartQuiz[key];
+          }
+        });
+
+        // 3. Δημιουργία των αντικειμένων για τον αλγόριθμο
         const currentProfileForScore: MatchUserProfile = {
           uid: currentUserId,
-          city: (currentData.city ?? "").trim(),
-          gender: normalizeGenderForMatch(currentData.gender),
-          monthlyBudget:
-            typeof currentData.budget === "number"
-              ? currentData.budget
-              : typeof currentData.maxBudget === "number"
-                ? currentData.maxBudget
-                : 0,
-          quiz: toCompatibilityQuiz(currentQuiz),
+          city: (currentProfile.city ?? "").trim(),
+          gender: normalizeGenderForMatch(currentProfile.gender),
+          monthlyBudget: currentProfile.budget ?? 0,
+          quiz: cleanCurrentQuiz as CompatibilityQuizAnswers,
         };
 
         const counterpartProfileForScore: MatchUserProfile = {
           uid: counterpartId,
-          city: (counterpartData.city ?? "").trim(),
-          gender: normalizeGenderForMatch(counterpartData.gender),
-          monthlyBudget:
-            typeof counterpartData.budget === "number"
-              ? counterpartData.budget
-              : typeof counterpartData.maxBudget === "number"
-                ? counterpartData.maxBudget
-                : 0,
-          quiz: toCompatibilityQuiz(counterpartQuiz),
+          city: (counterpartProfile.city ?? "").trim(),
+          gender: normalizeGenderForMatch(counterpartProfile.gender),
+          monthlyBudget: counterpartProfile.budget ?? 0,
+          quiz: cleanCounterpartQuiz as CompatibilityQuizAnswers,
         };
 
+        // 4. Υπολογισμός και αποθήκευση του σκορ
         const score = calculateMatchScore(currentProfileForScore, counterpartProfileForScore);
         if (active) {
           setCompatibilityScore(score);
         }
-      } catch {
+      } catch (error) {
+        console.error("[Chat] Compatibility score computation failed:", error);
         if (active) {
           setCompatibilityScore(null);
         }
@@ -529,6 +543,24 @@ export default function ChatScreen() {
         lastMessage: trimmed,
         lastMessageTimestamp: serverTimestamp(),
       });
+
+      // 🚨 ------------------ ΒΗΜΑ 2: ΕΛΕΓΧΟΙ NOTIFICATIONS & MUTE ------------------
+      
+      // Α. Έλεγχος αν ο παραλήπτης έχει κάνει Mute αυτή τη συγκεκριμένη συνομιλία
+      const chatSnap = await getDoc(doc(db, "chats", chatRoomId));
+      const chatData = chatSnap.exists() ? chatSnap.data() : null;
+      const isMutedByReceiver = chatData?.mutedByUsers?.[id] === true;
+
+      // Β. Έλεγχος αν ο παραλήπτης έχει κλείσει γενικά τα Direct Messages από το Notifications Screen
+      const receiverSettings = await getUserSettings(id).catch(() => null);
+      const globalDmsEnabled = receiverSettings?.notifications?.direct_messages ?? true;
+
+      // Αν ο άλλος χρήστης σε έχει κάνει Mute Ή έχει κλείσει γενικά τα DMs, σταματάμε εδώ!
+      // Το μήνυμα αποθηκεύεται κανονικά στο chat, αλλά ΔΕΝ του στέλνουμε Push Notification.
+      if (isMutedByReceiver || !globalDmsEnabled) {
+        console.log("[Notifications] Η ειδοποίηση ακυρώθηκε: Ο παραλήπτης έχει κάνει Mute ή έχει απενεργοποιήσει τα DMs.");
+        return; 
+      }
 
       // 3. Ανάκτηση Token & Αποστολή Push Notification στον Παραλήπτη
       const receiverDocRef = doc(db, "users", id);
@@ -1120,56 +1152,56 @@ export default function ChatScreen() {
       >
         <View style={styles.profileModalBackdrop}>
           <View style={styles.profileModalCard}>
-            <View style={styles.profileModalTopRow}>
-              <View style={styles.profileSummaryLeft}>
-                {showAvatarImage ? (
-                  <Image source={{ uri: activeProfile.photo }} style={styles.profileModalAvatar} contentFit="cover" />
-                ) : (
-                  <DefaultProfileAvatar size={64} iconSize={28} />
-                )}
-                <View style={styles.profileMetaColumn}>
-                  <Text style={styles.profileMetaName} numberOfLines={1}>{displayName}</Text>
-                  <Text style={styles.profileMetaLine}>{`${t("common.format.ageLabel", { age: activeProfile.age || 0 })}`}</Text>
-                  <Text style={styles.profileMetaLine}>{displayCity}</Text>
-                  <Text style={styles.profileMetaLine} numberOfLines={1}>{displayUniversity || t("common.values.notAvailable")}</Text>
-                </View>
-              </View>
-
-              <View style={styles.compatibilityPill}>
-                <Text style={styles.compatibilityPillLabel}>{t("chat.compatibility")}</Text>
-                <Text style={styles.compatibilityPillValue}>{compatibilityScore != null ? `${compatibilityScore}%` : "--"}</Text>
+          <View style={styles.profileModalTopRow}>
+            <View style={styles.profileSummaryLeft}>
+              {showAvatarImage ? (
+                <Image source={{ uri: activeProfile.photo }} style={styles.profileModalAvatar} contentFit="cover" />
+              ) : (
+                <DefaultProfileAvatar size={64} iconSize={28} />
+              )}
+              <View style={styles.profileMetaColumn}>
+                <Text style={styles.profileMetaName} numberOfLines={1}>{displayName}</Text>
+                <Text style={styles.profileMetaLine}>{`${t("common.format.ageLabel", { age: activeProfile.age || 0 })}`}</Text>
+                <Text style={styles.profileMetaLine}>{displayCity}</Text>
+                <Text style={styles.profileMetaLine} numberOfLines={1}>{displayUniversity || t("common.values.notAvailable")}</Text>
               </View>
             </View>
 
-            <View style={styles.aboutSection}>
-              <Text style={styles.aboutTitle}>{t("chat.aboutMe")}</Text>
-              <Text style={styles.aboutBody}>{displayAbout}</Text>
+            <View style={styles.compatibilityPill}>
+              <Text style={styles.compatibilityPillLabel}>{t("chat.compatibility")}</Text>
+              <Text style={styles.compatibilityPillValue}>{compatibilityScore != null ? `${compatibilityScore}%` : "--"}</Text>
             </View>
+          </View>
 
-            {shouldShowSocialLinks && socialLinks.length > 0 ? (
-              <View style={styles.socialSection}>
-                <Text style={styles.aboutTitle}>{t("chat.socialLinks")}</Text>
-                <View style={styles.socialGrid}>
-                  {socialLinks.map((social) => (
-                    <Pressable
-                      key={social.id}
-                      style={styles.socialPill}
-                      onPress={() => {
-                        void Linking.openURL(social.url);
-                      }}
-                      testID={`chat-social-link-${social.id}`}
-                    >
-                      <Ionicons name={social.icon} size={16} color={colors.onBrandTertiary} />
-                      <Text style={styles.socialPillText}>{social.label}</Text>
-                    </Pressable>
-                  ))}
-                </View>
+          <View style={styles.aboutSection}>
+            <Text style={styles.aboutTitle}>{t("chat.aboutMe")}</Text>
+            <Text style={styles.aboutBody}>{displayAbout}</Text>
+          </View>
+
+          {shouldShowSocialLinks && socialLinks.length > 0 ? (
+            <View style={styles.socialSection}>
+              <Text style={styles.aboutTitle}>{t("chat.socialLinks")}</Text>
+              <View style={styles.socialGrid}>
+                {socialLinks.map((social) => (
+                  <Pressable
+                    key={social.id}
+                    style={styles.socialPill}
+                    onPress={() => {
+                      void Linking.openURL(social.url);
+                    }}
+                    testID={`chat-social-link-${social.id}`}
+                  >
+                    <Ionicons name={social.icon} size={16} color={colors.onBrandTertiary} />
+                    <Text style={styles.socialPillText}>{social.label}</Text>
+                  </Pressable>
+                ))}
               </View>
-            ) : null}
+            </View>
+          ) : null}
 
-            <Pressable style={styles.modalCloseBtn} onPress={() => setProfileModalVisible(false)}>
-              <Text style={styles.modalCloseBtnText}>{t("common.actions.done")}</Text>
-            </Pressable>
+          <Pressable style={styles.modalCloseBtn} onPress={() => setProfileModalVisible(false)}>
+            <Text style={styles.modalCloseBtnText}>{t("common.actions.done")}</Text>
+          </Pressable>
           </View>
         </View>
       </Modal>
@@ -1576,5 +1608,16 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
     fontSize: fontSize.base,
     color: colors.onBrand,
+  },
+  sheetBackground: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+  },
+  handleIndicator: {
+    width: 48,
+    height: 5,
+    borderRadius: radius.pill,
+    backgroundColor: colors.borderStrong,
   },
 });
