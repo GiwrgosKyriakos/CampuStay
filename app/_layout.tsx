@@ -1,5 +1,5 @@
 import * as Notifications from 'expo-notifications';
-import { Stack, useRouter, useSegments } from "expo-router";
+import { Stack, useRouter, useSegments, useRootNavigationState } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import * as NavigationBar from "expo-navigation-bar";
 import { useEffect, useState } from "react";
@@ -43,6 +43,7 @@ function AppContent() {
   const { setLocale } = useLocale();
   const segments = useSegments();
   const router = useRouter();
+  const rootNavigationState = useRootNavigationState(); // 🎯 ΠΡΟΣΘΗΚΗ
   // 🚨 ΠΡΟΣΘΕΣΗ: Κρατάει το loading screen ενεργό κατά τις native μεταβάσεις
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [isLanguagePromptVisible, setIsLanguagePromptVisible] = useState(false);
@@ -212,28 +213,64 @@ function AppContent() {
   const shouldForceProfileSetup = isAuthenticated && (requiresProfileSetup || auth.needsProfileSetup);
 
   useEffect(() => {
-  if (!authReady || isProfileGateLoading) return;
+    // 🎯 Guard ετοιμότητας: Περιμένουμε να φορτώσει το auth, το profile gate και ο root navigator
+    if (!authReady || isProfileGateLoading || !rootNavigationState?.key) return;
 
-  if (isUnauthenticated && !isAuthRoute) {
-    // 🚨 Ενεργοποιούμε το transition loading πριν αλλάξουμε οθόνη
-    setIsTransitioning(true);
-    router.replace("/auth-landing");
+    let active = true;
 
-    // Δίνουμε 250ms στο state να κατασταλάξει πλήρως πριν σβήσουμε το loader
-    setTimeout(() => setIsTransitioning(false), 500);
-    return;
-  }
-  if (shouldForceProfileSetup && topSegment !== "edit-profile") {
-    router.replace("/edit-profile");
-    return;
-  }
-  if (isAuthenticated && isAuthRoute) {
-    setIsTransitioning(true);
-    router.replace(shouldForceProfileSetup ? "/edit-profile" : "/roommates");
-    setTimeout(() => setIsTransitioning(false), 500);
-  }
-}, [authReady, isProfileGateLoading, isUnauthenticated, isAuthenticated, isAuthRoute, shouldForceProfileSetup, topSegment, router, segments]);
+    // 1. Σενάριο: Μη αυθεντικοποιημένος χρήστης εκτός Auth σελίδων
+    if (isUnauthenticated && !isAuthRoute) {
+      setIsTransitioning(true);
+      
+      // 🎯 Η ΔΙΟΡΘΩΣΗ: Σπρώχνουμε το replace στον επόμενο κύκλο για να έχει προλάβει να γίνει mount ο navigator
+      setTimeout(() => {
+        if (active) router.replace("/auth-landing");
+      }, 0);
 
+      setTimeout(() => {
+        if (active) setIsTransitioning(false);
+      }, 250);
+      return;
+    }
+
+    // 2. Σενάριο: Ο χρήστης πρέπει να ολοκληρώσει οπωσδήποτε το προφίλ του
+    if (shouldForceProfileSetup && topSegment !== "edit-profile") {
+      setTimeout(() => {
+        if (active) router.replace("/edit-profile");
+      }, 0);
+      return;
+    }
+
+    // 3. Σενάριο: Αυθεντικοποιημένος χρήστης που βρίσκεται σε Auth σελίδα
+    if (isAuthenticated && isAuthRoute) {
+      setIsTransitioning(true);
+      
+      setTimeout(() => {
+        if (active) router.replace(shouldForceProfileSetup ? "/edit-profile" : "/roommates");
+      }, 0);
+
+      setTimeout(() => {
+        if (active) setIsTransitioning(false);
+      }, 500);
+    }
+
+    // Cleanup για την αποφυγή memory leaks αν το component γίνει unmount ενδιάμεσα
+    return () => {
+      active = false;
+    };
+  }, [
+    authReady, 
+    isProfileGateLoading, 
+    isUnauthenticated, 
+    isAuthenticated, 
+    isAuthRoute, 
+    shouldForceProfileSetup, 
+    topSegment, 
+    router, 
+    segments, 
+    rootNavigationState?.key
+  ]);
+  
   const isRedirectingProtectedRoute =
     (isUnauthenticated && !isAuthRoute) ||
     (shouldForceProfileSetup && topSegment !== "edit-profile");

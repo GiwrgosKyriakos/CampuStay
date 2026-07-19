@@ -433,17 +433,19 @@ export default function MatchesScreen() {
 
                   return {
                     sortKey,
-                    item: mapUserToChatItem(
-                      counterpartUid,
-                      chatDoc.id,
-                      users,
-                      chat_status,
-                      chat_initiated_by,
-                      userData,
-                    ),
-                    // Περνάμε τα flags στο αντικείμενο
-                    isBlocker,
-                    isBlocked,
+                    item: {
+                      ...mapUserToChatItem(
+                        counterpartUid,
+                        chatDoc.id,
+                        users,
+                        chat_status,
+                        chat_initiated_by,
+                        userData,
+                      ),
+                      // Περνάμε τα flags στο αντικείμενο
+                      isBlocker,
+                      isBlocked,
+                    },
                   };
                 })
               );

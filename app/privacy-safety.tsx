@@ -204,7 +204,7 @@ export default function PrivacySafetyScreen() {
 
   const handleUnblockProfile = useCallback(
     async (targetUserId: string) => {
-      if (isGuest) return;
+      if (isGuest || !auth.userId) return; // 🎯 Safety guard για το TS
       setActiveBlockedMenuId(null);
 
       const nextPrivacy = {
@@ -213,6 +213,23 @@ export default function PrivacySafetyScreen() {
       };
       const persisted = await persistPrivacy(nextPrivacy);
       if (!persisted) return;
+
+      // 🎯 Η ΔΙΟΡΘΩΣΗ: Ενημερώνουμε το shared chat document για να σβήσει το block flag σε real-time!
+      try {
+        const chatRoomId = [auth.userId, targetUserId].sort().join("_");
+        await setDoc(
+          doc(db, "chats", chatRoomId),
+          {
+            blockedByUsers: {
+              [auth.userId]: false, // Θέτουμε το δικό μας flag σε false
+            },
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true },
+        );
+      } catch (chatMetadataError) {
+        console.error("[PrivacySafety] Failed to clear chat block state:", chatMetadataError);
+      }
 
       setActionModal({
         title: t("privacySafety.modals.rematchPromptTitle"),
@@ -234,9 +251,9 @@ export default function PrivacySafetyScreen() {
         ],
       });
     },
-    [addBackToMatches, isGuest, persistPrivacy, privacy],
+    [addBackToMatches, isGuest, auth.userId, persistPrivacy, privacy], // Προσθέσαμε το auth.userId στα dependencies
   );
-
+  
   if (auth.isLoading || loading) {
     return (
       <View style={[styles.container, styles.center]}>

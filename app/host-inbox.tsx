@@ -363,7 +363,7 @@ export default function HostInboxScreen() {
 
                 <View style={styles.rowText}>
                   <View style={styles.rowNameHeader}>
-                    <Text style={styles.rowName} numberOfLines={1}>{item.customerName}</Text>
+                    <Text style={styles.rowName} numberOfLines={1}>{customerName}</Text>
                     <Text style={styles.apartmentTitle} numberOfLines={1}>{item.apartmentTitle}</Text>
                   </View>
 

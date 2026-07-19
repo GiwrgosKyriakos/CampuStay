@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -37,6 +37,7 @@ export default function ProfileScreen() {
   const [matchCount, setMatchCount] = useState(0);
   const [updatingPhoto, setUpdatingPhoto] = useState(false);
   const [quizAnsweredCount, setQuizAnsweredCount] = useState(0);
+  const [isLoggingOut, setIsLoggingOut] = useState(false); // 🎯 ΠΡΟΣΘΗΚΗ: Κλειδώνει το UI κατά το logout
 
   React.useEffect(() => {
     if (auth.isGuest) {
@@ -145,7 +146,7 @@ export default function ProfileScreen() {
               onPress={
                 auth.isGuest
                   ? () => {
-                      void auth.signInWithGoogle();
+                      router.push("/auth-landing"); // 🎯 ΔΙΟΡΘΩΣΗ: Πλοήγηση στην οθόνη εισόδου
                     }
                   : updatePhoto
               }
@@ -258,6 +259,7 @@ export default function ProfileScreen() {
               style={styles.logout}
               testID="logout-button"
               onPress={async () => {
+                setIsLoggingOut(true); // 🎯 Ενεργοποιούμε το loading screen αμέσως
                 await auth.logout();
                 router.replace("/guest");
               }}
@@ -280,13 +282,20 @@ export default function ProfileScreen() {
             style={styles.guestSignUpButton}
             testID="guest-signup-button"
             onPress={() => {
-              void auth.signInWithGoogle();
+              router.push("/auth-landing"); // 🎯 ΔΙΟΡΘΩΣΗ: Πλοήγηση στην οθόνη εισόδου
             }}
           >
             <Text style={styles.guestSignUpText}>{t("common.cta.signInOrRegister")}</Text>
           </Pressable>
         )}
       </ScrollView>
+
+      {/* 🎯 ΠΡΟΣΘΗΚΗ: Απόλυτο loading overlay που κρύβει το φλασάρισμα των guest στοιχείων */}
+      {isLoggingOut && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color={colors.brand} />
+        </View>
+      )}
     </View>
   );
 }
@@ -495,5 +504,12 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
     fontSize: fontSize.lg,
     color: colors.onSurface,
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: colors.surface, // Καλύπτει το υπόβαθρο με το χρώμα της εφαρμογής
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 999,
   },
 });

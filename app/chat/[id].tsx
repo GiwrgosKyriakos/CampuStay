@@ -252,6 +252,8 @@ export default function ChatScreen() {
   const [counterpartExists, setCounterpartExists] = useState(true);
   const [profileModalVisible, setProfileModalVisible] = useState(false);
   const [compatibilityScore, setCompatibilityScore] = useState<number | null>(null);
+  const [isBlocker, setIsBlocker] = useState(false);
+const [isBlocked, setIsBlocked] = useState(false);
 
   useEffect(() => {
     if (!counterpartId) {
@@ -355,6 +357,10 @@ export default function ChatScreen() {
       setHostApartmentTitle(typeof data.apartmentTitle === "string" && data.apartmentTitle.trim().length > 0 ? data.apartmentTitle : null);
       setIsApartmentUnavailable(!!data.apartmentUnavailable);
       setIsChatMuted(!!data.mutedByUsers?.[currentUserId]);
+      // 🎯 ΔΙΟΡΘΩΣΗ: Ενημερώνουμε real-time τα block flags μέσα στο δωμάτιο τσατ
+      const blockedMap = (data as any).blockedByUsers ?? {};
+      setIsBlocker(currentUserId ? blockedMap[currentUserId] === true : false);
+      setIsBlocked(counterpartId ? blockedMap[counterpartId] === true : false);
     });
 
     const q = query(
@@ -636,21 +642,41 @@ export default function ChatScreen() {
   const activeProfile = profile ?? deletedProfileFallback;
 
   const deletedCounterpart = !counterpartExists || isDeletedCounterpart(activeProfile);
-  const displayName = deletedCounterpart ? t("common.account.deleted") : activeProfile.name;
-  const displayUniversity = deletedCounterpart ? "" : activeProfile.university;
+
+  // 🎯 ΔΙΟΡΘΩΣΗ: Δυναμικός έλεγχος για απόκρυψη στοιχείων λόγω Block
+  let displayName = deletedCounterpart ? t("common.account.deleted") : activeProfile.name;
+  let displayAbout = deletedCounterpart
+    ? t("chat.placeholderDeleted")
+    : counterpartDetails?.about?.trim() || counterpartDetails?.bio?.trim() || t("common.values.notAvailable");
+  let showAvatarImage = !deletedCounterpart && !!activeProfile.photo?.trim();
+  let displayUniversity = deletedCounterpart ? "" : activeProfile.university;
+
+  if (isBlocker) {
+    displayName = "Blocked Account";
+    showAvatarImage = false;
+    displayUniversity = "";
+    displayAbout = "This profile is blocked.";
+  } else if (isBlocked) {
+    displayName = t("common.account.deleted") || "Deleted Account";
+    showAvatarImage = false;
+    displayUniversity = "";
+    displayAbout = t("chat.placeholderDeleted") || "This account has been deleted.";
+  }
+
+  const apartmentLocked = chatType === "host" && isApartmentUnavailable;
+
+  // 🎯 ΑΣΦΑΛΕΙΑ: Αν υπάρχει οποιοδήποτε block, κλειδώνουμε το input bar
+  const inputBlocked = chatStatus === "pending" || chatStatus === "rejected" || deletedCounterpart || apartmentLocked || isBlocker || isBlocked;
+
+  // Κρύβουμε τα social links σε περίπτωση block
+  const shouldShowSocialLinks = !deletedCounterpart && !isBlocker && !isBlocked && !!counterpartDetails?.looking_for_apartment;
+
   const displayGender = deletedCounterpart ? t("common.values.notApplicable") : activeProfile.gender;
   const displayAge = deletedCounterpart ? t("common.values.emptyDash") : `${activeProfile.age} ${t("common.format.yearsSuffix")}`;
   const displayBudget = deletedCounterpart ? t("common.values.emptyDash") : `${CURRENCY}${activeProfile.budget}${t("common.format.perMonthShort")}`;
   const displayCity = deletedCounterpart
     ? t("common.values.notApplicable")
     : counterpartDetails?.city?.trim() || t("common.values.notAvailable");
-  const displayAbout = deletedCounterpart
-    ? t("chat.placeholderDeleted")
-    : counterpartDetails?.about?.trim() || counterpartDetails?.bio?.trim() || t("common.values.notAvailable");
-  const showAvatarImage = !deletedCounterpart && !!activeProfile.photo?.trim();
-  const apartmentLocked = chatType === "host" && isApartmentUnavailable;
-  const inputBlocked = chatStatus === "pending" || chatStatus === "rejected" || deletedCounterpart || apartmentLocked;
-  const shouldShowSocialLinks = !deletedCounterpart && !!counterpartDetails?.looking_for_apartment;
   const apartmentPillTitle = apartmentLocked ? t("chat.unavailable") : hostApartment?.title || hostApartmentTitle || t("chat.unavailable");
 
   const handleApartmentPillPress = () => {
@@ -826,6 +852,65 @@ export default function ChatScreen() {
     [chatRoomId, counterpartId, currentUserId, displayName, isSubmittingBlockAction, reportReason],
   );
 
+  const handleUnblockFlow = useCallback(async () => {
+    if (!currentUserId || !counterpartId || isSubmittingBlockAction) return;
+
+    setIsSubmittingBlockAction(true);
+    try {
+      // 1. Αφαιρούμε τον χρήστη από τη λίστα blocked_profiles των ρυθμίσεών μας
+      const settings = await getUserSettings(currentUserId);
+      const updatedBlockedProfiles = settings.privacy.blocked_profiles.filter(
+        (profileItem) => profileItem.id !== counterpartId
+      );
+
+      await saveUserPrivacy(currentUserId, {
+        ...settings.privacy,
+        blocked_profiles: updatedBlockedProfiles,
+      });
+
+      // 2. Ενημερώνουμε το chat document θέτοντας το δικό μας flag σε false
+      if (chatRoomId) {
+        await setDoc(
+          doc(db, "chats", chatRoomId),
+          {
+            blockedByUsers: {
+              [currentUserId]: false, // 🎯 ΕΔΩ ΓΙΝΕΤΑΙ Η ΑΝΤΙΣΤΡΟΦΗ!
+            },
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true },
+        );
+      }
+
+      setShowContextMenu(false);
+      setActionModal({
+        title: t("chat.modals.actionCompletedTitle") || "Success",
+        description: "Account successfully unblocked!",
+        actions: [
+          {
+            label: t("common.actions.gotIt"),
+            iconName: "checkmark-circle-outline",
+            onPress: () => setActionModal(null),
+          },
+        ],
+      });
+    } catch {
+      setActionModal({
+        title: t("chat.modals.actionFailedTitle"),
+        description: t("common.messages.tryAgain"),
+        actions: [
+          {
+            label: t("common.actions.gotIt"),
+            iconName: "alert-circle-outline",
+            onPress: () => setActionModal(null),
+          },
+        ],
+      });
+    } finally {
+      setIsSubmittingBlockAction(false);
+    }
+  }, [chatRoomId, counterpartId, currentUserId, isSubmittingBlockAction]);
+
   if (!profile && loadingProfile) {
     return (
       <View style={[styles.container, styles.center]} testID="chat-screen">
@@ -920,14 +1005,28 @@ export default function ChatScreen() {
                 {isChatMuted ? t("chat.menu.unmuteNotifications") : t("chat.menu.muteNotifications")}
               </Text>
             </Pressable>
-            <Pressable
-              style={styles.contextMenuItem}
-              onPress={handleOpenBlockModal}
-              testID="chat-context-block"
-            >
-              <Ionicons name="hand-left-outline" size={18} color={colors.error} />
-              <Text style={[styles.contextMenuText, styles.contextMenuDangerText]}>{t("chat.menu.block")}</Text>
-            </Pressable>
+            {/* 🎯 ΔΙΟΡΘΩΣΗ: Αν είμαστε εμείς ο blocker, το κουμπί μετατρέπεται σε Ξεμπλοκάρισμα */}
+            {isBlocker ? (
+              <Pressable
+                style={styles.contextMenuItem}
+                onPress={() => {
+                  void handleUnblockFlow();
+                }}
+                testID="chat-context-unblock"
+              >
+                <Ionicons name="refresh-outline" size={18} color={colors.brand} />
+                <Text style={[styles.contextMenuText, { color: colors.brand }]}>Unblock User</Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                style={styles.contextMenuItem}
+                onPress={handleOpenBlockModal}
+                testID="chat-context-block"
+              >
+                <Ionicons name="hand-left-outline" size={18} color={colors.error} />
+                <Text style={[styles.contextMenuText, styles.contextMenuDangerText]}>{t("chat.menu.block")}</Text>
+              </Pressable>
+            )}
           </View>
         ) : null}
       </View>
