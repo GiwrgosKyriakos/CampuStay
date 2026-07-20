@@ -115,9 +115,20 @@ export default function HostInboxScreen() {
               const isHostChat = chatData.type === "host" || !!chatData.apartmentId;
               if (!isHostChat) return false;
               
-              const deletedBy = Array.isArray(chatData.deletedBy) ? chatData.deletedBy : [];
+              const deletedAtMap = (chatData as any).deletedAt ?? {};
+              const myDeletedAt = deletedAtMap[currentUid];
+              
+              if (myDeletedAt) {
+                // Υπολογίζουμε την τελευταία δραστηριότητα του chat
+                const lastActivity = toMillis(chatData.lastMessageTimestamp) || toMillis(chatData.updatedAt) || toMillis(chatData.createdAt) || 0;
+                const deletedTime = toMillis(myDeletedAt);
+                
+                // Αν η διαγραφή έγινε μετά ή την ίδια στιγμή με το τελευταίο μήνυμα, κρύψε το chat
+                if (deletedTime >= lastActivity) {
+                  return false;
+                }
+              }
               if (chatData.initiatedBy === currentUid) return false;
-              if (deletedBy.includes(currentUid)) return false;
               
               return true;
             });
@@ -231,7 +242,7 @@ export default function HostInboxScreen() {
       await setDoc(
         doc(db, "chats", chatToDelete.chatRoomId),
         {
-          deletedBy: arrayUnion(auth.userId),
+          [`deletedAt.${auth.userId}`]: serverTimestamp(),
           updatedAt: serverTimestamp(),
         },
         { merge: true },

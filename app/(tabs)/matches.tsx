@@ -310,12 +310,19 @@ export default function MatchesScreen() {
           const activeChatIds = new Set(snapshot.docs.map((d) => d.id));
           const visibleChatDocs = snapshot.docs.filter((chatDoc) => {
             const chatData = chatDoc.data() as FirestoreChatDoc;
-            const deletedBy = Array.isArray(chatData.deletedBy) ? chatData.deletedBy : [];
-            if (deletedBy.includes(uid)) {
-              console.log("[Matches] Hiding chat because deletedBy includes current user", {
-                chatId: chatDoc.id,
-              });
-              return false;
+            // 🎯 ΝΕΟ INSTAGRAM-STYLE ΦΙΛΤΡΟ:
+            const deletedAtMap = (chatData as any).deletedAt ?? {};
+            const myDeletedAt = deletedAtMap[uid];
+            
+            if (myDeletedAt) {
+              // Υπολογίζουμε την τελευταία δραστηριότητα του chat (μήνυμα ή update)
+              const lastActivity = toMillis(chatData.lastMessageTimestamp) || toMillis(chatData.updatedAt) || 0;
+              const deletedTime = toMillis(myDeletedAt);
+              
+              // Αν η διαγραφή έγινε μετά ή την ίδια στιγμή με το τελευταίο μήνυμα, κρύψε το chat από το Inbox
+              if (deletedTime >= lastActivity) {
+                return false;
+              }
             }
             const chatType = chatData.type ?? "roommate";
             // 🚨 ΔΙΑΧΩΡΙΣΜΟΣ ΡΟΛΩΝ:
@@ -572,7 +579,7 @@ export default function MatchesScreen() {
       await setDoc(
         doc(db, "chats", chatToDelete.chatRoomId),
         {
-          deletedBy: arrayUnion(currentUserId),
+          [`deletedAt.${currentUserId}`]: serverTimestamp(),
           updatedAt: serverTimestamp(),
         },
         { merge: true },
