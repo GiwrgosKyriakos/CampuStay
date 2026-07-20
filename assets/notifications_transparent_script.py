@@ -26,5 +26,5 @@ def convert_logo_to_notification_icon(input_path, output_path):
 
 # Εκτέλεση του script
 convert_logo_to_notification_icon(
-    "campuStayLogoTransparent.png", "notification_icon.png"
+    "campuStayLogoTransparentOld.png", "notification_icon.png"
 )

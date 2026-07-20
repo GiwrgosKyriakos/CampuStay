@@ -229,7 +229,7 @@ function AppContent() {
       }, 0);
 
       setTimeout(() => {
-        if (active) setIsTransitioning(false);
+        setIsTransitioning(false);
       }, 250);
       return;
     }
@@ -251,7 +251,7 @@ function AppContent() {
       }, 0);
 
       setTimeout(() => {
-        if (active) setIsTransitioning(false);
+        setIsTransitioning(false);
       }, 500);
     }
 

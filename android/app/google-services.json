@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "311068327323-7gefvlsvjfp2baqmt384slp9vs32pho1.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "CampuStay.Android",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
           "client_id": "311068327323-im434561qs5u40akcgg0e9tq6buv4kil.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {

@@ -3,13 +3,13 @@ from PIL import Image
 
 def resize_and_center_logo():
     # Ρυθμίσεις
-    filename = "campuStayLogoTransparent.png"
+    filename = "notification_icon.png"
     # Αυτό θα είναι το τελικό όνομα της νέας, μικρότερης εικόνας
-    output_filename = "campuStayLogoTransparent_centered.png" 
+    output_filename = "notification_icon_very_big.png" 
     
     # Πόσο μικρότερο θέλεις το logo (π.χ. 0.70 σημαίνει το 70% του αρχικού μεγέθους)
     # Αλλάζεις αυτή την τιμή αν το θέλεις ακόμα μικρότερο ή μεγαλύτερο
-    scale_factor = 0.70 
+    scale_factor = 1.5 
 
     if not os.path.exists(filename):
         print(f"Σφάλμα: Δεν βρέθηκε το αρχείο '{filename}' στον τρέχοντα φάκελο.")
