@@ -34,6 +34,7 @@
     },
     "plugins": [
       "expo-router",
+      "./plugins/withAndroidContrast",
       [
         "expo-image-picker",
         {

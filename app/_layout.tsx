@@ -160,6 +160,7 @@ function AppContent() {
         console.warn("[App] Splash screen hide failed:", err);
       });
       if (Platform.OS === 'android') {
+        NavigationBar.setPositionAsync('absolute');
         NavigationBar.setBackgroundColorAsync("transparent");
         NavigationBar.setButtonStyleAsync("light");
       }
