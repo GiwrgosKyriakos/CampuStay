@@ -334,6 +334,8 @@
     "roommateSingular": "roommate",
     "roommatePlural": "roommates",
     "hostPlural": "hosts",
+    "roommatesToggle": "Roommates",
+    "hostsToggle": "Hosts",
     "emptyGuestTitleRoommates": "Log in to see your matches",
     "emptyGuestTitleHosts": "Log in to contact hosts of apartments you're interested in",
     "emptyGuestBodyRoommates": "Your likes, matches, and chats appear here after you log in.",

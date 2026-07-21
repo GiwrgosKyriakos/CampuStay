@@ -334,6 +334,8 @@
     "roommateSingular": "συγκάτοικος",
     "roommatePlural": "συγκάτοικοι",
     "hostPlural": "ιδιοκτήτες",
+    "roommatesToggle": "Συγκάτοικοι",
+    "hostsToggle": "Ιδιοκτήτες",
     "emptyGuestTitleRoommates": "Συνδέσου για να δεις τα ταιριάσματά σου",
     "emptyGuestTitleHosts": "Συνδέσου για να επικοινωνήσεις με ιδιοκτήτες διαμερισμάτων που σε ενδιαφέρουν",
     "emptyGuestBodyRoommates": "Τα likes, τα ταιριάσματα και τα chats σου εμφανίζονται εδώ αφού συνδεθείς.",

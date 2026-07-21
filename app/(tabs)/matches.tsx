@@ -619,7 +619,7 @@ export default function MatchesScreen() {
           testID="matches-toggle-roommates"
         >
           <Text style={[styles.toggleText, selectedChatType === "roommate" && styles.toggleTextActive]}>
-            {t("matches.roommatePlural")}
+            {t("matches.roommatesToggle")}
           </Text>
         </Pressable>
         <Pressable
@@ -628,7 +628,7 @@ export default function MatchesScreen() {
           testID="matches-toggle-hosts"
         >
           <Text style={[styles.toggleText, selectedChatType === "host" && styles.toggleTextActive]}>
-            {t("matches.hostPlural")}
+            {t("matches.hostsToggle")}
           </Text>
         </Pressable>
       </View>
