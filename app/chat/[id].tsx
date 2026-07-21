@@ -654,7 +654,7 @@ const [isBlocked, setIsBlocked] = useState(false);
   let displayUniversity = deletedCounterpart ? "" : activeProfile.university;
 
   if (isBlocker) {
-    displayName = "Blocked Account";
+    displayName = t("common.account.blocked");
     showAvatarImage = false;
     displayUniversity = "";
     displayAbout = "This profile is blocked.";

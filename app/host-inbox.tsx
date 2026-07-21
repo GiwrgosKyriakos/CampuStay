@@ -317,10 +317,10 @@ export default function HostInboxScreen() {
             let hasAvatar = !!item.customerAvatar;
 
             if (item.isBlocker) {
-              customerName = "Blocked Account";
+              customerName = t("common.account.blocked");
               hasAvatar = false;
             } else if (item.isBlocked) {
-              customerName = t("common.account.deleted") || "Deleted Account";
+              customerName = t("common.account.deleted");
               hasAvatar = false;
             }
             

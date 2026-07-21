@@ -340,7 +340,9 @@ React.useEffect(() => {
         {/* ── Main Info Block ── */}
         <View style={styles.infoBlock}>
           <View style={styles.titleRow}>
-            <Text style={styles.aptTitle}>{apt.title}</Text>
+            <Text style={styles.aptTitle}>
+              {t("createListing.listingTitle", { area: apt.area })}
+            </Text>
             {isListingOwner ? (
               <Pressable
                 style={styles.likeBtn}
@@ -763,6 +765,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.displayExtra,
     fontSize: fontSize.lg,
     color: colors.onBrand,
+    alignSelf: "center",
   },
 
   /* Fallback */

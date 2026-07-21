@@ -686,10 +686,10 @@ export default function MatchesScreen() {
             let hasAvatar = !isDeleted && !!p.photo?.trim();
 
             if (p.isBlocker) {
-              displayName = "Blocked Account";
+              displayName = t("common.account.blocked");
               hasAvatar = false; // Αναγκάζει το UI να δείξει το DefaultProfileAvatar
             } else if (p.isBlocked) {
-              displayName = t("common.account.deleted") || "Deleted Account";
+              displayName = t("common.account.deleted");
               hasAvatar = false; // Εξομοιώνει τη διαγραφή λογαριασμού στον μπλοκαρισμένο
             }
             

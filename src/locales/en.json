@@ -16,7 +16,8 @@
       "startOver": "Start over",
       "accept": "Accept",
       "reject": "Reject",
-      "unblock": "Unblock"
+      "unblock": "Unblock",
+      "loading": "Loading..."
     },
     "labels": {
       "termsOfService": "Terms of Service",
@@ -54,7 +55,8 @@
       "disabledProfileDescription": "You are browsing without an active account. Profile details and account actions are disabled."
     },
     "account": {
-      "deleted": "Deleted Account"
+      "deleted": "Deleted Account",
+      "blocked": "Blocked Account"
     },
     "values": {
       "unknown": "Unknown",

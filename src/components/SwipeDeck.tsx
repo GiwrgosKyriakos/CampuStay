@@ -328,7 +328,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
   },
   budgetPill: { backgroundColor: colors.brand },
-  metaText: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurfaceInverse },
+  metaText: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onBrand },
   empty: { alignItems: "center", paddingHorizontal: spacing.xl, gap: spacing.md },
   emptyIcon: {
     width: 88,
