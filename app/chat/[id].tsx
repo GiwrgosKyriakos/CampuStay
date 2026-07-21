@@ -957,7 +957,7 @@ const [isBlocked, setIsBlocked] = useState(false);
             ) : (
               <DefaultProfileAvatar size={44} iconSize={22} testID="chat-header-avatar-fallback" />
             )}
-            <View style={styles.headerTextWrap}>
+            <View style={[styles.headerTextWrap, !displayUniversity?.trim() && { transform: [{ translateY: 7 }] }]}>
               <Text style={styles.headerName} numberOfLines={1}>
                 {displayName}
               </Text>
@@ -1380,7 +1380,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.displayExtra,
     fontSize: fontSize.xl,
     color: colors.onSurface,
-    transform: [{ translateY: 7 }],
+    transform: [{ translateY: 0 }],
   },
   headerUni: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
   detailRow: { flexDirection: "row", gap: spacing.sm },
