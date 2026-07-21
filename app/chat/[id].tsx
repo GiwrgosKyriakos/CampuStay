@@ -107,6 +107,7 @@ interface FirestoreUserDoc {
   twitter?: string;
   photoUrl?: string;
   photos?: string[];
+  directMessagesEnabled?: boolean;
 }
 
 interface FirestoreQuizDoc {
@@ -305,7 +306,6 @@ const [isBlocked, setIsBlocked] = useState(false);
 
   const scrollRef = useRef<ScrollView>(null);
   const [text, setText] = useState("");
-  const [myDeletedAt, setMyDeletedAt] = useState<any>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [chatStatus, setChatStatus] = useState<"pending" | "active" | "rejected">("active");
   const [chatType, setChatType] = useState<"roommate" | "host">("roommate");
@@ -349,7 +349,6 @@ const [isBlocked, setIsBlocked] = useState(false);
         setHostApartmentId(null);
         setHostApartmentTitle(null);
         setIsApartmentUnavailable(false);
-        setMyDeletedAt(null); // 🎯 ΠΡΟΣΘΗΚΗ
         return;
       }
       const data = snapshot.data() as FirestoreChatDoc;
@@ -363,8 +362,6 @@ const [isBlocked, setIsBlocked] = useState(false);
       const blockedMap = (data as any).blockedByUsers ?? {};
       setIsBlocker(currentUserId ? blockedMap[currentUserId] === true : false);
       setIsBlocked(counterpartId ? blockedMap[counterpartId] === true : false);
-      const deletedAtMap = (data as any).deletedAt ?? {};
-      setMyDeletedAt(currentUserId ? deletedAtMap[currentUserId] : null);
     });
 
     const q = query(
@@ -382,11 +379,6 @@ const [isBlocked, setIsBlocked] = useState(false);
             createdAt: data.createdAt ?? Date.now(),
             isRead: data.isRead ?? true,
           };
-        })
-        // 🎯 Η ΔΙΟΡΘΩΣΗ INSTAGRAM-STYLE:
-        .filter((m) => {
-          if (!myDeletedAt) return true; // Αν δεν έχει γίνει ποτέ διαγραφή, δείξε όλα τα μηνύματα
-          return createdAtToMillis(m.createdAt) > createdAtToMillis(myDeletedAt);
         });
       setMessages((prev) => {
         const optimisticPending = prev.filter((m) => m.id.startsWith("temp-") && m.senderId === currentUserId);
@@ -401,7 +393,7 @@ const [isBlocked, setIsBlocked] = useState(false);
       unsub();
       unsubChat();
     };
-  }, [chatRoomId, currentUserId, sortMessages, createdAtToMillis, myDeletedAt]);
+  }, [chatRoomId, currentUserId, sortMessages]);
 
   useEffect(() => {
     if (chatType !== "host" || !hostApartmentId) {
