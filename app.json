@@ -18,7 +18,7 @@
         "backgroundColor": "#07404C"
       },
       "edgeToEdgeEnabled": true,
-      "package": "CampuStay.Android",
+      "package": "com.gksolutions.campustay",
       "googleServicesFile": "./google-services.json",
       "androidNavigationBar": {
         "backgroundColor": "#00000000"
