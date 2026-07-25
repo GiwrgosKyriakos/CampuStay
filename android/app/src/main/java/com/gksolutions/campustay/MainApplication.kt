@@ -1,4 +1,4 @@
-package CampuStay.Android
+package com.gksolutions.campustay
 
 import android.app.Application
 import android.content.res.Configuration

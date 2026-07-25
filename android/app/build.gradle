@@ -87,9 +87,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'CampuStay.Android'
+    namespace 'com.gksolutions.campustay'
     defaultConfig {
-        applicationId 'CampuStay.Android'
+        applicationId 'com.gksolutions.campustay'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

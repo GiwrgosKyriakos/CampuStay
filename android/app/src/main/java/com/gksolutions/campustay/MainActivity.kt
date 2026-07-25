@@ -1,4 +1,4 @@
-package CampuStay.Android
+package com.gksolutions.campustay
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build
