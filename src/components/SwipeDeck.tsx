@@ -234,11 +234,11 @@ const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck(
         </Text>
         <View style={styles.pillRow}>
           <View style={styles.metaPill}>
-            <Ionicons name="person-outline" size={14} color={colors.onSurfaceInverse} />
+            <Ionicons name="person-outline" size={14} color={colors.onBrand} />
             <Text style={styles.metaText}>{p.gender}</Text>
           </View>
           <View style={[styles.metaPill, styles.budgetPill]}>
-            <Ionicons name="wallet-outline" size={14} color={colors.onSurfaceInverse} />
+            <Ionicons name="wallet-outline" size={14} color={colors.onBrand} />
             <Text style={styles.metaText}>
               {currency}
               {p.budget}{t("common.format.perMonthShort")}

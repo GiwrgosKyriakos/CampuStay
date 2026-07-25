@@ -357,6 +357,20 @@ export default function ApartmentsScreen() {
     };
   }, [auth.isGuest, auth.userId, canOpenHostInbox]);
 
+  // 🟢 Real-time συγχρονισμός των Likes μεταξύ Feed και Detail Screen
+  useEffect(() => {
+    if (auth.isGuest || !auth.userId) {
+      setLikedApartmentIds(new Set());
+      return;
+    }
+
+    const unsubscribe = subscribeUserLikedApartmentIds(auth.userId, (ids) => {
+      setLikedApartmentIds(ids);
+    });
+
+    return () => unsubscribe();
+  }, [auth.isGuest, auth.userId]);
+
   const apartments = useMemo(() => [...publishedApartments], [publishedApartments]);
 
   const handleToggleLike = useCallback(

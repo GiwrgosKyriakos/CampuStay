@@ -220,13 +220,19 @@ React.useEffect(() => {
       return;
     }
 
-    const prev = isLiked;
-    setIsLiked(!prev);
+    if (!apt?.id) return;
+
+    // 1. Optimistic Update (Ακαριαία αλλαγή στην οθόνη)
+    const wasLiked = isLiked;
+    setIsLiked(!wasLiked);
+
     try {
-      const next = await toggleApartmentLike(auth.userId, apt.id);
-      setIsLiked(next);
+      // 2. Ενημέρωση στη βάση δεδομένων
+      const nextState = await toggleApartmentLike(auth.userId, apt.id);
+      setIsLiked(nextState);
     } catch {
-      setIsLiked(prev);
+      // 3. Rollback σε περίπτωση σφάλματος & εμφάνιση modal
+      setIsLiked(wasLiked);
       setActionModal({
         title: t("apartments.likeUpdateTitle"),
         description: t("apartments.likeUpdateMessage"),
