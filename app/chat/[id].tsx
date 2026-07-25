@@ -255,7 +255,7 @@ export default function ChatScreen() {
   const [profileModalVisible, setProfileModalVisible] = useState(false);
   const [compatibilityScore, setCompatibilityScore] = useState<number | null>(null);
   const [isBlocker, setIsBlocker] = useState(false);
-const [isBlocked, setIsBlocked] = useState(false);
+  const [isBlocked, setIsBlocked] = useState(false);
 
   useEffect(() => {
     if (!counterpartId) {
@@ -664,6 +664,9 @@ const [isBlocked, setIsBlocked] = useState(false);
     showAvatarImage = false;
     displayUniversity = "";
     displayAbout = t("chat.placeholderDeleted") || "This account has been deleted.";
+  } else if (chatStatus === "rejected") {
+    showAvatarImage = false;
+    displayUniversity = "";
   }
 
   const apartmentLocked = chatType === "host" && isApartmentUnavailable;
@@ -950,7 +953,7 @@ const [isBlocked, setIsBlocked] = useState(false);
           <Pressable
             style={styles.headerProfileTapArea}
             onPress={() => setProfileModalVisible(true)}
-            disabled={deletedCounterpart}
+            disabled={deletedCounterpart || chatStatus === "rejected"}
             testID="chat-header-profile-trigger"
           >
             {showAvatarImage ? (

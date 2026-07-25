@@ -183,40 +183,90 @@ export default function ApartmentsScreen() {
   }, [auth.isGuest, auth.userId, canOpenHostInbox]);
 
   useEffect(() => {
-      const apartmentsQuery = query(collection(db, "apartments"), orderBy("createdAt", "desc"));
-      const unsubscribe = onSnapshot(
-        apartmentsQuery,
-      (snapshot) => {
-        const fetched: Apartment[] = snapshot.docs.map((snap) => {
-              const data = snap.data() as FirestoreApartmentDoc;
-              const amenities = Array.isArray(data.amenities) ? data.amenities : [];
-              const rawTags = Array.isArray(data.tags) ? data.tags : amenities;
-              const tags = rawTags.map(normalizeTagSlug);
-              return {
-                id: snap.id,
-                title: data.title?.trim() || t("apartments.unknownListing"),
-                description: data.description || data.about || "", // 🟢 Νέο πεδίο
-                area: data.area?.trim() || t("apartments.unknownArea"),
-                city: data.city?.trim() || t("apartments.unknownCity"),
-                rent: typeof data.rent === "number" ? data.rent : typeof data.price === "number" ? data.price : 0,
-                rooms: typeof data.rooms === "number" ? data.rooms : 1,
-                size: typeof data.size === "number" ? data.size : typeof data.sqft === "number" ? data.sqft : 0,
-            image:
-              data.image || "",
-                tags: tags.length ? tags : ["new_listing"],
-                hostId: data.hostId,
-                ownerId: data.ownerId || data.hostId,
-              };
-        });
-        setPublishedApartments(fetched);
-        },
-        () => {
-        setPublishedApartments([]);
-        },
-      );
+    if (auth.isLoading) return;
 
-      return () => unsubscribe();
-  }, []);
+    let active = true;
+
+    (async () => {
+      try {
+        // 1. Διάβασμα της λίστας των blocked profiles του τρέχοντος χρήστη
+        let blockedHostIds = new Set<string>();
+        if (auth.userId) {
+          const settings = await getUserSettings(auth.userId).catch(() => null);
+          const blockedList = settings?.privacy?.blocked_profiles ?? [];
+          blockedHostIds = new Set(blockedList.map((p: { id: string }) => p.id));
+        }
+
+        const apartmentsQuery = query(collection(db, "apartments"), orderBy("createdAt", "desc"));
+        const unsubscribe = onSnapshot(
+          apartmentsQuery,
+          async (snapshot) => {
+            if (!active) return;
+
+            // 2. Φιλτράρισμα των αγγελιών βάσει Block State
+            const fetched = await Promise.all(
+              snapshot.docs.map(async (snap): Promise<Apartment | null> => {
+                const data = snap.data() as FirestoreApartmentDoc;
+                const hostId = data.hostId || data.ownerId;
+
+                // 🛑 Έλεγχος 1: Αν ο host είναι στη δική μου λίστα Blocked Accounts
+                if (hostId && blockedHostIds.has(hostId)) {
+                  return null;
+                }
+
+                // 🛑 Έλεγχος 2: Αμφίδρομος έλεγχος (αν ο host έχει μπλοκάρει εμένα στο chat)
+                if (auth.userId && hostId) {
+                  const chatRoomId = [auth.userId, hostId].sort().join("_");
+                  const chatSnap = await getDoc(doc(db, "chats", chatRoomId));
+                  if (chatSnap.exists()) {
+                    const blockedMap = (chatSnap.data() as any).blockedByUsers ?? {};
+                    if (blockedMap[hostId] === true || blockedMap[auth.userId] === true) {
+                      return null; // Κρύβουμε την αγγελία
+                    }
+                  }
+                }
+
+                const amenities = Array.isArray(data.amenities) ? data.amenities : [];
+                const rawTags = Array.isArray(data.tags) ? data.tags : amenities;
+                const tags = rawTags.map(normalizeTagSlug);
+
+                return {
+                  id: snap.id,
+                  title: data.title?.trim() || t("apartments.unknownListing"),
+                  description: data.description || data.about || "",
+                  area: data.area?.trim() || t("apartments.unknownArea"),
+                  city: data.city?.trim() || t("apartments.unknownCity"),
+                  rent: typeof data.rent === "number" ? data.rent : typeof data.price === "number" ? data.price : 0,
+                  rooms: typeof data.rooms === "number" ? data.rooms : 1,
+                  size: typeof data.size === "number" ? data.size : typeof data.sqft === "number" ? data.sqft : 0,
+                  image: data.image || "",
+                  tags: tags.length ? tags : ["new_listing"],
+                  hostId: data.hostId,
+                  ownerId: data.ownerId || data.hostId,
+                };
+              })
+            );
+
+            if (active) {
+              setPublishedApartments(fetched.filter((item): item is Apartment => item !== null));
+            }
+          },
+          () => {
+            if (active) setPublishedApartments([]);
+          },
+        );
+
+        return () => unsubscribe();
+      } catch (err) {
+        console.error("Failed to fetch apartments:", err);
+        if (active) setPublishedApartments([]);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [auth.userId, auth.isLoading]);
 
   useFocusEffect(
     useCallback(() => {
