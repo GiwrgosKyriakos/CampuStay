@@ -584,15 +584,15 @@ export default function MatchesScreen() {
   };
 
   const handleDeleteRejectedChat = async (profile: ChatListItem) => {
-    if (!currentUserId || !profile.chatRoomId) return;
-    setDeletingChatId(profile.chatRoomId);
-    try {
+  if (!currentUserId || !profile.chatRoomId) return;
+  setDeletingChatId(profile.chatRoomId);
+  try {
       await deleteDoc(doc(db, "chats", profile.chatRoomId));
-      setMatches((prev) => prev.filter((item) => item.chatRoomId !== profile.chatRoomId));
-    } finally {
-      setDeletingChatId(null);
-    }
-  };
+    setMatches((prev) => prev.filter((item) => item.chatRoomId !== profile.chatRoomId));
+  } finally {
+    setDeletingChatId(null);
+  }
+};
 
   return (
     <View style={styles.container} testID="matches-screen">

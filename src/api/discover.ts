@@ -14,6 +14,7 @@ import {
 
 import { db } from "@/src/config/firebase";
 import { normalizeCity } from "@/src/utils/cityNormalization";
+import { sendPushNotification } from "@/src/utils/notificationService";
 
 interface FirestoreUserDoc {
   name?: string | null;
@@ -30,6 +31,8 @@ interface FirestoreUserDoc {
   photoUrl?: string;
   photos?: string[];
   deleted?: boolean;
+  expoPushToken?: string;
+  newMatchesEnabled?: boolean;
 }
 
 interface FirestoreQuizDoc {
@@ -112,10 +115,8 @@ async function getPotentialCandidateRecords(userId: string, currentCity?: string
     const uid = u.id;
     if (!uid || uid === userId || swipedTo.has(uid) || chattedWith.has(uid) || likedYou.has(uid)) return;
 
-    // 🎯 ΔΙΟΡΘΩΣΗ: Ορίζουμε σωστά τη δομή του privacy όπως αποθηκεύεται από τα settings
     const data = u.data() as FirestoreUserDoc & { privacy?: { is_visible?: boolean } };
     
-    // 🎯 Έλεγχος του σωστού φωλιασμένου πεδίου
     if (data.privacy?.is_visible === false) return;
 
     const candidate = normalizeCandidate(uid, data);
@@ -198,18 +199,41 @@ export async function postSwipe(
       { merge: true },
     );
 
-    // Re-open chat visibility for a user that had previously hidden this thread.
     await setDoc(
       chatRef,
       {
-        // Ensure the chat stays visible in the roommates list for both participants.
         deletedBy: arrayRemove(userId, targetId),
       },
       { merge: true },
     );
+
+    // 🟢 ΑΠΟΣΤΟΛΗ PUSH NOTIFICATION ΟΤΑΝ Ο ΧΡΗΣΤΗΣ Α ΚΑΝΕΙ LIKE ΣΤΟΝ ΧΡΗΣΤΗ Β
+    try {
+      const targetUserSnap = await getDoc(doc(db, "users", targetId));
+      if (targetUserSnap.exists()) {
+        const targetUserData = targetUserSnap.data() as FirestoreUserDoc;
+        const newMatchesEnabled = targetUserData.newMatchesEnabled ?? true;
+        const pushToken = targetUserData.expoPushToken;
+
+        if (newMatchesEnabled && pushToken) {
+          const currentUserSnap = await getDoc(doc(db, "users", userId));
+          const senderName = currentUserSnap.exists()
+            ? ((currentUserSnap.data() as FirestoreUserDoc).name?.trim() || "Κάποιος")
+            : "Κάποιος";
+
+          await sendPushNotification(
+            pushToken,
+            "Έχεις νέο match! 🎉",
+            `Έχεις νέο match: ${senderName}`,
+            { chatRoomId, senderId: userId, type: "match" }
+          );
+        }
+      }
+    } catch (notifErr) {
+      console.error("[postSwipe] Σφάλμα αποστολής notification match:", notifErr);
+    }
   }
 
-  // Legacy return contract maintained for existing callers.
   return direction === "right";
 }
 
@@ -224,4 +248,3 @@ export async function resetDislikedSwipes(userId: string): Promise<void> {
 
   await Promise.all(dislikesSnap.docs.map((swipeDoc) => deleteDoc(swipeDoc.ref)));
 }
-

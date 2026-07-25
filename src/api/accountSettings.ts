@@ -71,8 +71,9 @@ function buildSettings(userId: string, data?: FirestoreUserSettingsDoc): UserSet
 }
 
 export async function getUserSettings(userId: string): Promise<UserSettings> {
-  const ref = doc(db, "users", userId);
-  const snapshot = await getDoc(ref);
+  // 🟢 Διαβάζουμε από τη συλλογή "settings"
+  const settingsRef = doc(db, "settings", userId);
+  const snapshot = await getDoc(settingsRef);
   if (!snapshot.exists()) {
     return buildSettings(userId);
   }
@@ -82,35 +83,55 @@ export async function getUserSettings(userId: string): Promise<UserSettings> {
 }
 
 export async function saveUserNotifications(userId: string, notifications: NotificationPreferences): Promise<UserSettings> {
-  const ref = doc(db, "users", userId);
+  const settingsRef = doc(db, "settings", userId);
+  const userRef = doc(db, "users", userId);
+  const normNotifications = normalizeNotifications(notifications);
+
+  // 1. Αποθήκευση όλων των προτιμήσεων στην ιδιωτική συλλογή "settings"
   await setDoc(
-    ref,
+    settingsRef,
     {
-      notifications: normalizeNotifications(notifications),
+      notifications: normNotifications,
       updatedAt: serverTimestamp(),
     },
     { merge: true },
   );
+
+  // 2. Δημοσίευση των 2 flags στη δημόσια συλλογή "users" για τους ελέγχους των notifications
+  await setDoc(
+    userRef,
+    {
+      directMessagesEnabled: normNotifications.direct_messages,
+      newMatchesEnabled: normNotifications.new_matches,
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true },
+  );
+
   const current = await getUserSettings(userId);
   return {
     ...current,
-    notifications: normalizeNotifications(notifications),
+    notifications: normNotifications,
   };
 }
 
 export async function saveUserPrivacy(userId: string, privacy: PrivacyPreferences): Promise<UserSettings> {
-  const ref = doc(db, "users", userId);
+  // 🟢 Αποθήκευση αποκλειστικά στη συλλογή "settings"
+  const settingsRef = doc(db, "settings", userId);
+  const normPrivacy = normalizePrivacy(privacy);
+
   await setDoc(
-    ref,
+    settingsRef,
     {
-      privacy: normalizePrivacy(privacy),
+      privacy: normPrivacy,
       updatedAt: serverTimestamp(),
     },
     { merge: true },
   );
+
   const current = await getUserSettings(userId);
   return {
     ...current,
-    privacy: normalizePrivacy(privacy),
+    privacy: normPrivacy,
   };
 }

@@ -115,11 +115,23 @@ export default function HostInboxScreen() {
               const isHostChat = chatData.type === "host" || !!chatData.apartmentId;
               if (!isHostChat) return false;
               
-              const deletedBy = Array.isArray(chatData.deletedBy) ? chatData.deletedBy : [];
+              // 🟢 ΠΡΟΣΘΗΚΗ: Αν ο χρήστης έχει κάνει delete το chat, το κρύβουμε ΜΟΝΟ από αυτόν
+              const deletedByArray = Array.isArray((chatData as any).deletedBy) ? (chatData as any).deletedBy : [];
+              if (deletedByArray.includes(currentUid)) return false;
 
+              const deletedAtMap = (chatData as any).deletedAt ?? {};
+              const myDeletedAt = deletedAtMap[currentUid];
+              
+              if (myDeletedAt) {
+                const lastActivity = toMillis(chatData.lastMessageTimestamp) || toMillis(chatData.updatedAt) || toMillis(chatData.createdAt) || 0;
+                const deletedTime = toMillis(myDeletedAt);
+                
+                if (deletedTime >= lastActivity) {
+                  return false;
+                }
+              }
               if (chatData.initiatedBy === currentUid) return false;
-              if (deletedBy.includes(currentUid)) return false;
-
+              
               return true;
             });
 
@@ -274,14 +286,23 @@ export default function HostInboxScreen() {
   };
   
   const handleDeleteRejectedChat = async (item: HostInboxItem) => {
-    if (!auth.userId || !item.chatRoomId) return;
-    setDeletingChatId(item.chatRoomId);
-    try {
-      await deleteDoc(doc(db, "chats", item.chatRoomId));
-    } finally {
-      setDeletingChatId(null);
-    }
-  };
+  if (!auth.userId || !item.chatRoomId) return;
+  setDeletingChatId(item.chatRoomId);
+  try {
+    await setDoc(
+      doc(db, "chats", item.chatRoomId),
+      {
+        deletedBy: arrayUnion(auth.userId),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true },
+    );
+  } catch (err) {
+    console.error("Delete rejected chat failed:", err);
+  } finally {
+    setDeletingChatId(null);
+  }
+};
 
   return (
     <View style={styles.container} testID="host-inbox-screen">
@@ -342,7 +363,7 @@ export default function HostInboxScreen() {
                 onPress={() => handleOpenChat(item)}
                 onLongPress={() => setActiveContextChatId(item.id)}
                 delayLongPress={350}
-                disabled={isPending}
+                disabled={isPending || item.isBlocker || item.isBlocked}
               >
                 {activeContextChatId === item.id ? (
                   <View style={styles.contextTooltip}>
@@ -370,7 +391,11 @@ export default function HostInboxScreen() {
 
                   {isPending ? (
                     isReceiver ? (
-                      acceptingChatId === item.chatRoomId ? (
+                      item.isBlocker || item.isBlocked ? (
+                        <Text style={[styles.rowMsg, styles.rowMsgFaded]} numberOfLines={1}>
+                          Unavailable due to block
+                        </Text>
+                      ) : acceptingChatId === item.chatRoomId ? (
                         <View style={styles.pendingActionRow}>
                           <ActivityIndicator size="small" color={colors.brand} />
                         </View>

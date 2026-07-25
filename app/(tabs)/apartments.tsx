@@ -16,12 +16,19 @@ import { subscribeUserLikedApartmentIds, toggleApartmentLike } from "@/src/api/a
 import CenteredActionModal from "@/src/components/CenteredActionModal";
 import { t } from "@/src/locales";
 
+// 🟢 Προσθέτουμε το getDoc στα imports του firebase/firestore:
+import { getDoc } from "firebase/firestore";
+
+// 🟢 Προσθέτουμε το getUserSettings:
+import { getUserSettings } from "@/src/api/accountSettings";
+
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 100;
 
 interface Apartment {
   id: string;
   title: string;
+  description?: string;
   area: string;
   city: string;
   rent: number;
@@ -35,6 +42,8 @@ interface Apartment {
 
 interface FirestoreApartmentDoc {
   title?: string;
+  description?: string; 
+  about?: string;       
   area?: string;
   city?: string;
   rent?: number;
@@ -174,38 +183,39 @@ export default function ApartmentsScreen() {
   }, [auth.isGuest, auth.userId, canOpenHostInbox]);
 
   useEffect(() => {
-    const apartmentsQuery = query(collection(db, "apartments"), orderBy("createdAt", "desc"));
-    const unsubscribe = onSnapshot(
-      apartmentsQuery,
+      const apartmentsQuery = query(collection(db, "apartments"), orderBy("createdAt", "desc"));
+      const unsubscribe = onSnapshot(
+        apartmentsQuery,
       (snapshot) => {
         const fetched: Apartment[] = snapshot.docs.map((snap) => {
-          const data = snap.data() as FirestoreApartmentDoc;
-          const amenities = Array.isArray(data.amenities) ? data.amenities : [];
-          const rawTags = Array.isArray(data.tags) ? data.tags : amenities;
-          const tags = rawTags.map(normalizeTagSlug);
-          return {
-            id: snap.id,
-            title: data.title?.trim() || t("apartments.unknownListing"),
-            area: data.area?.trim() || t("apartments.unknownArea"),
-            city: data.city?.trim() || t("apartments.unknownCity"),
-            rent: typeof data.rent === "number" ? data.rent : typeof data.price === "number" ? data.price : 0,
-            rooms: typeof data.rooms === "number" ? data.rooms : 1,
-            size: typeof data.size === "number" ? data.size : typeof data.sqft === "number" ? data.sqft : 0,
+              const data = snap.data() as FirestoreApartmentDoc;
+              const amenities = Array.isArray(data.amenities) ? data.amenities : [];
+              const rawTags = Array.isArray(data.tags) ? data.tags : amenities;
+              const tags = rawTags.map(normalizeTagSlug);
+              return {
+                id: snap.id,
+                title: data.title?.trim() || t("apartments.unknownListing"),
+                description: data.description || data.about || "", // 🟢 Νέο πεδίο
+                area: data.area?.trim() || t("apartments.unknownArea"),
+                city: data.city?.trim() || t("apartments.unknownCity"),
+                rent: typeof data.rent === "number" ? data.rent : typeof data.price === "number" ? data.price : 0,
+                rooms: typeof data.rooms === "number" ? data.rooms : 1,
+                size: typeof data.size === "number" ? data.size : typeof data.sqft === "number" ? data.sqft : 0,
             image:
               data.image || "",
-              tags: tags.length ? tags : ["new_listing"],
-            hostId: data.hostId,
-            ownerId: data.ownerId || data.hostId,
-          };
+                tags: tags.length ? tags : ["new_listing"],
+                hostId: data.hostId,
+                ownerId: data.ownerId || data.hostId,
+              };
         });
         setPublishedApartments(fetched);
-      },
-      () => {
+        },
+        () => {
         setPublishedApartments([]);
-      },
-    );
+        },
+      );
 
-    return () => unsubscribe();
+      return () => unsubscribe();
   }, []);
 
   useFocusEffect(

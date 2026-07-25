@@ -201,3 +201,46 @@ export async function getOrCreateHostChat(params: {
 
   return chatRoomId;
 }
+
+/**
+ * Updates the block state for ALL chat rooms (roommate & host chats)
+ * existing between two users.
+ */
+export async function setBlockStateBetweenUsers(
+  currentUserId: string,
+  targetUserId: string,
+  isBlocked: boolean
+): Promise<void> {
+  try {
+    const chatsQ = query(
+      collection(db, "chats"),
+      where("users", "array-contains", currentUserId)
+    );
+    const snapshot = await getDocs(chatsQ);
+
+    const batch = writeBatch(db);
+    let hasUpdates = false;
+
+    snapshot.docs.forEach((chatDoc) => {
+      const users = chatDoc.data()?.users;
+      if (Array.isArray(users) && users.includes(targetUserId)) {
+        hasUpdates = true;
+        batch.set(
+          chatDoc.ref,
+          {
+            [`blockedByUsers.${currentUserId}`]: isBlocked,
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      }
+    });
+
+    if (hasUpdates) {
+      await batch.commit();
+    }
+  } catch (error) {
+    console.error("Error setting block state between users:", error);
+    throw error;
+  }
+}

@@ -1,3 +1,4 @@
+import { setBlockStateBetweenUsers } from "@/src/api/chat";
 import React, { useCallback, useEffect, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Switch, Pressable, ActivityIndicator } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -114,45 +115,45 @@ export default function PrivacySafetyScreen() {
   );
 
   useEffect(() => {
-    if (!blockedSheetVisible || isGuest || !auth.userId) return;
+  if (!blockedSheetVisible || isGuest || !auth.userId) return;
 
-    let active = true;
-    setBlockedLoading(true);
-    void (async () => {
-      try {
-        const mapped = await Promise.all(
-          privacy.blocked_profiles.map(async (blockedProfile) => {
+  let active = true;
+  setBlockedLoading(true);
+  void (async () => {
+    try {
+      const mapped = await Promise.all(
+        privacy.blocked_profiles.map(async (blockedProfile) => {
             const userSnap = await getDoc(doc(db, "users", blockedProfile.id));
             const userData = userSnap.exists() ? (userSnap.data() as FirestoreBlockedUserDoc) : null;
             const photoCandidates = Array.isArray(userData?.photos) ? userData?.photos : [];
-            return {
-              id: blockedProfile.id,
-              displayName: userData?.name?.trim() || blockedProfile.name || t("common.values.unknown"),
-              photoUrl: userData?.photoUrl || photoCandidates[0] || null,
-            } satisfies BlockedAccountRow;
-          }),
-        );
-
-        if (!active) return;
-        setBlockedRows(mapped);
-      } catch {
-        if (!active) return;
-        setBlockedRows(
-          privacy.blocked_profiles.map((blockedProfile) => ({
+          return {
             id: blockedProfile.id,
-            displayName: blockedProfile.name || t("common.values.unknown"),
-            photoUrl: null,
-          })),
-        );
-      } finally {
-        if (active) setBlockedLoading(false);
-      }
-    })();
+            displayName: userData?.name?.trim() || blockedProfile.name || t("common.values.unknown"),
+            photoUrl: userData?.photoUrl || photoCandidates[0] || null,
+          } satisfies BlockedAccountRow;
+        }),
+      );
 
-    return () => {
-      active = false;
-    };
-  }, [auth.userId, blockedSheetVisible, isGuest, privacy.blocked_profiles]);
+      if (!active) return;
+      setBlockedRows(mapped);
+    } catch {
+      if (!active) return;
+      setBlockedRows(
+        privacy.blocked_profiles.map((blockedProfile) => ({
+          id: blockedProfile.id,
+          displayName: blockedProfile.name || t("common.values.unknown"),
+          photoUrl: null,
+        })),
+      );
+    } finally {
+      if (active) setBlockedLoading(false);
+    }
+  })();
+
+  return () => {
+    active = false;
+  };
+}, [auth.userId, blockedSheetVisible, isGuest, privacy.blocked_profiles]);
 
   const addBackToMatches = useCallback(
     async (targetUserId: string) => {

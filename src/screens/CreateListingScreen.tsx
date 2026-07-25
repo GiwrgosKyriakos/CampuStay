@@ -40,6 +40,8 @@ type Amenity = {
 
 interface FirestoreApartmentDoc {
   title?: string;
+  description?: string; // 🟢 Νέο πεδίο
+  about?: string;       // 🟢 Νέο πεδίο
   area?: string;
   city?: string;
   rent?: number;
@@ -67,6 +69,9 @@ const PHOTO_SLOTS = 6;
 const IMAGE_QUALITY = 0.7;
 
 export default function CreateListingScreen() {
+  // 2. Προσθήκη των States μέσα στο CreateListingScreen component
+  const [title, setTitle] = useState("");             
+  const [description, setDescription] = useState(""); 
   const router = useRouter();
   const params = useLocalSearchParams<{ mode?: string; listingId?: string }>();
   const insets = useSafeAreaInsets();
@@ -160,6 +165,8 @@ export default function CreateListingScreen() {
         setCity(data.city ?? null);
         setArea(data.area ?? "");
         setSizeSqm(mappedSize > 0 ? String(mappedSize) : "");
+        setTitle(data.title ?? "");
+        setDescription(data.description ?? data.about ?? "");
         setAmenities({
           petFriendly: mappedAmenities.includes("pet_friendly"),
           nearMetro: mappedAmenities.includes("near_metro"),
@@ -279,9 +286,14 @@ export default function CreateListingScreen() {
         photos.map((uri, index) => uploadListingImageAsync(uri, hostId, index)),
       );
       const firstImage = uploadedImages[0] ?? "";
+      const defaultTitle = t("createListing.listingTitle", { area: area.trim() });
+      const finalTitle = title.trim() || defaultTitle;
+      const finalDescription = description.trim();
 
       const data = {
-        title: t("createListing.listingTitle", { area: area.trim() }),
+        title: finalTitle,
+        description: finalDescription,
+        about: finalDescription, // Για backward compatibility
         area: area.trim(),
         city,
         rent: Number(monthlyRent),
@@ -360,6 +372,42 @@ export default function CreateListingScreen() {
               testID="create-listing-rent-input"
             />
             <Text style={styles.fieldHint}>{t("createListing.rentHint")}</Text>
+          </View>
+
+          {/* 🟢 1. ΚΑΡΤΑ ΤΙΤΛΟΥ ΑΓΓΕΛΙΑΣ */}
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Τίτλος Αγγελίας (Προαιρετικό)</Text>
+            <TextInput
+              value={title}
+              onChangeText={setTitle}
+              placeholder={`π.χ. ${t("createListing.listingTitle", { area: area || "Περιοχή" })}`}
+              placeholderTextColor={colors.onSurfaceTertiary}
+              style={styles.input}
+              maxLength={60}
+              testID="create-listing-title-input"
+            />
+            <Text style={styles.fieldHint}>
+              Αν το αφήσεις κενό, θα δημιουργηθεί αυτόματος τίτλος βάσει περιοχής.
+            </Text>
+          </View>
+
+          {/* 🟢 2. ΚΑΡΤΑ ΠΕΡΙΓΡΑΦΗΣ / ABOUT */}
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Περιγραφή / Σχετικά με το σπίτι (Προαιρετικό)</Text>
+            <TextInput
+              value={description}
+              onChangeText={setDescription}
+              placeholder="Γράψε λεπτομέρειες για το σπίτι, τους κανόνες ή τι αναζητάς..."
+              placeholderTextColor={colors.onSurfaceTertiary}
+              multiline
+              numberOfLines={4}
+              textAlignVertical="top"
+              style={[styles.input, { minHeight: 90, paddingTop: spacing.md }]}
+              testID="create-listing-description-input"
+            />
+            <Text style={styles.fieldHint}>
+              Γράψε επιπλέον πληροφορίες αν θέλεις να αντικαταστήσεις την προεπιλεγμένη περιγραφή.
+            </Text>
           </View>
 
           <View style={styles.card}>

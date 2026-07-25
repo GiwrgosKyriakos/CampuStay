@@ -1,3 +1,4 @@
+import { setBlockStateBetweenUsers } from "@/src/api/chat";
 import {
   BottomSheetBackdrop,
   BottomSheetModal,
@@ -1699,16 +1700,19 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     flexDirection: "row",
     alignItems: "center",
+    backgroundColor: "rgba(255,23,68,0.08)",
+    borderWidth: 1,
+    borderColor: colors.border,
     gap: spacing.xs,
     borderRadius: radius.pill,
-    backgroundColor: "#F59E0B",
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
+    transform: [{ translateY: -45 }],
   },
   rejectedDeleteBtnText: {
     fontFamily: fonts.bold,
     fontSize: fontSize.base,
-    color: colors.onBrand,
+    color: colors.onSurface,
   },
   sheetBackground: {
     backgroundColor: colors.surface,

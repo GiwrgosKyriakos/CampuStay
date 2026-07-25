@@ -32,6 +32,7 @@ const CONTACT_EMAIL = "landlord@example.com";
 interface Apartment {
   id: string;
   title: string;
+  description?: string; // 🟢 Νέο πεδίο
   area: string;
   city: string;
   rent: number;
@@ -416,26 +417,26 @@ React.useEffect(() => {
           <Text style={styles.sectionTitle}>{t("apartmentDetail.aboutTitle")}</Text>
           <View style={styles.descBox}>
             <Text style={styles.descText}>{t("apartmentDetail.descriptionSummary", {
-              size: apt.size,
-              area: apt.area,
-              city: apt.city,
-              roomText: apt.rooms > 1 ? t("common.format.roomCount", { count: apt.rooms }) : t("apartmentDetail.privateRoom"),
-              currency: CURRENCY,
-              rent: apt.rent,
+            size: apt.size,
+            area: apt.area,
+            city: apt.city,
+            roomText: apt.rooms > 1 ? t("common.format.roomCount", { count: apt.rooms }) : t("apartmentDetail.privateRoom"),
+            currency: CURRENCY,
+            rent: apt.rent,
             })}</Text>
             <Text style={styles.descText}>{t("apartmentDetail.descriptionRules", {
-              utilitiesText: apt.tags.includes("bills_included") ? t("apartmentDetail.utilitiesIncluded") : t("apartmentDetail.utilitiesSeparate"),
+            utilitiesText: apt.tags.includes("bills_included") ? t("apartmentDetail.utilitiesIncluded") : t("apartmentDetail.utilitiesSeparate"),
             })}</Text>
-            {apt.tags.length > 0 && (
-              <View style={styles.tagRow}>
-                {apt.tags.map((t) => (
-                  <View key={t} style={styles.tag}>
-                    <Text style={styles.tagText}>{translateApartmentTag(t)}</Text>
-                  </View>
-                ))}
-              </View>
-            )}
+    {apt.tags.length > 0 && (
+      <View style={styles.tagRow}>
+        {apt.tags.map((t) => (
+          <View key={t} style={styles.tag}>
+            <Text style={styles.tagText}>{translateApartmentTag(t)}</Text>
           </View>
+        ))}
+      </View>
+    )}
+  </View>
         </View>
       </ScrollView>
 
