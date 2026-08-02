@@ -77,14 +77,29 @@ async function syncUserDocument(
       : typeof existingData?.needsProfileSetup === "boolean"
         ? existingData.needsProfileSetup
         : !userSnap.exists();
-  const resolvedName = options.name ?? firebaseUser.displayName ?? null;
-  const resolvedEmail = options.email ?? firebaseUser.email ?? null;
+
+  // 🟢 🛡️ ΔΙΑΤΗΡΗΣΗ ΥΠΑΡΧΟΝΤΩΝ ΣΤΟΙΧΕΙΩΝ
+  // Αν ο χρήστης έχει ήδη ορίσει δικό του όνομα/φωτογραφίες στη βάση, δεν τα πατάμε με του Google Mail
+  const existingPhotos = Array.isArray(existingData?.photos) && existingData.photos.length > 0
+    ? existingData.photos
+    : null;
+  const existingPhotoUrl = (typeof existingData?.photoUrl === "string" && existingData.photoUrl.trim().length > 0)
+    ? existingData.photoUrl
+    : (existingPhotos ? existingPhotos[0] : null);
+  const existingName = (typeof existingData?.name === "string" && existingData.name.trim().length > 0)
+    ? existingData.name
+    : null;
+
+  const resolvedName = existingName ?? options.name ?? firebaseUser.displayName ?? null;
+  const resolvedEmail = options.email ?? firebaseUser.email ?? existingData?.email ?? null;
+  const resolvedPhotos = existingPhotos ?? (firebaseUser.photoURL ? [firebaseUser.photoURL] : []);
+  const resolvedPhotoUrl = existingPhotoUrl ?? firebaseUser.photoURL ?? "";
 
   const payload: Record<string, unknown> = {
     email: resolvedEmail,
     name: resolvedName,
-    photoUrl: firebaseUser.photoURL ?? "",
-    photos: firebaseUser.photoURL ? [firebaseUser.photoURL] : [],
+    photoUrl: resolvedPhotoUrl,
+    photos: resolvedPhotos,
     authProvider: firebaseUser.providerData?.[0]?.providerId ?? "password",
     needsProfileSetup: resolvedNeedsProfileSetup,
     lastLoginAt: serverTimestamp(),
@@ -101,7 +116,7 @@ async function syncUserDocument(
       about: "",
       city: null,
       has_place: false,
-        already_have_apartment_to_share: false,
+      already_have_apartment_to_share: false,
       looking_for_apartment: false,
       year_of_study: null,
       budget: null,
@@ -110,6 +125,7 @@ async function syncUserDocument(
       facebook: "",
       linkedin: "",
       twitter: "",
+      is_visible: true, // 🟢 Προεπιλεγμένη ορατότητα για νέους χρήστες
       createdAt: serverTimestamp(),
     });
   }

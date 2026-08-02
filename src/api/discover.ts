@@ -115,9 +115,11 @@ async function getPotentialCandidateRecords(userId: string, currentCity?: string
     const uid = u.id;
     if (!uid || uid === userId || swipedTo.has(uid) || chattedWith.has(uid) || likedYou.has(uid)) return;
 
-    const data = u.data() as FirestoreUserDoc & { privacy?: { is_visible?: boolean } };
+    // 🟢 Ενημερωμένος τύπος με υποστήριξη για is_visible στη ρίζα του user document
+    const data = u.data() as FirestoreUserDoc & { is_visible?: boolean; privacy?: { is_visible?: boolean } };
     
-    if (data.privacy?.is_visible === false) return;
+    // 🟢 Έλεγχος αν η ορατότητα είναι απενεργοποιημένη
+    if (data.is_visible === false || data.privacy?.is_visible === false) return;
 
     const candidate = normalizeCandidate(uid, data);
     if (candidate.deleted) return;

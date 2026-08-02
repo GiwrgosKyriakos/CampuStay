@@ -116,14 +116,25 @@ export async function saveUserNotifications(userId: string, notifications: Notif
 }
 
 export async function saveUserPrivacy(userId: string, privacy: PrivacyPreferences): Promise<UserSettings> {
-  // 🟢 Αποθήκευση αποκλειστικά στη συλλογή "settings"
   const settingsRef = doc(db, "settings", userId);
+  const userRef = doc(db, "users", userId); // 🟢 Προσθήκη αναφοράς στο document του χρήστη
   const normPrivacy = normalizePrivacy(privacy);
 
+  // 1. Αποθήκευση στη συλλογή "settings"
   await setDoc(
     settingsRef,
     {
       privacy: normPrivacy,
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true },
+  );
+
+  // 2. 🟢 Ενημέρωση του flag is_visible στη συλλογή "users" για άμεσο φιλτράρισμα στο discover
+  await setDoc(
+    userRef,
+    {
+      is_visible: normPrivacy.is_visible,
       updatedAt: serverTimestamp(),
     },
     { merge: true },
