@@ -32,6 +32,7 @@ const CONTACT_EMAIL = "landlord@example.com";
 interface Apartment {
   id: string;
   title: string;
+  about?: string; 
   description?: string; // 🟢 Νέο πεδίο
   area: string;
   city: string;
@@ -348,7 +349,7 @@ React.useEffect(() => {
         <View style={styles.infoBlock}>
           <View style={styles.titleRow}>
             <Text style={styles.aptTitle}>
-              {t("createListing.listingTitle", { area: apt.area })}
+              {apt.title || t("createListing.listingTitle", { area: apt.area })}
             </Text>
             {isListingOwner ? (
               <Pressable
@@ -416,27 +417,47 @@ React.useEffect(() => {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t("apartmentDetail.aboutTitle")}</Text>
           <View style={styles.descBox}>
-            <Text style={styles.descText}>{t("apartmentDetail.descriptionSummary", {
-            size: apt.size,
-            area: apt.area,
-            city: apt.city,
-            roomText: apt.rooms > 1 ? t("common.format.roomCount", { count: apt.rooms }) : t("apartmentDetail.privateRoom"),
-            currency: CURRENCY,
-            rent: apt.rent,
-            })}</Text>
-            <Text style={styles.descText}>{t("apartmentDetail.descriptionRules", {
-            utilitiesText: apt.tags.includes("bills_included") ? t("apartmentDetail.utilitiesIncluded") : t("apartmentDetail.utilitiesSeparate"),
-            })}</Text>
-    {apt.tags.length > 0 && (
-      <View style={styles.tagRow}>
-        {apt.tags.map((t) => (
-          <View key={t} style={styles.tag}>
-            <Text style={styles.tagText}>{translateApartmentTag(t)}</Text>
+            {/* Αν υπάρχει κείμενο στο πεδίο description ή about της βάσης, εμφάνισέ το */}
+            {apt.description || (apt as any).about ? (
+              <Text style={styles.descText}>
+                {apt.description || (apt as any).about}
+              </Text>
+            ) : (
+              /* Αλλιώς, κράτα την αυτόματη προεπιλεγμένη σύνοψη */
+              <>
+                <Text style={styles.descText}>
+                  {t("apartmentDetail.descriptionSummary", {
+                    size: apt.size,
+                    area: apt.area,
+                    city: apt.city,
+                    roomText:
+                      apt.rooms > 1
+                        ? t("common.format.roomCount", { count: apt.rooms })
+                        : t("apartmentDetail.privateRoom"),
+                    currency: CURRENCY,
+                    rent: apt.rent,
+                  })}
+                </Text>
+                <Text style={styles.descText}>
+                  {t("apartmentDetail.descriptionRules", {
+                    utilitiesText: apt.tags.includes("bills_included")
+                      ? t("apartmentDetail.utilitiesIncluded")
+                      : t("apartmentDetail.utilitiesSeparate"),
+                  })}
+                </Text>
+              </>
+            )}
+
+            {apt.tags.length > 0 && (
+              <View style={styles.tagRow}>
+                {apt.tags.map((t) => (
+                  <View key={t} style={styles.tag}>
+                    <Text style={styles.tagText}>{translateApartmentTag(t)}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
           </View>
-        ))}
-      </View>
-    )}
-  </View>
         </View>
       </ScrollView>
 
