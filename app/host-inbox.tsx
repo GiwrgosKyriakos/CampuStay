@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import React, { useEffect, useMemo, useState } from "react";
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -69,6 +69,13 @@ function toMillis(value: unknown): number {
   return 0;
 }
 
+const normalizeText = (text: string): string =>
+  text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+
 export default function HostInboxScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -79,6 +86,19 @@ export default function HostInboxScreen() {
   const [chatToDelete, setChatToDelete] = useState<HostInboxItem | null>(null);
   const [deletingChatId, setDeletingChatId] = useState<string | null>(null);
   const [acceptingChatId, setAcceptingChatId] = useState<string | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const normalizedQuery = useMemo(() => normalizeText(searchQuery), [searchQuery]);
+  const filteredItems = useMemo(() => {
+    if (!normalizedQuery) return items;
+
+    return items.filter((item) => {
+      const normalizedName = normalizeText(item.customerName);
+      const normalizedTitle = normalizeText(item.apartmentTitle);
+      return normalizedName.includes(normalizedQuery) || normalizedTitle.includes(normalizedQuery);
+    });
+  }, [items, normalizedQuery]);
 
   useEffect(() => {
     if (auth.isGuest || !auth.userId) {
@@ -314,7 +334,43 @@ export default function HostInboxScreen() {
           <Text style={styles.title}>{t("host-inbox.title")}</Text>
           <Text style={styles.subtitle}>{t("host-inbox.subtitle")}</Text>
         </View>
+        <Pressable
+          onPress={() => {
+            setSearchOpen((prev) => {
+              const next = !prev;
+              if (!next) setSearchQuery("");
+              return next;
+            });
+          }}
+          style={styles.searchToggleBtn}
+          testID="host-inbox-search-toggle"
+        >
+          <Ionicons name="search-outline" size={20} color={colors.onSurface} />
+        </Pressable>
       </View>
+
+      {searchOpen ? (
+        <View style={styles.searchBarWrap}>
+          <View style={styles.searchBar}>
+            <Ionicons name="search-outline" size={18} color={colors.onSurfaceTertiary} />
+            <TextInput
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder="Αναζήτηση με όνομα ή τίτλο..."
+              placeholderTextColor={colors.onSurfaceTertiary}
+              style={styles.searchInput}
+              autoCorrect={false}
+              autoCapitalize="none"
+              testID="host-inbox-search-input"
+            />
+            {searchQuery.trim().length > 0 ? (
+              <Pressable onPress={() => setSearchQuery("")} style={styles.searchClearBtn} testID="host-inbox-search-clear">
+                <Ionicons name="close" size={16} color={colors.onSurfaceTertiary} />
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
+      ) : null}
 
       {auth.isGuest ? (
         <View style={styles.empty}>
@@ -329,9 +385,17 @@ export default function HostInboxScreen() {
           <Text style={styles.emptyTitle}>{t("host-inbox.emptyTitle")}</Text>
           <Text style={styles.emptySub}>{t("host-inbox.emptySub")}</Text>
         </View>
+      ) : normalizedQuery.length > 0 && filteredItems.length === 0 ? (
+        <View style={styles.empty}>
+          <View style={styles.searchEmptyIconWrap}>
+            <Ionicons name="search-outline" size={30} color={colors.onSurfaceTertiary} />
+          </View>
+          <Text style={styles.emptyTitle}>Δεν βρέθηκαν αποτελέσματα</Text>
+          <Text style={styles.emptySub}>Δοκιμάστε διαφορετικούς όρους αναζήτησης</Text>
+        </View>
       ) : (
         <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
-          {items.map((item) => {
+          {filteredItems.map((item) => {
             
             // 🎯 ΔΙΟΡΘΩΣΗ: Δυναμική αλλαγή ονόματος και avatar βάσει block state
             let customerName = item.customerName;
@@ -511,8 +575,47 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   headerCopy: { flex: 1, gap: 2 },
+  searchToggleBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
   title: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface },
   subtitle: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary },
+  searchBarWrap: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.sm,
+  },
+  searchBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceSecondary,
+    paddingHorizontal: spacing.md,
+    minHeight: 44,
+  },
+  searchInput: {
+    flex: 1,
+    color: colors.onSurface,
+    fontFamily: fonts.regular,
+    fontSize: fontSize.base,
+    paddingVertical: 0,
+  },
+  searchClearBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   list: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.xl },
   row: {
     position: "relative",
@@ -611,6 +714,16 @@ const styles = StyleSheet.create({
   empty: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.xl, gap: spacing.sm },
   emptyTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize.xl, color: colors.onSurface, textAlign: "center" },
   emptySub: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary, textAlign: "center" },
+  searchEmptyIconWrap: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
   confirmModalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.45)",

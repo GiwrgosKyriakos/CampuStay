@@ -1,5 +1,6 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Dimensions,
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -14,7 +15,20 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Linking from "expo-linking";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { doc, getDoc } from "firebase/firestore";
+import {
+  arrayUnion,
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+  updateDoc,
+  where,
+} from "firebase/firestore";
 
 import { colors, fonts, fontSize, radius, spacing } from "@/src/theme";
 import { useAuth } from "@/src/context/auth";
@@ -22,6 +36,7 @@ import { getOrCreateHostChat } from "@/src/api/chat";
 import { subscribeUserLikedApartmentIds, toggleApartmentLike } from "@/src/api/apartmentLikes";
 import { deleteListingPermanently } from "@/src/api/listings";
 import CenteredActionModal from "@/src/components/CenteredActionModal";
+import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import ApartmentLocationMap from "@/src/components/ApartmentLocationMap";
 import { t } from "@/src/locales";
 import { db } from "@/src/config/firebase";
@@ -31,11 +46,25 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const CURRENCY = "€";
 const CONTACT_EMAIL = "landlord@example.com";
 
+type TimestampLike = {
+  toMillis?: () => number;
+};
+
+type InquiryItem = {
+  id: string;
+  customerId: string;
+  customerName: string;
+  customerAvatar: string;
+  chatRoomId: string;
+  lastMessageText: string;
+  sortKey: number;
+};
+
 interface Apartment {
   id: string;
   title: string;
-  about?: string; 
-  description?: string; // 🟢 Νέο πεδίο
+  about?: string;
+  description?: string;
   area: string;
   city: string;
   address?: string;
@@ -52,12 +81,42 @@ interface Apartment {
 }
 
 interface FirestoreApartmentDoc {
+  title?: string;
+  description?: string;
+  about?: string;
+  area?: string;
+  city?: string;
+  rent?: number;
+  price?: number;
+  rooms?: number;
+  size?: number;
+  sqft?: number;
+  image?: string;
+  imageUrl?: string;
+  images?: string[];
+  tags?: string[];
+  amenities?: string[];
   hostId?: string;
   ownerId?: string;
   address?: string;
   latitude?: number;
   longitude?: number;
   hasExactLocation?: boolean;
+}
+
+interface FirestoreInquiryChatDoc {
+  users?: string[];
+  deletedBy?: string[];
+  apartmentId?: string;
+  lastMessageTimestamp?: TimestampLike;
+  updatedAt?: TimestampLike;
+  createdAt?: TimestampLike;
+}
+
+interface FirestoreUserDoc {
+  name?: string;
+  photoUrl?: string;
+  photos?: string[];
 }
 
 type AmenityDef = {
@@ -67,20 +126,28 @@ type AmenityDef = {
   tagMatch?: string[];
 };
 
+function toMillis(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (value && typeof value === "object" && typeof (value as TimestampLike).toMillis === "function") {
+    return (value as TimestampLike).toMillis!();
+  }
+  return 0;
+}
+
 function translateApartmentTag(tag: string): string {
   const translated = t(`apartments.tags.${tag}`);
   return translated === `apartments.tags.${tag}` ? tag : translated;
 }
 
 const AMENITIES: AmenityDef[] = [
-  { key: "wifi",     label: "apartmentDetail.amenities.wifi",     icon: "wifi-outline",       tagMatch: ["wifi"] },
-  { key: "ac",       label: "apartmentDetail.amenities.ac",       icon: "snow-outline",       tagMatch: ["ac", "air_conditioning"] },
-  { key: "washer",   label: "apartmentDetail.amenities.washer",   icon: "water-outline",      tagMatch: ["washer", "washing_machine"] },
-  { key: "pet",      label: "apartmentDetail.amenities.pet",      icon: "paw-outline",        tagMatch: ["pet_friendly", "pet"] },
-  { key: "furn",     label: "apartmentDetail.amenities.furn",     icon: "bed-outline",        tagMatch: ["furnished", "furn"] },
-  { key: "balcony",  label: "createListing.amenities.balcony",   icon: "sunny-outline",      tagMatch: ["balcony"] },
-  { key: "parking",  label: "createListing.amenities.parking",   icon: "car-sport-outline",  tagMatch: ["parking"] },
-  { key: "metro",    label: "createListing.amenities.nearMetro", icon: "train-outline",      tagMatch: ["near_metro", "metro"] },
+  { key: "wifi", label: "apartmentDetail.amenities.wifi", icon: "wifi-outline", tagMatch: ["wifi"] },
+  { key: "ac", label: "apartmentDetail.amenities.ac", icon: "snow-outline", tagMatch: ["ac", "air_conditioning"] },
+  { key: "washer", label: "apartmentDetail.amenities.washer", icon: "water-outline", tagMatch: ["washer", "washing_machine"] },
+  { key: "pet", label: "apartmentDetail.amenities.pet", icon: "paw-outline", tagMatch: ["pet_friendly", "pet"] },
+  { key: "furn", label: "apartmentDetail.amenities.furn", icon: "bed-outline", tagMatch: ["furnished", "furn"] },
+  { key: "balcony", label: "createListing.amenities.balcony", icon: "sunny-outline", tagMatch: ["balcony"] },
+  { key: "parking", label: "createListing.amenities.parking", icon: "car-sport-outline", tagMatch: ["parking"] },
+  { key: "metro", label: "createListing.amenities.nearMetro", icon: "train-outline", tagMatch: ["near_metro", "metro"] },
 ];
 
 export default function ApartmentDetailScreen() {
@@ -96,32 +163,180 @@ export default function ApartmentDetailScreen() {
     apt = null;
   }
 
-  const scrollRef = useRef<ScrollView>(null);
+  const carouselRef = useRef<ScrollView>(null);
+  const pageScrollRef = useRef<ScrollView>(null);
+
   const [activePage, setActivePage] = useState(0);
   const [isLiked, setIsLiked] = useState(false);
   const [isDeletingListing, setIsDeletingListing] = useState(false);
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
-  const [actionModal, setActionModal] = useState<{
-    title: string;
-    description: string;
-  } | null>(null);
+  const [actionModal, setActionModal] = useState<{ title: string; description: string } | null>(null);
+
   const [dbImages, setDbImages] = useState<string[]>([]);
   const [realDescription, setRealDescription] = useState<string | null>(null);
   const [realTags, setRealTags] = useState<string[]>([]);
+
+  const [inquiries, setInquiries] = useState<InquiryItem[]>([]);
+  const [loadingInquiries, setLoadingInquiries] = useState(false);
+  const [inquiryToDelete, setInquiryToDelete] = useState<InquiryItem | null>(null);
+  const [deletingInquiryId, setDeletingInquiryId] = useState<string | null>(null);
+  const [inquiriesSectionY, setInquiriesSectionY] = useState<number | null>(null);
+
+  const isListingOwner = useMemo(() => {
+    if (!apt || !auth.userId) return false;
+    return (!!apt.ownerId && apt.ownerId === auth.userId) || (!!apt.hostId && apt.hostId === auth.userId);
+  }, [apt, auth.userId]);
+
   const cityCoordinates = useLocationCoordinates(apt?.city, apt?.area);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (auth.isGuest || !auth.userId || !apt?.id) {
       setIsLiked(false);
       return;
     }
 
     const unsubscribe = subscribeUserLikedApartmentIds(auth.userId, (ids) => {
-      setIsLiked(ids.has(apt.id));
+      setIsLiked(ids.has(apt!.id));
     });
 
     return () => unsubscribe();
   }, [apt?.id, auth.isGuest, auth.userId]);
+
+  useEffect(() => {
+    if (!apt?.id) return;
+
+    let mounted = true;
+
+    void (async () => {
+      try {
+        const docSnap = await getDoc(doc(db, "apartments", apt!.id));
+        if (!docSnap.exists() || !mounted) {
+          if (mounted) setDbImages([]);
+          return;
+        }
+
+        const docData = docSnap.data() as FirestoreApartmentDoc;
+        const imgs = Array.isArray(docData.images)
+          ? docData.images.filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0)
+          : [docData.image || docData.imageUrl].filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0);
+
+        setDbImages(imgs);
+
+        if (docData.description || docData.about) {
+          setRealDescription((docData.description || docData.about || "").trim());
+        }
+
+        const mergedTags = Array.from(
+          new Set([
+            ...(Array.isArray(docData.tags) ? docData.tags : []),
+            ...(Array.isArray(docData.amenities) ? docData.amenities : []),
+          ]),
+        );
+        if (mergedTags.length > 0) {
+          setRealTags(mergedTags.map((tag) => String(tag)));
+        }
+      } catch (error) {
+        console.error("[ApartmentDetail] Error fetching listing details:", error);
+        if (mounted) setDbImages([]);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [apt?.id]);
+
+  useEffect(() => {
+    if (!isListingOwner || !auth.userId || !apt?.id) {
+      setInquiries([]);
+      setLoadingInquiries(false);
+      return;
+    }
+
+    setLoadingInquiries(true);
+    let mounted = true;
+    const currentUid = auth.userId;
+
+    const inquiriesQuery = query(
+      collection(db, "chats"),
+      where("apartmentId", "==", apt.id),
+      where("users", "array-contains", currentUid),
+    );
+
+    const unsubscribe = onSnapshot(
+      inquiriesQuery,
+      (snapshot) => {
+        void (async () => {
+          try {
+            const rows = await Promise.all(
+              snapshot.docs.map(async (chatDoc) => {
+                const chatData = chatDoc.data() as FirestoreInquiryChatDoc;
+                const deletedBy = Array.isArray(chatData.deletedBy) ? chatData.deletedBy : [];
+                if (deletedBy.includes(currentUid)) return null;
+
+                const users = Array.isArray(chatData.users) ? chatData.users : [];
+                const customerId = users.find((uid) => uid !== currentUid) || "";
+                if (!customerId) return null;
+
+                const userSnap = await getDoc(doc(db, "users", customerId));
+                const userData = userSnap.exists() ? (userSnap.data() as FirestoreUserDoc) : null;
+                const photos = Array.isArray(userData?.photos) ? userData.photos : [];
+
+                let lastMessageText = "";
+                try {
+                  const lastMessageSnap = await getDocs(
+                    query(collection(db, "chats", chatDoc.id, "messages"), orderBy("createdAt", "desc"), limit(1)),
+                  );
+
+                  if (!lastMessageSnap.empty) {
+                    const payload = lastMessageSnap.docs[0].data() as { text?: string };
+                    lastMessageText = payload.text?.trim() || "";
+                  }
+                } catch {
+                  lastMessageText = "";
+                }
+
+                return {
+                  id: chatDoc.id,
+                  customerId,
+                  customerName: userData?.name?.trim() || t("common.values.unknown"),
+                  customerAvatar: userData?.photoUrl || photos[0] || "",
+                  chatRoomId: chatDoc.id,
+                  lastMessageText,
+                  sortKey:
+                    toMillis(chatData.lastMessageTimestamp) ||
+                    toMillis(chatData.updatedAt) ||
+                    toMillis(chatData.createdAt),
+                } as InquiryItem;
+              }),
+            );
+
+            if (mounted) {
+              const filtered = rows.filter((row): row is InquiryItem => !!row).sort((a, b) => b.sortKey - a.sortKey);
+              setInquiries(filtered);
+            }
+          } catch (error) {
+            console.error("[ApartmentDetail] Failed to load inquiries:", error);
+            if (mounted) setInquiries([]);
+          } finally {
+            if (mounted) setLoadingInquiries(false);
+          }
+        })();
+      },
+      (error) => {
+        console.error("[ApartmentDetail] Inquiries snapshot error:", error);
+        if (mounted) {
+          setInquiries([]);
+          setLoadingInquiries(false);
+        }
+      },
+    );
+
+    return () => {
+      mounted = false;
+      unsubscribe();
+    };
+  }, [apt?.id, auth.userId, isListingOwner]);
 
   if (!apt) {
     return (
@@ -134,52 +349,12 @@ export default function ApartmentDetailScreen() {
     );
   }
 
-React.useEffect(() => {
-    if (!apt?.id) return;
-    
-    const fetchRealImages = async () => {
-      try {
-        const docSnap = await getDoc(doc(db, "apartments", apt!.id));
-        if (docSnap.exists()) {
-          const docData = docSnap.data();
-          // Παίρνουμε το images array ή εναλλακτικά τη μονή εικόνα image/imageUrl
-          const imgs = Array.isArray(docData.images)
-            ? docData.images.filter((uri: any) => typeof uri === "string" && uri.trim().length > 0)
-            : [docData.image || docData.imageUrl].filter((uri: any) => typeof uri === "string" && uri.trim().length > 0);
-          setDbImages(imgs);
-          // 🟢 Ανάκτηση ζωντανών δεδομένων περιγραφής & παροχών από τη Firestore
-          if (docData.description || docData.about) {
-            setRealDescription(docData.description || docData.about);
-          }
-          const mergedTags = Array.from(new Set([
-            ...(Array.isArray(docData.tags) ? docData.tags : []),
-            ...(Array.isArray(docData.amenities) ? docData.amenities : []),
-          ]));
-          if (mergedTags.length > 0) {
-            setRealTags(mergedTags);
-          }
-        } else {
-          setDbImages([]);
-        }
-      } catch (error) {
-        console.error("[ApartmentDetail] Error fetching listing images:", error);
-        setDbImages([]);
-      }
-    };
+  const activeTags = (realTags.length > 0 ? realTags : [...(apt.tags || []), ...((apt as unknown as { amenities?: string[] }).amenities || [])]).map((entry) =>
+    String(entry).toLowerCase().trim(),
+  );
 
-    void fetchRealImages();
-  }, [apt?.id]);
-
-  // Υπολογισμός ενεργών tags/amenities σε πεζά
-  const activeTags = (
-    realTags.length > 0
-      ? realTags
-      : [...(apt.tags || []), ...((apt as any).amenities || [])]
-  ).map((t) => String(t).toLowerCase().trim());
-
-  // Build an array of images — currently one per listing; slot for future multi-image support.
   const images = (dbImages.length > 0 ? dbImages : [apt.image]).filter(
-    (uri) => typeof uri === "string" && uri.trim().length > 0
+    (uri) => typeof uri === "string" && uri.trim().length > 0,
   );
 
   const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -236,12 +411,8 @@ React.useEffect(() => {
         apartmentId: apt.id,
         apartmentTitle: apt.title,
       });
-      router.push(
-        {
-          pathname: "/chat/[id]",
-          params: { id: hostId, chatRoomId },
-        },
-      );
+
+      router.push({ pathname: "/chat/[id]", params: { id: hostId, chatRoomId } });
     } catch {
       setActionModal({
         title: t("apartmentDetail.chatUnavailableTitle"),
@@ -258,17 +429,14 @@ React.useEffect(() => {
 
     if (!apt?.id) return;
 
-    // 1. Optimistic Update (Ακαριαία αλλαγή στην οθόνη)
-    const wasLiked = isLiked;
-    setIsLiked(!wasLiked);
+    const previous = isLiked;
+    setIsLiked(!previous);
 
     try {
-      // 2. Ενημέρωση στη βάση δεδομένων
-      const nextState = await toggleApartmentLike(auth.userId, apt.id);
-      setIsLiked(nextState);
+      const next = await toggleApartmentLike(auth.userId, apt.id);
+      setIsLiked(next);
     } catch {
-      // 3. Rollback σε περίπτωση σφάλματος & εμφάνιση modal
-      setIsLiked(wasLiked);
+      setIsLiked(previous);
       setActionModal({
         title: t("apartments.likeUpdateTitle"),
         description: t("apartments.likeUpdateMessage"),
@@ -276,18 +444,13 @@ React.useEffect(() => {
     }
   };
 
-  // Έλεγχος αν ο χρήστης είναι ο ιδιοκτήτης, ελέγχοντας τόσο το ownerId όσο και το hostId
-  const isListingOwner =
-    !!auth.userId &&
-    ((!!apt.ownerId && auth.userId === apt.ownerId) ||
-     (!!apt.hostId && auth.userId === apt.hostId));
-  
   const handleEditListing = () => {
     if (!isListingOwner) return;
+
     router.push({
       pathname: "/create-listing",
       params: { mode: "edit", listingId: apt.id },
-    } as any);
+    } as never);
   };
 
   const handleDeleteListing = async () => {
@@ -309,9 +472,45 @@ React.useEffect(() => {
     }
   };
 
+  const handleScrollToInquiries = () => {
+    if (inquiriesSectionY == null) return;
+    pageScrollRef.current?.scrollTo({ y: Math.max(0, inquiriesSectionY - spacing.lg), animated: true });
+  };
+
+  const handleOpenInquiry = (item: InquiryItem) => {
+    router.push({ pathname: "/chat/[id]", params: { id: item.customerId, chatRoomId: item.chatRoomId } });
+  };
+
+  const handleConfirmDeleteInquiry = async () => {
+    if (!auth.userId || !inquiryToDelete) return;
+
+    const item = inquiryToDelete;
+    setInquiryToDelete(null);
+    setDeletingInquiryId(item.id);
+    setInquiries((current) => current.filter((entry) => entry.id !== item.id));
+
+    try {
+      await updateDoc(doc(db, "chats", item.chatRoomId), {
+        deletedBy: arrayUnion(auth.userId),
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      console.error("[ApartmentDetail] Failed to delete inquiry chat:", error);
+      setInquiries((current) => {
+        if (current.some((entry) => entry.id === item.id)) return current;
+        return [item, ...current].sort((a, b) => b.sortKey - a.sortKey);
+      });
+      setActionModal({
+        title: t("common.messages.tryAgain"),
+        description: t("apartmentDetail.deleteChatFailedMessage"),
+      });
+    } finally {
+      setDeletingInquiryId(null);
+    }
+  };
+
   return (
     <View style={styles.container}>
-      {/* ── Back button overlay ── */}
       <Pressable
         style={[styles.backOverlay, { top: insets.top + spacing.sm }]}
         onPress={() => router.back()}
@@ -322,16 +521,16 @@ React.useEffect(() => {
       </Pressable>
 
       <ScrollView
+        ref={pageScrollRef}
         style={styles.scroll}
         contentContainerStyle={{ paddingBottom: 100 + insets.bottom }}
         showsVerticalScrollIndicator={false}
       >
-        {/* ── Image Carousel / Fallback Placeholder ── */}
         <View style={[styles.carouselWrap, images.length === 0 && styles.carouselWrapPlaceholder]}>
           {images.length > 0 ? (
             <>
               <ScrollView
-                ref={scrollRef}
+                ref={carouselRef}
                 horizontal
                 pagingEnabled
                 showsHorizontalScrollIndicator={false}
@@ -339,21 +538,15 @@ React.useEffect(() => {
                 scrollEventThrottle={16}
                 testID="apartment-detail-carousel"
               >
-                {images.map((uri, i) => (
-                  <Image
-                    key={i}
-                    source={{ uri }}
-                    style={styles.carouselImage}
-                    contentFit="cover"
-                    transition={200}
-                  />
+                {images.map((uri, index) => (
+                  <Image key={`${uri}-${index}`} source={{ uri }} style={styles.carouselImage} contentFit="cover" transition={200} />
                 ))}
               </ScrollView>
 
               {images.length > 1 && (
                 <View style={styles.dotRow}>
-                  {images.map((_, i) => (
-                    <View key={i} style={[styles.dot, i === activePage && styles.dotActive]} />
+                  {images.map((_, index) => (
+                    <View key={`dot-${index}`} style={[styles.dot, index === activePage && styles.dotActive]} />
                   ))}
                 </View>
               )}
@@ -364,28 +557,53 @@ React.useEffect(() => {
                 <Ionicons name="images-outline" size={44} color={colors.brand} style={styles.placeholderSubIcon} />
               </View>
               <Text style={styles.placeholderText}>CampuStay</Text>
-              <Text style={styles.placeholderSubText}>
-                {t("apartmentDetail.noPhotosAvailable") || "Δεν υπάρχει διαθέσιμη φωτογραφία αγγελίας"}
-              </Text>
+              <Text style={styles.placeholderSubText}>{t("apartmentDetail.noPhotosAvailable")}</Text>
             </View>
           )}
 
-          {/* Rent badge overlaid on carousel */}
           <View style={styles.rentBadge}>
-            <Text style={styles.rentValue}>
-              {CURRENCY}{apt.rent}
-            </Text>
+            <Text style={styles.rentValue}>{CURRENCY}{apt.rent}</Text>
             <Text style={styles.rentPer}>{t("common.format.perMonthShort")}</Text>
           </View>
         </View>
 
-        {/* ── Main Info Block ── */}
+        <View style={styles.infoBlock}>
+          <View style={styles.titleRow}>
+            <Text style={styles.aptTitle}>{apt.title || t("createListing.listingTitle", { area: apt.area })}</Text>
+
+            {isListingOwner ? (
+              <View style={styles.titleActions}>
+                <Pressable
+                  style={styles.titleActionBtn}
+                  onPress={handleScrollToInquiries}
+                  testID={`apartment-detail-inquiries-btn-${apt.id}`}
+                >
+                  <Ionicons name="chatbubbles-outline" size={18} color={colors.onSurface} />
+                </Pressable>
+                <Pressable
+                  style={styles.titleActionBtn}
+                  onPress={() => setDeleteModalVisible(true)}
+                  testID={`apartment-detail-delete-${apt.id}`}
+                >
+                  <Ionicons name="trash-outline" size={20} color={colors.onSurface} />
+                </Pressable>
+              </View>
+            ) : (
+              <Pressable
+                style={[styles.likeBtn, isLiked && styles.likeBtnActive]}
+                onPress={handleToggleLike}
+                testID={`apartment-detail-like-${apt.id}`}
+              >
+                <Ionicons name={isLiked ? "heart" : "heart-outline"} size={20} color={isLiked ? "#FFFFFF" : colors.onSurface} />
+              </Pressable>
             )}
           </View>
+
           <View style={styles.locRow}>
             <Ionicons name="location-outline" size={16} color={colors.onSurfaceTertiary} />
             <Text style={styles.locText}>{apt.area}, {apt.city}</Text>
           </View>
+
           <View style={styles.statsRow}>
             <View style={styles.statPill}>
               <Ionicons name="home-outline" size={14} color={colors.onBrandTertiary} />
@@ -398,76 +616,88 @@ React.useEffect(() => {
           </View>
         </View>
 
-        {/* ── Amenities Grid ── */}
+        {isListingOwner ? (
+          <View
+            style={styles.section}
+            onLayout={(event) => setInquiriesSectionY(event.nativeEvent.layout.y)}
+            testID="apartment-detail-inquiries-section"
+          >
+            <Text style={styles.sectionTitle}>{t("apartmentDetail.inquiriesTitle")}</Text>
+
+            <View style={styles.inquiriesList}>
+              {loadingInquiries ? (
+                <View style={styles.inquiriesEmptyState}>
+                  <ActivityIndicator size="small" color={colors.brandSecondary} />
+                </View>
+              ) : inquiries.length ? (
+                inquiries.map((item) => (
+                  <Pressable key={item.id} style={styles.inquiryCard} onPress={() => handleOpenInquiry(item)}>
+                    <View style={styles.inquiryAvatarWrap}>
+                      {item.customerAvatar ? (
+                        <Image source={{ uri: item.customerAvatar }} style={styles.inquiryAvatarImage} contentFit="cover" />
+                      ) : (
+                        <DefaultProfileAvatar size={50} iconSize={22} />
+                      )}
+                    </View>
+
+                    <View style={styles.inquiryContent}>
+                      <Text style={styles.inquiryName} numberOfLines={1}>{item.customerName}</Text>
+                      <Text style={styles.inquiryPreview} numberOfLines={2}>
+                        {item.lastMessageText || t("common.values.notAvailable")}
+                      </Text>
+                    </View>
+
+                    <Pressable
+                      style={styles.inquiryDeleteBtn}
+                      onPress={(event) => {
+                        event.stopPropagation();
+                        setInquiryToDelete(item);
+                      }}
+                      hitSlop={8}
+                      disabled={deletingInquiryId === item.id}
+                    >
+                      <Ionicons name="trash-outline" size={18} color={colors.error} />
+                    </Pressable>
+                  </Pressable>
+                ))
+              ) : (
+                <View style={styles.inquiriesEmptyState}>
+                  <Text style={styles.inquiriesEmptyText}>{t("apartmentDetail.inquiriesEmpty")}</Text>
+                </View>
+              )}
+            </View>
+          </View>
+        ) : null}
+
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t("apartmentDetail.amenitiesTitle")}</Text>
           <View style={styles.amenitiesGrid}>
-            {AMENITIES.map((a) => {
-              const active = a.tagMatch
-                ? a.tagMatch.some((match) => activeTags.includes(match.toLowerCase()))
-                : false;
-              return (
-                <View
-                  key={a.key}
-                  style={[styles.amenityCell, active && styles.amenityCellActive]}
-                  testID={`amenity-${a.key}`}
-                >
-                  <Ionicons
-                    name={a.icon}
+            {AMENITIES.map((amenity) => {
+              const active = amenity.tagMatch ? amenity.tagMatch.some((entry) => activeTags.includes(entry.toLowerCase())) : false;
 
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>{t("common.labels.location")}</Text>
-              <ApartmentLocationMap
-                latitude={apt.latitude}
-                longitude={apt.longitude}
-                cityCoordinates={getCityCoordinates(apt.city)}
-                hasExactLocation={apt.hasExactLocation === true}
-                height={300}
-              />
-              <View style={styles.locationMetaRow}>
-                <Ionicons
-                  name={apt.hasExactLocation ? "location-sharp" : "map-outline"}
-                  size={16}
-                  color={colors.onSurfaceTertiary}
-                />
-                <Text style={styles.locationMetaText} numberOfLines={2}>
-                  {apt.hasExactLocation && apt.address ? apt.address : `${apt.area}, ${apt.city}`}
-                </Text>
-              </View>
-            </View>
-                    size={22}
-                    color={active ? colors.onBrandTertiary : colors.onSurfaceTertiary}
-                  />
-                  <Text style={[styles.amenityLabel, active && styles.amenityLabelActive]}>
-                    {t(a.label)}
-                  </Text>
+              return (
+                <View key={amenity.key} style={[styles.amenityCell, active && styles.amenityCellActive]} testID={`amenity-${amenity.key}`}>
+                  <Ionicons name={amenity.icon} size={22} color={active ? colors.onBrandTertiary : colors.onSurfaceTertiary} />
+                  <Text style={[styles.amenityLabel, active && styles.amenityLabelActive]}>{t(amenity.label)}</Text>
                 </View>
               );
             })}
           </View>
         </View>
 
-        {/* ── Description Box ── */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t("apartmentDetail.aboutTitle")}</Text>
           <View style={styles.descBox}>
-            {/* Αν υπάρχει κείμενο στο πεδίο description ή about της βάσης, εμφάνισέ το */}
-            {apt.description || (apt as any).about ? (
-              <Text style={styles.descText}>
-                {realDescription || apt.description || (apt as any).about}
-              </Text>
+            {apt.description || (apt as unknown as { about?: string }).about ? (
+              <Text style={styles.descText}>{realDescription || apt.description || (apt as unknown as { about?: string }).about}</Text>
             ) : (
-              /* Αλλιώς, κράτα την αυτόματη προεπιλεγμένη σύνοψη */
               <>
                 <Text style={styles.descText}>
                   {t("apartmentDetail.descriptionSummary", {
                     size: apt.size,
                     area: apt.area,
                     city: apt.city,
-                    roomText:
-                      apt.rooms > 1
-                        ? t("common.format.roomCount", { count: apt.rooms })
-                        : t("apartmentDetail.privateRoom"),
+                    roomText: apt.rooms > 1 ? t("common.format.roomCount", { count: apt.rooms }) : t("apartmentDetail.privateRoom"),
                     currency: CURRENCY,
                     rent: apt.rent,
                   })}
@@ -482,15 +712,15 @@ React.useEffect(() => {
               </>
             )}
 
-            {apt.tags.length > 0 && (
+            {apt.tags.length > 0 ? (
               <View style={styles.tagRow}>
-                {apt.tags.map((t) => (
-                  <View key={t} style={styles.tag}>
-                    <Text style={styles.tagText}>{translateApartmentTag(t)}</Text>
+                {apt.tags.map((tag) => (
+                  <View key={tag} style={styles.tag}>
+                    <Text style={styles.tagText}>{translateApartmentTag(tag)}</Text>
                   </View>
                 ))}
               </View>
-            )}
+            ) : null}
           </View>
         </View>
 
@@ -516,7 +746,6 @@ React.useEffect(() => {
         </View>
       </ScrollView>
 
-      {/* ── Floating Contact Button ── */}
       <View style={[styles.footer, { paddingBottom: spacing.lg + insets.bottom }]}>
         <Pressable
           style={({ pressed }) => [styles.contactBtn, pressed && styles.contactBtnPressed]}
@@ -568,6 +797,33 @@ React.useEffect(() => {
       />
 
       <CenteredActionModal
+        visible={!!inquiryToDelete}
+        title={t("apartmentDetail.deleteChatTitle")}
+        description={t("apartmentDetail.deleteChatMessage")}
+        onDismiss={() => {
+          if (!deletingInquiryId) setInquiryToDelete(null);
+        }}
+        actionsLayout="horizontal"
+        actions={[
+          {
+            label: t("common.actions.cancel"),
+            variant: "muted",
+            iconName: "close-outline",
+            onPress: () => setInquiryToDelete(null),
+          },
+          {
+            label: t("common.actions.delete"),
+            variant: "danger",
+            iconName: "trash-outline",
+            onPress: () => {
+              void handleConfirmDeleteInquiry();
+            },
+          },
+        ]}
+        testID="apartment-detail-delete-chat-modal"
+      />
+
+      <CenteredActionModal
         visible={!!actionModal}
         title={actionModal?.title ?? ""}
         description={actionModal?.description}
@@ -590,7 +846,6 @@ const styles = StyleSheet.create({
   center: { alignItems: "center", justifyContent: "center", gap: spacing.md },
   scroll: { flex: 1 },
 
-  /* Back overlay */
   backOverlay: {
     position: "absolute",
     left: spacing.lg,
@@ -610,8 +865,7 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
 
-  /* Carousel & Placeholders */
-  carouselWrap: { 
+  carouselWrap: {
     position: "relative",
     borderBottomWidth: 1.5,
     borderColor: colors.border,
@@ -634,9 +888,6 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     justifyContent: "center",
     marginBottom: spacing.xs,
-  },
-  placeholderLogoIcon: {
-    marginRight: -12,
   },
   placeholderSubIcon: {
     backgroundColor: colors.surface,
@@ -698,7 +949,6 @@ const styles = StyleSheet.create({
     marginLeft: 2,
   },
 
-  /* Info block */
   infoBlock: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
@@ -717,6 +967,21 @@ const styles = StyleSheet.create({
     fontSize: fontSize["2xl"],
     color: colors.onSurface,
     lineHeight: 30,
+  },
+  titleActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  titleActionBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   likeBtn: {
     width: 42,
@@ -750,20 +1015,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
   },
   statText: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onBrandTertiary },
-  locationMetaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.xs,
-    paddingHorizontal: spacing.xs,
-  },
-  locationMetaText: {
-    flex: 1,
-    fontFamily: fonts.regular,
-    fontSize: fontSize.sm,
-    color: colors.onSurfaceTertiary,
-  },
 
-  /* Section wrapper */
   section: {
     marginHorizontal: spacing.lg,
     marginTop: spacing.lg,
@@ -775,7 +1027,71 @@ const styles = StyleSheet.create({
     color: colors.onSurface,
   },
 
-  /* Amenities */
+  inquiriesList: {
+    gap: spacing.sm,
+  },
+  inquiriesEmptyState: {
+    minHeight: 78,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceSecondary,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.md,
+  },
+  inquiriesEmptyText: {
+    color: colors.onSurfaceTertiary,
+    fontFamily: fonts.regular,
+    fontSize: fontSize.sm,
+    textAlign: "center",
+  },
+  inquiryCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceSecondary,
+    padding: spacing.sm,
+  },
+  inquiryAvatarWrap: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    overflow: "hidden",
+  },
+  inquiryAvatarImage: {
+    width: "100%",
+    height: "100%",
+  },
+  inquiryContent: {
+    flex: 1,
+    gap: 2,
+  },
+  inquiryName: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.base,
+    color: colors.onSurface,
+  },
+  inquiryPreview: {
+    fontFamily: fonts.regular,
+    fontSize: fontSize.sm,
+    color: colors.onSurfaceTertiary,
+    lineHeight: 18,
+  },
+  inquiryDeleteBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+
   amenitiesGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -794,8 +1110,8 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   amenityCellActive: {
-    borderColor: colors.brand,
     backgroundColor: colors.brandTertiary,
+    borderColor: colors.brand,
   },
   amenityLabel: {
     fontFamily: fonts.semibold,
@@ -803,16 +1119,17 @@ const styles = StyleSheet.create({
     color: colors.onSurfaceTertiary,
     textAlign: "center",
   },
-  amenityLabelActive: { color: colors.onBrandTertiary },
+  amenityLabelActive: {
+    color: colors.onBrandTertiary,
+  },
 
-  /* Description */
   descBox: {
-    backgroundColor: colors.surfaceSecondary,
-    borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: spacing.lg,
-    gap: spacing.md,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceSecondary,
+    padding: spacing.md,
+    gap: spacing.sm,
   },
   descText: {
     fontFamily: fonts.regular,
@@ -820,21 +1137,40 @@ const styles = StyleSheet.create({
     color: colors.onSurface,
     lineHeight: 22,
   },
-  tagRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.xs },
-  tag: {
-    backgroundColor: colors.surfaceTertiary,
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 5,
+  tagRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.xs,
+    marginTop: spacing.xs,
   },
-  tagText: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
+  tag: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    backgroundColor: colors.surface,
+  },
+  tagText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+    color: colors.onSurface,
+  },
 
-  /* Footer CTA */
+  locationMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    paddingHorizontal: spacing.xs,
+  },
+  locationMetaText: {
+    flex: 1,
+    fontFamily: fonts.regular,
+    fontSize: fontSize.sm,
+    color: colors.onSurfaceTertiary,
+  },
+
   footer: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,
     backgroundColor: colors.surface,
@@ -842,34 +1178,41 @@ const styles = StyleSheet.create({
     borderTopColor: colors.divider,
   },
   contactBtn: {
+    minHeight: 56,
+    borderRadius: radius.pill,
+    backgroundColor: colors.brand,
+    borderWidth: 1,
+    borderColor: colors.brandSecondary,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: spacing.sm,
-    backgroundColor: colors.brand,
-    borderRadius: radius.pill,
-    minHeight: 56,
-    shadowColor: "#000",
-    shadowOpacity: 0.22,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
   },
   contactBtnPressed: { opacity: 0.88 },
   contactBtnText: {
     fontFamily: fonts.displayExtra,
     fontSize: fontSize.lg,
     color: colors.onBrand,
-    alignSelf: "center",
   },
 
-  /* Fallback */
-  errorText: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface },
-  backPill: {
-    backgroundColor: colors.brand,
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.md,
-    borderRadius: radius.pill,
+  errorText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.base,
+    color: colors.error,
   },
-  backPillText: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onBrand },
+  backPill: {
+    minHeight: 42,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.lg,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.brandTertiary,
+    borderWidth: 1,
+    borderColor: colors.brandSecondary,
+  },
+  backPillText: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.base,
+    color: colors.brandSecondary,
+  },
 });

@@ -457,6 +457,11 @@
     "deleteListingMessage": "Are you sure you want to delete this listing? This action cannot be undone.",
     "deleteFailedTitle": "Could not delete listing",
     "deleteFailedMessage": "Please try again.",
+    "inquiriesTitle": "Interested Inquiries",
+    "inquiriesEmpty": "No interested inquiries yet.",
+    "deleteChatTitle": "Delete chat",
+    "deleteChatMessage": "Are you sure you want to delete this chat?",
+    "deleteChatFailedMessage": "Could not delete this chat. Please try again.",
     "amenities": {
       "wifi": "Wi-Fi Included",
       "ac": "Air Conditioning",
