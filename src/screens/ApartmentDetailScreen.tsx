@@ -54,7 +54,7 @@ type AmenityDef = {
   key: string;
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
-  tagMatch?: string;
+  tagMatch?: string[];
 };
 
 function translateApartmentTag(tag: string): string {
@@ -63,11 +63,14 @@ function translateApartmentTag(tag: string): string {
 }
 
 const AMENITIES: AmenityDef[] = [
-  { key: "wifi",    label: "apartmentDetail.amenities.wifi",    icon: "wifi-outline",           tagMatch: "wifi" },
-  { key: "ac",      label: "apartmentDetail.amenities.ac",   icon: "snow-outline" },
-  { key: "washer",  label: "apartmentDetail.amenities.washer",    icon: "water-outline" },
-  { key: "pet",     label: "apartmentDetail.amenities.pet",       icon: "paw-outline",            tagMatch: "pet_friendly" },
-  { key: "furn",    label: "apartmentDetail.amenities.furn",          icon: "bed-outline",            tagMatch: "furnished" },
+  { key: "wifi",     label: "apartmentDetail.amenities.wifi",     icon: "wifi-outline",       tagMatch: ["wifi"] },
+  { key: "ac",       label: "apartmentDetail.amenities.ac",       icon: "snow-outline",       tagMatch: ["ac", "air_conditioning"] },
+  { key: "washer",   label: "apartmentDetail.amenities.washer",   icon: "water-outline",      tagMatch: ["washer", "washing_machine"] },
+  { key: "pet",      label: "apartmentDetail.amenities.pet",      icon: "paw-outline",        tagMatch: ["pet_friendly", "pet"] },
+  { key: "furn",     label: "apartmentDetail.amenities.furn",     icon: "bed-outline",        tagMatch: ["furnished", "furn"] },
+  { key: "balcony",  label: "createListing.amenities.balcony",   icon: "sunny-outline",      tagMatch: ["balcony"] },
+  { key: "parking",  label: "createListing.amenities.parking",   icon: "car-sport-outline",  tagMatch: ["parking"] },
+  { key: "metro",    label: "createListing.amenities.nearMetro", icon: "train-outline",      tagMatch: ["near_metro", "metro"] },
 ];
 
 export default function ApartmentDetailScreen() {
@@ -93,6 +96,8 @@ export default function ApartmentDetailScreen() {
     description: string;
   } | null>(null);
   const [dbImages, setDbImages] = useState<string[]>([]);
+  const [realDescription, setRealDescription] = useState<string | null>(null);
+  const [realTags, setRealTags] = useState<string[]>([]);
 
   React.useEffect(() => {
     if (auth.isGuest || !auth.userId || !apt?.id) {
@@ -131,6 +136,17 @@ React.useEffect(() => {
             ? docData.images.filter((uri: any) => typeof uri === "string" && uri.trim().length > 0)
             : [docData.image || docData.imageUrl].filter((uri: any) => typeof uri === "string" && uri.trim().length > 0);
           setDbImages(imgs);
+          // 🟢 Ανάκτηση ζωντανών δεδομένων περιγραφής & παροχών από τη Firestore
+          if (docData.description || docData.about) {
+            setRealDescription(docData.description || docData.about);
+          }
+          const mergedTags = Array.from(new Set([
+            ...(Array.isArray(docData.tags) ? docData.tags : []),
+            ...(Array.isArray(docData.amenities) ? docData.amenities : []),
+          ]));
+          if (mergedTags.length > 0) {
+            setRealTags(mergedTags);
+          }
         } else {
           setDbImages([]);
         }
@@ -142,6 +158,13 @@ React.useEffect(() => {
 
     void fetchRealImages();
   }, [apt?.id]);
+
+  // Υπολογισμός ενεργών tags/amenities σε πεζά
+  const activeTags = (
+    realTags.length > 0
+      ? realTags
+      : [...(apt.tags || []), ...((apt as any).amenities || [])]
+  ).map((t) => String(t).toLowerCase().trim());
 
   // Build an array of images — currently one per listing; slot for future multi-image support.
   const images = (dbImages.length > 0 ? dbImages : [apt.image]).filter(
@@ -391,7 +414,7 @@ React.useEffect(() => {
           <View style={styles.amenitiesGrid}>
             {AMENITIES.map((a) => {
               const active = a.tagMatch
-                ? apt!.tags.some((t) => t.toLowerCase() === a.tagMatch!.toLowerCase())
+                ? a.tagMatch.some((match) => activeTags.includes(match.toLowerCase()))
                 : false;
               return (
                 <View
@@ -420,7 +443,7 @@ React.useEffect(() => {
             {/* Αν υπάρχει κείμενο στο πεδίο description ή about της βάσης, εμφάνισέ το */}
             {apt.description || (apt as any).about ? (
               <Text style={styles.descText}>
-                {apt.description || (apt as any).about}
+                {realDescription || apt.description || (apt as any).about}
               </Text>
             ) : (
               /* Αλλιώς, κράτα την αυτόματη προεπιλεγμένη σύνοψη */

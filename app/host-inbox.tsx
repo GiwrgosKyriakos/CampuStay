@@ -363,7 +363,7 @@ export default function HostInboxScreen() {
                 onPress={() => handleOpenChat(item)}
                 onLongPress={() => setActiveContextChatId(item.id)}
                 delayLongPress={350}
-                disabled={isPending || item.isBlocker || item.isBlocked}
+                disabled={isPending}
               >
                 {activeContextChatId === item.id ? (
                   <View style={styles.contextTooltip}>

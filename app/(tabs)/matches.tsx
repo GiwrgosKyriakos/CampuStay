@@ -329,7 +329,7 @@ export default function MatchesScreen() {
                 chatType,
               });
             }
-            return isVisibleForTab;
+            return isVisibleForTab && !deletedBy.includes(uid);
           });
 
           Object.entries(messageUnsubsRef.current).forEach(([chatId, off]) => {
@@ -587,8 +587,18 @@ export default function MatchesScreen() {
   if (!currentUserId || !profile.chatRoomId) return;
   setDeletingChatId(profile.chatRoomId);
   try {
-      await deleteDoc(doc(db, "chats", profile.chatRoomId));
+    // 🟢 Χρησιμοποιούμε arrayUnion στο deletedBy αντί για deleteDoc
+    await setDoc(
+      doc(db, "chats", profile.chatRoomId),
+      {
+        deletedBy: arrayUnion(currentUserId),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true },
+    );
     setMatches((prev) => prev.filter((item) => item.chatRoomId !== profile.chatRoomId));
+  } catch (err) {
+    console.error("Failed to delete rejected chat:", err);
   } finally {
     setDeletingChatId(null);
   }

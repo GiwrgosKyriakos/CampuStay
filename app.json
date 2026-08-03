@@ -19,6 +19,7 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.gksolutions.campustay",
+      "versionCode": 2,
       "googleServicesFile": "./google-services.json",
       "androidNavigationBar": {
         "backgroundColor": "#00000000"

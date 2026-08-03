@@ -76,6 +76,8 @@ interface FirestoreChatDoc {
 
 interface FirestoreApartmentDoc {
   title?: string;
+  description?: string; 
+  about?: string;       
   area?: string;
   city?: string;
   rent?: number;
@@ -152,13 +154,15 @@ function buildApartmentRoutePayload(apartmentId: string, data: FirestoreApartmen
   return {
     id: apartmentId,
     title: data.title?.trim() || fallbackTitle || t("apartments.unknownListing"),
+    description: data.description?.trim() || data.about?.trim() || "",
+    about: data.about?.trim() || data.description?.trim() || "",
     area: data.area?.trim() || t("apartments.unknownArea"),
     city: data.city?.trim() || t("apartments.unknownCity"),
     rent: typeof data.rent === "number" ? data.rent : typeof data.price === "number" ? data.price : 0,
     rooms: typeof data.rooms === "number" ? data.rooms : 1,
     size: typeof data.size === "number" ? data.size : typeof data.sqft === "number" ? data.sqft : 0,
     image:
-      data.image || "",
+    data.image || "",
     tags: tags.length ? tags : [t("apartments.newListing")],
     hostId: data.hostId,
   };
@@ -417,6 +421,8 @@ export default function ChatScreen() {
         setHostApartment({
           id: hostApartmentId,
           title: t("chat.unavailable"),
+          description: "",
+          about: "",
           area: t("apartments.unknownArea"),
           city: t("apartments.unknownCity"),
           rent: 0,
