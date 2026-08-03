@@ -80,6 +80,10 @@ interface FirestoreApartmentDoc {
   about?: string;       
   area?: string;
   city?: string;
+  address?: string;
+  latitude?: number;
+  longitude?: number;
+  hasExactLocation?: boolean;
   rent?: number;
   price?: number;
   rooms?: number;
@@ -158,6 +162,10 @@ function buildApartmentRoutePayload(apartmentId: string, data: FirestoreApartmen
     about: data.about?.trim() || data.description?.trim() || "",
     area: data.area?.trim() || t("apartments.unknownArea"),
     city: data.city?.trim() || t("apartments.unknownCity"),
+    address: data.address?.trim(),
+    latitude: typeof data.latitude === "number" ? data.latitude : undefined,
+    longitude: typeof data.longitude === "number" ? data.longitude : undefined,
+    hasExactLocation: data.hasExactLocation === true,
     rent: typeof data.rent === "number" ? data.rent : typeof data.price === "number" ? data.price : 0,
     rooms: typeof data.rooms === "number" ? data.rooms : 1,
     size: typeof data.size === "number" ? data.size : typeof data.sqft === "number" ? data.sqft : 0,

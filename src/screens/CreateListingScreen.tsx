@@ -20,10 +20,13 @@ import * as ImagePicker from "expo-image-picker";
 import { Image } from "expo-image";
 
 import Dropdown from "@/src/components/Dropdown";
+import AddressAutocompleteInput from "@/src/components/AddressAutocompleteInput";
+import ApartmentLocationMap from "@/src/components/ApartmentLocationMap";
 import CenteredActionModal from "@/src/components/CenteredActionModal";
 import { colors, fonts, fontSize, radius, spacing } from "@/src/theme";
 import { db } from "@/src/config/firebase";
 import { useAuth } from "@/src/context/auth";
+import { useLocationCoordinates } from "@/src/hooks/useLocationCoordinates";
 import { uploadListingImageAsync } from "@/src/api/imageUpload";
 import { upsertListing } from "@/src/api/listings";
 import { t } from "@/src/locales";
@@ -44,6 +47,10 @@ interface FirestoreApartmentDoc {
   about?: string;       // 🟢 Νέο πεδίο
   area?: string;
   city?: string;
+  address?: string;
+  latitude?: number;
+  longitude?: number;
+  hasExactLocation?: boolean;
   rent?: number;
   price?: number;
   size?: number;
@@ -82,6 +89,10 @@ export default function CreateListingScreen() {
   const [monthlyRent, setMonthlyRent] = useState("");
   const [city, setCity] = useState<string | null>(null);
   const [area, setArea] = useState("");
+  const [address, setAddress] = useState("");
+  const [addressLatitude, setAddressLatitude] = useState<number | null>(null);
+  const [addressLongitude, setAddressLongitude] = useState<number | null>(null);
+  const [hasExactLocation, setHasExactLocation] = useState(false);
   const [sizeSqm, setSizeSqm] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [permBlocked, setPermBlocked] = useState(false);
@@ -102,6 +113,7 @@ export default function CreateListingScreen() {
   } | null>(null);
   const [loadingEditData, setLoadingEditData] = useState(false);
   const cityOptions = t("createListing.options.cities") as unknown as string[];
+  const cityCoordinates = useLocationCoordinates(city, area);
 
   const selectedAmenities = useMemo(
     () => AMENITIES.filter((item) => amenities[item.key]).map((item) => t(item.label)),
@@ -164,6 +176,10 @@ export default function CreateListingScreen() {
         setMonthlyRent(mappedRent > 0 ? String(mappedRent) : "");
         setCity(data.city ?? null);
         setArea(data.area ?? "");
+        setAddress(data.address ?? "");
+        setAddressLatitude(typeof data.latitude === "number" ? data.latitude : null);
+        setAddressLongitude(typeof data.longitude === "number" ? data.longitude : null);
+        setHasExactLocation(data.hasExactLocation === true);
         setSizeSqm(mappedSize > 0 ? String(mappedSize) : "");
         setTitle(data.title ?? "");
         setDescription(data.description ?? data.about ?? "");
@@ -289,13 +305,19 @@ export default function CreateListingScreen() {
       const defaultTitle = t("createListing.listingTitle", { area: area.trim() });
       const finalTitle = title.trim() || defaultTitle;
       const finalDescription = description.trim();
+      const finalAddress = address.trim();
+      const exactAddressSelected = hasExactLocation && finalAddress.length > 0 && addressLatitude !== null && addressLongitude !== null;
 
-      const data = {
+      const data: Record<string, unknown> = {
         title: finalTitle,
         description: finalDescription,
         about: finalDescription, // Για backward compatibility
         area: area.trim(),
         city,
+        address: finalAddress.length > 0 ? finalAddress : undefined,
+        latitude: exactAddressSelected ? addressLatitude : undefined,
+        longitude: exactAddressSelected ? addressLongitude : undefined,
+        hasExactLocation: exactAddressSelected,
         rent: Number(monthlyRent),
         price: Number(monthlyRent),
         rooms: 1,
@@ -411,6 +433,20 @@ export default function CreateListingScreen() {
           </View>
 
           <View style={styles.card}>
+            <Text style={styles.sectionTitle}>{t("createListing.size")}</Text>
+            <TextInput
+              value={sizeSqm}
+              onChangeText={(t) => setSizeSqm(t.replace(/[^0-9]/g, ""))}
+              placeholder={t("createListing.sizePlaceholder")}
+              placeholderTextColor={colors.onSurfaceTertiary}
+              keyboardType="number-pad"
+              maxLength={4}
+              style={styles.input}
+              testID="create-listing-size-input"
+            />
+          </View>
+
+          <View style={styles.card}>
             <Text style={styles.sectionTitle}>{t("createListing.location")}</Text>
             <Dropdown
               value={city}
@@ -427,20 +463,35 @@ export default function CreateListingScreen() {
               style={[styles.input, styles.mtSm]}
               testID="create-listing-area-input"
             />
-          </View>
-
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>{t("createListing.size")}</Text>
-            <TextInput
-              value={sizeSqm}
-              onChangeText={(t) => setSizeSqm(t.replace(/[^0-9]/g, ""))}
-              placeholder={t("createListing.sizePlaceholder")}
-              placeholderTextColor={colors.onSurfaceTertiary}
-              keyboardType="number-pad"
-              maxLength={4}
-              style={styles.input}
-              testID="create-listing-size-input"
+            <AddressAutocompleteInput
+              value={address}
+              city={city}
+              area={area}
+              placeholder="Οδός, αριθμός, περιοχή (προαιρετικό)"
+              onChangeAddressText={(text) => {
+                setAddress(text);
+                setAddressLatitude(null);
+                setAddressLongitude(null);
+                setHasExactLocation(false);
+              }}
+              onAddressSelect={({ address: selectedAddress, latitude, longitude, hasExactLocation: exact }) => {
+                setAddress(selectedAddress);
+                setAddressLatitude(latitude);
+                setAddressLongitude(longitude);
+                setHasExactLocation(exact);
+              }}
+              testID="create-listing-address-input"
             />
+            <ApartmentLocationMap
+              latitude={addressLatitude ?? undefined}
+              longitude={addressLongitude ?? undefined}
+              cityCoordinates={cityCoordinates}
+              hasExactLocation={hasExactLocation}
+              height={240}
+            />
+            <Text style={styles.fieldHint}>
+              Η ακριβής τοποθεσία αποθηκεύεται μόνο όταν επιλέξεις πρόταση από τη λίστα.
+            </Text>
           </View>
 
           <View style={styles.card}>

@@ -22,8 +22,10 @@ import { getOrCreateHostChat } from "@/src/api/chat";
 import { subscribeUserLikedApartmentIds, toggleApartmentLike } from "@/src/api/apartmentLikes";
 import { deleteListingPermanently } from "@/src/api/listings";
 import CenteredActionModal from "@/src/components/CenteredActionModal";
+import ApartmentLocationMap from "@/src/components/ApartmentLocationMap";
 import { t } from "@/src/locales";
 import { db } from "@/src/config/firebase";
+import { useLocationCoordinates } from "@/src/hooks/useLocationCoordinates";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const CURRENCY = "€";
@@ -36,6 +38,10 @@ interface Apartment {
   description?: string; // 🟢 Νέο πεδίο
   area: string;
   city: string;
+  address?: string;
+  latitude?: number;
+  longitude?: number;
+  hasExactLocation?: boolean;
   rent: number;
   rooms: number;
   size: number;
@@ -48,6 +54,10 @@ interface Apartment {
 interface FirestoreApartmentDoc {
   hostId?: string;
   ownerId?: string;
+  address?: string;
+  latitude?: number;
+  longitude?: number;
+  hasExactLocation?: boolean;
 }
 
 type AmenityDef = {
@@ -98,6 +108,7 @@ export default function ApartmentDetailScreen() {
   const [dbImages, setDbImages] = useState<string[]>([]);
   const [realDescription, setRealDescription] = useState<string | null>(null);
   const [realTags, setRealTags] = useState<string[]>([]);
+  const cityCoordinates = useLocationCoordinates(apt?.city, apt?.area);
 
   React.useEffect(() => {
     if (auth.isGuest || !auth.userId || !apt?.id) {
@@ -369,27 +380,6 @@ React.useEffect(() => {
         </View>
 
         {/* ── Main Info Block ── */}
-        <View style={styles.infoBlock}>
-          <View style={styles.titleRow}>
-            <Text style={styles.aptTitle}>
-              {apt.title || t("createListing.listingTitle", { area: apt.area })}
-            </Text>
-            {isListingOwner ? (
-              <Pressable
-                style={styles.likeBtn}
-                onPress={() => setDeleteModalVisible(true)}
-                testID={`apartment-detail-delete-${apt.id}`}
-              >
-                <Ionicons name="trash-outline" size={20} color={colors.onSurface} />
-              </Pressable>
-            ) : (
-              <Pressable
-                style={[styles.likeBtn, isLiked && styles.likeBtnActive]}
-                onPress={handleToggleLike}
-                testID={`apartment-detail-like-${apt.id}`}
-              >
-                <Ionicons name={isLiked ? "heart" : "heart-outline"} size={20} color={isLiked ? "#FFFFFF" : colors.onSurface} />
-              </Pressable>
             )}
           </View>
           <View style={styles.locRow}>
@@ -424,6 +414,27 @@ React.useEffect(() => {
                 >
                   <Ionicons
                     name={a.icon}
+
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>{t("common.labels.location")}</Text>
+              <ApartmentLocationMap
+                latitude={apt.latitude}
+                longitude={apt.longitude}
+                cityCoordinates={getCityCoordinates(apt.city)}
+                hasExactLocation={apt.hasExactLocation === true}
+                height={300}
+              />
+              <View style={styles.locationMetaRow}>
+                <Ionicons
+                  name={apt.hasExactLocation ? "location-sharp" : "map-outline"}
+                  size={16}
+                  color={colors.onSurfaceTertiary}
+                />
+                <Text style={styles.locationMetaText} numberOfLines={2}>
+                  {apt.hasExactLocation && apt.address ? apt.address : `${apt.area}, ${apt.city}`}
+                </Text>
+              </View>
+            </View>
                     size={22}
                     color={active ? colors.onBrandTertiary : colors.onSurfaceTertiary}
                   />
@@ -480,6 +491,27 @@ React.useEffect(() => {
                 ))}
               </View>
             )}
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>{t("common.labels.location")}</Text>
+          <ApartmentLocationMap
+            latitude={apt.latitude}
+            longitude={apt.longitude}
+            cityCoordinates={cityCoordinates}
+            hasExactLocation={apt.hasExactLocation === true}
+            height={300}
+          />
+          <View style={styles.locationMetaRow}>
+            <Ionicons
+              name={apt.hasExactLocation ? "location-sharp" : "map-outline"}
+              size={16}
+              color={colors.onSurfaceTertiary}
+            />
+            <Text style={styles.locationMetaText} numberOfLines={2}>
+              {apt.hasExactLocation && apt.address ? apt.address : `${apt.area}, ${apt.city}`}
+            </Text>
           </View>
         </View>
       </ScrollView>
@@ -718,6 +750,18 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
   },
   statText: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onBrandTertiary },
+  locationMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    paddingHorizontal: spacing.xs,
+  },
+  locationMetaText: {
+    flex: 1,
+    fontFamily: fonts.regular,
+    fontSize: fontSize.sm,
+    color: colors.onSurfaceTertiary,
+  },
 
   /* Section wrapper */
   section: {
