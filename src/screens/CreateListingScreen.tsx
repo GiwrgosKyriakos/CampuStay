@@ -54,6 +54,7 @@ interface FirestoreApartmentDoc {
   hasExactLocation?: boolean;
   rent?: number;
   price?: number;
+  maxDiscountPercent?: number;
   size?: number;
   sqft?: number;
   image?: string;
@@ -97,6 +98,7 @@ export default function CreateListingScreen() {
   const [addressLongitude, setAddressLongitude] = useState<number | null>(null);
   const [hasExactLocation, setHasExactLocation] = useState(false);
   const [sizeSqm, setSizeSqm] = useState("");
+  const [maxDiscountPercent, setMaxDiscountPercent] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [permBlocked, setPermBlocked] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -184,6 +186,11 @@ export default function CreateListingScreen() {
         setAddressLongitude(typeof data.longitude === "number" ? data.longitude : null);
         setHasExactLocation(data.hasExactLocation === true);
         setSizeSqm(mappedSize > 0 ? String(mappedSize) : "");
+        const mappedMaxDiscount =
+          typeof data.maxDiscountPercent === "number" && Number.isFinite(data.maxDiscountPercent)
+            ? Math.min(100, Math.max(0, Math.trunc(data.maxDiscountPercent)))
+            : null;
+        setMaxDiscountPercent(mappedMaxDiscount !== null ? String(mappedMaxDiscount) : "");
         setTitle(data.title ?? "");
         setDescription(data.description ?? data.about ?? "");
         setAmenities({
@@ -280,6 +287,15 @@ export default function CreateListingScreen() {
   }, []);
 
   const validateAndSubmit = async () => {
+        const parsedMaxDiscount = maxDiscountPercent.trim().length > 0 ? Number(maxDiscountPercent) : null;
+        if (parsedMaxDiscount !== null && (!Number.isInteger(parsedMaxDiscount) || parsedMaxDiscount < 0 || parsedMaxDiscount > 100)) {
+          showFeedbackModal(
+            t("createListing.alerts.publishFailedTitle"),
+            "Το όριο αποδεκτών προσφορών πρέπει να είναι ακέραιος αριθμός από 0 έως 100.",
+          );
+          return;
+        }
+
     if (submitting) return;
 
     if (!monthlyRent || !city || !area.trim() || !sizeSqm) {
@@ -323,6 +339,7 @@ export default function CreateListingScreen() {
         hasExactLocation: exactAddressSelected,
         rent: Number(monthlyRent),
         price: Number(monthlyRent),
+        maxDiscountPercent: parsedMaxDiscount,
         rooms: 1,
         size: Number(sizeSqm),
         sqft: Number(sizeSqm),
@@ -447,6 +464,35 @@ export default function CreateListingScreen() {
               style={styles.input}
               testID="create-listing-size-input"
             />
+            <View style={styles.discountRow}>
+              <View style={styles.discountInputWrap}>
+                <Text style={styles.sectionTitle}>Όριο αποδεκτών προσφορών</Text>
+                <Text style={styles.fieldHint}>Max Offer Discount</Text>
+                <View style={styles.percentInputRow}>
+                  <TextInput
+                    value={maxDiscountPercent}
+                    onChangeText={(value) => {
+                      const digitsOnly = value.replace(/[^0-9]/g, "");
+                      if (!digitsOnly.length) {
+                        setMaxDiscountPercent("");
+                        return;
+                      }
+
+                      const parsed = Number(digitsOnly);
+                      if (Number.isNaN(parsed)) return;
+                      setMaxDiscountPercent(String(Math.min(100, parsed)));
+                    }}
+                    placeholder="π.χ. 10"
+                    placeholderTextColor={colors.onSurfaceTertiary}
+                    keyboardType="number-pad"
+                    maxLength={3}
+                    style={[styles.input, styles.percentInput]}
+                    testID="create-listing-max-discount-input"
+                  />
+                  <Text style={styles.percentSuffix}>%</Text>
+                </View>
+              </View>
+            </View>
           </View>
 
           <View style={styles.card}>
@@ -714,6 +760,26 @@ function createStyles(colors: ThemeColors) {
       color: colors.onSurface,
       fontFamily: fonts.semibold,
       fontSize: fontSize.base,
+    },
+    discountRow: {
+      marginTop: spacing.sm,
+    },
+    discountInputWrap: {
+      gap: spacing.xs,
+    },
+    percentInputRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+    },
+    percentInput: {
+      flex: 1,
+    },
+    percentSuffix: {
+      fontFamily: fonts.bold,
+      fontSize: fontSize.xl,
+      color: colors.onSurface,
+      minWidth: 16,
     },
     mtSm: { marginTop: spacing.sm },
     fieldHint: {

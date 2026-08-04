@@ -329,6 +329,11 @@
       "profileHidden": "Αυτό το προφίλ είναι αποκλεισμένο.",
       "accountDeletedFallback": "Αυτός ο λογαριασμός έχει διαγραφεί."
     },
+    "crossChatNotice": {
+      "message": "Υπάρχει ήδη άλλη συνομιλία μεταξύ σας στο {{location}}.",
+      "matches": "Matches",
+      "hostInbox": "Host Inbox"
+    },
     "blockModal": {
       "title": "Είσαι σίγουρος ότι θέλεις να αποκλείσεις αυτόν τον χρήστη;",
       "blockOnly": "Αποκλεισμός",

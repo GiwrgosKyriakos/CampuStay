@@ -329,6 +329,11 @@
       "profileHidden": "This profile is blocked.",
       "accountDeletedFallback": "This account has been deleted."
     },
+    "crossChatNotice": {
+      "message": "You already have another chat with this user in {{location}}.",
+      "matches": "Matches",
+      "hostInbox": "Host Inbox"
+    },
     "blockModal": {
       "title": "Are you sure you want to block this user?",
       "blockOnly": "Block",

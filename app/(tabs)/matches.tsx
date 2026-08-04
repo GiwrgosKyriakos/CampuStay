@@ -5,7 +5,7 @@ import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { arrayRemove, arrayUnion, collection, deleteDoc, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 
 import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
 import type { Gender, RoommateProfile } from "@/src/data/profiles";
@@ -28,6 +28,8 @@ interface ChatListItem extends RoommateProfile {
   chat_users?: string[];
   chat_status?: "pending" | "active" | "rejected";
   chat_initiated_by?: string | null;
+  chat_rejected_by?: string | null;
+  chat_rejections?: string[];
   // 🎯 ΠΡΟΣΘΗΚΗ: Flags για την κατάσταση blocking
   isBlocker?: boolean;
   isBlocked?: boolean;
@@ -54,7 +56,9 @@ interface FirestoreChatDoc {
   type?: "roommate" | "host" | string;
   status?: "pending" | "active" | "rejected";
   initiatedBy?: string | null;
-  deletedBy?: string[];
+  rejectedBy?: string | null;
+  rejections?: string[];
+  clearedAt?: Record<string, unknown>;
   deletedUsers?: Record<string, boolean>;
   participantDisplayNames?: Record<string, string>;
   lastMessageTimestamp?: { toMillis?: () => number } | number | null;
@@ -78,16 +82,19 @@ interface LastMessageMeta {
   isRead: boolean;
 }
 
-function toMillis(value: unknown): number {
-  if (typeof value === "number") return value;
-  if (value && typeof value === "object" && "toMillis" in value) {
-    const fn = (value as { toMillis?: () => number }).toMillis;
-    if (typeof fn === "function") {
-      return fn() ?? 0;
-    }
+const getSafeMillis = (timestamp: any): number => {
+  if (!timestamp) return 0;
+  if (typeof timestamp.toMillis === "function") {
+    const millis = timestamp.toMillis();
+    return Number.isFinite(millis) ? millis : 0;
   }
+  if (typeof timestamp.seconds === "number") {
+    const nanos = typeof timestamp.nanoseconds === "number" ? timestamp.nanoseconds : 0;
+    return timestamp.seconds * 1000 + Math.floor(nanos / 1_000_000);
+  }
+  if (typeof timestamp === "number" && Number.isFinite(timestamp)) return timestamp;
   return 0;
-}
+};
 
 function isMessageRead(msg: FirestoreLastMessageDoc | null, currentUserId: string): boolean {
   if (!msg) return true;
@@ -129,6 +136,8 @@ function mapUserToChatItem(
   users?: string[],
   status?: "pending" | "active" | "rejected",
   initiatedBy?: string | null,
+  rejectedBy?: string | null,
+  rejections?: string[],
   data?: FirestoreUserDoc | null,
 ): ChatListItem {
   if (!data) return buildDeletedCandidate(uid, chatRoomId, status, initiatedBy);
@@ -152,6 +161,8 @@ function mapUserToChatItem(
     chat_users: Array.isArray(users) ? users : undefined,
     chat_status: status,
     chat_initiated_by: initiatedBy ?? null,
+    chat_rejected_by: rejectedBy ?? null,
+    chat_rejections: Array.isArray(rejections) ? rejections : [],
   };
 }
 
@@ -173,6 +184,34 @@ export default function MatchesScreen() {
   const swipeX = React.useRef(new Animated.Value(0)).current;
   const SWIPE_THRESHOLD = 56;
   const messageUnsubsRef = React.useRef<Record<string, () => void>>({});
+
+  const deleteChatForCurrentUser = React.useCallback(
+    async (profile: ChatListItem) => {
+      if (!currentUserId || !profile.chatRoomId) return;
+
+      setDeletingChatId(profile.chatRoomId);
+      try {
+        const chatRef = doc(db, "chats", profile.chatRoomId);
+        await setDoc(
+          chatRef,
+          {
+            [`clearedAt.${currentUserId}`]: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true },
+        );
+
+        setMatches((prev) => prev.filter((item) => item.chatRoomId !== profile.chatRoomId));
+        setChatToDelete(null);
+        setActiveContextChatId(null);
+      } catch (err) {
+        console.error("Delete chat failed:", err);
+      } finally {
+        setDeletingChatId(null);
+      }
+    },
+    [currentUserId],
+  );
 
   const ensureRoommateChatsFromLikes = React.useCallback(async (uid: string) => {
     const likesQ = query(
@@ -218,7 +257,6 @@ export default function MatchesScreen() {
                   lastMessage: "",
                   lastMessageTimestamp: serverTimestamp(),
                 }),
-            deletedBy: arrayRemove(uid, toUid),
           },
           { merge: true },
         );
@@ -320,9 +358,19 @@ export default function MatchesScreen() {
           const activeChatIds = new Set(snapshot.docs.map((d) => d.id));
           const visibleChatDocs = snapshot.docs.filter((chatDoc) => {
             const chatData = chatDoc.data() as FirestoreChatDoc;
-            const deletedBy = Array.isArray(chatData.deletedBy) ? chatData.deletedBy : [];
-            if (deletedBy.includes(uid)) {
-              console.log("[Matches] Hiding chat because deletedBy includes current user", {
+            const clearedAtMap =
+              chatData.clearedAt && typeof chatData.clearedAt === "object"
+                ? (chatData.clearedAt as Record<string, unknown>)
+                : {};
+            const clearedAtForCurrentUser = Object.prototype.hasOwnProperty.call(clearedAtMap, uid)
+              ? getSafeMillis(clearedAtMap[uid])
+              : 0;
+
+            const lastMessageTs = getSafeMillis(chatData.lastMessageTimestamp);
+
+            const shouldHideForClear = clearedAtForCurrentUser > 0 && lastMessageTs <= clearedAtForCurrentUser;
+            if (shouldHideForClear) {
+              console.log("[Matches] Hiding chat because no message exists after clear cutoff", {
                 chatId: chatDoc.id,
               });
             }
@@ -339,7 +387,7 @@ export default function MatchesScreen() {
                 chatType,
               });
             }
-            return isVisibleForTab && !deletedBy.includes(uid);
+            return isVisibleForTab && !shouldHideForClear;
           });
 
           Object.entries(messageUnsubsRef.current).forEach(([chatId, off]) => {
@@ -394,35 +442,10 @@ export default function MatchesScreen() {
               const rows = await Promise.all(
                 visibleChatDocs.map(async (chatDoc) => {
                   const chatData = chatDoc.data() as FirestoreChatDoc;
-                  const toSafeMillis = (value: unknown): number => {
-                    if (typeof value === "number" && Number.isFinite(value)) return value;
-                    if (!value || typeof value !== "object") return 0;
-
-                    const ts = value as {
-                      toMillis?: () => number;
-                      toDate?: () => Date;
-                      seconds?: number;
-                      nanoseconds?: number;
-                    };
-
-                    if (typeof ts.toMillis === "function") {
-                      const millis = ts.toMillis();
-                      return Number.isFinite(millis) ? millis : 0;
-                    }
-                    if (typeof ts.toDate === "function") {
-                      const millis = ts.toDate().getTime();
-                      return Number.isFinite(millis) ? millis : 0;
-                    }
-                    if (typeof ts.seconds === "number") {
-                      return ts.seconds * 1000 + Math.floor((ts.nanoseconds ?? 0) / 1_000_000);
-                    }
-                    return 0;
-                  };
-
                   const sortKey =
-                    toSafeMillis(chatData.lastMessageTimestamp) ||
-                    toSafeMillis(chatData.updatedAt) ||
-                    toSafeMillis(chatData.createdAt) ||
+                    getSafeMillis(chatData.lastMessageTimestamp) ||
+                    getSafeMillis(chatData.updatedAt) ||
+                    getSafeMillis(chatData.createdAt) ||
                     0;
                   const users = Array.isArray(chatData.users) ? chatData.users : [];
                   const counterpartUid = users.find((u) => u !== uid);
@@ -434,6 +457,10 @@ export default function MatchesScreen() {
                   const userData = userSnap.exists() ? (userSnap.data() as FirestoreUserDoc) : null;
                   const chat_status = chatData.status ?? "active";
                   const chat_initiated_by = chatData.initiatedBy ?? null;
+                  const chat_rejected_by = typeof chatData.rejectedBy === "string" ? chatData.rejectedBy : null;
+                  const chat_rejections = Array.isArray(chatData.rejections)
+                    ? chatData.rejections.filter((entry): entry is string => typeof entry === "string")
+                    : [];
 
                   // 🎯 ΔΙΟΡΘΩΣΗ: Διαβάζουμε το blockedByUsers map από το metadata του chat document
                   const blockedMap = (chatData as any).blockedByUsers ?? {};
@@ -449,6 +476,8 @@ export default function MatchesScreen() {
                         users,
                         chat_status,
                         chat_initiated_by,
+                        chat_rejected_by,
+                        chat_rejections,
                         userData,
                       ),
                       // Περνάμε τα flags στο αντικείμενο
@@ -461,11 +490,7 @@ export default function MatchesScreen() {
 
               let fallbackRows: Array<{ sortKey: number; item: ChatListItem }> = [];
               if (selectedChatType !== "host") {
-                const existingChatIds = new Set(
-                  rows
-                    .filter((r): r is any => !!r)
-                    .map((r) => r.item.chatRoomId),
-                );
+                const existingChatIds = new Set(snapshot.docs.map((docSnap) => docSnap.id));
 
                 const likesSnap = await getDocs(query(collection(db, "swipes"), where("fromUid", "==", uid)));
                 const likedTargets = likesSnap.docs
@@ -486,7 +511,7 @@ export default function MatchesScreen() {
 
                     return {
                       sortKey: 0,
-                      item: mapUserToChatItem(targetUid, chatRoomId, [uid, targetUid], "pending", uid, userData),
+                      item: mapUserToChatItem(targetUid, chatRoomId, [uid, targetUid], "pending", uid, null, [], userData),
                     };
                   }),
                 );
@@ -576,43 +601,13 @@ export default function MatchesScreen() {
   const handleConfirmDeleteChat = async () => {
     if (!currentUserId || !chatToDelete) return;
 
-    setDeletingChatId(chatToDelete.chatRoomId);
-    try {
-      await setDoc(
-        doc(db, "chats", chatToDelete.chatRoomId),
-        {
-          deletedBy: arrayUnion(currentUserId),
-          updatedAt: serverTimestamp(),
-        },
-        { merge: true },
-      );
-      setChatToDelete(null);
-      setActiveContextChatId(null);
-    } finally {
-      setDeletingChatId(null);
-    }
+    await deleteChatForCurrentUser(chatToDelete);
   };
 
   const handleDeleteRejectedChat = async (profile: ChatListItem) => {
-  if (!currentUserId || !profile.chatRoomId) return;
-  setDeletingChatId(profile.chatRoomId);
-  try {
-    // 🟢 Χρησιμοποιούμε arrayUnion στο deletedBy αντί για deleteDoc
-    await setDoc(
-      doc(db, "chats", profile.chatRoomId),
-      {
-        deletedBy: arrayUnion(currentUserId),
-        updatedAt: serverTimestamp(),
-      },
-      { merge: true },
-    );
-    setMatches((prev) => prev.filter((item) => item.chatRoomId !== profile.chatRoomId));
-  } catch (err) {
-    console.error("Failed to delete rejected chat:", err);
-  } finally {
-    setDeletingChatId(null);
-  }
-};
+    if (!currentUserId || !profile.chatRoomId) return;
+    await deleteChatForCurrentUser(profile);
+  };
 
   return (
     <View style={styles.container} testID="matches-screen">
@@ -716,10 +711,20 @@ export default function MatchesScreen() {
             const chatStatus = p.chat_status ?? "active";
             const isPending = chatStatus === "pending";
             const isRejected = chatStatus === "rejected";
+            const rejectedByCounterpart = isRejected && !!currentUserId && (
+              p.chat_rejected_by === p.id ||
+              (Array.isArray(p.chat_rejections) && p.chat_rejections.includes(currentUserId)) ||
+              p.chat_initiated_by === currentUserId
+            );
             const participants = Array.isArray(p.chat_users) ? p.chat_users : [];
             const isCurrentUserParticipant = !!currentUserId && participants.includes(currentUserId);
             const isInitiator = isPending && isCurrentUserParticipant && p.chat_initiated_by === currentUserId;
             const isReceiver = isPending && isCurrentUserParticipant && p.chat_initiated_by !== currentUserId;
+
+            if (rejectedByCounterpart) {
+              displayName = t("common.account.deleted");
+              hasAvatar = false;
+            }
             const lastMessage = lastMessageByChat[p.chatRoomId];
             const defaultPreview = isPending ? t("matches.previewPending") : t("matches.previewStart");
             const lastPreviewText = isPending

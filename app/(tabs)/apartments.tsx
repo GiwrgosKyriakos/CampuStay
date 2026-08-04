@@ -32,6 +32,7 @@ interface Apartment {
   longitude?: number;
   hasExactLocation?: boolean;
   rent: number;
+  maxDiscountPercent?: number;
   rooms: number;
   size: number;
   image: string;
@@ -52,6 +53,7 @@ interface FirestoreApartmentDoc {
   hasExactLocation?: boolean;
   rent?: number;
   price?: number;
+  maxDiscountPercent?: number;
   rooms?: number;
   size?: number;
   sqft?: number;

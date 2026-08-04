@@ -1,6 +1,5 @@
 import type { RoommateProfile } from "@/src/data/profiles";
 import {
-  arrayRemove,
   collection,
   deleteDoc,
   doc,
@@ -42,6 +41,12 @@ interface FirestoreQuizDoc {
 interface CandidateMatchRecord {
   profile: RoommateProfile;
   quizAnswers: Record<string, string>;
+}
+
+interface FirestoreChatDoc {
+  status?: "pending" | "active" | "rejected";
+  initiatedBy?: string | null;
+  clearedAt?: Record<string, unknown>;
 }
 
 function normalizeCandidate(uid: string, data: FirestoreUserDoc): RoommateProfile {
@@ -179,7 +184,7 @@ export async function postSwipe(
     const chatRef = doc(db, "chats", chatRoomId);
     const existingChat = await getDoc(chatRef);
     const existingData = existingChat.exists()
-      ? (existingChat.data() as { status?: "pending" | "active"; initiatedBy?: string | null })
+      ? (existingChat.data() as FirestoreChatDoc)
       : null;
 
     await setDoc(
@@ -189,6 +194,8 @@ export async function postSwipe(
         type: "roommate",
         status: existingData?.status ?? "pending",
         initiatedBy: existingData?.initiatedBy ?? userId,
+        rejectedBy: null,
+        rejections: [],
         updatedAt: serverTimestamp(),
         lastMessageTimestamp: serverTimestamp(),
         ...(existingChat.exists()
@@ -197,14 +204,6 @@ export async function postSwipe(
               createdAt: serverTimestamp(),
               lastMessage: "",
             }),
-      },
-      { merge: true },
-    );
-
-    await setDoc(
-      chatRef,
-      {
-        deletedBy: arrayRemove(userId, targetId),
       },
       { merge: true },
     );

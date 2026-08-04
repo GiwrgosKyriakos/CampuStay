@@ -16,7 +16,6 @@ import * as Linking from "expo-linking";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
-  arrayUnion,
   collection,
   doc,
   getDoc,
@@ -26,7 +25,7 @@ import {
   orderBy,
   query,
   serverTimestamp,
-  updateDoc,
+  setDoc,
   where,
 } from "firebase/firestore";
 
@@ -74,6 +73,7 @@ interface Apartment {
   longitude?: number;
   hasExactLocation?: boolean;
   rent: number;
+  maxDiscountPercent?: number;
   rooms: number;
   size: number;
   image: string;
@@ -90,6 +90,7 @@ interface FirestoreApartmentDoc {
   city?: string;
   rent?: number;
   price?: number;
+  maxDiscountPercent?: number;
   rooms?: number;
   size?: number;
   sqft?: number;
@@ -108,7 +109,7 @@ interface FirestoreApartmentDoc {
 
 interface FirestoreInquiryChatDoc {
   users?: string[];
-  deletedBy?: string[];
+  clearedAt?: Record<string, unknown>;
   apartmentId?: string;
   lastMessageTimestamp?: TimestampLike;
   updatedAt?: TimestampLike;
@@ -316,8 +317,15 @@ export default function ApartmentDetailScreen() {
             const rows = await Promise.all(
               snapshot.docs.map(async (chatDoc) => {
                 const chatData = chatDoc.data() as FirestoreInquiryChatDoc;
-                const deletedBy = Array.isArray(chatData.deletedBy) ? chatData.deletedBy : [];
-                if (deletedBy.includes(currentUid)) return null;
+                const clearedAtMap =
+                  chatData.clearedAt && typeof chatData.clearedAt === "object"
+                    ? (chatData.clearedAt as Record<string, unknown>)
+                    : {};
+                const myClearedAt = Object.prototype.hasOwnProperty.call(clearedAtMap, currentUid)
+                  ? toMillis(clearedAtMap[currentUid])
+                  : 0;
+                const lastMessageAt = toMillis(chatData.lastMessageTimestamp);
+                if (myClearedAt > 0 && lastMessageAt <= myClearedAt) return null;
 
                 const users = Array.isArray(chatData.users) ? chatData.users : [];
                 const customerId = users.find((uid) => uid !== currentUid) || "";
@@ -554,10 +562,10 @@ export default function ApartmentDetailScreen() {
     setInquiries((current) => current.filter((entry) => entry.id !== item.id));
 
     try {
-      await updateDoc(doc(db, "chats", item.chatRoomId), {
-        deletedBy: arrayUnion(auth.userId),
+      await setDoc(doc(db, "chats", item.chatRoomId), {
+        [`clearedAt.${auth.userId}`]: serverTimestamp(),
         updatedAt: serverTimestamp(),
-      });
+      }, { merge: true });
     } catch (error) {
       console.error("[ApartmentDetail] Failed to delete inquiry chat:", error);
       setInquiries((current) => {

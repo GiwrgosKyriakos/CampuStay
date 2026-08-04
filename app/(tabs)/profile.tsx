@@ -21,6 +21,21 @@ import { useTheme } from "@/src/context/ThemeContext";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 100;
+function toMillis(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (!value || typeof value !== "object") return 0;
+
+  const ts = value as { toMillis?: () => number; seconds?: number; nanoseconds?: number };
+  if (typeof ts.toMillis === "function") {
+    const millis = ts.toMillis();
+    return Number.isFinite(millis) ? millis : 0;
+  }
+  if (typeof ts.seconds === "number") {
+    return ts.seconds * 1000 + Math.floor((ts.nanoseconds ?? 0) / 1_000_000);
+  }
+  return 0;
+}
+
 const NAV_SETTINGS: { icon: keyof typeof Ionicons.glyphMap; label: string; route: string; testID?: string }[] = [
   { icon: "sparkles", label: "common.labels.compatibilityQuiz", route: "/roomie-profile", testID: "setting-compatibility-quiz" },
   { icon: "create-outline", label: "common.labels.editProfile", route: "/edit-profile" },
@@ -64,9 +79,25 @@ export default function ProfileScreen() {
           const answeredCount = Object.keys(quizData?.answers || {}).length;
           const activeRoommateChatCount = chatsSnap
             ? chatsSnap.docs.filter((chatDoc) => {
-                const chatData = chatDoc.data() as { type?: string; status?: string; deletedBy?: string[] };
-                const deletedBy = Array.isArray(chatData.deletedBy) ? chatData.deletedBy : [];
-                return !deletedBy.includes(uid) && (chatData.type ?? "roommate") !== "host" && chatData.status === "active";
+                const chatData = chatDoc.data() as {
+                  type?: string;
+                  status?: string;
+                  lastMessageTimestamp?: unknown;
+                  clearedAt?: Record<string, unknown>;
+                };
+                if ((chatData.type ?? "roommate") === "host" || chatData.status !== "active") return false;
+
+                const clearedAtMap =
+                  chatData.clearedAt && typeof chatData.clearedAt === "object"
+                    ? (chatData.clearedAt as Record<string, unknown>)
+                    : {};
+                const myClearedAt = Object.prototype.hasOwnProperty.call(clearedAtMap, uid)
+                  ? toMillis(clearedAtMap[uid])
+                  : 0;
+                if (!myClearedAt) return true;
+
+                const lastMessageAt = toMillis(chatData.lastMessageTimestamp);
+                return lastMessageAt > myClearedAt;
               }).length
             : 0;
           setProfile(p);

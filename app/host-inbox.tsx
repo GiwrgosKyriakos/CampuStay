@@ -5,7 +5,7 @@ import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { arrayUnion, collection, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, setDoc, where, orderBy, limit, updateDoc, deleteDoc } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, setDoc, where, orderBy, limit, updateDoc } from "firebase/firestore";
 
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
 import { useAuth } from "@/src/context/auth";
@@ -25,7 +25,7 @@ interface FirestoreUserDoc {
 interface FirestoreHostChatDoc {
   users?: string[];
   type?: "roommate" | "host" | string;
-  deletedBy?: string[];
+  clearedAt?: Record<string, unknown>;
   apartmentTitle?: string;
   apartmentId?: string;
   status?: "pending" | "active" | "rejected";
@@ -138,22 +138,18 @@ export default function HostInboxScreen() {
               const chatData = chatDoc.data() as FirestoreHostChatDoc;
               const isHostChat = chatData.type === "host" || !!chatData.apartmentId;
               if (!isHostChat) return false;
-              
-              // 🟢 ΠΡΟΣΘΗΚΗ: Αν ο χρήστης έχει κάνει delete το chat, το κρύβουμε ΜΟΝΟ από αυτόν
-              const deletedByArray = Array.isArray((chatData as any).deletedBy) ? (chatData as any).deletedBy : [];
-              if (deletedByArray.includes(currentUid)) return false;
 
-              const deletedAtMap = (chatData as any).deletedAt ?? {};
-              const myDeletedAt = deletedAtMap[currentUid];
-              
-              if (myDeletedAt) {
-                const lastActivity = toMillis(chatData.lastMessageTimestamp) || toMillis(chatData.updatedAt) || toMillis(chatData.createdAt) || 0;
-                const deletedTime = toMillis(myDeletedAt);
-                
-                if (deletedTime >= lastActivity) {
-                  return false;
-                }
-              }
+              // Per-user clear logic: show chat only when a new message arrives after clear timestamp.
+              const clearedAtMap =
+                chatData.clearedAt && typeof chatData.clearedAt === "object"
+                  ? (chatData.clearedAt as Record<string, unknown>)
+                  : {};
+              const myClearedAt = Object.prototype.hasOwnProperty.call(clearedAtMap, currentUid)
+                ? toMillis(clearedAtMap[currentUid])
+                : 0;
+              const lastMessageAt = toMillis(chatData.lastMessageTimestamp);
+              if (myClearedAt > 0 && lastMessageAt <= myClearedAt) return false;
+
               if (chatData.initiatedBy === currentUid) return false;
               
               return true;
@@ -272,7 +268,7 @@ export default function HostInboxScreen() {
       await setDoc(
         doc(db, "chats", chatToDelete.chatRoomId),
         {
-          deletedBy: arrayUnion(auth.userId),
+          [`clearedAt.${auth.userId}`]: serverTimestamp(),
           updatedAt: serverTimestamp(),
         },
         { merge: true },
@@ -320,7 +316,7 @@ export default function HostInboxScreen() {
     await setDoc(
       doc(db, "chats", item.chatRoomId),
       {
-        deletedBy: arrayUnion(auth.userId),
+        [`clearedAt.${auth.userId}`]: serverTimestamp(),
         updatedAt: serverTimestamp(),
       },
       { merge: true },

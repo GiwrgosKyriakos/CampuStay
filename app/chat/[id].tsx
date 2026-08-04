@@ -35,7 +35,7 @@ import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme"
 import type { Gender, RoommateProfile } from "@/src/data/profiles";
 import { useAuth } from "@/src/context/auth";
 import { db } from "@/src/config/firebase";
-import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, setDoc, getDoc, getDocs, deleteDoc, arrayUnion, limit } from "firebase/firestore";
+import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, setDoc, getDoc, getDocs, deleteDoc, limit } from "firebase/firestore";
 import { markIncomingMessagesAsRead } from "@/src/api/chat";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import CenteredActionModal, { type CenteredModalAction } from "@/src/components/CenteredActionModal";
@@ -67,11 +67,17 @@ interface FirestoreMessageDoc {
 }
 
 interface FirestoreChatDoc {
+  users?: string[];
   type?: "roommate" | "host" | string;
   apartmentId?: string;
   apartmentTitle?: string;
   apartmentUnavailable?: boolean;
   status?: "pending" | "active" | "rejected";
+  initiatedBy?: string | null;
+  rejectedBy?: string | null;
+  rejections?: string[];
+  clearedAt?: Record<string, unknown>;
+  dismissedCrossChatNotices?: Record<string, boolean>;
   deletedUsers?: Record<string, boolean>;
   participantDisplayNames?: Record<string, string>;
   mutedByUsers?: Record<string, boolean>;
@@ -245,6 +251,18 @@ function evaluateEffectiveChatMuted(params: {
   return mutedChatIds.includes(chatRoomId) || legacyChatMuted;
 }
 
+function timestampToMillis(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (value && typeof value === "object" && "toMillis" in value) {
+    const fn = (value as { toMillis?: () => number }).toMillis;
+    if (typeof fn === "function") {
+      const millis = fn();
+      return Number.isFinite(millis) ? millis : 0;
+    }
+  }
+  return 0;
+}
+
 const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   new_matches: true,
   direct_messages: true,
@@ -353,6 +371,13 @@ export default function ChatScreen() {
   const [text, setText] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [chatStatus, setChatStatus] = useState<"pending" | "active" | "rejected">("active");
+  const [chatInitiatedBy, setChatInitiatedBy] = useState<string | null>(null);
+  const [chatRejectedBy, setChatRejectedBy] = useState<string | null>(null);
+  const [chatRejections, setChatRejections] = useState<string[]>([]);
+  const [crossChatNoticeTarget, setCrossChatNoticeTarget] = useState<"matches" | "hostInbox" | null>(null);
+  const [isCrossChatNoticeDismissed, setIsCrossChatNoticeDismissed] = useState(false);
+  const [isNoticeDismissedLocally, setIsNoticeDismissedLocally] = useState(false);
+  const clearedAtCutoffRef = useRef<number | null>(null);
   const [chatType, setChatType] = useState<"roommate" | "host">("roommate");
   const [hostApartmentId, setHostApartmentId] = useState<string | null>(null);
   const [hostApartmentTitle, setHostApartmentTitle] = useState<string | null>(null);
@@ -448,6 +473,12 @@ export default function ChatScreen() {
     const unsubChat = onSnapshot(chatRef, (snapshot) => {
       if (!snapshot.exists()) {
         setChatStatus("active");
+        setChatInitiatedBy(null);
+        setChatRejectedBy(null);
+        setChatRejections([]);
+        setIsCrossChatNoticeDismissed(false);
+        setIsNoticeDismissedLocally(false);
+        clearedAtCutoffRef.current = null;
         setChatType("roommate");
         setHostApartmentId(null);
         setHostApartmentTitle(null);
@@ -456,6 +487,18 @@ export default function ChatScreen() {
       }
       const data = snapshot.data() as FirestoreChatDoc;
       setChatStatus(data.status === "pending" ? "pending" : data.status === "rejected" ? "rejected" : "active");
+      setChatInitiatedBy(typeof data.initiatedBy === "string" ? data.initiatedBy : null);
+      setChatRejectedBy(typeof data.rejectedBy === "string" ? data.rejectedBy : null);
+      setChatRejections(Array.isArray(data.rejections) ? data.rejections.filter((entry): entry is string => typeof entry === "string") : []);
+      const clearedAtMap = data.clearedAt && typeof data.clearedAt === "object"
+        ? (data.clearedAt as Record<string, unknown>)
+        : {};
+      const dismissedCrossChatNoticesMap = data.dismissedCrossChatNotices && typeof data.dismissedCrossChatNotices === "object"
+        ? (data.dismissedCrossChatNotices as Record<string, unknown>)
+        : {};
+      const clearCutoff = currentUserId ? timestampToMillis(clearedAtMap[currentUserId]) : 0;
+      clearedAtCutoffRef.current = clearCutoff > 0 ? clearCutoff : null;
+      setIsCrossChatNoticeDismissed(currentUserId ? dismissedCrossChatNoticesMap[currentUserId] === true : false);
       setChatType(data.type === "host" ? "host" : "roommate");
       setHostApartmentId(typeof data.apartmentId === "string" && data.apartmentId.trim().length > 0 ? data.apartmentId : null);
       setHostApartmentTitle(typeof data.apartmentTitle === "string" && data.apartmentTitle.trim().length > 0 ? data.apartmentTitle : null);
@@ -483,12 +526,21 @@ export default function ChatScreen() {
             isRead: data.isRead ?? true,
           };
         });
+
+      const cutoff = clearedAtCutoffRef.current;
+      const filteredFetched = cutoff
+        ? fetched.filter((message) => createdAtToMillis(message.createdAt) > cutoff)
+        : fetched;
+
       setMessages((prev) => {
-        const optimisticPending = prev.filter((m) => m.id.startsWith("temp-") && m.senderId === currentUserId);
+        const optimisticPending = prev.filter((m) => {
+          if (!(m.id.startsWith("temp-") && m.senderId === currentUserId)) return false;
+          return cutoff ? createdAtToMillis(m.createdAt) > cutoff : true;
+        });
         const unresolved = optimisticPending.filter(
-          (temp) => !fetched.some((serverMsg) => serverMsg.senderId === temp.senderId && serverMsg.text === temp.text),
+          (temp) => !filteredFetched.some((serverMsg) => serverMsg.senderId === temp.senderId && serverMsg.text === temp.text),
         );
-        return sortMessages([...fetched, ...unresolved]);
+        return sortMessages([...filteredFetched, ...unresolved]);
       });
       requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: false }));
     });
@@ -497,6 +549,51 @@ export default function ChatScreen() {
       unsubChat();
     };
   }, [chatRoomId, currentUserId, sortMessages]);
+
+  useEffect(() => {
+    setIsNoticeDismissedLocally(false);
+  }, [chatRoomId, currentUserId, counterpartId]);
+
+  useEffect(() => {
+    if (!currentUserId || !counterpartId || !chatRoomId) {
+      setCrossChatNoticeTarget(null);
+      return;
+    }
+
+    let active = true;
+    void (async () => {
+      try {
+        const chatDocs = await getDocs(query(collection(db, "chats"), where("users", "array-contains", currentUserId)));
+        if (!active) return;
+
+        const crossChat = chatDocs.docs.find((chatDoc) => {
+          if (chatDoc.id === chatRoomId) return false;
+          const data = chatDoc.data() as FirestoreChatDoc;
+          const users = Array.isArray(data.users) ? data.users : [];
+          if (!users.includes(counterpartId)) return false;
+          if ((data.status ?? "active") !== "active") return false;
+
+          const otherType = data.type === "host" ? "host" : "roommate";
+          return otherType !== chatType;
+        });
+
+        if (!crossChat) {
+          setCrossChatNoticeTarget(null);
+          return;
+        }
+
+        const otherData = crossChat.data() as FirestoreChatDoc;
+        setCrossChatNoticeTarget(otherData.type === "host" ? "hostInbox" : "matches");
+      } catch {
+        if (!active) return;
+        setCrossChatNoticeTarget(null);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [chatRoomId, chatType, counterpartId, currentUserId]);
 
   useEffect(() => {
     if (!currentUserId) {
@@ -799,17 +896,27 @@ export default function ChatScreen() {
   const activeProfile = profile ?? deletedProfileFallback;
 
   const deletedCounterpart = !counterpartExists || isDeletedCounterpart(activeProfile);
+  const rejectedByCounterpart =
+    chatStatus === "rejected" &&
+    !!currentUserId &&
+    !!counterpartId &&
+    (
+      chatRejectedBy === counterpartId ||
+      chatRejections.includes(currentUserId) ||
+      chatInitiatedBy === currentUserId
+    );
+  const maskedAsDeleted = deletedCounterpart || rejectedByCounterpart;
 
   const hasBlockedByMe = isBlocker || settingsBlockState.isBlocker;
   const blockedByOtherUser = isBlocked || settingsBlockState.isBlocked;
 
   // 🎯 ΔΙΟΡΘΩΣΗ: Δυναμικός έλεγχος για απόκρυψη στοιχείων λόγω Block
-  let displayName = deletedCounterpart ? t("common.account.deleted") : activeProfile.name;
-  let displayAbout = deletedCounterpart
+  let displayName = maskedAsDeleted ? t("common.account.deleted") : activeProfile.name;
+  let displayAbout = maskedAsDeleted
     ? t("chat.placeholderDeleted")
     : counterpartDetails?.about?.trim() || counterpartDetails?.bio?.trim() || t("common.values.notAvailable");
-  let showAvatarImage = !deletedCounterpart && !!activeProfile.photo?.trim();
-  let displayUniversity = deletedCounterpart ? "" : activeProfile.university;
+  let showAvatarImage = !maskedAsDeleted && !!activeProfile.photo?.trim();
+  let displayUniversity = maskedAsDeleted ? "" : activeProfile.university;
 
   if (hasBlockedByMe) {
     displayName = t("common.account.blocked");
@@ -821,9 +928,6 @@ export default function ChatScreen() {
     showAvatarImage = false;
     displayUniversity = "";
     displayAbout = t("chat.placeholderDeleted") || t("chat.blocked.accountDeletedFallback");
-  } else if (chatStatus === "rejected") {
-    showAvatarImage = false;
-    displayUniversity = "";
   }
 
   const apartmentLocked = chatType === "host" && isApartmentUnavailable;
@@ -840,18 +944,23 @@ export default function ChatScreen() {
   const inputBlocked = chatStatus === "pending" || chatStatus === "rejected" || deletedCounterpart || apartmentLocked || hasBlockedByMe || blockedByOtherUser;
 
   // Κρύβουμε τα social links σε περίπτωση block
-  const shouldShowSocialLinks = !deletedCounterpart && !hasBlockedByMe && !blockedByOtherUser && !!counterpartDetails?.looking_for_apartment;
+  const shouldShowSocialLinks = !maskedAsDeleted && !hasBlockedByMe && !blockedByOtherUser && !!counterpartDetails?.looking_for_apartment;
 
   const blockedBannerText = hasBlockedByMe
     ? t("chat.blocked.youBlockedBanner")
     : blockedByOtherUser
     ? t("chat.blocked.unavailableBanner")
     : null;
+  const hasCrossChat = !!crossChatNoticeTarget;
+  const crossChatLocationLabel = crossChatNoticeTarget
+    ? t(crossChatNoticeTarget === "hostInbox" ? "chat.crossChatNotice.hostInbox" : "chat.crossChatNotice.matches")
+    : "";
+  const showCrossChatNotice = hasCrossChat && !isCrossChatNoticeDismissed && !isNoticeDismissedLocally;
 
-  const displayGender = deletedCounterpart ? t("common.values.notApplicable") : activeProfile.gender;
-  const displayAge = deletedCounterpart ? t("common.values.emptyDash") : `${activeProfile.age} ${t("common.format.yearsSuffix")}`;
-  const displayBudget = deletedCounterpart ? t("common.values.emptyDash") : `${CURRENCY}${activeProfile.budget}${t("common.format.perMonthShort")}`;
-  const displayCity = deletedCounterpart
+  const displayGender = maskedAsDeleted ? t("common.values.notApplicable") : activeProfile.gender;
+  const displayAge = maskedAsDeleted ? t("common.values.emptyDash") : `${activeProfile.age} ${t("common.format.yearsSuffix")}`;
+  const displayBudget = maskedAsDeleted ? t("common.values.emptyDash") : `${CURRENCY}${activeProfile.budget}${t("common.format.perMonthShort")}`;
+  const displayCity = maskedAsDeleted
     ? t("common.values.notApplicable")
     : counterpartDetails?.city?.trim() || t("common.values.notAvailable");
   const apartmentPillTitle = apartmentLocked ? t("chat.unavailable") : hostApartment?.title || hostApartmentTitle || t("chat.unavailable");
@@ -860,6 +969,31 @@ export default function ChatScreen() {
     if (!hostApartment || apartmentLocked) return;
     router.push({ pathname: "/apartment-detail", params: { data: JSON.stringify(hostApartment) } });
   };
+
+  const handleDismissNotice = useCallback(async () => {
+    if (!currentUserId || !chatRoomId) return;
+
+    setIsNoticeDismissedLocally(true);
+    try {
+      await updateDoc(doc(db, "chats", chatRoomId), {
+        [`dismissedCrossChatNotices.${currentUserId}`]: true,
+      });
+      setIsCrossChatNoticeDismissed(true);
+    } catch {
+      setIsNoticeDismissedLocally(false);
+      setActionModal({
+        title: t("chat.modals.actionFailedTitle"),
+        description: t("common.messages.tryAgain"),
+        actions: [
+          {
+            label: t("common.actions.gotIt"),
+            iconName: "alert-circle-outline",
+            onPress: () => setActionModal(null),
+          },
+        ],
+      });
+    }
+  }, [chatRoomId, currentUserId]);
 
   const syncChatLastMessage = useCallback(async (roomId: string) => {
     const latestMessageSnap = await getDocs(
@@ -1084,14 +1218,14 @@ export default function ChatScreen() {
     setReportReason("");
   }, []);
 
-  const handleDeleteRejectedChat = useCallback(async () => {
+  const handleDeleteChatForCurrentUser = useCallback(async () => {
     if (!currentUserId || !chatRoomId) return;
 
     try {
       await setDoc(
         doc(db, "chats", chatRoomId),
         {
-          deletedBy: arrayUnion(currentUserId),
+          [`clearedAt.${currentUserId}`]: serverTimestamp(),
           updatedAt: serverTimestamp(),
         },
         { merge: true },
@@ -1277,7 +1411,7 @@ export default function ChatScreen() {
           <Pressable
             style={styles.headerProfileTapArea}
             onPress={() => setProfileModalVisible(true)}
-            disabled={deletedCounterpart || chatStatus === "rejected"}
+            disabled={maskedAsDeleted || chatStatus === "rejected"}
             testID="chat-header-profile-trigger"
           >
             {showAvatarImage ? (
@@ -1335,6 +1469,16 @@ export default function ChatScreen() {
                 {isChatMutedEffective ? t("chat.menu.unmuteNotifications") : t("chat.menu.muteNotifications")}
               </Text>
             </Pressable>
+            <Pressable
+              style={styles.contextMenuItem}
+              onPress={() => {
+                void handleDeleteChatForCurrentUser();
+              }}
+              testID="chat-context-delete"
+            >
+              <Ionicons name="trash-outline" size={18} color={colors.error} />
+              <Text style={[styles.contextMenuText, styles.contextMenuDangerText]}>{t("chatList.delete")}</Text>
+            </Pressable>
             {/* 🎯 ΔΙΟΡΘΩΣΗ: Αν είμαστε εμείς ο blocker, το κουμπί μετατρέπεται σε Ξεμπλοκάρισμα */}
             {hasBlockedByMe ? (
               <Pressable
@@ -1384,6 +1528,25 @@ export default function ChatScreen() {
               <Text style={styles.blockedBannerActionText}>{t("common.actions.unblock")}</Text>
             </Pressable>
           ) : null}
+        </View>
+      ) : null}
+
+      {showCrossChatNotice ? (
+        <View style={styles.crossChatBanner}>
+          <Text style={styles.crossChatBannerText}>
+            {t("chat.crossChatNotice.message", { location: crossChatLocationLabel })}
+          </Text>
+          <Pressable
+            style={styles.crossChatDismissButton}
+            onPress={() => {
+              void handleDismissNotice();
+            }}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            accessibilityRole="button"
+            testID="chat-cross-chat-dismiss"
+          >
+            <Ionicons name="checkmark" size={16} color={colors.onBrand} />
+          </Pressable>
         </View>
       ) : null}
 
@@ -1505,7 +1668,7 @@ export default function ChatScreen() {
             <Pressable
               style={styles.rejectedDeleteBtn}
               onPress={() => {
-                void handleDeleteRejectedChat();
+                void handleDeleteChatForCurrentUser();
               }}
               testID="chat-rejected-delete-button"
             >
@@ -1883,6 +2046,37 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   blockedBannerActionDisabled: {
     opacity: 0.5,
+  },
+  crossChatBanner: {
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+    marginTop: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceSecondary,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+  },
+  crossChatBannerText: {
+    flex: 1,
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+    color: colors.onSurface,
+  },
+  crossChatDismissButton: {
+    width: 28,
+    height: 28,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.brand,
+    borderWidth: 1,
+    borderColor: colors.brand,
   },
   blockModalBackdrop: {
     flex: 1,
