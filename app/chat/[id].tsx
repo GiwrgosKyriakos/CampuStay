@@ -39,7 +39,7 @@ import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, u
 import { markIncomingMessagesAsRead } from "@/src/api/chat";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import CenteredActionModal, { type CenteredModalAction } from "@/src/components/CenteredActionModal";
-import { getUserSettings, saveUserPrivacy } from "@/src/api/accountSettings";
+import { getUserSettings, saveUserNotifications, saveUserPrivacy, type NotificationPreferences } from "@/src/api/accountSettings";
 import { submitReportedUserEntry } from "@/src/services/reportedUsers";
 import {
   calculateMatchScore,
@@ -228,6 +228,32 @@ function normalizeSocialUrl(platform: "instagram" | "facebook" | "linkedin" | "t
   }
 }
 
+function evaluateEffectiveChatMuted(params: {
+  chatRoomId: string | null;
+  muteAllNotifications: boolean;
+  mutedChatIds: string[];
+  unmutedChatOverrides: string[];
+  legacyChatMuted: boolean;
+}): boolean {
+  const { chatRoomId, muteAllNotifications, mutedChatIds, unmutedChatOverrides, legacyChatMuted } = params;
+  if (!chatRoomId) return legacyChatMuted;
+
+  if (muteAllNotifications) {
+    return !unmutedChatOverrides.includes(chatRoomId);
+  }
+
+  return mutedChatIds.includes(chatRoomId) || legacyChatMuted;
+}
+
+const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
+  new_matches: true,
+  direct_messages: true,
+  app_updates_and_tips: true,
+  mute_all_notifications: false,
+  muted_chat_ids: [],
+  unmuted_chat_overrides: [],
+};
+
 export default function ChatScreen() {
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -336,9 +362,11 @@ export default function ChatScreen() {
   const [isChatMuted, setIsChatMuted] = useState(false);
   const [isMuting, setIsMuting] = useState(false);
   const [showBlockModal, setShowBlockModal] = useState(false);
+  const [showGlobalUnmuteModal, setShowGlobalUnmuteModal] = useState(false);
   const [expandReport, setExpandReport] = useState(false);
   const [reportReason, setReportReason] = useState("");
   const [isSubmittingBlockAction, setIsSubmittingBlockAction] = useState(false);
+  const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreferences>(DEFAULT_NOTIFICATION_PREFERENCES);
   const [actionModal, setActionModal] = useState<{
     title: string;
     description?: string;
@@ -467,6 +495,24 @@ export default function ChatScreen() {
       unsubChat();
     };
   }, [chatRoomId, currentUserId, sortMessages]);
+
+  useEffect(() => {
+    if (!currentUserId) {
+      setNotificationPreferences(DEFAULT_NOTIFICATION_PREFERENCES);
+      return;
+    }
+
+    let active = true;
+    void (async () => {
+      const settings = await getUserSettings(currentUserId).catch(() => null);
+      if (!active) return;
+      setNotificationPreferences(settings?.notifications ?? DEFAULT_NOTIFICATION_PREFERENCES);
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [currentUserId]);
 
   useEffect(() => {
     if (!currentUserId || !counterpartId) {
@@ -655,11 +701,19 @@ export default function ChatScreen() {
       // Α. Έλεγχος αν ο παραλήπτης έχει κάνει Mute αυτή τη συγκεκριμένη συνομιλία
       const chatSnap = await getDoc(doc(db, "chats", chatRoomId));
       const chatData = chatSnap.exists() ? chatSnap.data() : null;
-      const isMutedByReceiver = chatData?.mutedByUsers?.[id] === true;
+      const receiverLegacyMuted = chatData?.mutedByUsers?.[id] === true;
 
       // Β. Έλεγχος αν ο παραλήπτης έχει κλείσει γενικά τα Direct Messages από το Notifications Screen
       const receiverSettings = await getUserSettings(id).catch(() => null);
       const globalDmsEnabled = receiverSettings?.notifications?.direct_messages ?? true;
+      const receiverNotifications = receiverSettings?.notifications ?? DEFAULT_NOTIFICATION_PREFERENCES;
+      const isMutedByReceiver = evaluateEffectiveChatMuted({
+        chatRoomId,
+        muteAllNotifications: receiverNotifications.mute_all_notifications,
+        mutedChatIds: receiverNotifications.muted_chat_ids,
+        unmutedChatOverrides: receiverNotifications.unmuted_chat_overrides,
+        legacyChatMuted: receiverLegacyMuted,
+      });
 
       // Αν ο άλλος χρήστης σε έχει κάνει Mute Ή έχει κλείσει γενικά τα DMs, σταματάμε εδώ!
       // Το μήνυμα αποθηκεύεται κανονικά στο chat, αλλά ΔΕΝ του στέλνουμε Push Notification.
@@ -770,6 +824,14 @@ export default function ChatScreen() {
   }
 
   const apartmentLocked = chatType === "host" && isApartmentUnavailable;
+  const isAllMuteActive = notificationPreferences.mute_all_notifications;
+  const isChatMutedEffective = evaluateEffectiveChatMuted({
+    chatRoomId,
+    muteAllNotifications: notificationPreferences.mute_all_notifications,
+    mutedChatIds: notificationPreferences.muted_chat_ids,
+    unmutedChatOverrides: notificationPreferences.unmuted_chat_overrides,
+    legacyChatMuted: isChatMuted,
+  });
 
   // 🎯 ΑΣΦΑΛΕΙΑ: Αν υπάρχει οποιοδήποτε block, κλειδώνουμε το input bar
   const inputBlocked = chatStatus === "pending" || chatStatus === "rejected" || deletedCounterpart || apartmentLocked || hasBlockedByMe || blockedByOtherUser;
@@ -800,10 +862,63 @@ export default function ChatScreen() {
     if (!currentUserId || !chatRoomId || isMuting) return;
 
     setShowContextMenu(false);
+
+    if (isAllMuteActive && isChatMutedEffective) {
+      setShowGlobalUnmuteModal(true);
+      return;
+    }
+
     setIsMuting(true);
-    const nextMutedState = !isChatMuted;
 
     try {
+      const settings = await getUserSettings(currentUserId);
+      const currentNotifications = settings.notifications;
+
+      if (isAllMuteActive) {
+        const nextOverrides = currentNotifications.unmuted_chat_overrides.filter((id) => id !== chatRoomId);
+        const updatedSettings = await saveUserNotifications(currentUserId, {
+          ...currentNotifications,
+          unmuted_chat_overrides: nextOverrides,
+        });
+        setNotificationPreferences(updatedSettings.notifications);
+
+        await setDoc(
+          doc(db, "chats", chatRoomId),
+          {
+            mutedByUsers: {
+              [currentUserId]: true,
+            },
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true },
+        );
+
+        setIsChatMuted(true);
+        setActionModal({
+          title: t("chat.modals.conversationUpdatedTitle"),
+          description: t("chat.modals.notificationsMutedMessage"),
+          actions: [
+            {
+              label: t("common.actions.gotIt"),
+              iconName: "checkmark-circle-outline",
+              onPress: () => setActionModal(null),
+            },
+          ],
+        });
+        return;
+      }
+
+      const nextMutedState = !isChatMutedEffective;
+      const nextMutedChatIds = nextMutedState
+        ? Array.from(new Set([...currentNotifications.muted_chat_ids, chatRoomId]))
+        : currentNotifications.muted_chat_ids.filter((id) => id !== chatRoomId);
+
+      const updatedSettings = await saveUserNotifications(currentUserId, {
+        ...currentNotifications,
+        muted_chat_ids: nextMutedChatIds,
+      });
+      setNotificationPreferences(updatedSettings.notifications);
+
       await setDoc(
         doc(db, "chats", chatRoomId),
         {
@@ -844,7 +959,64 @@ export default function ChatScreen() {
     } finally {
       setIsMuting(false);
     }
-  }, [chatRoomId, currentUserId, isChatMuted, isMuting]);
+  }, [chatRoomId, currentUserId, isAllMuteActive, isChatMutedEffective, isMuting]);
+
+  const handleConfirmGlobalUnmuteOverride = useCallback(async () => {
+    if (!currentUserId || !chatRoomId || isMuting) return;
+
+    setIsMuting(true);
+    try {
+      const settings = await getUserSettings(currentUserId);
+      const currentNotifications = settings.notifications;
+      const nextOverrides = Array.from(new Set([...currentNotifications.unmuted_chat_overrides, chatRoomId]));
+
+      const updatedSettings = await saveUserNotifications(currentUserId, {
+        ...currentNotifications,
+        unmuted_chat_overrides: nextOverrides,
+      });
+      setNotificationPreferences(updatedSettings.notifications);
+
+      await setDoc(
+        doc(db, "chats", chatRoomId),
+        {
+          mutedByUsers: {
+            [currentUserId]: false,
+          },
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+
+      setIsChatMuted(false);
+      setShowGlobalUnmuteModal(false);
+      setActionModal({
+        title: t("chat.modals.conversationUpdatedTitle"),
+        description: t("chat.modals.notificationsUnmutedMessage"),
+        actions: [
+          {
+            label: t("common.actions.gotIt"),
+            iconName: "checkmark-circle-outline",
+            onPress: () => setActionModal(null),
+          },
+        ],
+      });
+    } catch {
+      setShowGlobalUnmuteModal(false);
+      setActionModal({
+        title: t("chat.modals.notificationsUpdateFailedTitle"),
+        description: t("common.messages.tryAgain"),
+        actions: [
+          {
+            label: t("common.actions.gotIt"),
+            iconName: "alert-circle-outline",
+            onPress: () => setActionModal(null),
+          },
+        ],
+      });
+    } finally {
+      setIsMuting(false);
+    }
+  }, [chatRoomId, currentUserId, isMuting]);
 
   const handleOpenBlockModal = useCallback(() => {
     setShowContextMenu(false);
@@ -1093,9 +1265,9 @@ export default function ChatScreen() {
               disabled={isMuting}
               testID="chat-context-mute"
             >
-              <Ionicons name={isChatMuted ? "notifications-outline" : "notifications-off-outline"} size={18} color={colors.onSurface} />
+              <Ionicons name={isChatMutedEffective ? "notifications-outline" : "notifications-off-outline"} size={18} color={colors.onSurface} />
               <Text style={styles.contextMenuText}>
-                {isChatMuted ? t("chat.menu.unmuteNotifications") : t("chat.menu.muteNotifications")}
+                {isChatMutedEffective ? t("chat.menu.unmuteNotifications") : t("chat.menu.muteNotifications")}
               </Text>
             </Pressable>
             {/* 🎯 ΔΙΟΡΘΩΣΗ: Αν είμαστε εμείς ο blocker, το κουμπί μετατρέπεται σε Ξεμπλοκάρισμα */}
@@ -1353,6 +1525,34 @@ export default function ChatScreen() {
           </View>
         </View>
       </Modal>
+
+      <CenteredActionModal
+        visible={showGlobalUnmuteModal}
+        title={t("chat.modals.unmuteChatTitle")}
+        description={t("chat.modals.unmuteGlobalOverrideMessage")}
+        onDismiss={() => {
+          if (!isMuting) {
+            setShowGlobalUnmuteModal(false);
+          }
+        }}
+        actionsLayout="horizontal"
+        actions={[
+          {
+            label: t("common.actions.cancel"),
+            variant: "muted",
+            iconName: "close-outline",
+            onPress: () => setShowGlobalUnmuteModal(false),
+          },
+          {
+            label: t("chat.modals.unmuteGlobalOverrideConfirm"),
+            iconName: "notifications-outline",
+            onPress: () => {
+              void handleConfirmGlobalUnmuteOverride();
+            },
+          },
+        ]}
+        testID="chat-unmute-global-override-modal"
+      />
 
       <Modal
         transparent

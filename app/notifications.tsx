@@ -12,7 +12,7 @@ import { useRouter } from "expo-router";
 
 import { useAuth } from "@/src/context/auth";
 import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
-import { getUserSettings, saveUserNotifications } from "@/src/api/accountSettings";
+import { getUserSettings, saveUserNotifications, type NotificationPreferences } from "@/src/api/accountSettings";
 import { GuestModeStickyFooter, GuestModeTopBanner } from "@/src/components/GuestModeLayout";
 import ScreenHeader from "@/src/components/ScreenHeader";
 import { t } from "@/src/locales";
@@ -47,10 +47,13 @@ export default function NotificationsScreen() {
   const isGuest = auth.isGuest;
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [preferences, setPreferences] = useState<Record<NotificationKey, boolean>>({
+  const [preferences, setPreferences] = useState<NotificationPreferences>({
     new_matches: true,
     direct_messages: true,
     app_updates_and_tips: true,
+    mute_all_notifications: false,
+    muted_chat_ids: [],
+    unmuted_chat_overrides: [],
   });
   const [error, setError] = useState<string | null>(null);
 

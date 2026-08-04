@@ -6,6 +6,9 @@ export interface NotificationPreferences {
   new_matches: boolean;
   direct_messages: boolean;
   app_updates_and_tips: boolean;
+  mute_all_notifications: boolean;
+  muted_chat_ids: string[];
+  unmuted_chat_overrides: string[];
 }
 
 export interface BlockedProfile {
@@ -28,6 +31,9 @@ const DEFAULT_NOTIFICATIONS: NotificationPreferences = {
   new_matches: true,
   direct_messages: true,
   app_updates_and_tips: true,
+  mute_all_notifications: false,
+  muted_chat_ids: [],
+  unmuted_chat_overrides: [],
 };
 
 const DEFAULT_PRIVACY: PrivacyPreferences = {
@@ -41,10 +47,20 @@ type FirestoreUserSettingsDoc = {
 };
 
 function normalizeNotifications(input?: Partial<NotificationPreferences>): NotificationPreferences {
+  const mutedChatIds = Array.isArray(input?.muted_chat_ids)
+    ? input.muted_chat_ids.filter((chatId): chatId is string => typeof chatId === "string" && chatId.trim().length > 0)
+    : [];
+  const unmutedOverrides = Array.isArray(input?.unmuted_chat_overrides)
+    ? input.unmuted_chat_overrides.filter((chatId): chatId is string => typeof chatId === "string" && chatId.trim().length > 0)
+    : [];
+
   return {
     new_matches: input?.new_matches ?? DEFAULT_NOTIFICATIONS.new_matches,
     direct_messages: input?.direct_messages ?? DEFAULT_NOTIFICATIONS.direct_messages,
     app_updates_and_tips: input?.app_updates_and_tips ?? DEFAULT_NOTIFICATIONS.app_updates_and_tips,
+    mute_all_notifications: input?.mute_all_notifications ?? DEFAULT_NOTIFICATIONS.mute_all_notifications,
+    muted_chat_ids: Array.from(new Set(mutedChatIds)),
+    unmuted_chat_overrides: Array.from(new Set(unmutedOverrides)),
   };
 }
 
