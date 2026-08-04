@@ -44,9 +44,27 @@ async function deleteByUidVariants(collectionName: string, uid: string): Promise
   await deleteDocuments(Array.from(uniqueByPath.values()));
 }
 
+async function deleteOwnedApartments(uid: string): Promise<void> {
+  const apartmentsCollection = collection(db, "apartments");
+  const [hostOwnedSnap, ownerOwnedSnap] = await Promise.all([
+    getDocs(query(apartmentsCollection, where("hostId", "==", uid))),
+    getDocs(query(apartmentsCollection, where("ownerId", "==", uid))),
+  ]);
+
+  const uniqueByPath = new Map<string, SnapshotDoc>();
+  hostOwnedSnap.docs.forEach((snapshotDoc) => {
+    uniqueByPath.set(snapshotDoc.ref.path, snapshotDoc);
+  });
+  ownerOwnedSnap.docs.forEach((snapshotDoc) => {
+    uniqueByPath.set(snapshotDoc.ref.path, snapshotDoc);
+  });
+
+  await deleteDocuments(Array.from(uniqueByPath.values()));
+}
+
 export async function wipeUserFirestoreFootprint(uid: string): Promise<void> {
   // 1) Remove apartments created/owned by this user.
-  await deleteByUidVariants("apartments", uid);
+  await deleteOwnedApartments(uid);
 
   // 2) Remove quiz answers and preference docs associated with this user.
   await Promise.all([

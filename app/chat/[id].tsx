@@ -653,7 +653,7 @@ export default function ChatScreen() {
         setIsApartmentUnavailable(true);
         setHostApartment({
           id: hostApartmentId,
-          title: t("chat.unavailable"),
+          title: t("apartments.unavailable"),
           description: "",
           about: "",
           area: t("apartments.unknownArea"),
@@ -963,7 +963,13 @@ export default function ChatScreen() {
   const displayCity = maskedAsDeleted
     ? t("common.values.notApplicable")
     : counterpartDetails?.city?.trim() || t("common.values.notAvailable");
-  const apartmentPillTitle = apartmentLocked ? t("chat.unavailable") : hostApartment?.title || hostApartmentTitle || t("chat.unavailable");
+  const apartmentPillTitle = apartmentLocked ? t("apartments.unavailable") : hostApartment?.title || hostApartmentTitle || t("apartments.unavailable");
+  const apartmentPreviewSubtitle = !apartmentLocked && hostApartment
+    ? `${hostApartment.area}, ${hostApartment.city}`
+    : "";
+  const apartmentPreviewPrice = !apartmentLocked && hostApartment?.rent
+    ? `${CURRENCY}${hostApartment.rent}${t("common.format.perMonthShort")}`
+    : "";
 
   const handleApartmentPillPress = () => {
     if (!hostApartment || apartmentLocked) return;
@@ -1389,14 +1395,32 @@ export default function ChatScreen() {
       <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
         {chatType === "host" && (hostApartment || hostApartmentId || apartmentLocked) ? (
           <Pressable
-            style={styles.apartmentPill}
+            style={[styles.apartmentPill, apartmentLocked && styles.apartmentPillDisabled]}
             onPress={handleApartmentPillPress}
             disabled={apartmentLocked}
             testID="chat-apartment-pill"
           >
-            <Text style={styles.apartmentPillText} numberOfLines={1}>
-              {apartmentPillTitle}
-            </Text>
+            {apartmentLocked ? (
+              <View style={styles.apartmentThumbFallback}>
+                <Ionicons name="image-outline" size={16} color={colors.onSurfaceTertiary} />
+              </View>
+            ) : hostApartment?.image ? (
+              <Image source={{ uri: hostApartment.image }} style={styles.apartmentThumb} contentFit="cover" />
+            ) : (
+              <View style={styles.apartmentThumbFallback}>
+                <Ionicons name="home-outline" size={16} color={colors.onSurfaceTertiary} />
+              </View>
+            )}
+            <View style={styles.apartmentPillTextWrap}>
+              <Text style={styles.apartmentPillText} numberOfLines={1}>
+                {apartmentPillTitle}
+              </Text>
+              {!apartmentLocked && (apartmentPreviewSubtitle || apartmentPreviewPrice) ? (
+                <Text style={styles.apartmentPillMeta} numberOfLines={1}>
+                  {[apartmentPreviewSubtitle, apartmentPreviewPrice].filter(Boolean).join(" · ")}
+                </Text>
+              ) : null}
+            </View>
           </Pressable>
         ) : null}
         <View style={styles.headerTop}>
@@ -1919,19 +1943,49 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   apartmentPill: {
     alignSelf: "center",
-    maxWidth: "88%",
+    maxWidth: "92%",
+    width: "100%",
     backgroundColor: "#D9F0FF",
     borderWidth: 1,
     borderColor: "#A8D9FF",
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 5,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  apartmentPillDisabled: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+  },
+  apartmentThumb: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surfaceTertiary,
+  },
+  apartmentThumbFallback: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surfaceTertiary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  apartmentPillTextWrap: {
+    flex: 1,
+    minWidth: 0,
   },
   apartmentPillText: {
     fontFamily: fonts.bold,
     fontSize: fontSize.sm,
     color: colors.onBrandTertiary,
-    textAlign: "center",
+  },
+  apartmentPillMeta: {
+    fontFamily: fonts.regular,
+    fontSize: fontSize.xs,
+    color: colors.onSurfaceTertiary,
   },
   headerTop: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   headerProfileTapArea: {
