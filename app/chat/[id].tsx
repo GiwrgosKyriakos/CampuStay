@@ -527,6 +527,7 @@ export default function ChatScreen() {
       const state = await getBlockRelationshipState(currentUserId, counterpartId);
       if (active) {
         setSettingsBlockState(state);
+        setIsBlocker(state.isBlocker);
       }
     })();
 
@@ -1185,8 +1186,15 @@ export default function ChatScreen() {
     [chatRoomId, counterpartId, currentUserId, displayName, isSubmittingBlockAction, reportReason],
   );
 
-  const handleUnblockFlow = useCallback(async () => {
+  const executeUnblock = useCallback(async () => {
     if (!currentUserId || !counterpartId || isSubmittingBlockAction) return;
+
+    // Optimistic UI update: reflect unblocked state instantly in chat controls and banner.
+    const previousSettingsState = settingsBlockState;
+    const previousIsBlocker = isBlocker;
+    setShowContextMenu(false);
+    setIsBlocker(false);
+    setSettingsBlockState((prev) => ({ ...prev, isBlocker: false }));
 
     setIsSubmittingBlockAction(true);
     try {
@@ -1202,10 +1210,6 @@ export default function ChatScreen() {
       });
 
       await setBlockStateBetweenUsers(currentUserId, counterpartId, false);
-      setIsBlocker(false);
-      setSettingsBlockState((prev) => ({ ...prev, isBlocker: false }));
-
-      setShowContextMenu(false);
       setActionModal({
         title: t("chat.modals.actionCompletedTitle") || "Success",
         description: t("chat.modals.unblockSuccessMessage"),
@@ -1218,6 +1222,9 @@ export default function ChatScreen() {
         ],
       });
     } catch {
+      // Revert optimistic state on failure.
+      setIsBlocker(previousIsBlocker);
+      setSettingsBlockState(previousSettingsState);
       setActionModal({
         title: t("chat.modals.actionFailedTitle"),
         description: t("common.messages.tryAgain"),
@@ -1232,7 +1239,7 @@ export default function ChatScreen() {
     } finally {
       setIsSubmittingBlockAction(false);
     }
-  }, [chatRoomId, counterpartId, currentUserId, isSubmittingBlockAction]);
+  }, [chatRoomId, counterpartId, currentUserId, isBlocker, isSubmittingBlockAction, settingsBlockState]);
 
   if (!profile && loadingProfile) {
     return (
@@ -1329,16 +1336,16 @@ export default function ChatScreen() {
               </Text>
             </Pressable>
             {/* 🎯 ΔΙΟΡΘΩΣΗ: Αν είμαστε εμείς ο blocker, το κουμπί μετατρέπεται σε Ξεμπλοκάρισμα */}
-            {isBlocker ? (
+            {hasBlockedByMe ? (
               <Pressable
                 style={styles.contextMenuItem}
                 onPress={() => {
-                  void handleUnblockFlow();
+                  void executeUnblock();
                 }}
                 testID="chat-context-unblock"
               >
                 <Ionicons name="refresh-outline" size={18} color={colors.brand} />
-                <Text style={[styles.contextMenuText, { color: colors.brand }]}>Unblock User</Text>
+                <Text style={[styles.contextMenuText, { color: colors.brand }]}>{t("chat.menu.unblockUser")}</Text>
               </Pressable>
             ) : (
               <Pressable
@@ -1369,7 +1376,7 @@ export default function ChatScreen() {
             <Pressable
               style={[styles.blockedBannerAction, isSubmittingBlockAction && styles.blockedBannerActionDisabled]}
               onPress={() => {
-                void handleUnblockFlow();
+                void executeUnblock();
               }}
               disabled={isSubmittingBlockAction}
               testID="chat-blocked-banner-unblock"
@@ -1844,6 +1851,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   blockedBanner: {
     marginHorizontal: spacing.lg,
     marginBottom: spacing.sm,
+    marginTop: spacing.sm,
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,

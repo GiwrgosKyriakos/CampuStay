@@ -303,7 +303,8 @@
     "menu": {
       "muteNotifications": "Σίγαση ειδοποιήσεων",
       "unmuteNotifications": "Ενεργοποίηση ειδοποιήσεων",
-      "block": "Αποκλεισμός"
+      "block": "Αποκλεισμός",
+      "unblockUser": "Κατάργηση αποκλεισμού"
     },
     "modals": {
       "conversationUpdatedTitle": "Η συνομιλία ενημερώθηκε",

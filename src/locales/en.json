@@ -303,7 +303,8 @@
     "menu": {
       "muteNotifications": "Mute Notifications",
       "unmuteNotifications": "Unmute Notifications",
-      "block": "Block"
+      "block": "Block",
+      "unblockUser": "Unblock User"
     },
     "modals": {
       "conversationUpdatedTitle": "Conversation updated",
