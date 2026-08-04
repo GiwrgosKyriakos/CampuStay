@@ -1,13 +1,16 @@
-import React from "react";
+import React, { useMemo } from "react";
+import { useTheme } from "@/src/context/ThemeContext";
 import { View, Text, StyleSheet, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 
-import { colors, spacing, fonts, fontSize } from "@/src/theme";
+import { spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
 import ScreenHeader from "@/src/components/ScreenHeader";
 import { formatMonthYear, t } from "@/src/locales";
 
 export default function PrivacyPolicyScreen() {
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
@@ -45,7 +48,7 @@ export default function PrivacyPolicyScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.surface,

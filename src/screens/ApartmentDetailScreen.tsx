@@ -30,8 +30,9 @@ import {
   where,
 } from "firebase/firestore";
 
-import { colors, fonts, fontSize, radius, spacing } from "@/src/theme";
+import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
 import { useAuth } from "@/src/context/auth";
+import { useTheme } from "@/src/context/ThemeContext";
 import { getOrCreateHostChat } from "@/src/api/chat";
 import { subscribeUserLikedApartmentIds, toggleApartmentLike } from "@/src/api/apartmentLikes";
 import { deleteListingPermanently } from "@/src/api/listings";
@@ -151,6 +152,8 @@ const AMENITIES: AmenityDef[] = [
 ];
 
 export default function ApartmentDetailScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const auth = useAuth();
@@ -841,196 +844,197 @@ export default function ApartmentDetailScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.surface },
-  center: { alignItems: "center", justifyContent: "center", gap: spacing.md },
-  scroll: { flex: 1 },
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.surface },
+    center: { alignItems: "center", justifyContent: "center", gap: spacing.md },
+    scroll: { flex: 1 },
 
-  backOverlay: {
-    position: "absolute",
-    left: spacing.lg,
-    zIndex: 10,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.surfaceSecondary,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: colors.border,
-    shadowColor: "#000",
-    shadowOpacity: 0.18,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 4,
-  },
+    backOverlay: {
+      position: "absolute",
+      left: spacing.lg,
+      zIndex: 10,
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: colors.surfaceSecondary,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: colors.border,
+      shadowColor: "#000",
+      shadowOpacity: 0.18,
+      shadowRadius: 6,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 4,
+    },
 
-  carouselWrap: {
-    position: "relative",
-    borderBottomWidth: 1.5,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceSecondary,
-  },
-  carouselWrapPlaceholder: {
-    height: 280,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  carouselImage: { width: SCREEN_WIDTH, height: 280 },
-  placeholderContainer: {
-    alignItems: "center",
-    justifyContent: "center",
-    padding: spacing.xl,
-    gap: spacing.xs,
-  },
-  placeholderIconContainer: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    justifyContent: "center",
-    marginBottom: spacing.xs,
-  },
-  placeholderSubIcon: {
-    backgroundColor: colors.surface,
-    borderRadius: 12,
-    padding: 2,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-  },
-  placeholderText: {
-    fontFamily: fonts.displayExtra,
-    fontSize: fontSize.xl,
-    color: colors.brand,
-    letterSpacing: 0.5,
-  },
-  placeholderSubText: {
-    fontFamily: fonts.semibold,
-    fontSize: fontSize.sm,
-    color: colors.onSurfaceTertiary,
-    marginTop: 2,
-    textAlign: "center",
-  },
-  dotRow: {
-    position: "absolute",
-    bottom: spacing.sm,
-    left: 0,
-    right: 0,
-    flexDirection: "row",
-    justifyContent: "center",
-    gap: spacing.xs,
-  },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: "rgba(255,255,255,0.45)",
-  },
-  dotActive: { backgroundColor: colors.brand, width: 14 },
-  rentBadge: {
-    position: "absolute",
-    bottom: spacing.md,
-    right: spacing.md,
-    flexDirection: "row",
-    alignItems: "flex-end",
-    backgroundColor: colors.brand,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.pill,
-  },
-  rentValue: {
-    fontFamily: fonts.displayExtra,
-    fontSize: fontSize["2xl"],
-    color: colors.onBrand,
-  },
-  rentPer: {
-    fontFamily: fonts.bold,
-    fontSize: fontSize.sm,
-    color: colors.onBrand,
-    paddingBottom: 2,
-    marginLeft: 2,
-  },
+    carouselWrap: {
+      position: "relative",
+      borderBottomWidth: 1.5,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceSecondary,
+    },
+    carouselWrapPlaceholder: {
+      height: 280,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    carouselImage: { width: SCREEN_WIDTH, height: 280 },
+    placeholderContainer: {
+      alignItems: "center",
+      justifyContent: "center",
+      padding: spacing.xl,
+      gap: spacing.xs,
+    },
+    placeholderIconContainer: {
+      flexDirection: "row",
+      alignItems: "flex-end",
+      justifyContent: "center",
+      marginBottom: spacing.xs,
+    },
+    placeholderSubIcon: {
+      backgroundColor: colors.surface,
+      borderRadius: 12,
+      padding: 2,
+      borderWidth: 1.5,
+      borderColor: colors.border,
+    },
+    placeholderText: {
+      fontFamily: fonts.displayExtra,
+      fontSize: fontSize.xl,
+      color: colors.brand,
+      letterSpacing: 0.5,
+    },
+    placeholderSubText: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.sm,
+      color: colors.onSurfaceTertiary,
+      marginTop: 2,
+      textAlign: "center",
+    },
+    dotRow: {
+      position: "absolute",
+      bottom: spacing.sm,
+      left: 0,
+      right: 0,
+      flexDirection: "row",
+      justifyContent: "center",
+      gap: spacing.xs,
+    },
+    dot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: "rgba(255,255,255,0.45)",
+    },
+    dotActive: { backgroundColor: colors.brand, width: 14 },
+    rentBadge: {
+      position: "absolute",
+      bottom: spacing.md,
+      right: spacing.md,
+      flexDirection: "row",
+      alignItems: "flex-end",
+      backgroundColor: colors.brand,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+      borderRadius: radius.pill,
+    },
+    rentValue: {
+      fontFamily: fonts.displayExtra,
+      fontSize: fontSize["2xl"],
+      color: colors.onBrand,
+    },
+    rentPer: {
+      fontFamily: fonts.bold,
+      fontSize: fontSize.sm,
+      color: colors.onBrand,
+      paddingBottom: 2,
+      marginLeft: 2,
+    },
 
-  infoBlock: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.sm,
-    gap: spacing.sm,
-  },
-  titleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: spacing.sm,
-  },
-  aptTitle: {
-    flex: 1,
-    fontFamily: fonts.displayExtra,
-    fontSize: fontSize["2xl"],
-    color: colors.onSurface,
-    lineHeight: 30,
-  },
-  titleActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.xs,
-  },
-  titleActionBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: radius.pill,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.surfaceSecondary,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  likeBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: radius.pill,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.9)",
-    borderWidth: 1,
-    borderColor: colors.border,
-    shadowColor: "#000",
-    shadowOpacity: 0.16,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 6,
-  },
-  likeBtnActive: {
-    backgroundColor: "#FF5A66",
-    borderColor: "#FF5A66",
-  },
-  locRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
-  locText: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary },
-  statsRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.xs },
-  statPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.xs,
-    backgroundColor: colors.brandTertiary,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.pill,
-  },
-  statText: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onBrandTertiary },
+    infoBlock: {
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.lg,
+      paddingBottom: spacing.sm,
+      gap: spacing.sm,
+    },
+    titleRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: spacing.sm,
+    },
+    aptTitle: {
+      flex: 1,
+      fontFamily: fonts.displayExtra,
+      fontSize: fontSize["2xl"],
+      color: colors.onSurface,
+      lineHeight: 30,
+    },
+    titleActions: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+    },
+    titleActionBtn: {
+      width: 42,
+      height: 42,
+      borderRadius: radius.pill,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.surfaceSecondary,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    likeBtn: {
+      width: 42,
+      height: 42,
+      borderRadius: radius.pill,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "rgba(255,255,255,0.9)",
+      borderWidth: 1,
+      borderColor: colors.border,
+      shadowColor: "#000",
+      shadowOpacity: 0.16,
+      shadowRadius: 6,
+      shadowOffset: { width: 0, height: 3 },
+      elevation: 6,
+    },
+    likeBtnActive: {
+      backgroundColor: "#FF5A66",
+      borderColor: "#FF5A66",
+    },
+    locRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
+    locText: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary },
+    statsRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.xs },
+    statPill: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+      backgroundColor: colors.brandTertiary,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.xs,
+      borderRadius: radius.pill,
+    },
+    statText: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onBrandTertiary },
 
-  section: {
-    marginHorizontal: spacing.lg,
-    marginTop: spacing.lg,
-    gap: spacing.sm,
-  },
-  sectionTitle: {
-    fontFamily: fonts.bold,
-    fontSize: fontSize.lg,
-    color: colors.onSurface,
-  },
+    section: {
+      marginHorizontal: spacing.lg,
+      marginTop: spacing.lg,
+      gap: spacing.sm,
+    },
+    sectionTitle: {
+      fontFamily: fonts.bold,
+      fontSize: fontSize.lg,
+      color: colors.onSurface,
+    },
 
-  inquiriesList: {
-    gap: spacing.sm,
-  },
-  inquiriesEmptyState: {
+    inquiriesList: {
+      gap: spacing.sm,
+    },
+    inquiriesEmptyState: {
     minHeight: 78,
     borderRadius: radius.lg,
     borderWidth: 1,
@@ -1040,13 +1044,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: spacing.md,
   },
-  inquiriesEmptyText: {
+    inquiriesEmptyText: {
     color: colors.onSurfaceTertiary,
     fontFamily: fonts.regular,
     fontSize: fontSize.sm,
     textAlign: "center",
   },
-  inquiryCard: {
+    inquiryCard: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
@@ -1056,32 +1060,32 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceSecondary,
     padding: spacing.sm,
   },
-  inquiryAvatarWrap: {
+    inquiryAvatarWrap: {
     width: 50,
     height: 50,
     borderRadius: 25,
     overflow: "hidden",
   },
-  inquiryAvatarImage: {
+    inquiryAvatarImage: {
     width: "100%",
     height: "100%",
   },
-  inquiryContent: {
+    inquiryContent: {
     flex: 1,
     gap: 2,
   },
-  inquiryName: {
+    inquiryName: {
     fontFamily: fonts.bold,
     fontSize: fontSize.base,
     color: colors.onSurface,
   },
-  inquiryPreview: {
+    inquiryPreview: {
     fontFamily: fonts.regular,
     fontSize: fontSize.sm,
     color: colors.onSurfaceTertiary,
     lineHeight: 18,
   },
-  inquiryDeleteBtn: {
+    inquiryDeleteBtn: {
     width: 36,
     height: 36,
     borderRadius: 18,
@@ -1092,38 +1096,38 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
 
-  amenitiesGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm,
-  },
-  amenityCell: {
-    width: "30%",
-    flexGrow: 1,
-    backgroundColor: colors.surfaceSecondary,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: "center",
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.sm,
-    gap: spacing.xs,
-  },
-  amenityCellActive: {
-    backgroundColor: colors.brandTertiary,
-    borderColor: colors.brand,
-  },
-  amenityLabel: {
-    fontFamily: fonts.semibold,
-    fontSize: fontSize.sm,
-    color: colors.onSurfaceTertiary,
-    textAlign: "center",
-  },
-  amenityLabelActive: {
-    color: colors.onBrandTertiary,
-  },
+    amenitiesGrid: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: spacing.sm,
+    },
+    amenityCell: {
+      width: "30%",
+      flexGrow: 1,
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: "center",
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.sm,
+      gap: spacing.xs,
+    },
+    amenityCellActive: {
+      backgroundColor: colors.brandTertiary,
+      borderColor: colors.brand,
+    },
+    amenityLabel: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.sm,
+      color: colors.onSurfaceTertiary,
+      textAlign: "center",
+    },
+    amenityLabelActive: {
+      color: colors.onBrandTertiary,
+    },
 
-  descBox: {
+    descBox: {
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.lg,
@@ -1131,19 +1135,19 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     gap: spacing.sm,
   },
-  descText: {
+    descText: {
     fontFamily: fonts.regular,
     fontSize: fontSize.base,
     color: colors.onSurface,
     lineHeight: 22,
   },
-  tagRow: {
+    tagRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: spacing.xs,
     marginTop: spacing.xs,
   },
-  tag: {
+    tag: {
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.pill,
@@ -1151,33 +1155,33 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     backgroundColor: colors.surface,
   },
-  tagText: {
+    tagText: {
     fontFamily: fonts.semibold,
     fontSize: fontSize.sm,
     color: colors.onSurface,
   },
 
-  locationMetaRow: {
+    locationMetaRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.xs,
     paddingHorizontal: spacing.xs,
   },
-  locationMetaText: {
+    locationMetaText: {
     flex: 1,
     fontFamily: fonts.regular,
     fontSize: fontSize.sm,
     color: colors.onSurfaceTertiary,
   },
 
-  footer: {
+    footer: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,
     backgroundColor: colors.surface,
     borderTopWidth: 1,
     borderTopColor: colors.divider,
   },
-  contactBtn: {
+    contactBtn: {
     minHeight: 56,
     borderRadius: radius.pill,
     backgroundColor: colors.brand,
@@ -1188,19 +1192,19 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: spacing.sm,
   },
-  contactBtnPressed: { opacity: 0.88 },
-  contactBtnText: {
+    contactBtnPressed: { opacity: 0.88 },
+    contactBtnText: {
     fontFamily: fonts.displayExtra,
     fontSize: fontSize.lg,
     color: colors.onBrand,
   },
 
-  errorText: {
+    errorText: {
     fontFamily: fonts.semibold,
     fontSize: fontSize.base,
     color: colors.error,
   },
-  backPill: {
+    backPill: {
     minHeight: 42,
     borderRadius: radius.pill,
     paddingHorizontal: spacing.lg,
@@ -1210,9 +1214,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.brandSecondary,
   },
-  backPillText: {
+    backPillText: {
     fontFamily: fonts.bold,
     fontSize: fontSize.base,
     color: colors.brandSecondary,
   },
-});
+  });
+}

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useTheme } from "@/src/context/ThemeContext";
 import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Switch, Animated, PanResponder } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
@@ -7,7 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
 import { collection, doc, getDocs, onSnapshot, orderBy, query, where, limit } from "firebase/firestore";
 
-import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
+import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
 import { getUserProfile } from "@/src/api/userProfile";
 import { getUserId } from "@/src/utils/userId";
 import { useAuth } from "@/src/context/auth";
@@ -101,6 +102,8 @@ function translateApartmentTag(tag: string): string {
 }
 
 export default function ApartmentsScreen() {
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const auth = useAuth();
@@ -767,7 +770,7 @@ export default function ApartmentsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
   flexOne: { flex: 1 },
   header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md, gap: spacing.xs },

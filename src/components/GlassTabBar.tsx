@@ -1,10 +1,11 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { View, Pressable, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 
-import { colors, radius, spacing } from "@/src/theme";
+import { radius, spacing, type ThemeColors } from "@/src/theme";
+import { useTheme } from "@/src/context/ThemeContext";
 
 const ICONS: Record<string, { active: keyof typeof Ionicons.glyphMap; inactive: keyof typeof Ionicons.glyphMap }> = {
   roommates: { active: "flame", inactive: "flame-outline" },
@@ -15,6 +16,8 @@ const ICONS: Record<string, { active: keyof typeof Ionicons.glyphMap; inactive: 
 
 export default function GlassTabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
 
   return (
     <View style={[styles.wrap, { paddingBottom: Math.max(insets.bottom, spacing.md) }]} testID="bottom-tab-bar">
@@ -56,40 +59,42 @@ export default function GlassTabBar({ state, navigation }: BottomTabBarProps) {
   );
 }
 
-const styles = StyleSheet.create({
-  wrap: {
-    position: "absolute",
-    left: spacing.lg,
-    right: spacing.lg,
-    bottom: 0,
-  },
-  bar: {
-    borderRadius: radius.pill,
-    overflow: "hidden",
-    backgroundColor: colors.muted,
-  },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-around",
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.sm,
-  },
-  tab: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  iconPill: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: 'hidden', // Εμποδίζει το περιεχόμενο να ξεχειλώσει τις γωνίες
-    //backgroundColor: "transparent",
-  },
-  iconPillActive: {
-    backgroundColor: colors.brand,
-  },
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    wrap: {
+      position: "absolute",
+      left: spacing.lg,
+      right: spacing.lg,
+      bottom: 0,
+    },
+    bar: {
+      borderRadius: radius.pill,
+      overflow: "hidden",
+      backgroundColor: colors.muted,
+    },
+    row: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-around",
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.sm,
+    },
+    tab: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    iconPill: {
+      width: 52,
+      height: 52,
+      borderRadius: 26,
+      alignItems: "center",
+      justifyContent: "center",
+      overflow: 'hidden', // Εμποδίζει το περιεχόμενο να ξεχειλώσει τις γωνίες
+      //backgroundColor: "transparent",
+    },
+    iconPillActive: {
+      backgroundColor: colors.brand,
+    },
+  });
+}

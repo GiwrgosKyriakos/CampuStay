@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
+import { useTheme } from "@/src/context/ThemeContext";
 import { View, Text, StyleSheet, Pressable, Image, ActivityIndicator } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
@@ -6,11 +7,13 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as WebBrowser from "expo-web-browser";
 
-import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
+import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
 import { useAuth } from "@/src/context/auth";
 import { t } from "@/src/locales";
 
 export default function AuthLandingScreen() {
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const auth = useAuth();
@@ -135,7 +138,7 @@ export default function AuthLandingScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   loadingContainer: {
     flex: 1,
     alignItems: "center",

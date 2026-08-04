@@ -1,4 +1,5 @@
 import React, { useMemo, useRef, useState, useCallback, useEffect } from "react";
+import { useTheme } from "@/src/context/ThemeContext";
 import { View, Text, StyleSheet, Pressable, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -6,7 +7,7 @@ import * as Haptics from "expo-haptics";
 import { useFocusEffect, useRouter } from "expo-router";
 import { doc, getDoc, onSnapshot, setDoc, updateDoc } from "firebase/firestore";
 
-import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
+import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
 import type { RoommateProfile } from "@/src/data/profiles";
 import SwipeDeck, { SwipeDeckHandle } from "@/src/components/SwipeDeck";
 import FilterSheet, { Filters, DEFAULT_FILTERS } from "@/src/components/FilterSheet";
@@ -81,6 +82,8 @@ function toScoredCandidate(candidate: RoommateProfile, matchScore: number): Room
 }
 
 export default function RoommatesScreen() {
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const auth = useAuth();
@@ -383,7 +386,7 @@ useEffect(() => {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md, gap: spacing.md },

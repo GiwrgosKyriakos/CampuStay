@@ -1,10 +1,13 @@
-import React from "react";
+import React, { useMemo } from "react";
+import { useTheme } from "@/src/context/ThemeContext";
 import { View, Text, StyleSheet, ActivityIndicator } from "react-native";
 
-import { colors, fonts, fontSize } from "@/src/theme";
+import { fonts, fontSize, type ThemeColors } from "@/src/theme";
 import { t } from "@/src/locales";
 
 export default function SplashScreen() {
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <View style={styles.container}>
       <Text style={styles.logo}>{t("common.brandName")}</Text>
@@ -13,7 +16,7 @@ export default function SplashScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: {
     flex: 1,
     alignItems: "center",

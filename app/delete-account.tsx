@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
+import { useTheme } from "@/src/context/ThemeContext";
 import { View, Text, StyleSheet, Pressable, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -6,7 +7,7 @@ import { FirebaseError } from "firebase/app";
 import { deleteUser } from "firebase/auth";
 
 import { useAuth } from "@/src/context/auth";
-import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
+import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
 import { GuestModeStickyFooter, GuestModeTopBanner } from "@/src/components/GuestModeLayout";
 import CenteredActionModal, { type CenteredModalAction } from "@/src/components/CenteredActionModal";
 import { firebaseAuth } from "@/src/config/firebase";
@@ -16,6 +17,8 @@ import { t } from "@/src/locales";
 const RECENT_LOGIN_WINDOW_MS = 5 * 60 * 1000;
 
 export default function DeleteAccountScreen() {
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const auth = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -181,7 +184,7 @@ export default function DeleteAccountScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface, paddingHorizontal: spacing.lg },
   mainContent: { flex: 1 },
   content: { gap: spacing.lg },

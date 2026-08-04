@@ -3,7 +3,8 @@ import { StyleSheet, Text, View } from "react-native";
 import MapView, { Circle, Marker, Region } from "react-native-maps";
 import { Ionicons } from "@expo/vector-icons";
 
-import { colors, fonts, fontSize, radius } from "@/src/theme";
+import { fonts, fontSize, radius, type ThemeColors } from "@/src/theme";
+import { useTheme } from "@/src/context/ThemeContext";
 
 interface ApartmentLocationMapProps {
   latitude?: number;
@@ -17,7 +18,7 @@ const EXACT_REGION_DELTA = 0.012;
 const AREA_REGION_DELTA = 0.045;
 const AREA_RADIUS_METERS = 1500;
 
-const customMapStyle = [
+const darkMapStyle = [
   { elementType: "geometry", stylers: [{ color: "#050e1a" }] },
   { elementType: "labels.text.fill", stylers: [{ color: "#8aa4c6" }] },
   { elementType: "labels.text.stroke", stylers: [{ color: "#050e1a" }] },
@@ -38,6 +39,27 @@ const customMapStyle = [
   { featureType: "water", elementType: "labels.text.stroke", stylers: [{ color: "#050e1a" }] },
 ];
 
+const lightMapStyle = [
+  { elementType: "geometry", stylers: [{ color: "#f1f7f8" }] },
+  { elementType: "labels.text.fill", stylers: [{ color: "#5a7f86" }] },
+  { elementType: "labels.text.stroke", stylers: [{ color: "#f8fbfc" }] },
+  { featureType: "administrative", elementType: "geometry.stroke", stylers: [{ color: "#c8dce0" }] },
+  { featureType: "administrative.land_parcel", elementType: "geometry.stroke", stylers: [{ color: "#c8dce0" }] },
+  { featureType: "landscape", elementType: "geometry", stylers: [{ color: "#e7f2f4" }] },
+  { featureType: "poi", elementType: "geometry", stylers: [{ color: "#d9ebee" }] },
+  { featureType: "poi", elementType: "labels.text.fill", stylers: [{ color: "#6f8f96" }] },
+  { featureType: "poi.park", elementType: "geometry", stylers: [{ color: "#d5ece0" }] },
+  { featureType: "road", elementType: "geometry", stylers: [{ color: "#ffffff" }] },
+  { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#d8e7ea" }] },
+  { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#63868c" }] },
+  { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#dbeff3" }] },
+  { featureType: "road.highway", elementType: "geometry.stroke", stylers: [{ color: "#c8e1e7" }] },
+  { featureType: "transit", elementType: "geometry", stylers: [{ color: "#e3eef0" }] },
+  { featureType: "water", elementType: "geometry", stylers: [{ color: "#cdebf2" }] },
+  { featureType: "water", elementType: "labels.text.fill", stylers: [{ color: "#5585a0" }] },
+  { featureType: "water", elementType: "labels.text.stroke", stylers: [{ color: "#e9f7fb" }] },
+];
+
 function isValidCoordinate(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
@@ -49,7 +71,10 @@ export default function ApartmentLocationMap({
   hasExactLocation,
   height = 280,
 }: ApartmentLocationMapProps) {
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const mapRef = useRef<MapView>(null);
+  const mapStyle = isDark ? darkMapStyle : lightMapStyle;
 
   const exactCoordinates = useMemo(() => {
     if (!hasExactLocation) return null;
@@ -86,7 +111,7 @@ export default function ApartmentLocationMap({
         ref={mapRef}
         style={styles.map}
         initialRegion={displayRegion}
-        customMapStyle={customMapStyle}
+        customMapStyle={mapStyle}
         showsCompass={false}
         showsScale={false}
         showsBuildings={false}
@@ -131,61 +156,63 @@ export default function ApartmentLocationMap({
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    borderRadius: radius.xl,
-    overflow: "hidden",
-    backgroundColor: colors.surfaceSecondary,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  map: {
-    width: "100%",
-    height: "100%",
-  },
-  overlayBorder: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.05)",
-  },
-  pinWrap: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  pinOuter: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: "rgba(8, 61, 74, 0.72)",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-  },
-  pinInner: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.brand,
-  },
-  modeBadge: {
-    position: "absolute",
-    left: 12,
-    top: 12,
-    backgroundColor: "rgba(5, 14, 26, 0.8)",
-    borderRadius: radius.pill,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderWidth: 1,
-    borderColor: "rgba(56, 189, 248, 0.2)",
-  },
-  modeBadgeText: {
-    color: "#d7f4ff",
-    fontFamily: fonts.semibold,
-    fontSize: fontSize.xs,
-    letterSpacing: 0.2,
-  },
-});
+function createStyles(colors: ThemeColors, isDark: boolean) {
+  return StyleSheet.create({
+    container: {
+      borderRadius: radius.lg,
+      overflow: "hidden",
+      backgroundColor: colors.surfaceSecondary,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    map: {
+      width: "100%",
+      height: "100%",
+    },
+    overlayBorder: {
+      ...StyleSheet.absoluteFillObject,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(10, 66, 80, 0.12)",
+    },
+    pinWrap: {
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    pinOuter: {
+      width: 42,
+      height: 42,
+      borderRadius: 21,
+      backgroundColor: isDark ? "rgba(8, 61, 74, 0.72)" : "rgba(211, 236, 239, 0.92)",
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: isDark ? "rgba(255,255,255,0.12)" : "rgba(10, 66, 80, 0.16)",
+    },
+    pinInner: {
+      width: 30,
+      height: 30,
+      borderRadius: 15,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.brand,
+    },
+    modeBadge: {
+      position: "absolute",
+      left: 12,
+      top: 12,
+      backgroundColor: isDark ? "rgba(5, 14, 26, 0.8)" : "rgba(234, 245, 246, 0.92)",
+      borderRadius: radius.pill,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderWidth: 1,
+      borderColor: isDark ? "rgba(56, 189, 248, 0.2)" : "rgba(10, 66, 80, 0.18)",
+    },
+    modeBadgeText: {
+      color: isDark ? "#d7f4ff" : "#0A4250",
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.sm,
+      letterSpacing: 0.2,
+    },
+  });
+}

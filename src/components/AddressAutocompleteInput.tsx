@@ -10,7 +10,8 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
-import { colors, fonts, fontSize, radius, spacing } from "@/src/theme";
+import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
+import { useTheme } from "@/src/context/ThemeContext";
 
 type AddressSuggestion = {
   address: string;
@@ -93,6 +94,9 @@ export default function AddressAutocompleteInput({
   onChangeAddressText,
   onAddressSelect,
 }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
   const [results, setResults] = useState<NominatimResult[]>([]);
   const [visibleCount, setVisibleCount] = useState(5);
   const [loading, setLoading] = useState(false);
@@ -281,116 +285,118 @@ export default function AddressAutocompleteInput({
   );
 }
 
-const styles = StyleSheet.create({
-  wrapper: {
-    position: "relative",
-    zIndex: 20,
-    overflow: "visible",
-  },
-  input: {
-    backgroundColor: colors.surface,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    color: colors.onSurface,
-    fontFamily: fonts.semibold,
-    fontSize: fontSize.base,
-  },
-  dropdownCard: {
-    position: "absolute",
-    top: 56,
-    left: 0,
-    right: 0,
-    maxHeight: 220,
-    backgroundColor: colors.surfaceSecondary,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    shadowColor: "#000",
-    shadowOpacity: 0.14,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 8,
-    overflow: "hidden",
-  },
-  dropdownHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.sm,
-  },
-  dropdownTitle: {
-    fontFamily: fonts.bold,
-    fontSize: fontSize.sm,
-    color: colors.onSurface,
-  },
-  resultsScroll: {
-    maxHeight: 220,
-  },
-  resultsContent: {
-    paddingBottom: spacing.xs,
-  },
-  resultRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-  },
-  resultIcon: {
-    width: 30,
-    height: 30,
-    borderRadius: radius.pill,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.brandTertiary,
-  },
-  resultTextWrap: {
-    flex: 1,
-    gap: 2,
-  },
-  resultPrimary: {
-    fontFamily: fonts.semibold,
-    fontSize: fontSize.base,
-    color: colors.onSurface,
-  },
-  resultSecondary: {
-    fontFamily: fonts.regular,
-    fontSize: fontSize.sm,
-    color: colors.onSurfaceTertiary,
-  },
-  emptyState: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.lg,
-    gap: spacing.xs,
-  },
-  emptyStateTitle: {
-    fontFamily: fonts.semibold,
-    fontSize: fontSize.base,
-    color: colors.onSurface,
-  },
-  emptyStateText: {
-    fontFamily: fonts.regular,
-    fontSize: fontSize.sm,
-    color: colors.onSurfaceTertiary,
-  },
-  showMoreButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing.xs,
-    paddingVertical: spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    backgroundColor: colors.surfaceSecondary,
-  },
-  showMoreText: {
-    fontFamily: fonts.bold,
-    fontSize: fontSize.sm,
-    color: colors.brandSecondary,
-  },
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    wrapper: {
+      position: "relative",
+      zIndex: 20,
+      overflow: "visible",
+    },
+    input: {
+      backgroundColor: colors.surface,
+      borderWidth: 1.5,
+      borderColor: colors.border,
+      borderRadius: radius.md,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.md,
+      color: colors.onSurface,
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.base,
+    },
+    dropdownCard: {
+      position: "absolute",
+      top: 56,
+      left: 0,
+      right: 0,
+      maxHeight: 220,
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      shadowColor: "#000",
+      shadowOpacity: 0.14,
+      shadowRadius: 14,
+      shadowOffset: { width: 0, height: 6 },
+      elevation: 8,
+      overflow: "hidden",
+    },
+    dropdownHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.md,
+      paddingBottom: spacing.sm,
+    },
+    dropdownTitle: {
+      fontFamily: fonts.bold,
+      fontSize: fontSize.sm,
+      color: colors.onSurface,
+    },
+    resultsScroll: {
+      maxHeight: 220,
+    },
+    resultsContent: {
+      paddingBottom: spacing.xs,
+    },
+    resultRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.md,
+    },
+    resultIcon: {
+      width: 30,
+      height: 30,
+      borderRadius: radius.pill,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.brandTertiary,
+    },
+    resultTextWrap: {
+      flex: 1,
+      gap: 2,
+    },
+    resultPrimary: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.base,
+      color: colors.onSurface,
+    },
+    resultSecondary: {
+      fontFamily: fonts.regular,
+      fontSize: fontSize.sm,
+      color: colors.onSurfaceTertiary,
+    },
+    emptyState: {
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.lg,
+      gap: spacing.xs,
+    },
+    emptyStateTitle: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.base,
+      color: colors.onSurface,
+    },
+    emptyStateText: {
+      fontFamily: fonts.regular,
+      fontSize: fontSize.sm,
+      color: colors.onSurfaceTertiary,
+    },
+    showMoreButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: spacing.xs,
+      paddingVertical: spacing.md,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+      backgroundColor: colors.surfaceSecondary,
+    },
+    showMoreText: {
+      fontFamily: fonts.bold,
+      fontSize: fontSize.sm,
+      color: colors.brandSecondary,
+    },
+  });
+}

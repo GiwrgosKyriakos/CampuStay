@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState, useMemo } from "react";
+import { useTheme } from "@/src/context/ThemeContext";
 import {
   View,
   Text,
@@ -10,7 +11,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 
 import { useAuth } from "@/src/context/auth";
-import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
+import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
 import { getUserSettings, saveUserNotifications } from "@/src/api/accountSettings";
 import { GuestModeStickyFooter, GuestModeTopBanner } from "@/src/components/GuestModeLayout";
 import ScreenHeader from "@/src/components/ScreenHeader";
@@ -38,6 +39,8 @@ type NotificationKey = "new_matches" | "direct_messages" | "app_updates_and_tips
 const STICKY_FOOTER_PADDING = 152;
 
 export default function NotificationsScreen() {
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const auth = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -173,7 +176,7 @@ export default function NotificationsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.surface },
   contentContainer: { flex: 1, paddingHorizontal: spacing.lg, justifyContent: "center" },
   header: { marginTop: spacing.lg, marginBottom: spacing.xl, alignItems: "center" },

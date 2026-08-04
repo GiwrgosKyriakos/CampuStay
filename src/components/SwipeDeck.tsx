@@ -1,4 +1,4 @@
-import React, { useState, useImperativeHandle, forwardRef } from "react";
+import React, { useState, useImperativeHandle, forwardRef, useMemo } from "react";
 import { View, Text, StyleSheet, Dimensions, Pressable } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
@@ -15,7 +15,8 @@ import Animated, {
   runOnJS,
 } from "react-native-reanimated";
 
-import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
+import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
+import { useTheme } from "@/src/context/ThemeContext";
 import type { RoommateProfile } from "@/src/data/profiles";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import { t } from "@/src/locales";
@@ -42,6 +43,8 @@ const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck(
   { profiles, currency, onLike, onNope, onSwipeAction, onEmptyReset },
   ref,
 ) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [cardStack, setCardStack] = useState<RoommateProfile[]>(profiles);
   const x = useSharedValue(0);
   const y = useSharedValue(0);
@@ -269,87 +272,89 @@ const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck(
 
 export default SwipeDeck;
 
-const styles = StyleSheet.create({
-  deckArea: { flex: 1, alignItems: "center", justifyContent: "center" },
-  cardWrap: { ...StyleSheet.absoluteFillObject },
-  card: {
-    flex: 1,
-    borderRadius: radius.lg,
-    backgroundColor: colors.surfaceTertiary,
-    overflow: "hidden",
-  },
-  matchBadge: {
-    position: "absolute",
-    top: spacing.md,
-    right: spacing.md,
-    zIndex: 2,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 6,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.24)",
-    shadowColor: colors.surfaceInverse,
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
-  },
-  matchBadgeText: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onSurfaceInverse },
-  photo: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
-  photoFallbackWrap: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  scrim: { ...StyleSheet.absoluteFillObject },
-  cardBody: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    padding: spacing.xl,
-    gap: spacing.sm,
-  },
-  nameRow: { flexDirection: "row", alignItems: "flex-end", gap: spacing.sm },
-  name: { fontFamily: fonts.displayExtra, fontSize: fontSize["3xl"], color: colors.onSurfaceInverse },
-  age: { fontFamily: fonts.display, fontSize: fontSize["2xl"], color: colors.onSurfaceInverse, paddingBottom: 3 },
-  uni: { fontFamily: fonts.semibold, fontSize: fontSize.base, color: "rgba(255,255,255,0.85)" },
-  pillRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.xs },
-  metaPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: colors.brand,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.pill,
-  },
-  budgetPill: { backgroundColor: colors.brand },
-  metaText: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onBrand },
-  empty: { alignItems: "center", paddingHorizontal: spacing.xl, gap: spacing.md },
-  emptyIcon: {
-    width: 88,
-    height: 88,
-    borderRadius: radius.pill,
-    backgroundColor: colors.brandTertiary,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: spacing.sm,
-  },
-  emptyTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface, textAlign: "center"  },
-  emptySub: { fontFamily: fonts.regular, fontSize: fontSize.lg, color: colors.onSurfaceTertiary, textAlign: "center" },
-  emptyBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    backgroundColor: colors.brand,
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.md,
-    borderRadius: radius.pill,
-    marginTop: spacing.sm,
-  },
-  emptyBtnText: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onBrand },
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    deckArea: { flex: 1, alignItems: "center", justifyContent: "center" },
+    cardWrap: { ...StyleSheet.absoluteFillObject },
+    card: {
+      flex: 1,
+      borderRadius: radius.lg,
+      backgroundColor: colors.surfaceTertiary,
+      overflow: "hidden",
+    },
+    matchBadge: {
+      position: "absolute",
+      top: spacing.md,
+      right: spacing.md,
+      zIndex: 2,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 6,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      borderColor: "rgba(255,255,255,0.24)",
+      shadowColor: colors.surfaceInverse,
+      shadowOpacity: 0.25,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 4,
+    },
+    matchBadgeText: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onSurfaceInverse },
+    photo: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
+    photoFallbackWrap: {
+      ...StyleSheet.absoluteFillObject,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    scrim: { ...StyleSheet.absoluteFillObject },
+    cardBody: {
+      position: "absolute",
+      left: 0,
+      right: 0,
+      bottom: 0,
+      padding: spacing.xl,
+      gap: spacing.sm,
+    },
+    nameRow: { flexDirection: "row", alignItems: "flex-end", gap: spacing.sm },
+    name: { fontFamily: fonts.displayExtra, fontSize: fontSize["3xl"], color: colors.onSurfaceInverse },
+    age: { fontFamily: fonts.display, fontSize: fontSize["2xl"], color: colors.onSurfaceInverse, paddingBottom: 3 },
+    uni: { fontFamily: fonts.semibold, fontSize: fontSize.base, color: "rgba(255,255,255,0.85)" },
+    pillRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.xs },
+    metaPill: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      backgroundColor: colors.brand,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.sm,
+      borderRadius: radius.pill,
+    },
+    budgetPill: { backgroundColor: colors.brand },
+    metaText: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onBrand },
+    empty: { alignItems: "center", paddingHorizontal: spacing.xl, gap: spacing.md },
+    emptyIcon: {
+      width: 88,
+      height: 88,
+      borderRadius: radius.pill,
+      backgroundColor: colors.brandTertiary,
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: spacing.sm,
+    },
+    emptyTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface, textAlign: "center" },
+    emptySub: { fontFamily: fonts.regular, fontSize: fontSize.lg, color: colors.onSurfaceTertiary, textAlign: "center" },
+    emptyBtn: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      backgroundColor: colors.brand,
+      paddingHorizontal: spacing.xl,
+      paddingVertical: spacing.md,
+      borderRadius: radius.pill,
+      marginTop: spacing.sm,
+    },
+    emptyBtnText: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onBrand },
+  });
+}

@@ -2,7 +2,7 @@ import * as Notifications from 'expo-notifications';
 import { Stack, useRouter, useSegments, useRootNavigationState } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import * as NavigationBar from "expo-navigation-bar";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Animated, Easing, LogBox, Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -14,9 +14,10 @@ import { BlurView } from "expo-blur";
 import { doc, getDoc } from "firebase/firestore";
 
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
-import { colors } from "@/src/theme";
+import type { ThemeColors } from "@/src/theme";
 import { AuthProvider, useAuth } from "@/src/context/auth";
 import { LocaleProvider, useLocale } from "@/src/context/locale";
+import { ThemeProvider, useTheme } from "@/src/context/ThemeContext";
 import { AppLocale } from "@/src/locales";
 import { storage } from "@/src/utils/storage";
 import { db } from "@/src/config/firebase";
@@ -27,18 +28,20 @@ const SELECTED_LANGUAGE_KEY = "selected_language";
 // Disable logbox errors so the app startup logs remain visible.
 LogBox.ignoreAllLogs(true);
 
-function AppNavigator() {
+function AppNavigator({ surfaceColor }: { surfaceColor: string }) {
   return (
     <Stack
       screenOptions={{
         headerShown: false,
-        contentStyle: { backgroundColor: colors.surface },
+        contentStyle: { backgroundColor: surfaceColor },
       }}
     />
   );
 }
 
 function AppContent() {
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const auth = useAuth();
   const { setLocale } = useLocale();
   const segments = useSegments();
@@ -162,10 +165,10 @@ function AppContent() {
       if (Platform.OS === 'android') {
         NavigationBar.setPositionAsync('absolute');
         NavigationBar.setBackgroundColorAsync("transparent");
-        NavigationBar.setButtonStyleAsync("light");
+        NavigationBar.setButtonStyleAsync(isDark ? "light" : "dark");
       }
     }
-  }, [appReady]);
+  }, [appReady, isDark]);
 
   useEffect(() => {
     let mounted = true;
@@ -290,8 +293,8 @@ function AppContent() {
       <KeyboardProvider>
         <SafeAreaProvider>
           <BottomSheetModalProvider>
-            <StatusBar style="light" />
-            <AppNavigator />
+            <StatusBar style={isDark ? "light" : "dark"} />
+            <AppNavigator surfaceColor={colors.surface} />
             {isRedirectingProtectedRoute || isTransitioning ? (
               <View style={styles.routeGateOverlay}>
                 <ActivityIndicator size="large" color={colors.brand} />
@@ -434,107 +437,111 @@ export default function RootLayout() {
   if (!splashReady) return null;
 
   return (
-    <LocaleProvider>
-      <AuthProvider>
-        <AppContent />
-      </AuthProvider>
-    </LocaleProvider>
+    <ThemeProvider>
+      <LocaleProvider>
+        <AuthProvider>
+          <AppContent />
+        </AuthProvider>
+      </LocaleProvider>
+    </ThemeProvider>
   );
 }
 
-const styles = StyleSheet.create({
-  bootLoaderWrap: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.surface,
-  },
-  routeGateOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.surface,
-    zIndex: 50,
-  },
-  languageModalRoot: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 24,
-  },
-  languageModalBlur: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  languageModalCard: {
-    width: "100%",
-    maxWidth: 460,
-    borderRadius: 24,
-    backgroundColor: "rgba(20, 23, 28, 0.86)",
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.12)",
-    paddingHorizontal: 22,
-    paddingVertical: 24,
-  },
-  languageModalTitle: {
-    color: colors.onSurface,
-    fontSize: 26,
-    fontFamily: "Bricolage-ExtraBold",
-    textAlign: "center",
-  },
-  languageModalTitleGreek: {
-    marginTop: 6,
-    color: colors.onSurface,
-    opacity: 0.92,
-    fontSize: 21,
-    fontFamily: "Bricolage-Bold",
-    textAlign: "center",
-  },
-  languageModalSubtitle: {
-    marginTop: 14,
-    color: colors.onSurface,
-    opacity: 0.92,
-    fontSize: 15,
-    lineHeight: 22,
-    fontFamily: "Jakarta-Regular",
-    textAlign: "center",
-  },
-  languageModalSubtitleGreek: {
-    marginTop: 8,
-    color: colors.onSurface,
-    opacity: 0.84,
-    fontSize: 14,
-    lineHeight: 21,
-    fontFamily: "Jakarta-Regular",
-    textAlign: "center",
-  },
-  languageButtonRow: {
-    marginTop: 20,
-    flexDirection: "row",
-    gap: 10,
-  },
-  languageButton: {
-    flex: 1,
-    borderRadius: 14,
-    minHeight: 48,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  languageButtonPrimary: {
-    backgroundColor: colors.brand,
-  },
-  languageButtonSecondary: {
-    backgroundColor: "rgba(255, 255, 255, 0.12)",
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.24)",
-  },
-  languageButtonPrimaryText: {
-    color: colors.onBrand,
-    fontSize: 16,
-    fontFamily: "Jakarta-Bold",
-  },
-  languageButtonSecondaryText: {
-    color: colors.onSurface,
-    fontSize: 16,
-    fontFamily: "Jakarta-SemiBold",
-  },
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    bootLoaderWrap: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.surface,
+    },
+    routeGateOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.surface,
+      zIndex: 50,
+    },
+    languageModalRoot: {
+      flex: 1,
+      justifyContent: "center",
+      alignItems: "center",
+      paddingHorizontal: 24,
+    },
+    languageModalBlur: {
+      ...StyleSheet.absoluteFillObject,
+    },
+    languageModalCard: {
+      width: "100%",
+      maxWidth: 460,
+      borderRadius: 24,
+      backgroundColor: "rgba(20, 23, 28, 0.86)",
+      borderWidth: 1,
+      borderColor: "rgba(255, 255, 255, 0.12)",
+      paddingHorizontal: 22,
+      paddingVertical: 24,
+    },
+    languageModalTitle: {
+      color: colors.onSurface,
+      fontSize: 26,
+      fontFamily: "Bricolage-ExtraBold",
+      textAlign: "center",
+    },
+    languageModalTitleGreek: {
+      marginTop: 6,
+      color: colors.onSurface,
+      opacity: 0.92,
+      fontSize: 21,
+      fontFamily: "Bricolage-Bold",
+      textAlign: "center",
+    },
+    languageModalSubtitle: {
+      marginTop: 14,
+      color: colors.onSurface,
+      opacity: 0.92,
+      fontSize: 15,
+      lineHeight: 22,
+      fontFamily: "Jakarta-Regular",
+      textAlign: "center",
+    },
+    languageModalSubtitleGreek: {
+      marginTop: 8,
+      color: colors.onSurface,
+      opacity: 0.84,
+      fontSize: 14,
+      lineHeight: 21,
+      fontFamily: "Jakarta-Regular",
+      textAlign: "center",
+    },
+    languageButtonRow: {
+      marginTop: 20,
+      flexDirection: "row",
+      gap: 10,
+    },
+    languageButton: {
+      flex: 1,
+      borderRadius: 14,
+      minHeight: 48,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    languageButtonPrimary: {
+      backgroundColor: colors.brand,
+    },
+    languageButtonSecondary: {
+      backgroundColor: "rgba(255, 255, 255, 0.12)",
+      borderWidth: 1,
+      borderColor: "rgba(255, 255, 255, 0.24)",
+    },
+    languageButtonPrimaryText: {
+      color: colors.onBrand,
+      fontSize: 16,
+      fontFamily: "Jakarta-Bold",
+    },
+    languageButtonSecondaryText: {
+      color: colors.onSurface,
+      fontSize: 16,
+      fontFamily: "Jakarta-SemiBold",
+    },
+  });
+}

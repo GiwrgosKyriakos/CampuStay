@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
@@ -7,7 +7,7 @@ import { useRouter, useFocusEffect } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
 
-import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
+import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
 import { useAuth } from "@/src/context/auth";
 import { getUserId } from "@/src/utils/userId";
 import { getUserProfile, saveUserProfile, UserProfile } from "@/src/api/userProfile";
@@ -17,6 +17,7 @@ import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import { uploadProfileImageAsync } from "@/src/api/imageUpload";
 import { t } from "@/src/locales";
 import { useLocale } from "@/src/context/locale";
+import { useTheme } from "@/src/context/ThemeContext";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 100;
@@ -33,6 +34,8 @@ export default function ProfileScreen() {
   const router = useRouter();
   const auth = useAuth();
   const { locale, setLocale } = useLocale();
+  const { colors, themeMode, setThemeMode, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [matchCount, setMatchCount] = useState(0);
   const [updatingPhoto, setUpdatingPhoto] = useState(false);
@@ -84,6 +87,13 @@ export default function ProfileScreen() {
   const age = auth.isGuest ? null : profile?.age ?? null;
   const budget = profile?.budget ?? null;
   const subInfoParts = [age != null ? t("common.format.ageLabel", { age }) : "", program, university].filter(Boolean);
+  const effectiveMode = themeMode === "system" ? (isDark ? "dark" : "light") : themeMode;
+  const themeTitle = locale === "el" ? "Εμφάνιση" : "Theme";
+  const modeLabels = {
+    system: locale === "el" ? "Σύστημα" : "System",
+    light: locale === "el" ? "Φωτεινό" : "Light",
+    dark: locale === "el" ? "Σκούρο" : "Dark",
+  } as const;
 
   const updatePhoto = useCallback(async () => {
     if (auth.isGuest) return;
@@ -253,6 +263,82 @@ export default function ProfileScreen() {
           </View>
         </View>
 
+        <View
+          style={[
+            styles.themeCard,
+            {
+              backgroundColor: colors.surfaceSecondary,
+              borderColor: colors.border,
+            },
+          ]}
+        >
+          <View style={styles.themeInfoRow}>
+            <View style={[styles.themeIconWrap, { backgroundColor: colors.surfaceTertiary }]}>
+              <Ionicons name="color-palette-outline" size={18} color={colors.onSurface} />
+            </View>
+            <View style={styles.themeTextWrap}>
+              <Text style={[styles.themeTitle, { color: colors.onSurface }]}>{themeTitle}</Text>
+              <Pressable
+                onPress={() => {
+                  void setThemeMode("system");
+                }}
+                style={[styles.themeStatusBadge, { backgroundColor: colors.surfaceTertiary }]}
+                testID="theme-mode-system"
+              >
+                <Text style={[styles.themeStatusText, { color: colors.onSurfaceTertiary }]}>{modeLabels[themeMode]}</Text>
+              </Pressable>
+            </View>
+          </View>
+
+          <View style={styles.themeButtonsRow}>
+            <Pressable
+              onPress={() => {
+                void setThemeMode("light");
+              }}
+              onLongPress={() => {
+                void setThemeMode("system");
+              }}
+              style={[
+                styles.themeModeButton,
+                {
+                  backgroundColor: effectiveMode === "light" ? colors.brand : colors.surfaceTertiary,
+                  borderColor: effectiveMode === "light" ? colors.brand : colors.border,
+                },
+              ]}
+              testID="theme-mode-light"
+            >
+              <Ionicons
+                name="sunny-outline"
+                size={17}
+                color={effectiveMode === "light" ? colors.onBrand : colors.onSurfaceTertiary}
+              />
+            </Pressable>
+
+            <Pressable
+              onPress={() => {
+                void setThemeMode("dark");
+              }}
+              onLongPress={() => {
+                void setThemeMode("system");
+              }}
+              style={[
+                styles.themeModeButton,
+                {
+                  backgroundColor: effectiveMode === "dark" ? colors.brand : colors.surfaceTertiary,
+                  borderColor: effectiveMode === "dark" ? colors.brand : colors.border,
+                },
+              ]}
+              testID="theme-mode-dark"
+            >
+              <Ionicons
+                name="moon-outline"
+                size={17}
+                color={effectiveMode === "dark" ? colors.onBrand : colors.onSurfaceTertiary}
+              />
+            </Pressable>
+          </View>
+        </View>
+
         {!auth.isGuest ? (
           <>
             <Pressable
@@ -302,7 +388,7 @@ export default function ProfileScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
   hero: { alignItems: "center", paddingTop: spacing["3xl"], paddingBottom: spacing.xl, gap: spacing.sm },
   avatarWrap: { marginTop: spacing.lg, marginBottom: spacing.sm },
@@ -427,6 +513,61 @@ const styles = StyleSheet.create({
   },
   languageChipTextActive: {
     color: colors.onBrand,
+  },
+  themeCard: {
+    marginTop: spacing.md,
+    marginHorizontal: spacing.lg,
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.md,
+  },
+  themeInfoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    flex: 1,
+  },
+  themeIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.md,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  themeTextWrap: {
+    gap: spacing.xs,
+    flex: 1,
+  },
+  themeTitle: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.base,
+  },
+  themeStatusBadge: {
+    alignSelf: "flex-start",
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+  },
+  themeStatusText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+  },
+  themeButtonsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  themeModeButton: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
   quizProgressWrap: {
     paddingHorizontal: spacing.lg,

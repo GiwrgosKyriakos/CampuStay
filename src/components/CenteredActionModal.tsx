@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import {
   Modal,
   Pressable,
@@ -8,7 +8,8 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
-import { colors, fonts, fontSize, radius, spacing } from "@/src/theme";
+import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
+import { useTheme } from "@/src/context/ThemeContext";
 
 export type CenteredModalAction = {
   label: string;
@@ -37,6 +38,9 @@ export default function CenteredActionModal({
   actionsLayout = "vertical",
   testID,
 }: CenteredActionModalProps) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
   return (
     <Modal animationType="fade" transparent visible={visible} onRequestClose={onDismiss}>
       <View style={styles.backdrop}>
@@ -101,105 +105,107 @@ export default function CenteredActionModal({
   );
 }
 
-const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: "rgba(5, 33, 40, 0.68)",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: spacing.lg,
-  },
-  modalCard: {
-    width: "100%",
-    maxWidth: 380,
-    backgroundColor: colors.surfaceSecondary,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingVertical: spacing.xl,
-    paddingHorizontal: spacing.lg,
-    shadowColor: "#000",
-    shadowOpacity: 0.3,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 12,
-    gap: spacing.sm,
-  },
-  headerAccent: {
-    width: 52,
-    height: 4,
-    borderRadius: radius.pill,
-    backgroundColor: colors.brand,
-    alignSelf: "center",
-    marginBottom: spacing.xs,
-  },
-  title: {
-    fontFamily: fonts.displayExtra,
-    fontSize: fontSize.xl,
-    color: colors.onSurface,
-    textAlign: "center",
-  },
-  description: {
-    fontFamily: fonts.regular,
-    fontSize: fontSize.base,
-    color: colors.onSurfaceTertiary,
-    lineHeight: 21,
-    textAlign: "center",
-  },
-  actionsWrap: {
-    marginTop: spacing.md,
-    gap: spacing.sm,
-  },
-  actionsWrapHorizontal: {
-    flexDirection: "row",
-    alignItems: "stretch",
-  },
-  actionButton: {
-    minHeight: 48,
-    borderRadius: radius.pill,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing.xs,
-    paddingHorizontal: spacing.lg,
-  },
-  actionButtonHorizontal: {
-    flex: 1,
-  },
-  actionSolid: {
-    backgroundColor: colors.brand,
-    borderWidth: 1,
-    borderColor: colors.brandSecondary,
-  },
-  actionOutline: {
-    backgroundColor: colors.brandTertiary,
-    borderWidth: 1,
-    borderColor: colors.brandSecondary,
-  },
-  actionMuted: {
-    backgroundColor: colors.surfaceTertiary,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  actionDanger: {
-    backgroundColor: colors.error,
-    borderWidth: 1,
-    borderColor: colors.error,
-  },
-  actionText: {
-    fontFamily: fonts.bold,
-    fontSize: fontSize.lg,
-  },
-  actionSolidText: {
-    color: colors.onBrand,
-  },
-  actionOutlineText: {
-    color: colors.brandSecondary,
-  },
-  actionMutedText: {
-    color: colors.onSurface,
-  },
-  actionDangerText: {
-    color: colors.onError,
-  },
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    backdrop: {
+      flex: 1,
+      backgroundColor: "rgba(5, 33, 40, 0.68)",
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: spacing.lg,
+    },
+    modalCard: {
+      width: "100%",
+      maxWidth: 380,
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingVertical: spacing.xl,
+      paddingHorizontal: spacing.lg,
+      shadowColor: "#000",
+      shadowOpacity: 0.3,
+      shadowRadius: 18,
+      shadowOffset: { width: 0, height: 8 },
+      elevation: 12,
+      gap: spacing.sm,
+    },
+    headerAccent: {
+      width: 52,
+      height: 4,
+      borderRadius: radius.pill,
+      backgroundColor: colors.brand,
+      alignSelf: "center",
+      marginBottom: spacing.xs,
+    },
+    title: {
+      fontFamily: fonts.displayExtra,
+      fontSize: fontSize.xl,
+      color: colors.onSurface,
+      textAlign: "center",
+    },
+    description: {
+      fontFamily: fonts.regular,
+      fontSize: fontSize.base,
+      color: colors.onSurfaceTertiary,
+      lineHeight: 21,
+      textAlign: "center",
+    },
+    actionsWrap: {
+      marginTop: spacing.md,
+      gap: spacing.sm,
+    },
+    actionsWrapHorizontal: {
+      flexDirection: "row",
+      alignItems: "stretch",
+    },
+    actionButton: {
+      minHeight: 48,
+      borderRadius: radius.pill,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: spacing.xs,
+      paddingHorizontal: spacing.lg,
+    },
+    actionButtonHorizontal: {
+      flex: 1,
+    },
+    actionSolid: {
+      backgroundColor: colors.brand,
+      borderWidth: 1,
+      borderColor: colors.brandSecondary,
+    },
+    actionOutline: {
+      backgroundColor: colors.brandTertiary,
+      borderWidth: 1,
+      borderColor: colors.brandSecondary,
+    },
+    actionMuted: {
+      backgroundColor: colors.surfaceTertiary,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    actionDanger: {
+      backgroundColor: colors.error,
+      borderWidth: 1,
+      borderColor: colors.error,
+    },
+    actionText: {
+      fontFamily: fonts.bold,
+      fontSize: fontSize.lg,
+    },
+    actionSolidText: {
+      color: colors.onBrand,
+    },
+    actionOutlineText: {
+      color: colors.brandSecondary,
+    },
+    actionMutedText: {
+      color: colors.onSurface,
+    },
+    actionDangerText: {
+      color: colors.onError,
+    },
+  });
+}

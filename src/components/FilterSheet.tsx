@@ -9,7 +9,8 @@ import {
 } from "@gorhom/bottom-sheet";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
+import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
+import { useTheme } from "@/src/context/ThemeContext";
 import { t } from "@/src/locales";
 
 export type GenderFilter = "all" | "male" | "female" | "nonBinary";
@@ -52,6 +53,8 @@ interface Props {
 }
 
 const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) => {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
   const [draft, setDraft] = useState<Filters>(current);
   const draftRef = useRef(draft);
@@ -284,6 +287,8 @@ function PreferenceSlider({
   valueFormatter,
   testID,
 }: PreferenceSliderProps) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [liveValue, setLiveValue] = useState(value);
   const draggingRef = useRef(false);
 
@@ -337,65 +342,67 @@ function PreferenceSlider({
   );
 }
 
-const styles = StyleSheet.create({
-  sheetBackground: {
-    backgroundColor: colors.surface,
-    borderTopLeftRadius: radius.lg,
-    borderTopRightRadius: radius.lg,
-  },
-  handleIndicator: {
-    width: 48,
-    height: 5,
-    borderRadius: radius.pill,
-    backgroundColor: colors.borderStrong,
-  },
-  sheetBody: { flex: 1 },
-  sheetHandleArea: { paddingTop: spacing.sm, paddingBottom: spacing.sm, paddingHorizontal: spacing.xl },
-  headerRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.md },
-  title: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface },
-  subtitle: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary, marginTop: 2 },
-  closeText: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.brand, paddingTop: 4 },
-  content: { paddingHorizontal: spacing.xl, paddingTop: spacing.sm, gap: spacing.sm, flexGrow: 1 },
-  label: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface, marginTop: spacing.md },
-  subLabel: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
-  sliderValue: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onBrandTertiary },
-  value: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onBrandTertiary, marginTop: spacing.md },
-  rowBetween: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.sm },
-  chip: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.pill,
-    backgroundColor: colors.surfaceTertiary,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  chipActive: { backgroundColor: colors.brand, borderColor: colors.brand },
-  chipText: { fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onSurfaceTertiary },
-  chipTextActive: { color: colors.onBrand },
-  sliderBlock: { gap: spacing.sm, marginTop: spacing.sm },
-  sliderControl: {
-    height: 34,
-    marginHorizontal: -8,
-  },
-  actions: { flexDirection: "row", gap: spacing.md, marginTop: spacing.lg },
-  resetBtn: {
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.md,
-    borderRadius: radius.pill,
-    borderWidth: 1.5,
-    borderColor: colors.borderStrong,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  resetText: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface },
-  applyBtn: {
-    flex: 1,
-    paddingVertical: spacing.lg,
-    borderRadius: radius.pill,
-    backgroundColor: colors.brand,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  applyText: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onBrand, textAlign: "center" },
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    sheetBackground: {
+      backgroundColor: colors.surface,
+      borderTopLeftRadius: radius.lg,
+      borderTopRightRadius: radius.lg,
+    },
+    handleIndicator: {
+      width: 48,
+      height: 5,
+      borderRadius: radius.pill,
+      backgroundColor: colors.borderStrong,
+    },
+    sheetBody: { flex: 1 },
+    sheetHandleArea: { paddingTop: spacing.sm, paddingBottom: spacing.sm, paddingHorizontal: spacing.xl },
+    headerRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.md },
+    title: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface },
+    subtitle: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary, marginTop: 2 },
+    closeText: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.brand, paddingTop: 4 },
+    content: { paddingHorizontal: spacing.xl, paddingTop: spacing.sm, gap: spacing.sm, flexGrow: 1 },
+    label: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface, marginTop: spacing.md },
+    subLabel: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
+    sliderValue: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onBrandTertiary },
+    value: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onBrandTertiary, marginTop: spacing.md },
+    rowBetween: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+    chipRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.sm },
+    chip: {
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.sm,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surfaceTertiary,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    chipActive: { backgroundColor: colors.brand, borderColor: colors.brand },
+    chipText: { fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onSurfaceTertiary },
+    chipTextActive: { color: colors.onBrand },
+    sliderBlock: { gap: spacing.sm, marginTop: spacing.sm },
+    sliderControl: {
+      height: 34,
+      marginHorizontal: -8,
+    },
+    actions: { flexDirection: "row", gap: spacing.md, marginTop: spacing.lg },
+    resetBtn: {
+      paddingHorizontal: spacing.xl,
+      paddingVertical: spacing.md,
+      borderRadius: radius.pill,
+      borderWidth: 1.5,
+      borderColor: colors.borderStrong,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    resetText: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface },
+    applyBtn: {
+      flex: 1,
+      paddingVertical: spacing.lg,
+      borderRadius: radius.pill,
+      backgroundColor: colors.brand,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    applyText: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onBrand, textAlign: "center" },
+  });
+}

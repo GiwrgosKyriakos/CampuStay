@@ -1,4 +1,5 @@
 import { setBlockStateBetweenUsers } from "@/src/api/chat";
+import { useTheme } from "@/src/context/ThemeContext";
 import {
   BottomSheetBackdrop,
   BottomSheetModal,
@@ -28,7 +29,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 
-import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
+import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
 import type { Gender, RoommateProfile } from "@/src/data/profiles";
 import { useAuth } from "@/src/context/auth";
 import { db } from "@/src/config/firebase";
@@ -226,6 +227,8 @@ function normalizeSocialUrl(platform: "instagram" | "facebook" | "linkedin" | "t
 }
 
 export default function ChatScreen() {
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
   const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
 
@@ -433,6 +436,10 @@ export default function ChatScreen() {
           about: "",
           area: t("apartments.unknownArea"),
           city: t("apartments.unknownCity"),
+          address: undefined,
+          latitude: undefined,
+          longitude: undefined,
+          hasExactLocation: false,
           rent: 0,
           rooms: 1,
           size: 0,
@@ -1337,7 +1344,7 @@ export default function ChatScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
   flex: { flex: 1 },
   center: { alignItems: "center", justifyContent: "center", gap: spacing.md },

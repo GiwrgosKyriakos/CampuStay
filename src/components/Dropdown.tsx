@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Text, StyleSheet, Pressable, Modal, ScrollView } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
-import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
+import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
+import { useTheme } from "@/src/context/ThemeContext";
 
 interface Props {
   value: string | null;
@@ -15,6 +16,8 @@ interface Props {
 
 export default function Dropdown({ value, options, placeholder, onSelect, testID, disabled }: Props) {
   const [open, setOpen] = useState(false);
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
 
   return (
     <>
@@ -55,49 +58,51 @@ export default function Dropdown({ value, options, placeholder, onSelect, testID
   );
 }
 
-const styles = StyleSheet.create({
-  field: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: spacing.sm,
-    backgroundColor: colors.surface,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.lg,
-    height: 52,
-  },
-  fieldDisabled: { opacity: 0.45 },
-  value: { flex: 1, fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onSurface },
-  placeholder: { fontFamily: fonts.regular, color: colors.onSurfaceTertiary },
-  backdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.45)",
-    justifyContent: "center",
-    padding: spacing.xl,
-  },
-  sheet: {
-    backgroundColor: colors.surfaceSecondary,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
-    gap: spacing.sm,
-  },
-  sheetTitle: {
-    fontFamily: fonts.displayExtra,
-    fontSize: fontSize.lg,
-    color: colors.onSurface,
-    marginBottom: spacing.xs,
-  },
-  optionRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.sm,
-  },
-  optionRowActive: { backgroundColor: colors.brandTertiary },
-  optionText: { fontFamily: fonts.regular, fontSize: fontSize.lg, color: colors.onSurface },
-  optionTextActive: { fontFamily: fonts.bold, color: colors.onBrandTertiary },
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    field: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: spacing.sm,
+      backgroundColor: colors.surface,
+      borderWidth: 1.5,
+      borderColor: colors.border,
+      borderRadius: radius.md,
+      paddingHorizontal: spacing.lg,
+      height: 52,
+    },
+    fieldDisabled: { opacity: 0.45 },
+    value: { flex: 1, fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onSurface },
+    placeholder: { fontFamily: fonts.regular, color: colors.onSurfaceTertiary },
+    backdrop: {
+      flex: 1,
+      backgroundColor: "rgba(0,0,0,0.45)",
+      justifyContent: "center",
+      padding: spacing.xl,
+    },
+    sheet: {
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: radius.lg,
+      padding: spacing.lg,
+      gap: spacing.sm,
+    },
+    sheetTitle: {
+      fontFamily: fonts.displayExtra,
+      fontSize: fontSize.lg,
+      color: colors.onSurface,
+      marginBottom: spacing.xs,
+    },
+    optionRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.md,
+      borderRadius: radius.sm,
+    },
+    optionRowActive: { backgroundColor: colors.brandTertiary },
+    optionText: { fontFamily: fonts.regular, fontSize: fontSize.lg, color: colors.onSurface },
+    optionTextActive: { fontFamily: fonts.bold, color: colors.onBrandTertiary },
+  });
+}

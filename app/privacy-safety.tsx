@@ -1,5 +1,6 @@
 import { setBlockStateBetweenUsers } from "@/src/api/chat";
-import React, { useCallback, useEffect, useState } from "react";
+import { useTheme } from "@/src/context/ThemeContext";
+import React, { useCallback, useEffect, useState, useMemo } from "react";
 import { View, Text, StyleSheet, ScrollView, Switch, Pressable, ActivityIndicator } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -10,7 +11,7 @@ import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 
 import { useAuth } from "@/src/context/auth";
 import { getUserSettings, saveUserPrivacy, PrivacyPreferences } from "@/src/api/accountSettings";
-import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
+import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
 import { GuestModeStickyFooter, GuestModeTopBanner } from "@/src/components/GuestModeLayout";
 import ScreenHeader from "@/src/components/ScreenHeader";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
@@ -33,6 +34,8 @@ interface BlockedAccountRow {
 }
 
 export default function PrivacySafetyScreen() {
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const auth = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -444,7 +447,7 @@ export default function PrivacySafetyScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   scroll: { padding: spacing.lg, gap: spacing.lg },

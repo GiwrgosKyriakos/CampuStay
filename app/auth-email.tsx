@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
+import { useTheme } from "@/src/context/ThemeContext";
 import {
   View,
   Text,
@@ -17,7 +18,7 @@ import { sendPasswordResetEmail } from "firebase/auth";
 
 import * as WebBrowser from "expo-web-browser";
 
-import { colors, radius, spacing, fonts, fontSize } from "@/src/theme";
+import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
 import { useAuth } from "@/src/context/auth";
 import { firebaseAuth } from "@/src/config/firebase";
 import { AUTH, LOGIN, REGISTER } from "@/constants/testIds";
@@ -58,6 +59,8 @@ function mapPasswordResetError(code?: string): string {
 }
 
 export default function AuthEmailScreen() {
+  const { colors, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const auth = useAuth();
@@ -396,7 +399,7 @@ export default function AuthEmailScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.surface,

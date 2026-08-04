@@ -23,9 +23,10 @@ import Dropdown from "@/src/components/Dropdown";
 import AddressAutocompleteInput from "@/src/components/AddressAutocompleteInput";
 import ApartmentLocationMap from "@/src/components/ApartmentLocationMap";
 import CenteredActionModal from "@/src/components/CenteredActionModal";
-import { colors, fonts, fontSize, radius, spacing } from "@/src/theme";
+import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
 import { db } from "@/src/config/firebase";
 import { useAuth } from "@/src/context/auth";
+import { useTheme } from "@/src/context/ThemeContext";
 import { useLocationCoordinates } from "@/src/hooks/useLocationCoordinates";
 import { uploadListingImageAsync } from "@/src/api/imageUpload";
 import { upsertListing } from "@/src/api/listings";
@@ -76,6 +77,8 @@ const PHOTO_SLOTS = 6;
 const IMAGE_QUALITY = 0.7;
 
 export default function CreateListingScreen() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   // 2. Προσθήκη των States μέσα στο CreateListingScreen component
   const [title, setTitle] = useState("");             
   const [description, setDescription] = useState(""); 
@@ -650,206 +653,208 @@ export default function CreateListingScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: colors.surface },
-  flexOne: { flex: 1 },
-  content: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
-    gap: spacing.md,
-  },
-  headerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    marginBottom: spacing.xs,
-  },
-  backButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.surfaceSecondary,
-  },
-  headerTextWrap: { flex: 1 },
-  title: {
-    fontFamily: fonts.displayExtra,
-    fontSize: fontSize["2xl"],
-    color: colors.onSurface,
-  },
-  subtitle: {
-    fontFamily: fonts.regular,
-    fontSize: fontSize.base,
-    color: colors.onSurfaceTertiary,
-    marginTop: 2,
-  },
-  card: {
-    backgroundColor: colors.surfaceSecondary,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.lg,
-    gap: spacing.sm,
-  },
-  sectionTitle: {
-    fontFamily: fonts.bold,
-    fontSize: fontSize.lg,
-    color: colors.onSurface,
-    marginBottom: 2,
-  },
-  input: {
-    backgroundColor: colors.surface,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    color: colors.onSurface,
-    fontFamily: fonts.semibold,
-    fontSize: fontSize.base,
-  },
-  mtSm: { marginTop: spacing.sm },
-  fieldHint: {
-    fontFamily: fonts.regular,
-    fontSize: fontSize.sm,
-    color: colors.onSurfaceTertiary,
-    lineHeight: 18,
-  },
-  editLoadingRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    paddingHorizontal: spacing.sm,
-    marginTop: -spacing.xs,
-  },
-  amenityList: { gap: spacing.sm },
-  amenityRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: spacing.md,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-  },
-  amenityRowActive: {
-    borderColor: colors.brand,
-    backgroundColor: colors.brandTertiary,
-  },
-  amenityInfo: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    flex: 1,
-  },
-  amenityLabel: {
-    fontFamily: fonts.semibold,
-    fontSize: fontSize.base,
-    color: colors.onSurface,
-  },
-  amenityLabelActive: {
-    color: colors.onBrandTertiary,
-  },
-  photoGrid: {
-    marginTop: spacing.xs,
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm,
-  },
-  photoTile: {
-    width: "31%",
-    aspectRatio: 1,
-    borderRadius: radius.md,
-    borderWidth: 1.5,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing.xs,
-  },
-  photoTileEmpty: {
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  photoTileFilled: {
-    borderColor: colors.borderStrong,
-    backgroundColor: colors.surfaceTertiary,
-    overflow: "hidden",
-    position: "relative",
-  },
-  photoImage: {
-    width: "100%",
-    height: "100%",
-    borderRadius: radius.md,
-  },
-  photoOverlay: {
-    position: "absolute",
-    top: spacing.xs,
-    right: spacing.xs,
-    backgroundColor: "rgba(8, 61, 74, 0.78)",
-    borderRadius: radius.pill,
-  },
-  photoTileText: {
-    fontFamily: fonts.semibold,
-    fontSize: fontSize.sm,
-    color: colors.onBrand,
-  },
-  photoTileTextMuted: {
-    color: colors.onSurfaceTertiary,
-  },
-  settingsButton: {
-    marginTop: spacing.sm,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    alignSelf: "flex-start",
-  },
-  settingsButtonText: {
-    fontFamily: fonts.semibold,
-    fontSize: fontSize.sm,
-    color: colors.onSurface,
-  },
-  errorText: {
-    marginTop: spacing.xs,
-    fontFamily: fonts.semibold,
-    fontSize: fontSize.sm,
-    color: colors.error,
-  },
-  footer: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
-    backgroundColor: colors.surface,
-    borderTopWidth: 1,
-    borderTopColor: colors.divider,
-  },
-  publishButton: {
-    backgroundColor: colors.brand,
-    borderRadius: radius.pill,
-    minHeight: 56,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
-  },
-  publishButtonDisabled: {
-    opacity: 0.88,
-  },
-  publishButtonLoadingRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing.sm,
-  },
-  publishButtonText: {
-    fontFamily: fonts.displayExtra,
-    fontSize: fontSize.lg,
-    color: colors.onBrand,
-  },
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    safeArea: { flex: 1, backgroundColor: colors.surface },
+    flexOne: { flex: 1 },
+    content: {
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.sm,
+      gap: spacing.md,
+    },
+    headerRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.md,
+      marginBottom: spacing.xs,
+    },
+    backButton: {
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.surfaceSecondary,
+    },
+    headerTextWrap: { flex: 1 },
+    title: {
+      fontFamily: fonts.displayExtra,
+      fontSize: fontSize["2xl"],
+      color: colors.onSurface,
+    },
+    subtitle: {
+      fontFamily: fonts.regular,
+      fontSize: fontSize.base,
+      color: colors.onSurfaceTertiary,
+      marginTop: 2,
+    },
+    card: {
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: spacing.lg,
+      gap: spacing.sm,
+    },
+    sectionTitle: {
+      fontFamily: fonts.bold,
+      fontSize: fontSize.lg,
+      color: colors.onSurface,
+      marginBottom: 2,
+    },
+    input: {
+      backgroundColor: colors.surface,
+      borderWidth: 1.5,
+      borderColor: colors.border,
+      borderRadius: radius.md,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.md,
+      color: colors.onSurface,
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.base,
+    },
+    mtSm: { marginTop: spacing.sm },
+    fieldHint: {
+      fontFamily: fonts.regular,
+      fontSize: fontSize.sm,
+      color: colors.onSurfaceTertiary,
+      lineHeight: 18,
+    },
+    editLoadingRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      paddingHorizontal: spacing.sm,
+      marginTop: -spacing.xs,
+    },
+    amenityList: { gap: spacing.sm },
+    amenityRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: spacing.md,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.md,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.md,
+    },
+    amenityRowActive: {
+      borderColor: colors.brand,
+      backgroundColor: colors.brandTertiary,
+    },
+    amenityInfo: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      flex: 1,
+    },
+    amenityLabel: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.base,
+      color: colors.onSurface,
+    },
+    amenityLabelActive: {
+      color: colors.onBrandTertiary,
+    },
+    photoGrid: {
+      marginTop: spacing.xs,
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: spacing.sm,
+    },
+    photoTile: {
+      width: "31%",
+      aspectRatio: 1,
+      borderRadius: radius.md,
+      borderWidth: 1.5,
+      alignItems: "center",
+      justifyContent: "center",
+      gap: spacing.xs,
+    },
+    photoTileEmpty: {
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+    },
+    photoTileFilled: {
+      borderColor: colors.borderStrong,
+      backgroundColor: colors.surfaceTertiary,
+      overflow: "hidden",
+      position: "relative",
+    },
+    photoImage: {
+      width: "100%",
+      height: "100%",
+      borderRadius: radius.md,
+    },
+    photoOverlay: {
+      position: "absolute",
+      top: spacing.xs,
+      right: spacing.xs,
+      backgroundColor: "rgba(8, 61, 74, 0.78)",
+      borderRadius: radius.pill,
+    },
+    photoTileText: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.sm,
+      color: colors.onBrand,
+    },
+    photoTileTextMuted: {
+      color: colors.onSurfaceTertiary,
+    },
+    settingsButton: {
+      marginTop: spacing.sm,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      alignSelf: "flex-start",
+    },
+    settingsButtonText: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.sm,
+      color: colors.onSurface,
+    },
+    errorText: {
+      marginTop: spacing.xs,
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.sm,
+      color: colors.error,
+    },
+    footer: {
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.sm,
+      backgroundColor: colors.surface,
+      borderTopWidth: 1,
+      borderTopColor: colors.divider,
+    },
+    publishButton: {
+      backgroundColor: colors.brand,
+      borderRadius: radius.pill,
+      minHeight: 56,
+      alignItems: "center",
+      justifyContent: "center",
+      shadowColor: "#000",
+      shadowOpacity: 0.2,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 6,
+    },
+    publishButtonDisabled: {
+      opacity: 0.88,
+    },
+    publishButtonLoadingRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: spacing.sm,
+    },
+    publishButtonText: {
+      fontFamily: fonts.displayExtra,
+      fontSize: fontSize.lg,
+      color: colors.onBrand,
+    },
+  });
+}
