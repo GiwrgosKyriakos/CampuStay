@@ -15,6 +15,7 @@ import { db } from "@/src/config/firebase";
 import { DELETED_ACCOUNT_LABEL } from "@/src/api/accountDeletion";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import { t } from "@/src/locales";
+import { getBlockRelationshipState } from "@/src/api/chat";
 
 const TAB_BAR_SPACE = 100;
 
@@ -195,6 +196,11 @@ export default function MatchesScreen() {
         const chatData = chatSnap.exists()
           ? (chatSnap.data() as { status?: "pending" | "active" | "rejected"; initiatedBy?: string | null })
           : null;
+        const blockState = await getBlockRelationshipState(uid, toUid);
+        const blockedByUsers = {
+          [uid]: blockState.isBlocker,
+          [toUid]: blockState.isBlocked,
+        };
 
         await setDoc(
           chatRef,
@@ -203,6 +209,7 @@ export default function MatchesScreen() {
             type: "roommate",
             status: chatData?.status ?? "pending",
             initiatedBy: chatData?.initiatedBy ?? uid,
+            blockedByUsers,
             updatedAt: serverTimestamp(),
             ...(chatSnap.exists()
               ? {}

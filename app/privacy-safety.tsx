@@ -1,4 +1,4 @@
-import { setBlockStateBetweenUsers } from "@/src/api/chat";
+import { getBlockRelationshipState, setBlockStateBetweenUsers } from "@/src/api/chat";
 import { useTheme } from "@/src/context/ThemeContext";
 import React, { useCallback, useEffect, useState, useMemo } from "react";
 import { View, Text, StyleSheet, ScrollView, Switch, Pressable, ActivityIndicator } from "react-native";
@@ -7,7 +7,7 @@ import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
-import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, where } from "firebase/firestore";
 
 import { useAuth } from "@/src/context/auth";
 import { getUserSettings, saveUserPrivacy, PrivacyPreferences } from "@/src/api/accountSettings";
@@ -31,6 +31,10 @@ interface BlockedAccountRow {
   id: string;
   displayName: string;
   photoUrl: string | null;
+}
+
+function getDeletedAccountLabel(): string {
+  return t("common.account.deleted") || "Deleted Account";
 }
 
 export default function PrivacySafetyScreen() {
@@ -118,45 +122,81 @@ export default function PrivacySafetyScreen() {
   );
 
   useEffect(() => {
-  if (!blockedSheetVisible || isGuest || !auth.userId) return;
+    if (!blockedSheetVisible || isGuest || !auth.userId) return;
 
-  let active = true;
-  setBlockedLoading(true);
-  void (async () => {
-    try {
-      const mapped = await Promise.all(
-        privacy.blocked_profiles.map(async (blockedProfile) => {
+    let active = true;
+    setBlockedLoading(true);
+    void (async () => {
+      try {
+        const blockedIds = new Set(privacy.blocked_profiles.map((profile) => profile.id));
+        const mutualBlockedIds = new Set<string>();
+
+        const chatsSnap = await getDocs(
+          query(collection(db, "chats"), where("users", "array-contains", auth.userId)),
+        );
+
+        chatsSnap.docs.forEach((chatDoc) => {
+          const data = chatDoc.data() as {
+            users?: string[];
+            blockedByUsers?: Record<string, boolean>;
+          };
+          const users = Array.isArray(data.users) ? data.users : [];
+          const counterpartId = users.find((uid) => uid !== auth.userId);
+          if (!counterpartId || !blockedIds.has(counterpartId)) return;
+          if (data.blockedByUsers?.[counterpartId] === true) {
+            mutualBlockedIds.add(counterpartId);
+          }
+        });
+
+        const mapped = await Promise.all(
+          privacy.blocked_profiles.map(async (blockedProfile) => {
+            if (mutualBlockedIds.has(blockedProfile.id)) {
+              return {
+                id: blockedProfile.id,
+                displayName: getDeletedAccountLabel(),
+                photoUrl: null,
+              } satisfies BlockedAccountRow;
+            }
+
             const userSnap = await getDoc(doc(db, "users", blockedProfile.id));
-            const userData = userSnap.exists() ? (userSnap.data() as FirestoreBlockedUserDoc) : null;
-            const photoCandidates = Array.isArray(userData?.photos) ? userData?.photos : [];
-          return {
+            if (!userSnap.exists()) {
+              return {
+                id: blockedProfile.id,
+                displayName: getDeletedAccountLabel(),
+                photoUrl: null,
+              } satisfies BlockedAccountRow;
+            }
+
+            const userData = userSnap.data() as FirestoreBlockedUserDoc;
+            const photoCandidates = Array.isArray(userData.photos) ? userData.photos : [];
+            return {
+              id: blockedProfile.id,
+              displayName: userData.name?.trim() || blockedProfile.name || t("common.values.unknown"),
+              photoUrl: userData.photoUrl || photoCandidates[0] || null,
+            } satisfies BlockedAccountRow;
+          }),
+        );
+
+        if (!active) return;
+        setBlockedRows(mapped);
+      } catch {
+        if (!active) return;
+        setBlockedRows(
+          privacy.blocked_profiles.map((blockedProfile) => ({
             id: blockedProfile.id,
-            displayName: userData?.name?.trim() || blockedProfile.name || t("common.values.unknown"),
-            photoUrl: userData?.photoUrl || photoCandidates[0] || null,
-          } satisfies BlockedAccountRow;
-        }),
-      );
+            displayName: blockedProfile.name || t("common.values.unknown"),
+            photoUrl: null,
+          })),
+        );
+      } finally {
+        if (active) setBlockedLoading(false);
+      }
+    })();
 
-      if (!active) return;
-      setBlockedRows(mapped);
-    } catch {
-      if (!active) return;
-      setBlockedRows(
-        privacy.blocked_profiles.map((blockedProfile) => ({
-          id: blockedProfile.id,
-          displayName: blockedProfile.name || t("common.values.unknown"),
-          photoUrl: null,
-        })),
-      );
-    } finally {
-      if (active) setBlockedLoading(false);
-    }
-  })();
-
-  return () => {
-    active = false;
-  };
-}, [auth.userId, blockedSheetVisible, isGuest, privacy.blocked_profiles]);
+    return () => {
+      active = false;
+    };
+  }, [auth.userId, blockedSheetVisible, isGuest, privacy.blocked_profiles]);
 
   const addBackToMatches = useCallback(
     async (targetUserId: string) => {
@@ -164,6 +204,7 @@ export default function PrivacySafetyScreen() {
 
       try {
         const chatRoomId = [auth.userId, targetUserId].sort().join("_");
+        const blockState = await getBlockRelationshipState(auth.userId, targetUserId);
         await setDoc(
           doc(db, "chats", chatRoomId),
           {
@@ -171,6 +212,10 @@ export default function PrivacySafetyScreen() {
             type: "roommate",
             status: "pending",
             initiatedBy: auth.userId,
+            blockedByUsers: {
+              [auth.userId]: blockState.isBlocker,
+              [targetUserId]: blockState.isBlocked,
+            },
             lastMessage: "",
             lastMessageTimestamp: serverTimestamp(),
             createdAt: serverTimestamp(),
@@ -218,19 +263,9 @@ export default function PrivacySafetyScreen() {
       const persisted = await persistPrivacy(nextPrivacy);
       if (!persisted) return;
 
-      // 🎯 Η ΔΙΟΡΘΩΣΗ: Ενημερώνουμε το shared chat document για να σβήσει το block flag σε real-time!
+      // Keep chat-level block metadata in sync across all existing chat threads.
       try {
-        const chatRoomId = [auth.userId, targetUserId].sort().join("_");
-        await setDoc(
-          doc(db, "chats", chatRoomId),
-          {
-            blockedByUsers: {
-              [auth.userId]: false, // Θέτουμε το δικό μας flag σε false
-            },
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true },
-        );
+        await setBlockStateBetweenUsers(auth.userId, targetUserId, false);
       } catch (chatMetadataError) {
         console.error("[PrivacySafety] Failed to clear chat block state:", chatMetadataError);
       }

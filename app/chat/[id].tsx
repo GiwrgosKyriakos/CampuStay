@@ -1,4 +1,4 @@
-import { setBlockStateBetweenUsers } from "@/src/api/chat";
+import { getBlockRelationshipState, setBlockStateBetweenUsers } from "@/src/api/chat";
 import { useTheme } from "@/src/context/ThemeContext";
 import {
   BottomSheetBackdrop,
@@ -271,6 +271,7 @@ export default function ChatScreen() {
   const [compatibilityScore, setCompatibilityScore] = useState<number | null>(null);
   const [isBlocker, setIsBlocker] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
+  const [settingsBlockState, setSettingsBlockState] = useState({ isBlocker: false, isBlocked: false });
 
   useEffect(() => {
     if (!counterpartId) {
@@ -410,6 +411,25 @@ export default function ChatScreen() {
       unsubChat();
     };
   }, [chatRoomId, currentUserId, sortMessages]);
+
+  useEffect(() => {
+    if (!currentUserId || !counterpartId) {
+      setSettingsBlockState({ isBlocker: false, isBlocked: false });
+      return;
+    }
+
+    let active = true;
+    void (async () => {
+      const state = await getBlockRelationshipState(currentUserId, counterpartId);
+      if (active) {
+        setSettingsBlockState(state);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [counterpartId, currentUserId]);
 
   useEffect(() => {
     if (chatType !== "host" || !hostApartmentId) {
@@ -667,6 +687,9 @@ export default function ChatScreen() {
 
   const deletedCounterpart = !counterpartExists || isDeletedCounterpart(activeProfile);
 
+  const hasBlockedByMe = isBlocker || settingsBlockState.isBlocker;
+  const blockedByOtherUser = isBlocked || settingsBlockState.isBlocked;
+
   // 🎯 ΔΙΟΡΘΩΣΗ: Δυναμικός έλεγχος για απόκρυψη στοιχείων λόγω Block
   let displayName = deletedCounterpart ? t("common.account.deleted") : activeProfile.name;
   let displayAbout = deletedCounterpart
@@ -675,16 +698,16 @@ export default function ChatScreen() {
   let showAvatarImage = !deletedCounterpart && !!activeProfile.photo?.trim();
   let displayUniversity = deletedCounterpart ? "" : activeProfile.university;
 
-  if (isBlocker) {
+  if (hasBlockedByMe) {
     displayName = t("common.account.blocked");
     showAvatarImage = false;
     displayUniversity = "";
-    displayAbout = "This profile is blocked.";
-  } else if (isBlocked) {
+    displayAbout = t("chat.blocked.profileHidden");
+  } else if (blockedByOtherUser) {
     displayName = t("common.account.deleted") || "Deleted Account";
     showAvatarImage = false;
     displayUniversity = "";
-    displayAbout = t("chat.placeholderDeleted") || "This account has been deleted.";
+    displayAbout = t("chat.placeholderDeleted") || t("chat.blocked.accountDeletedFallback");
   } else if (chatStatus === "rejected") {
     showAvatarImage = false;
     displayUniversity = "";
@@ -693,10 +716,16 @@ export default function ChatScreen() {
   const apartmentLocked = chatType === "host" && isApartmentUnavailable;
 
   // 🎯 ΑΣΦΑΛΕΙΑ: Αν υπάρχει οποιοδήποτε block, κλειδώνουμε το input bar
-  const inputBlocked = chatStatus === "pending" || chatStatus === "rejected" || deletedCounterpart || apartmentLocked || isBlocker || isBlocked;
+  const inputBlocked = chatStatus === "pending" || chatStatus === "rejected" || deletedCounterpart || apartmentLocked || hasBlockedByMe || blockedByOtherUser;
 
   // Κρύβουμε τα social links σε περίπτωση block
-  const shouldShowSocialLinks = !deletedCounterpart && !isBlocker && !isBlocked && !!counterpartDetails?.looking_for_apartment;
+  const shouldShowSocialLinks = !deletedCounterpart && !hasBlockedByMe && !blockedByOtherUser && !!counterpartDetails?.looking_for_apartment;
+
+  const blockedBannerText = hasBlockedByMe
+    ? t("chat.blocked.youBlockedBanner")
+    : blockedByOtherUser
+    ? t("chat.blocked.unavailableBanner")
+    : null;
 
   const displayGender = deletedCounterpart ? t("common.values.notApplicable") : activeProfile.gender;
   const displayAge = deletedCounterpart ? t("common.values.emptyDash") : `${activeProfile.age} ${t("common.format.yearsSuffix")}`;
@@ -820,18 +849,9 @@ export default function ChatScreen() {
           blocked_profiles: blockedProfiles,
         });
 
-        if (chatRoomId) {
-          await setDoc(
-            doc(db, "chats", chatRoomId),
-            {
-              blockedByUsers: {
-                [currentUserId]: true,
-              },
-              updatedAt: serverTimestamp(),
-            },
-            { merge: true },
-          );
-        }
+        await setBlockStateBetweenUsers(currentUserId, counterpartId, true);
+        setIsBlocker(true);
+        setSettingsBlockState((prev) => ({ ...prev, isBlocker: true }));
 
         if (withReport) {
           await submitReportedUserEntry({
@@ -895,24 +915,14 @@ export default function ChatScreen() {
         blocked_profiles: updatedBlockedProfiles,
       });
 
-      // 2. Ενημερώνουμε το chat document θέτοντας το δικό μας flag σε false
-      if (chatRoomId) {
-        await setDoc(
-          doc(db, "chats", chatRoomId),
-          {
-            blockedByUsers: {
-              [currentUserId]: false, // 🎯 ΕΔΩ ΓΙΝΕΤΑΙ Η ΑΝΤΙΣΤΡΟΦΗ!
-            },
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true },
-        );
-      }
+      await setBlockStateBetweenUsers(currentUserId, counterpartId, false);
+      setIsBlocker(false);
+      setSettingsBlockState((prev) => ({ ...prev, isBlocker: false }));
 
       setShowContextMenu(false);
       setActionModal({
         title: t("chat.modals.actionCompletedTitle") || "Success",
-        description: "Account successfully unblocked!",
+        description: t("chat.modals.unblockSuccessMessage"),
         actions: [
           {
             label: t("common.actions.gotIt"),
@@ -1064,6 +1074,24 @@ export default function ChatScreen() {
           onPress={() => setShowContextMenu(false)}
           testID="chat-context-menu-backdrop"
         />
+      ) : null}
+
+      {blockedBannerText ? (
+        <View style={styles.blockedBanner}>
+          <Text style={styles.blockedBannerText}>{blockedBannerText}</Text>
+          {hasBlockedByMe ? (
+            <Pressable
+              style={[styles.blockedBannerAction, isSubmittingBlockAction && styles.blockedBannerActionDisabled]}
+              onPress={() => {
+                void handleUnblockFlow();
+              }}
+              disabled={isSubmittingBlockAction}
+              testID="chat-blocked-banner-unblock"
+            >
+              <Text style={styles.blockedBannerActionText}>{t("common.actions.unblock")}</Text>
+            </Pressable>
+          ) : null}
+        </View>
       ) : null}
 
       <KeyboardAvoidingView
@@ -1457,6 +1485,41 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   contextMenuDangerText: {
     color: colors.error,
+  },
+  blockedBanner: {
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceSecondary,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+  },
+  blockedBannerText: {
+    flex: 1,
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+    color: colors.onSurface,
+  },
+  blockedBannerAction: {
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.brand,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+  },
+  blockedBannerActionText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+    color: colors.brand,
+  },
+  blockedBannerActionDisabled: {
+    opacity: 0.5,
   },
   blockModalBackdrop: {
     flex: 1,

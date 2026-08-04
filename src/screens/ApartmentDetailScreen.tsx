@@ -42,6 +42,7 @@ import ApartmentLocationMap from "@/src/components/ApartmentLocationMap";
 import { t } from "@/src/locales";
 import { db } from "@/src/config/firebase";
 import { useLocationCoordinates } from "@/src/hooks/useLocationCoordinates";
+import { getExcludedUserIds } from "@/src/api/blocking";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const CURRENCY = "€";
@@ -178,6 +179,8 @@ export default function ApartmentDetailScreen() {
   const [dbImages, setDbImages] = useState<string[]>([]);
   const [realDescription, setRealDescription] = useState<string | null>(null);
   const [realTags, setRealTags] = useState<string[]>([]);
+  const [checkingVisibility, setCheckingVisibility] = useState(false);
+  const [isListingExcluded, setIsListingExcluded] = useState(false);
 
   const [inquiries, setInquiries] = useState<InquiryItem[]>([]);
   const [loadingInquiries, setLoadingInquiries] = useState(false);
@@ -248,6 +251,45 @@ export default function ApartmentDetailScreen() {
       mounted = false;
     };
   }, [apt?.id]);
+
+  useEffect(() => {
+    const currentUserId = auth.userId;
+    if (!apt?.id || !currentUserId || auth.isGuest) {
+      setCheckingVisibility(false);
+      setIsListingExcluded(false);
+      return;
+    }
+
+    let active = true;
+    setCheckingVisibility(true);
+
+    void (async () => {
+      try {
+        const excludedUserIds = await getExcludedUserIds(currentUserId);
+        let ownerId = apt?.hostId || apt?.ownerId || null;
+
+        if (!ownerId && apt?.id) {
+          const apartmentSnap = await getDoc(doc(db, "apartments", apt.id));
+          if (apartmentSnap.exists()) {
+            const apartmentData = apartmentSnap.data() as FirestoreApartmentDoc;
+            ownerId = apartmentData.hostId || apartmentData.ownerId || null;
+          }
+        }
+
+        if (!active) return;
+        setIsListingExcluded(typeof ownerId === "string" && excludedUserIds.has(ownerId));
+      } catch {
+        if (!active) return;
+        setIsListingExcluded(false);
+      } finally {
+        if (active) setCheckingVisibility(false);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [apt?.hostId, apt?.id, apt?.ownerId, auth.isGuest, auth.userId]);
 
   useEffect(() => {
     if (!isListingOwner || !auth.userId || !apt?.id) {
@@ -345,6 +387,25 @@ export default function ApartmentDetailScreen() {
     return (
       <View style={[styles.container, styles.center]}>
         <Text style={styles.errorText}>{t("apartmentDetail.dataUnavailable")}</Text>
+        <Pressable style={styles.backPill} onPress={() => router.back()}>
+          <Text style={styles.backPillText}>{t("common.actions.back")}</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  if (checkingVisibility) {
+    return (
+      <View style={[styles.container, styles.center]}>
+        <ActivityIndicator size="large" color={colors.brand} />
+      </View>
+    );
+  }
+
+  if (isListingExcluded) {
+    return (
+      <View style={[styles.container, styles.center]}>
+        <Text style={styles.errorText}>{t("apartmentDetail.listingUnavailable")}</Text>
         <Pressable style={styles.backPill} onPress={() => router.back()}>
           <Text style={styles.backPillText}>{t("common.actions.back")}</Text>
         </Pressable>

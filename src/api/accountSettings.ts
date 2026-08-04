@@ -135,6 +135,7 @@ export async function saveUserPrivacy(userId: string, privacy: PrivacyPreference
     userRef,
     {
       is_visible: normPrivacy.is_visible,
+      blockedUserIds: normPrivacy.blocked_profiles.map((profile) => profile.id),
       updatedAt: serverTimestamp(),
     },
     { merge: true },

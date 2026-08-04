@@ -87,7 +87,9 @@
       "title": "Incoming Requests",
       "subtitle": "Host Inbox",
       "emptyTitle": "No inquiries or messages yet as a host",
-      "emptySub": "When guests contact you about your listings, those conversations will appear here."
+      "emptySub": "When guests contact you about your listings, those conversations will appear here.",
+      "blockedBadge": "Blocked",
+      "blockedUnavailable": "Unavailable due to block"
   },
   "tabs": {
     "roommates": "Roommates",
@@ -310,8 +312,15 @@
       "notificationsUpdateFailedTitle": "Could not update notifications",
       "actionCompletedTitle": "Action completed",
       "blockSuccessMessage": "User blocked successfully.",
+      "unblockSuccessMessage": "Account successfully unblocked!",
       "blockAndReportSuccessMessage": "User blocked and report submitted successfully.",
       "actionFailedTitle": "Action failed"
+    },
+    "blocked": {
+      "youBlockedBanner": "You have blocked this user",
+      "unavailableBanner": "This user is unavailable",
+      "profileHidden": "This profile is blocked.",
+      "accountDeletedFallback": "This account has been deleted."
     },
     "blockModal": {
       "title": "Are you sure you want to block this user?",
@@ -439,6 +448,7 @@
   "apartmentDetail": {
     "noPhotosAvailable": "No photos available for this listing.",
     "dataUnavailable": "Apartment data unavailable.",
+    "listingUnavailable": "This listing is no longer available.",
     "emailSubject": "Inquiry about: {{title}}",
     "hostListingTitle": "Host listing",
     "hostListingMessage": "You are the host of this listing.",

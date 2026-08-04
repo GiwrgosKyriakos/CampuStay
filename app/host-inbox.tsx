@@ -13,6 +13,7 @@ import { db } from "@/src/config/firebase";
 import { DELETED_ACCOUNT_LABEL } from "@/src/api/accountDeletion";
 import { t } from "@/src/locales";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
+import { getBlockRelationshipState } from "@/src/api/chat";
 
 interface FirestoreUserDoc {
   name?: string | null;
@@ -192,10 +193,11 @@ export default function HostInboxScreen() {
                   const photos = Array.isArray(customerData?.photos) ? customerData.photos : [];
                   const customerAvatar = customerData?.photoUrl || photos[0] || "";
 
-                  // 🎯 ΔΙΟΡΘΩΣΗ: Διαβάζουμε το blockedByUsers map
+                  // Combine metadata and settings-based relationship checks for global blocking.
                   const blockedMap = (chatData as any).blockedByUsers ?? {};
-                  const isBlocker = blockedMap[currentUid] === true;
-                  const isBlocked = blockedMap[customerId] === true;
+                  const relationState = await getBlockRelationshipState(currentUid, customerId);
+                  const isBlocker = blockedMap[currentUid] === true || relationState.isBlocker;
+                  const isBlocked = blockedMap[customerId] === true || relationState.isBlocked;
 
                   return {
                     id: chatDoc.id,
@@ -253,6 +255,9 @@ export default function HostInboxScreen() {
   const handleOpenChat = (item: HostInboxItem) => {
     if (activeContextChatId) {
       setActiveContextChatId(null);
+      return;
+    }
+    if (item.isBlocker || item.isBlocked) {
       return;
     }
     if (item.status === "active" || item.status === "rejected") {
@@ -414,6 +419,7 @@ export default function HostInboxScreen() {
             
             const isPending = item.status === "pending";
             const isRejected = item.status === "rejected";
+            const isBlockedChat = !!item.isBlocker || !!item.isBlocked;
             const isReceiver = isPending && item.initiatedBy !== auth.userId;
             const defaultPreview = isPending ? t("matches.previewPending") : t("matches.previewStart");
             const lastPreviewText = isPending
@@ -426,11 +432,11 @@ export default function HostInboxScreen() {
             return (
               <Pressable
                 key={item.id}
-                style={styles.row}
+                style={[styles.row, isBlockedChat && styles.rowBlocked]}
                 onPress={() => handleOpenChat(item)}
                 onLongPress={() => setActiveContextChatId(item.id)}
                 delayLongPress={350}
-                disabled={isPending}
+                disabled={isPending || isBlockedChat}
               >
                 {activeContextChatId === item.id ? (
                   <View style={styles.contextTooltip}>
@@ -454,13 +460,18 @@ export default function HostInboxScreen() {
                   <View style={styles.rowNameHeader}>
                     <Text style={styles.rowName} numberOfLines={1}>{customerName}</Text>
                     <Text style={styles.apartmentTitle} numberOfLines={1}>{item.apartmentTitle}</Text>
+                    {isBlockedChat ? (
+                      <View style={styles.blockedBadge}>
+                        <Text style={styles.blockedBadgeText}>{t("host-inbox.blockedBadge")}</Text>
+                      </View>
+                    ) : null}
                   </View>
 
                   {isPending ? (
                     isReceiver ? (
                       item.isBlocker || item.isBlocked ? (
                         <Text style={[styles.rowMsg, styles.rowMsgFaded]} numberOfLines={1}>
-                          Unavailable due to block
+                          {t("host-inbox.blockedUnavailable")}
                         </Text>
                       ) : acceptingChatId === item.chatRoomId ? (
                         <View style={styles.pendingActionRow}>
@@ -629,11 +640,27 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.divider,
   },
+  rowBlocked: {
+    opacity: 0.6,
+  },
   avatar: { width: 60, height: 60, borderRadius: radius.pill, backgroundColor: colors.surfaceTertiary },
   rowText: { flex: 1, gap: 3, justifyContent: 'center' },
   rowNameHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
   rowName: { flex: 1, fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface },
   apartmentTitle: { flexShrink: 1, fontFamily: fonts.semibold, fontSize: 13, color: colors.brand, textAlign: "right" },
+  blockedBadge: {
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.error,
+    backgroundColor: "rgba(255,90,95,0.12)",
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+  },
+  blockedBadgeText: {
+    fontFamily: fonts.semibold,
+    fontSize: 11,
+    color: colors.error,
+  },
   rowMsg: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary },
   rowMsgFaded: { color: colors.onSurfaceTertiary, opacity: 0.55 },
   rowMsgUnread: { color: colors.onSurface, fontFamily: fonts.semibold },

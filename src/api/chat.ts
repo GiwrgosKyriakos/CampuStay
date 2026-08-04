@@ -11,6 +11,7 @@ import {
   setDoc,
 } from "firebase/firestore";
 import { db } from "@/src/config/firebase";
+import { getUserSettings } from "@/src/api/accountSettings";
 
 /**
  * Marks all incoming messages from a specific sender as read within a chat room.
@@ -123,6 +124,40 @@ function buildChatRoomId(userA: string, userB: string, apartmentId?: string): st
   return parts.sort().join("_");
 }
 
+export interface BlockRelationshipState {
+  isBlocker: boolean;
+  isBlocked: boolean;
+}
+
+export async function getBlockRelationshipState(
+  currentUserId: string,
+  targetUserId: string,
+): Promise<BlockRelationshipState> {
+  try {
+    const [currentSettings, targetSettings] = await Promise.all([
+      getUserSettings(currentUserId).catch(() => null),
+      getUserSettings(targetUserId).catch(() => null),
+    ]);
+
+    const currentBlocked = new Set(
+      (currentSettings?.privacy?.blocked_profiles ?? []).map((entry) => entry.id),
+    );
+    const targetBlocked = new Set(
+      (targetSettings?.privacy?.blocked_profiles ?? []).map((entry) => entry.id),
+    );
+
+    return {
+      isBlocker: currentBlocked.has(targetUserId),
+      isBlocked: targetBlocked.has(currentUserId),
+    };
+  } catch {
+    return {
+      isBlocker: false,
+      isBlocked: false,
+    };
+  }
+}
+
 async function findExistingHostChatRoomId(params: {
   currentUserId: string;
   hostId: string;
@@ -150,6 +185,11 @@ export async function getOrCreateHostChat(params: {
   apartmentTitle?: string;
 }): Promise<string> {
   const { currentUserId, hostId, apartmentId, apartmentTitle } = params;
+  const blockState = await getBlockRelationshipState(currentUserId, hostId);
+  const blockedByUsers = {
+    [currentUserId]: blockState.isBlocker,
+    [hostId]: blockState.isBlocked,
+  };
   const existingRoomId = await findExistingHostChatRoomId({ currentUserId, hostId, apartmentId });
   if (existingRoomId) {
     await setDoc(
@@ -159,6 +199,7 @@ export async function getOrCreateHostChat(params: {
         type: "host",
         apartmentId,
         apartmentTitle: apartmentTitle ?? "",
+        blockedByUsers,
         updatedAt: serverTimestamp(),
       },
       { merge: true },
@@ -180,6 +221,7 @@ export async function getOrCreateHostChat(params: {
         type: "host",
         apartmentId,
         apartmentTitle: apartmentTitle ?? "",
+        blockedByUsers,
         updatedAt: serverTimestamp(),
         createdAt: serverTimestamp(),
       },
@@ -194,6 +236,7 @@ export async function getOrCreateHostChat(params: {
       type: "host",
       apartmentId,
       apartmentTitle: apartmentTitle ?? "",
+      blockedByUsers,
       updatedAt: serverTimestamp(),
     },
     { merge: true },

@@ -16,12 +16,7 @@ import { db } from "@/src/config/firebase";
 import { subscribeUserLikedApartmentIds, toggleApartmentLike } from "@/src/api/apartmentLikes";
 import CenteredActionModal from "@/src/components/CenteredActionModal";
 import { t } from "@/src/locales";
-
-// 🟢 Προσθέτουμε το getDoc στα imports του firebase/firestore:
-import { getDoc } from "firebase/firestore";
-
-// 🟢 Προσθέτουμε το getUserSettings:
-import { getUserSettings } from "@/src/api/accountSettings";
+import { getExcludedUserIds } from "@/src/api/blocking";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 100;
@@ -200,42 +195,20 @@ export default function ApartmentsScreen() {
 
     (async () => {
       try {
-        // 1. Διάβασμα της λίστας των blocked profiles του τρέχοντος χρήστη
-        let blockedHostIds = new Set<string>();
-        if (auth.userId) {
-          const settings = await getUserSettings(auth.userId).catch(() => null);
-          const blockedList = settings?.privacy?.blocked_profiles ?? [];
-          blockedHostIds = new Set(blockedList.map((p: { id: string }) => p.id));
-        }
-
         const apartmentsQuery = query(collection(db, "apartments"), orderBy("createdAt", "desc"));
         const unsubscribe = onSnapshot(
           apartmentsQuery,
           async (snapshot) => {
             if (!active) return;
 
-            // 2. Φιλτράρισμα των αγγελιών βάσει Block State
+            const excludedUserIds = auth.userId ? await getExcludedUserIds(auth.userId) : new Set<string>();
+
+            // Bidirectional visibility filtering for blocked users.
             const fetched = await Promise.all(
               snapshot.docs.map(async (snap): Promise<Apartment | null> => {
                 const data = snap.data() as FirestoreApartmentDoc;
-                const hostId = data.hostId || data.ownerId;
-
-                // 🛑 Έλεγχος 1: Αν ο host είναι στη δική μου λίστα Blocked Accounts
-                if (hostId && blockedHostIds.has(hostId)) {
-                  return null;
-                }
-
-                // 🛑 Έλεγχος 2: Αμφίδρομος έλεγχος (αν ο host έχει μπλοκάρει εμένα στο chat)
-                if (auth.userId && hostId) {
-                  const chatRoomId = [auth.userId, hostId].sort().join("_");
-                  const chatSnap = await getDoc(doc(db, "chats", chatRoomId));
-                  if (chatSnap.exists()) {
-                    const blockedMap = (chatSnap.data() as any).blockedByUsers ?? {};
-                    if (blockedMap[hostId] === true || blockedMap[auth.userId] === true) {
-                      return null; // Κρύβουμε την αγγελία
-                    }
-                  }
-                }
+                const hostOrOwnerId = data.hostId || data.ownerId;
+                if (hostOrOwnerId && excludedUserIds.has(hostOrOwnerId)) return null;
 
                 const amenities = Array.isArray(data.amenities) ? data.amenities : [];
                 const rawTags = Array.isArray(data.tags) ? data.tags : amenities;
