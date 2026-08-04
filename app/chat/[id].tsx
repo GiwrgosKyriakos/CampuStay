@@ -35,7 +35,7 @@ import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme"
 import type { Gender, RoommateProfile } from "@/src/data/profiles";
 import { useAuth } from "@/src/context/auth";
 import { db } from "@/src/config/firebase";
-import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, setDoc, getDoc, arrayUnion } from "firebase/firestore";
+import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, setDoc, getDoc, getDocs, deleteDoc, arrayUnion, limit } from "firebase/firestore";
 import { markIncomingMessagesAsRead } from "@/src/api/chat";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import CenteredActionModal, { type CenteredModalAction } from "@/src/components/CenteredActionModal";
@@ -363,6 +363,8 @@ export default function ChatScreen() {
   const [isMuting, setIsMuting] = useState(false);
   const [showBlockModal, setShowBlockModal] = useState(false);
   const [showGlobalUnmuteModal, setShowGlobalUnmuteModal] = useState(false);
+  const [messageActionTarget, setMessageActionTarget] = useState<Message | null>(null);
+  const [isDeletingMessage, setIsDeletingMessage] = useState(false);
   const [expandReport, setExpandReport] = useState(false);
   const [reportReason, setReportReason] = useState("");
   const [isSubmittingBlockAction, setIsSubmittingBlockAction] = useState(false);
@@ -858,6 +860,62 @@ export default function ChatScreen() {
     router.push({ pathname: "/apartment-detail", params: { data: JSON.stringify(hostApartment) } });
   };
 
+  const syncChatLastMessage = useCallback(async (roomId: string) => {
+    const latestMessageSnap = await getDocs(
+      query(collection(db, "chats", roomId, "messages"), orderBy("createdAt", "desc"), limit(1)),
+    );
+
+    if (latestMessageSnap.empty) {
+      await setDoc(
+        doc(db, "chats", roomId),
+        {
+          lastMessage: "",
+          lastMessageTimestamp: null,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+      return;
+    }
+
+    const latestMessageData = latestMessageSnap.docs[0].data() as FirestoreMessageDoc;
+    await setDoc(
+      doc(db, "chats", roomId),
+      {
+        lastMessage: latestMessageData.text ?? "",
+        lastMessageTimestamp: latestMessageData.createdAt ?? serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true },
+    );
+  }, []);
+
+  const handleDeleteMessageForEveryone = useCallback(async () => {
+    if (!chatRoomId || !currentUserId || !messageActionTarget || isDeletingMessage) return;
+    if (messageActionTarget.senderId !== currentUserId) return;
+
+    setIsDeletingMessage(true);
+    try {
+      await deleteDoc(doc(db, "chats", chatRoomId, "messages", messageActionTarget.id));
+      await syncChatLastMessage(chatRoomId);
+      setMessageActionTarget(null);
+    } catch {
+      setActionModal({
+        title: t("chat.modals.actionFailedTitle"),
+        description: t("common.messages.tryAgain"),
+        actions: [
+          {
+            label: t("common.actions.gotIt"),
+            iconName: "alert-circle-outline",
+            onPress: () => setActionModal(null),
+          },
+        ],
+      });
+    } finally {
+      setIsDeletingMessage(false);
+    }
+  }, [chatRoomId, currentUserId, isDeletingMessage, messageActionTarget, syncChatLastMessage]);
+
   const handleMuteConversation = useCallback(async () => {
     if (!currentUserId || !chatRoomId || isMuting) return;
 
@@ -1337,6 +1395,7 @@ export default function ChatScreen() {
           {messages.map((m, idx) => {
             const groupInfo = getMessageGroupInfo(messages, idx, currentUserId || "");
             const isMine = m.senderId === currentUserId;
+            const canDeleteForEveryone = isMine && !m.id.startsWith("temp-");
             const lastMsgIsDifferentSender = idx > 0 && messages[idx - 1].senderId !== m.senderId;
 
             let borderRadii = {};
@@ -1365,7 +1424,7 @@ export default function ChatScreen() {
             }
 
             return (
-              <View
+              <Pressable
                 key={m.id}
                 style={[
                   styles.bubble,
@@ -1381,10 +1440,18 @@ export default function ChatScreen() {
                       : spacing.xs,
                   },
                 ]}
+                onLongPress={
+                  canDeleteForEveryone
+                    ? () => {
+                        setMessageActionTarget(m);
+                      }
+                    : undefined
+                }
+                delayLongPress={300}
                 testID={`chat-message-${m.id}`}
               >
                 <Text style={[styles.bubbleText, isMine && styles.bubbleTextMine]}>{m.text}</Text>
-              </View>
+              </Pressable>
             );
           })}
         </ScrollView>
@@ -1618,6 +1685,35 @@ export default function ChatScreen() {
           </Animated.View>
         </View>
       </Modal>
+
+      <CenteredActionModal
+        visible={!!messageActionTarget}
+        title={t("chat.modals.deleteMessageTitle")}
+        description={t("chat.modals.deleteMessageBody")}
+        onDismiss={() => {
+          if (!isDeletingMessage) {
+            setMessageActionTarget(null);
+          }
+        }}
+        actionsLayout="horizontal"
+        actions={[
+          {
+            label: t("common.actions.cancel"),
+            variant: "muted",
+            iconName: "close-outline",
+            onPress: () => setMessageActionTarget(null),
+          },
+          {
+            label: t("chat.modals.deleteMessageConfirm"),
+            variant: "danger",
+            iconName: "trash-outline",
+            onPress: () => {
+              void handleDeleteMessageForEveryone();
+            },
+          },
+        ]}
+        testID="chat-delete-message-modal"
+      />
 
       <CenteredActionModal
         visible={!!actionModal}
