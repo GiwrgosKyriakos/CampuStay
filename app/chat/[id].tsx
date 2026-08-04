@@ -13,6 +13,8 @@ import {
   View,
   Text,
   StyleSheet,
+  Animated,
+  PanResponder,
   Pressable,
   TextInput,
   ScrollView,
@@ -342,6 +344,60 @@ export default function ChatScreen() {
     description?: string;
     actions: CenteredModalAction[];
   } | null>(null);
+  const profileCardTranslateY = useRef(new Animated.Value(0)).current;
+
+  const closeProfileModal = useCallback(() => {
+    setProfileModalVisible(false);
+    profileCardTranslateY.setValue(0);
+  }, [profileCardTranslateY]);
+
+  const profileCardPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_evt, gestureState) =>
+          profileModalVisible &&
+          gestureState.dy > 8 &&
+          Math.abs(gestureState.dy) > Math.abs(gestureState.dx),
+        onPanResponderMove: (_evt, gestureState) => {
+          if (gestureState.dy > 0) {
+            profileCardTranslateY.setValue(gestureState.dy);
+          }
+        },
+        onPanResponderRelease: (_evt, gestureState) => {
+          const shouldClose = gestureState.dy > 120 || gestureState.vy > 1.1;
+          if (shouldClose) {
+            Animated.timing(profileCardTranslateY, {
+              toValue: 420,
+              duration: 180,
+              useNativeDriver: true,
+            }).start(() => {
+              closeProfileModal();
+            });
+            return;
+          }
+
+          Animated.spring(profileCardTranslateY, {
+            toValue: 0,
+            bounciness: 6,
+            useNativeDriver: true,
+          }).start();
+        },
+        onPanResponderTerminate: () => {
+          Animated.spring(profileCardTranslateY, {
+            toValue: 0,
+            bounciness: 6,
+            useNativeDriver: true,
+          }).start();
+        },
+      }),
+    [closeProfileModal, profileCardTranslateY, profileModalVisible],
+  );
+
+  useEffect(() => {
+    if (profileModalVisible) {
+      profileCardTranslateY.setValue(0);
+    }
+  }, [profileCardTranslateY, profileModalVisible]);
 
   const createdAtToMillis = useCallback((value: any): number => {
     if (typeof value === "number") return value;
@@ -1302,10 +1358,13 @@ export default function ChatScreen() {
         transparent
         animationType="slide"
         visible={profileModalVisible}
-        onRequestClose={() => setProfileModalVisible(false)}
+        onRequestClose={closeProfileModal}
       >
         <View style={styles.profileModalBackdrop}>
-          <View style={styles.profileModalCard}>
+          <Animated.View
+            style={[styles.profileModalCard, { transform: [{ translateY: profileCardTranslateY }] }]}
+            {...profileCardPanResponder.panHandlers}
+          >
           <View style={styles.profileModalTopRow}>
             <View style={styles.profileSummaryLeft}>
               {showAvatarImage ? (
@@ -1353,10 +1412,10 @@ export default function ChatScreen() {
             </View>
           ) : null}
 
-          <Pressable style={styles.modalCloseBtn} onPress={() => setProfileModalVisible(false)}>
+          <Pressable style={styles.modalCloseBtn} onPress={closeProfileModal}>
             <Text style={styles.modalCloseBtnText}>{t("common.actions.done")}</Text>
           </Pressable>
-          </View>
+          </Animated.View>
         </View>
       </Modal>
 
