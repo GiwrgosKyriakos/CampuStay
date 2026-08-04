@@ -1,4 +1,4 @@
-import { getBlockRelationshipState, setBlockStateBetweenUsers } from "@/src/api/chat";
+import { setBlockStateBetweenUsers } from "@/src/api/chat";
 import { useTheme } from "@/src/context/ThemeContext";
 import React, { useCallback, useEffect, useState, useMemo } from "react";
 import { View, Text, StyleSheet, ScrollView, Switch, Pressable, ActivityIndicator } from "react-native";
@@ -7,7 +7,7 @@ import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
-import { collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, where } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
 
 import { useAuth } from "@/src/context/auth";
 import { getUserSettings, saveUserPrivacy, PrivacyPreferences } from "@/src/api/accountSettings";
@@ -31,6 +31,7 @@ interface BlockedAccountRow {
   id: string;
   displayName: string;
   photoUrl: string | null;
+  maskedAsDeleted: boolean;
 }
 
 function getDeletedAccountLabel(): string {
@@ -130,6 +131,7 @@ export default function PrivacySafetyScreen() {
       try {
         const blockedIds = new Set(privacy.blocked_profiles.map((profile) => profile.id));
         const mutualBlockedIds = new Set<string>();
+        const rejectedRelationIds = new Set<string>();
 
         const chatsSnap = await getDocs(
           query(collection(db, "chats"), where("users", "array-contains", auth.userId)),
@@ -139,6 +141,9 @@ export default function PrivacySafetyScreen() {
           const data = chatDoc.data() as {
             users?: string[];
             blockedByUsers?: Record<string, boolean>;
+            status?: "pending" | "active" | "rejected" | string;
+            rejectedBy?: string | null;
+            rejections?: string[];
           };
           const users = Array.isArray(data.users) ? data.users : [];
           const counterpartId = users.find((uid) => uid !== auth.userId);
@@ -146,15 +151,25 @@ export default function PrivacySafetyScreen() {
           if (data.blockedByUsers?.[counterpartId] === true) {
             mutualBlockedIds.add(counterpartId);
           }
+
+          const hasRejectedState =
+            data.status === "rejected" ||
+            typeof data.rejectedBy === "string" ||
+            (Array.isArray(data.rejections) && data.rejections.length > 0);
+          if (hasRejectedState) {
+            rejectedRelationIds.add(counterpartId);
+          }
         });
 
         const mapped = await Promise.all(
           privacy.blocked_profiles.map(async (blockedProfile) => {
-            if (mutualBlockedIds.has(blockedProfile.id)) {
+            const shouldMaskAsDeleted = mutualBlockedIds.has(blockedProfile.id) || rejectedRelationIds.has(blockedProfile.id);
+            if (shouldMaskAsDeleted) {
               return {
                 id: blockedProfile.id,
                 displayName: getDeletedAccountLabel(),
                 photoUrl: null,
+                maskedAsDeleted: true,
               } satisfies BlockedAccountRow;
             }
 
@@ -164,6 +179,7 @@ export default function PrivacySafetyScreen() {
                 id: blockedProfile.id,
                 displayName: getDeletedAccountLabel(),
                 photoUrl: null,
+                maskedAsDeleted: true,
               } satisfies BlockedAccountRow;
             }
 
@@ -173,6 +189,7 @@ export default function PrivacySafetyScreen() {
               id: blockedProfile.id,
               displayName: userData.name?.trim() || blockedProfile.name || t("common.values.unknown"),
               photoUrl: userData.photoUrl || photoCandidates[0] || null,
+              maskedAsDeleted: false,
             } satisfies BlockedAccountRow;
           }),
         );
@@ -186,6 +203,7 @@ export default function PrivacySafetyScreen() {
             id: blockedProfile.id,
             displayName: blockedProfile.name || t("common.values.unknown"),
             photoUrl: null,
+            maskedAsDeleted: false,
           })),
         );
       } finally {
@@ -197,59 +215,6 @@ export default function PrivacySafetyScreen() {
       active = false;
     };
   }, [auth.userId, blockedSheetVisible, isGuest, privacy.blocked_profiles]);
-
-  const addBackToMatches = useCallback(
-    async (targetUserId: string) => {
-      if (isGuest || !auth.userId) return;
-
-      try {
-        const chatRoomId = [auth.userId, targetUserId].sort().join("_");
-        const blockState = await getBlockRelationshipState(auth.userId, targetUserId);
-        await setDoc(
-          doc(db, "chats", chatRoomId),
-          {
-            users: [auth.userId, targetUserId],
-            type: "roommate",
-            status: "pending",
-            initiatedBy: auth.userId,
-            blockedByUsers: {
-              [auth.userId]: blockState.isBlocker,
-              [targetUserId]: blockState.isBlocked,
-            },
-            lastMessage: "",
-            lastMessageTimestamp: serverTimestamp(),
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true },
-        );
-        setActionModal({
-          title: t("privacySafety.modals.addedTitle"),
-          description: t("privacySafety.modals.addedMessage"),
-          actions: [
-            {
-              label: t("common.actions.gotIt"),
-              iconName: "checkmark-circle-outline",
-              onPress: () => setActionModal(null),
-            },
-          ],
-        });
-      } catch {
-        setActionModal({
-          title: t("privacySafety.modals.addFailedTitle"),
-          description: t("privacySafety.modals.addFailedMessage"),
-          actions: [
-            {
-              label: t("common.actions.gotIt"),
-              iconName: "alert-circle-outline",
-              onPress: () => setActionModal(null),
-            },
-          ],
-        });
-      }
-    },
-    [auth.userId, isGuest],
-  );
 
   const handleUnblockProfile = useCallback(
     async (targetUserId: string) => {
@@ -269,28 +234,8 @@ export default function PrivacySafetyScreen() {
       } catch (chatMetadataError) {
         console.error("[PrivacySafety] Failed to clear chat block state:", chatMetadataError);
       }
-
-      setActionModal({
-        title: t("privacySafety.modals.rematchPromptTitle"),
-        actions: [
-          {
-            label: t("common.actions.no"),
-            variant: "outline",
-            iconName: "close-outline",
-            onPress: () => setActionModal(null),
-          },
-          {
-            label: t("common.actions.add"),
-            iconName: "person-add-outline",
-            onPress: () => {
-              setActionModal(null);
-              void addBackToMatches(targetUserId);
-            },
-          },
-        ],
-      });
     },
-    [addBackToMatches, isGuest, auth.userId, persistPrivacy, privacy], // Προσθέσαμε το auth.userId στα dependencies
+    [isGuest, auth.userId, persistPrivacy, privacy], // Προσθέσαμε το auth.userId στα dependencies
   );
   
   if (auth.isLoading || loading) {
