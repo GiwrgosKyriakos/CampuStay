@@ -238,35 +238,39 @@ export default function ProfileScreen() {
         )}
 
         <View style={styles.section}>
-          {NAV_SETTINGS.map((s, i) => (
-            <View key={s.label}>
-              <Pressable
-                style={[styles.row, i < NAV_SETTINGS.length - 1 && styles.rowBorder]}
-                testID={s.testID}
-                onPress={() => router.push(s.route as any)}
-              >
-                <View style={styles.rowIcon}>
-                  <Ionicons name={s.icon} size={20} color={colors.onSurface} />
-                </View>
-                <Text style={styles.rowLabel}>{t(s.label)}</Text>
-                <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-              </Pressable>
+          {NAV_SETTINGS.map((s, i) => {
+            if (auth.isBroker && s.route === "/roomie-profile") return null;
 
-              {s.route === "/roomie-profile" && (
-                <View style={styles.quizProgressWrap} testID="quiz-progress-wrap">
-                  <View style={styles.quizProgressTrack}>
-                    <View
-                      style={[
-                        styles.quizProgressFill,
-                        { width: `${Math.min(100, Math.round((quizAnsweredCount / TOTAL_QUESTIONS) * 100))}%` },
-                      ]}
-                    />
+            return (
+              <View key={s.label}>
+                <Pressable
+                  style={[styles.row, i < NAV_SETTINGS.length - 1 && styles.rowBorder]}
+                  testID={s.testID}
+                  onPress={() => router.push(s.route as any)}
+                >
+                  <View style={styles.rowIcon}>
+                    <Ionicons name={s.icon} size={20} color={colors.onSurface} />
                   </View>
-                  <Text style={styles.quizProgressText}>{t("profile.quizAnswered", { answered: quizAnsweredCount, total: TOTAL_QUESTIONS })}</Text>
-                </View>
-              )}
-            </View>
-          ))}
+                  <Text style={styles.rowLabel}>{t(s.label)}</Text>
+                  <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+                </Pressable>
+
+                {!auth.isBroker && s.route === "/roomie-profile" && (
+                  <View style={styles.quizProgressWrap} testID="quiz-progress-wrap">
+                    <View style={styles.quizProgressTrack}>
+                      <View
+                        style={[
+                          styles.quizProgressFill,
+                          { width: `${Math.min(100, Math.round((quizAnsweredCount / TOTAL_QUESTIONS) * 100))}%` },
+                        ]}
+                      />
+                    </View>
+                    <Text style={styles.quizProgressText}>{t("profile.quizAnswered", { answered: quizAnsweredCount, total: TOTAL_QUESTIONS })}</Text>
+                  </View>
+                )}
+              </View>
+            );
+          })}
         </View>
 
         <View style={styles.section}>

@@ -78,7 +78,12 @@ const normalizeText = (text: string): string =>
     .toLowerCase()
     .trim();
 
-export default function HostInboxScreen() {
+type HostInboxContentProps = {
+  titleOverride?: string;
+  showBackButton?: boolean;
+};
+
+export function HostInboxContent({ titleOverride, showBackButton = true }: HostInboxContentProps = {}) {
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
@@ -331,11 +336,15 @@ export default function HostInboxScreen() {
   return (
     <View style={styles.container} testID="host-inbox-screen">
       <View style={[styles.header, { paddingTop: insets.top + spacing.lg }]}> 
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="chevron-back" size={20} color={colors.onSurface} />
-        </Pressable>
+        {showBackButton ? (
+          <Pressable onPress={() => router.back()} style={styles.backBtn}>
+            <Ionicons name="chevron-back" size={20} color={colors.onSurface} />
+          </Pressable>
+        ) : (
+          <View style={styles.backBtnPlaceholder} />
+        )}
         <View style={styles.headerCopy}>
-          <Text style={styles.title}>{t("host-inbox.title")}</Text>
+          <Text style={styles.title}>{titleOverride ?? t("host-inbox.title")}</Text>
           <Text style={styles.subtitle}>{t("host-inbox.subtitle")}</Text>
         </View>
         <Pressable
@@ -352,6 +361,10 @@ export default function HostInboxScreen() {
           <Ionicons name="search-outline" size={20} color={colors.onSurface} />
         </Pressable>
       </View>
+
+  export default function HostInboxScreen() {
+    return <HostInboxContent />;
+  }
 
       {searchOpen ? (
         <View style={styles.searchBarWrap}>
@@ -583,6 +596,10 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     backgroundColor: colors.surfaceSecondary,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  backBtnPlaceholder: {
+    width: 40,
+    height: 40,
   },
   headerCopy: { flex: 1, gap: 2 },
   searchToggleBtn: {

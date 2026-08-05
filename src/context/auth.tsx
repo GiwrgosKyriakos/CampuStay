@@ -3,6 +3,7 @@ import { GoogleSignin } from "@react-native-google-signin/google-signin";
 import {
   createUserWithEmailAndPassword,
   onAuthStateChanged,
+  onSnapshot,
   signInWithCredential,
   signInWithEmailAndPassword,
   signOut,
@@ -38,6 +39,7 @@ interface AuthContextValue {
   userId: string | null;
   token: string | null;
   needsProfileSetup: boolean;
+  isBroker: boolean;
   loginEmail: (email: string, password: string) => Promise<void>;
   registerEmail: (email: string, password: string, name?: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
@@ -139,6 +141,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [needsProfileSetup, setNeedsProfileSetup] = useState(false);
+  const [isBroker, setIsBroker] = useState(false);
 
   useEffect(() => {
     GoogleSignin.configure({
@@ -156,6 +159,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setToken(null);
     setUser(null);
     setNeedsProfileSetup(false);
+    setIsBroker(false);
     setStatus("guest");
   }, []);
 
@@ -181,6 +185,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Bootstrap session on mount.
   useEffect(() => {
     let mounted = true;
+    let unsubscribeUserDoc: (() => void) | null = null;
     const unsubscribe = onAuthStateChanged(firebaseAuth, async (firebaseUser) => {
       if (!mounted) return;
 
@@ -188,6 +193,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         try {
           const idToken = await firebaseUser.getIdToken();
           await persist(idToken, mapFirebaseUser(firebaseUser));
+
+          unsubscribeUserDoc?.();
+          unsubscribeUserDoc = onSnapshot(doc(db, "users", firebaseUser.uid), (snapshot) => {
+            if (!mounted) return;
+            const data = snapshot.exists() ? snapshot.data() : null;
+            setIsBroker(!!data?.is_broker);
+          });
         } catch (err) {
           console.error("[Auth] Failed to sync Firebase session:", err);
           setStatus("unauth");
@@ -198,6 +210,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setToken(null);
       setUser(null);
       setUserIdCache(null);
+      setIsBroker(false);
+      unsubscribeUserDoc?.();
+      unsubscribeUserDoc = null;
 
       const guest = await storage.getItem(GUEST_KEY, false);
       setStatus(guest ? "guest" : "unauth");
@@ -216,6 +231,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       mounted = false;
+      unsubscribeUserDoc?.();
       unsubscribe();
     };
   }, [persist]);
@@ -351,8 +367,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       logout,
       enterGuestMode,
       clearProfileSetup,
+      isBroker,
     }),
-    [status, user, token, needsProfileSetup, loginEmail, registerEmail, signInWithGoogle, continueAsGuest, logout, enterGuestMode, clearProfileSetup],
+    [status, user, token, needsProfileSetup, isBroker, loginEmail, registerEmail, signInWithGoogle, continueAsGuest, logout, enterGuestMode, clearProfileSetup],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

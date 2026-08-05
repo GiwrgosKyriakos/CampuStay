@@ -63,6 +63,7 @@ export default function EditProfileScreen() {
   const [gender, setGender] = useState<string | null>(null);
   const [city, setCity] = useState<string | null>(null);
   const [hasPlace, setHasPlace] = useState(false);
+  const [isBroker, setIsBroker] = useState(false);
   const [lookingForApartment, setLookingForApartment] = useState(false);
   const [university, setUniversity] = useState<string | null>(null);
   const [year, setYear] = useState<string | null>(null);
@@ -100,6 +101,7 @@ export default function EditProfileScreen() {
       setGender(null);
       setCity(null);
       setHasPlace(false);
+      setIsBroker(false);
       setLookingForApartment(false);
       setUniversity(null);
       setYear(null);
@@ -127,6 +129,7 @@ export default function EditProfileScreen() {
             setGender(p.gender ?? null);
             setCity(p.city ?? null);
             setHasPlace(!!p.has_place);
+            setIsBroker(!!p.is_broker);
             setLookingForApartment(!!p.looking_for_apartment);
             setUniversity(p.university ?? null);
             setYear(p.year_of_study ?? null);
@@ -248,6 +251,7 @@ export default function EditProfileScreen() {
         city: sanitizedCity,
         has_place: hasPlace,
         already_have_apartment_to_share: hasPlace,
+        is_broker: isBroker,
         looking_for_apartment: lookingForApartment,
         university,
         year_of_study: year,
@@ -294,6 +298,7 @@ export default function EditProfileScreen() {
     gender,
     city,
     hasPlace,
+    isBroker,
     lookingForApartment,
     university,
     year,
@@ -414,18 +419,22 @@ export default function EditProfileScreen() {
             testID="name-input"
           />
 
-          <Text style={styles.label}>{t("editProfile.age")}</Text>
-          <TextInput
-            style={[styles.input, guestLocked && styles.guestReadOnlyControl]}
-            value={age}
-            onChangeText={(t) => setAge(t.replace(/[^0-9]/g, ""))}
-            placeholder={t("editProfile.agePlaceholder")}
-            placeholderTextColor={colors.onSurfaceTertiary}
-            keyboardType="number-pad"
-            maxLength={2}
-            editable={!guestLocked}
-            testID="age-input"
-          />
+          {!auth.isBroker && (
+            <>
+              <Text style={styles.label}>{t("editProfile.age")}</Text>
+              <TextInput
+                style={[styles.input, guestLocked && styles.guestReadOnlyControl]}
+                value={age}
+                onChangeText={(t) => setAge(t.replace(/[^0-9]/g, ""))}
+                placeholder={t("editProfile.agePlaceholder")}
+                placeholderTextColor={colors.onSurfaceTertiary}
+                keyboardType="number-pad"
+                maxLength={2}
+                editable={!guestLocked}
+                testID="age-input"
+              />
+            </>
+          )}
 
           <Text style={styles.label}>{t("editProfile.about")}</Text>
           <TextInput
@@ -443,26 +452,30 @@ export default function EditProfileScreen() {
             {about.length}/{ABOUT_LIMIT}
           </Text>
 
-          <Text style={styles.label}>{t("editProfile.gender")}</Text>
-          <View style={styles.radioRow}>
-            {genders.map((g) => {
-              const active = gender === g;
-              return (
-                <Pressable
-                  key={g}
-                  style={[styles.radioPill, active && styles.radioPillActive, guestLocked && styles.guestReadOnlyControl]}
-                  onPress={() => setGender(g)}
-                  disabled={guestLocked}
-                  testID={`gender-${g}`}
-                >
-                  <View style={[styles.radioDot, active && styles.radioDotActive]}>
-                    {active && <View style={styles.radioDotInner} />}
-                  </View>
-                  <Text style={[styles.radioText, active && styles.radioTextActive]}>{g}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
+          {!auth.isBroker && (
+            <>
+              <Text style={styles.label}>{t("editProfile.gender")}</Text>
+              <View style={styles.radioRow}>
+                {genders.map((g) => {
+                  const active = gender === g;
+                  return (
+                    <Pressable
+                      key={g}
+                      style={[styles.radioPill, active && styles.radioPillActive, guestLocked && styles.guestReadOnlyControl]}
+                      onPress={() => setGender(g)}
+                      disabled={guestLocked}
+                      testID={`gender-${g}`}
+                    >
+                      <View style={[styles.radioDot, active && styles.radioDotActive]}>
+                        {active && <View style={styles.radioDotInner} />}
+                      </View>
+                      <Text style={[styles.radioText, active && styles.radioTextActive]}>{g}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </>
+          )}
 
           <Text style={styles.label}>{t("editProfile.city")}</Text>
           <View
@@ -496,6 +509,18 @@ export default function EditProfileScreen() {
               {hasPlace && <Ionicons name="checkmark" size={16} color={colors.onBrand} />}
             </View>
             <Text style={styles.checkboxText}>{t("editProfile.hasPlace")}</Text>
+          </Pressable>
+
+          <Pressable
+            style={[styles.checkboxRow, isBroker && styles.checkboxRowActive, guestLocked && styles.guestReadOnlyControl]}
+            onPress={() => setIsBroker((prev) => !prev)}
+            testID="broker-checkbox"
+            disabled={guestLocked}
+          >
+            <View style={[styles.checkbox, isBroker && styles.checkboxActive]}>
+              {isBroker && <Ionicons name="checkmark" size={16} color={colors.onBrand} />}
+            </View>
+            <Text style={styles.checkboxText}>Είμαι επαγγελματίας / μεσίτης ακινήτων</Text>
           </Pressable>
 
           <Animated.View
@@ -545,6 +570,7 @@ export default function EditProfileScreen() {
         </View>
 
         {/* SECTION 3: Education & Living */}
+        {!auth.isBroker && (
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Ionicons name="book-outline" size={22} color={colors.onSurface} />
@@ -594,6 +620,7 @@ export default function EditProfileScreen() {
             />
           </View>
         </View>
+        )}
 
         {/* SECTION 4: Social Media */}
         <View style={styles.card}>

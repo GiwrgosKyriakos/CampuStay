@@ -26,6 +26,7 @@ export default function HelpSupportScreen() {
     { question: t("helpSupport.faq.socialQuestion"), answer: t("helpSupport.faq.socialAnswer") },
     { question: t("helpSupport.faq.reportQuestion"), answer: t("helpSupport.faq.reportAnswer") },
   ];
+  const visibleFaqItems = auth.isBroker ? faqItems.filter((item) => item.question === t("helpSupport.faq.reportQuestion")) : faqItems;
 
   const openEmailSupport = async () => {
     await Linking.openURL(`mailto:gkiriakos92@gmail.com?subject=${encodeURIComponent(t("helpSupport.supportSubject"))}`);
@@ -78,7 +79,7 @@ export default function HelpSupportScreen() {
           />
         )}
 
-        {faqItems.map((item, index) => {
+        {visibleFaqItems.map((item, index) => {
           const open = openIndex === index;
           return (
             <Pressable
@@ -96,63 +97,67 @@ export default function HelpSupportScreen() {
           );
         })}
 
-        <Pressable
-          style={styles.contactButton}
-          onPress={() => Linking.openURL(`mailto:support@unimates.com?subject=${encodeURIComponent(t("helpSupport.supportRequestSubject"))}`)}
-          testID="contact-support-button"
-        >
-          <Text style={styles.contactButtonText}>{t("common.cta.contactSupport")}</Text>
-        </Pressable>
-
-        <View style={styles.linksSection}>
+        {!auth.isBroker && (
           <Pressable
-            style={styles.linkRow}
-            onPress={() => router.push("/about-us")}
-            testID="help-about-us-link"
+            style={styles.contactButton}
+            onPress={() => Linking.openURL(`mailto:support@unimates.com?subject=${encodeURIComponent(t("helpSupport.supportRequestSubject"))}`)}
+            testID="contact-support-button"
           >
-            <View style={styles.linkIconWrap}>
-              <Ionicons name="information-circle-outline" size={20} color={colors.onSurface} />
-            </View>
-            <Text style={styles.linkLabel}>Σχετικά με εμάς / About Us</Text>
-            <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+            <Text style={styles.contactButtonText}>{t("common.cta.contactSupport")}</Text>
           </Pressable>
+        )}
 
-          <Pressable
-            style={styles.linkRow}
-            onPress={() => router.push("/feedback")}
-            testID="help-feedback-link"
-          >
-            <View style={styles.linkIconWrap}>
-              <Ionicons name="chatbox-ellipses-outline" size={20} color={colors.onSurface} />
-            </View>
-            <Text style={styles.linkLabel}>{t("helpSupport.feedbackSuggestions")}</Text>
-            <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-          </Pressable>
+        {!auth.isBroker ? (
+          <View style={styles.linksSection}>
+            <Pressable
+              style={styles.linkRow}
+              onPress={() => router.push("/about-us")}
+              testID="help-about-us-link"
+            >
+              <View style={styles.linkIconWrap}>
+                <Ionicons name="information-circle-outline" size={20} color={colors.onSurface} />
+              </View>
+              <Text style={styles.linkLabel}>Σχετικά με εμάς / About Us</Text>
+              <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+            </Pressable>
 
-          <Pressable
-            style={styles.linkRow}
-            onPress={openEmailSupport}
-            testID="help-email-support"
-          >
-            <View style={styles.linkIconWrap}>
-              <Ionicons name="mail-outline" size={20} color={colors.onSurface} />
-            </View>
-            <Text style={styles.linkLabel}>{t("helpSupport.emailSupport")}</Text>
-            <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-          </Pressable>
+            <Pressable
+              style={styles.linkRow}
+              onPress={() => router.push("/feedback")}
+              testID="help-feedback-link"
+            >
+              <View style={styles.linkIconWrap}>
+                <Ionicons name="chatbox-ellipses-outline" size={20} color={colors.onSurface} />
+              </View>
+              <Text style={styles.linkLabel}>{t("helpSupport.feedbackSuggestions")}</Text>
+              <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+            </Pressable>
 
-          <Pressable
-            style={styles.linkRow}
-            onPress={openInstagram}
-            testID="help-instagram-link"
-          >
-            <View style={styles.linkIconWrap}>
-              <Ionicons name="logo-instagram" size={20} color={colors.onSurface} />
-            </View>
-            <Text style={styles.linkLabel}>{t("helpSupport.instagram")}</Text>
-            <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-          </Pressable>
-        </View>
+            <Pressable
+              style={styles.linkRow}
+              onPress={openEmailSupport}
+              testID="help-email-support"
+            >
+              <View style={styles.linkIconWrap}>
+                <Ionicons name="mail-outline" size={20} color={colors.onSurface} />
+              </View>
+              <Text style={styles.linkLabel}>{t("helpSupport.emailSupport")}</Text>
+              <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+            </Pressable>
+
+            <Pressable
+              style={styles.linkRow}
+              onPress={openInstagram}
+              testID="help-instagram-link"
+            >
+              <View style={styles.linkIconWrap}>
+                <Ionicons name="logo-instagram" size={20} color={colors.onSurface} />
+              </View>
+              <Text style={styles.linkLabel}>{t("helpSupport.instagram")}</Text>
+              <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+            </Pressable>
+          </View>
+        ) : null}
 
         <Pressable style={styles.backButton} onPress={() => router.replace(navigationSource)}>
           <Text style={styles.backText}>{t("common.cta.backHome")}</Text>

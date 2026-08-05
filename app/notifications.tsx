@@ -138,6 +138,7 @@ export default function NotificationsScreen() {
 
         <View style={styles.centerBlock}>
           {NOTIFICATION_ROWS.map((row) => (
+            auth.isBroker && row.id === "new_matches" ? null : (
             <View key={row.id} style={styles.settingRow} testID={`notification-row-${row.id}`}>
               <View style={styles.rowText}>
                 <Text style={styles.settingTitle}>{t(row.title)}</Text>
@@ -153,6 +154,7 @@ export default function NotificationsScreen() {
                 />
               </View>
             </View>
+            )
           ))}
         </View>
       </View>

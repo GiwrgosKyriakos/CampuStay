@@ -16,6 +16,7 @@ import { DELETED_ACCOUNT_LABEL } from "@/src/api/accountDeletion";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import { t } from "@/src/locales";
 import { getBlockRelationshipState } from "@/src/api/chat";
+import { HostInboxContent } from "../host-inbox";
 
 const TAB_BAR_SPACE = 100;
 
@@ -184,6 +185,7 @@ export default function MatchesScreen() {
   const swipeX = React.useRef(new Animated.Value(0)).current;
   const SWIPE_THRESHOLD = 56;
   const messageUnsubsRef = React.useRef<Record<string, () => void>>({});
+  const isBroker = !!auth.isBroker;
 
   const deleteChatForCurrentUser = React.useCallback(
     async (profile: ChatListItem) => {
@@ -608,6 +610,10 @@ export default function MatchesScreen() {
     if (!currentUserId || !profile.chatRoomId) return;
     await deleteChatForCurrentUser(profile);
   };
+
+  if (isBroker) {
+    return <HostInboxContent titleOverride="Inbox Μεσίτη" showBackButton={false} />;
+  }
 
   return (
     <View style={styles.container} testID="matches-screen">

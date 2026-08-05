@@ -8,6 +8,7 @@ export interface UserProfile {
   city: string | null;
   has_place: boolean;
   already_have_apartment_to_share: boolean;
+  is_broker?: boolean;
   looking_for_apartment?: boolean;
   university: string | null;
   program?: string | null;

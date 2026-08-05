@@ -271,6 +271,7 @@ export default function PrivacySafetyScreen() {
           />
         )}
 
+        {!auth.isBroker && (
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <View style={styles.iconWrap}>
@@ -375,7 +376,8 @@ export default function PrivacySafetyScreen() {
 
                       <View>
                         <Pressable
-                          style={styles.rowMenuButton}
+                  </View>
+                  )}
                           onPress={() => setActiveBlockedMenuId((prev) => (prev === profileRow.id ? null : profileRow.id))}
                           testID={`blocked-row-menu-${profileRow.id}`}
                         >

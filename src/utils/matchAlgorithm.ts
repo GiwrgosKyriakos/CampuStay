@@ -25,6 +25,7 @@ export interface UserProfile {
   city: string;
   gender: 'Male' | 'Female' | 'Prefer Not To Say';
   monthlyBudget: number;
+  is_broker?: boolean;
   quiz?: CompatibilityQuizAnswers;
 }
 

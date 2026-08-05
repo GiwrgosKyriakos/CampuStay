@@ -1020,7 +1020,7 @@ export default function ApartmentsScreen() {
         )}
       </ScrollView>
       </View>
-      {!auth.isGuest && !hideCreateFab && (
+      {!auth.isGuest && !hideCreateFab && !auth.isBroker && (
         <View style={[styles.fabCluster, { bottom: TAB_BAR_SPACE + insets.bottom + spacing.md }]}>
           {canOpenHostInbox && (
             <Pressable
