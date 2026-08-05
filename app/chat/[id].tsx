@@ -6,6 +6,7 @@ import {
   BottomSheetView,
   type BottomSheetBackdropProps,
 } from "@gorhom/bottom-sheet";
+import { LinearGradient } from "expo-linear-gradient";
 import { getUserProfile } from "@/src/api/userProfile";
 import { sendPushNotification } from '@/src/utils/notificationService'; // Προσάρμοσε το path ανάλογα με το φάκελό σου
 import React, { useRef, useState, useCallback, useEffect, useMemo } from "react";
@@ -41,6 +42,7 @@ import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import CenteredActionModal, { type CenteredModalAction } from "@/src/components/CenteredActionModal";
 import { getUserSettings, saveUserNotifications, saveUserPrivacy, type NotificationPreferences } from "@/src/api/accountSettings";
 import { submitReportedUserEntry } from "@/src/services/reportedUsers";
+import { subscribeUserLikedApartmentIds } from "@/src/api/apartmentLikes";
 import {
   calculateMatchScore,
   type CompatibilityQuizAnswers,
@@ -99,8 +101,25 @@ interface FirestoreApartmentDoc {
   size?: number;
   sqft?: number;
   image?: string;
+  imageUrl?: string;
+  images?: string[];
   tags?: string[];
   amenities?: string[];
+  hostId?: string;
+}
+
+interface MutualApartment {
+  id: string;
+  title: string;
+  description: string;
+  area: string;
+  city: string;
+  rent: number;
+  rooms: number;
+  size: number;
+  image: string;
+  images?: string[];
+  tags: string[];
   hostId?: string;
 }
 
@@ -158,6 +177,153 @@ function mapFirestoreUserToProfile(uid: string, data: FirestoreUserDoc): Roommat
     photo,
     deleted: false,
   };
+}
+
+const LEGACY_TAG_TO_SLUG: Record<string, string> = {
+  "Pet-friendly": "pet_friendly",
+  "Near metro": "near_metro",
+  Furnished: "furnished",
+  Balcony: "balcony",
+  WiFi: "wifi",
+  "Bills incl.": "bills_included",
+  "Shared kitchen": "shared_kitchen",
+  Garden: "garden",
+  "New listing": "new_listing",
+  "Κατάλληλο για κατοικίδια": "pet_friendly",
+};
+
+function normalizeTagSlug(tag: string): string {
+  const trimmedTag = tag.trim();
+  return LEGACY_TAG_TO_SLUG[trimmedTag] ?? trimmedTag.toLowerCase();
+}
+
+function translateApartmentTag(tag: string): string {
+  return tag
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (match) => match.toUpperCase());
+}
+
+function normalizeApartmentImages(data: FirestoreApartmentDoc): string[] {
+  const images = Array.isArray(data.images)
+    ? data.images.filter((img): img is string => typeof img === "string" && img.trim().length > 0)
+    : [];
+  const fallback = typeof data.image === "string" && data.image.trim().length > 0
+    ? data.image.trim()
+    : typeof data.imageUrl === "string" && data.imageUrl.trim().length > 0
+      ? data.imageUrl.trim()
+      : "";
+  return images.length > 0 ? images : fallback ? [fallback] : [];
+}
+
+function mapApartmentDocToMutualApartment(apartmentId: string, data: FirestoreApartmentDoc): MutualApartment {
+  const rawTags = Array.isArray(data.tags) ? data.tags : Array.isArray(data.amenities) ? data.amenities : [];
+  const tags = rawTags.map(normalizeTagSlug);
+  const images = normalizeApartmentImages(data);
+
+  return {
+    id: apartmentId,
+    title: data.title?.trim() || t("apartments.unknownListing"),
+    description: data.description?.trim() || data.about?.trim() || "",
+    area: data.area?.trim() || t("apartments.unknownArea"),
+    city: data.city?.trim() || t("apartments.unknownCity"),
+    rent: typeof data.rent === "number" ? data.rent : typeof data.price === "number" ? data.price : 0,
+    rooms: typeof data.rooms === "number" ? data.rooms : 1,
+    size: typeof data.size === "number" ? data.size : typeof data.sqft === "number" ? data.sqft : 0,
+    image: images[0] || "",
+    images,
+    tags: tags.length ? tags : ["new_listing"],
+    hostId: data.hostId,
+  };
+}
+
+type MutualApartmentCardProps = {
+  apartment: MutualApartment;
+  colors: ThemeColors;
+  styles: ReturnType<typeof createStyles>;
+  onPress: () => void;
+};
+
+function MutualApartmentCard({ apartment, colors, styles, onPress }: MutualApartmentCardProps) {
+  const [activeImageIndex, setActiveImageIndex] = useState(0);
+  const imageList = apartment.images && apartment.images.length > 0 ? apartment.images : apartment.image ? [apartment.image] : [];
+  const activeImage = imageList[activeImageIndex] || "";
+
+  useEffect(() => {
+    if (activeImageIndex > imageList.length - 1) {
+      setActiveImageIndex(0);
+    }
+  }, [activeImageIndex, imageList.length]);
+
+  return (
+    <View style={styles.mutualCardWrap}>
+      <Pressable style={({ pressed }) => [styles.mutualCard, pressed && styles.mutualCardPressed]} onPress={onPress}>
+        {activeImage ? (
+          <Image source={{ uri: activeImage }} style={styles.mutualCardPhoto} contentFit="cover" transition={150} />
+        ) : (
+          <View style={[styles.mutualCardPhoto, styles.mutualCardPlaceholder]}>
+            <Ionicons name="home" size={44} color={colors.brand} />
+            <Text style={styles.mutualCardPlaceholderText}>CampuStay</Text>
+          </View>
+        )}
+
+        {imageList.length > 1 && activeImageIndex > 0 ? (
+          <Pressable
+            style={[styles.mutualCarouselArrow, styles.mutualCarouselArrowLeft]}
+            onPress={(e) => {
+              e.stopPropagation();
+              setActiveImageIndex((prev) => Math.max(0, prev - 1));
+            }}
+            hitSlop={8}
+          >
+            <Ionicons name="chevron-back" size={20} color="#FFFFFF" />
+          </Pressable>
+        ) : null}
+
+        {imageList.length > 1 && activeImageIndex < imageList.length - 1 ? (
+          <Pressable
+            style={[styles.mutualCarouselArrow, styles.mutualCarouselArrowRight]}
+            onPress={(e) => {
+              e.stopPropagation();
+              setActiveImageIndex((prev) => Math.min(imageList.length - 1, prev + 1));
+            }}
+            hitSlop={8}
+          >
+            <Ionicons name="chevron-forward" size={20} color="#FFFFFF" />
+          </Pressable>
+        ) : null}
+
+        <LinearGradient
+          colors={["transparent", "rgba(26,26,26,0.95)"]}
+          locations={[0.4, 1]}
+          style={StyleSheet.absoluteFill}
+        />
+
+        <View style={styles.mutualRentBadge}>
+          <Text style={styles.mutualRentText}>€{apartment.rent}</Text>
+          <Text style={styles.mutualRentMeta}>{t("apartments.perMonthShort")}</Text>
+        </View>
+
+        <View style={styles.mutualCardBody}>
+          <View style={styles.mutualLocRow}>
+            <Ionicons name="location-outline" size={14} color="rgba(255,255,255,0.85)" />
+            <Text style={styles.mutualLocText}>{apartment.area}, {apartment.city}</Text>
+          </View>
+          <View style={styles.mutualStatsRow}>
+            <Text style={styles.mutualStatText}>{`${apartment.rooms} ${t("apartments.rooms")}`}</Text>
+            <View style={styles.mutualDot} />
+            <Text style={styles.mutualStatText}>{apartment.size} m²</Text>
+          </View>
+          <View style={styles.mutualTagRow}>
+            {apartment.tags.map((tag) => (
+              <View key={tag} style={styles.mutualTag}>
+                <Text style={styles.mutualTagText}>{translateApartmentTag(tag)}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      </Pressable>
+    </View>
+  );
 }
 
 function buildApartmentRoutePayload(apartmentId: string, data: FirestoreApartmentDoc, fallbackTitle?: string) {
@@ -383,6 +549,11 @@ export default function ChatScreen() {
   const [hostApartmentTitle, setHostApartmentTitle] = useState<string | null>(null);
   const [hostApartment, setHostApartment] = useState<ReturnType<typeof buildApartmentRoutePayload> | null>(null);
   const [isApartmentUnavailable, setIsApartmentUnavailable] = useState(false);
+  const [showMutualLikes, setShowMutualLikes] = useState(false);
+  const [currentUserLikedIds, setCurrentUserLikedIds] = useState<Set<string>>(new Set());
+  const [counterpartLikedIds, setCounterpartLikedIds] = useState<Set<string>>(new Set());
+  const [mutualLikedApartments, setMutualLikedApartments] = useState<MutualApartment[]>([]);
+  const [mutualLikesLoading, setMutualLikesLoading] = useState(false);
   const [showContextMenu, setShowContextMenu] = useState(false);
   const [isChatMuted, setIsChatMuted] = useState(false);
   const [isMuting, setIsMuting] = useState(false);
@@ -400,6 +571,7 @@ export default function ChatScreen() {
     actions: CenteredModalAction[];
   } | null>(null);
   const profileCardTranslateY = useRef(new Animated.Value(0)).current;
+  const isRoommateChat = chatType === "roommate";
 
   const closeProfileModal = useCallback(() => {
     setProfileModalVisible(false);
@@ -549,6 +721,88 @@ export default function ChatScreen() {
       unsubChat();
     };
   }, [chatRoomId, currentUserId, sortMessages]);
+
+  useEffect(() => {
+    if (!isRoommateChat && showMutualLikes) {
+      setShowMutualLikes(false);
+    }
+  }, [isRoommateChat, showMutualLikes]);
+
+  useEffect(() => {
+    if (!isRoommateChat || !currentUserId) {
+      setCurrentUserLikedIds(new Set());
+      return;
+    }
+
+    const unsubscribe = subscribeUserLikedApartmentIds(currentUserId, (ids) => {
+      setCurrentUserLikedIds(ids);
+    });
+
+    return () => unsubscribe();
+  }, [currentUserId, isRoommateChat]);
+
+  useEffect(() => {
+    if (!isRoommateChat || !counterpartId) {
+      setCounterpartLikedIds(new Set());
+      return;
+    }
+
+    const unsubscribe = subscribeUserLikedApartmentIds(counterpartId, (ids) => {
+      setCounterpartLikedIds(ids);
+    });
+
+    return () => unsubscribe();
+  }, [counterpartId, isRoommateChat]);
+
+  const mutualLikedIds = useMemo(() => {
+    if (!isRoommateChat) return [] as string[];
+    return Array.from(currentUserLikedIds).filter((id) => counterpartLikedIds.has(id));
+  }, [counterpartLikedIds, currentUserLikedIds, isRoommateChat]);
+
+  useEffect(() => {
+    if (!isRoommateChat) {
+      setMutualLikedApartments([]);
+      setMutualLikesLoading(false);
+      return;
+    }
+
+    if (mutualLikedIds.length === 0) {
+      setMutualLikedApartments([]);
+      setMutualLikesLoading(false);
+      return;
+    }
+
+    let active = true;
+    setMutualLikesLoading(true);
+
+    void (async () => {
+      try {
+        const apartmentsSnap = await getDocs(query(collection(db, "apartments"), orderBy("createdAt", "desc")));
+        if (!active) return;
+
+        const mutualIdSet = new Set(mutualLikedIds);
+        const fetched = apartmentsSnap.docs
+          .map((docSnap) => mapApartmentDocToMutualApartment(docSnap.id, docSnap.data() as FirestoreApartmentDoc))
+          .filter((apartment) => mutualIdSet.has(apartment.id));
+
+        if (active) {
+          setMutualLikedApartments(fetched);
+        }
+      } catch {
+        if (active) {
+          setMutualLikedApartments([]);
+        }
+      } finally {
+        if (active) {
+          setMutualLikesLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [isRoommateChat, mutualLikedIds]);
 
   useEffect(() => {
     setIsNoticeDismissedLocally(false);
@@ -1460,6 +1714,19 @@ export default function ChatScreen() {
           >
             <Ionicons name="ellipsis-vertical" size={20} color={colors.onSurface} />
           </Pressable>
+          {isRoommateChat ? (
+            <Pressable
+              style={[styles.iconBtn, showMutualLikes && styles.iconBtnActive]}
+              onPress={() => {
+                setShowContextMenu(false);
+                setShowMutualLikes((prev) => !prev);
+              }}
+              testID="chat-mutual-likes-toggle"
+              hitSlop={8}
+            >
+              <Text style={[styles.mutualLikesEmoji, showMutualLikes && styles.mutualLikesEmojiActive]}>💕</Text>
+            </Pressable>
+          ) : null}
         </View>
         <View style={styles.detailRow}>
           <View style={styles.detailPill}>
@@ -1574,134 +1841,167 @@ export default function ChatScreen() {
         </View>
       ) : null}
 
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? insets.top + 8 : 0}
-      >
-        <ScrollView
-          ref={scrollRef}
-          style={styles.flex}
-          contentContainerStyle={styles.messages}
-          showsVerticalScrollIndicator={false}
-          onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}
-        >
-          {messages.map((m, idx) => {
-            const groupInfo = getMessageGroupInfo(messages, idx, currentUserId || "");
-            const isMine = m.senderId === currentUserId;
-            const canDeleteForEveryone = isMine && !m.id.startsWith("temp-");
-            const lastMsgIsDifferentSender = idx > 0 && messages[idx - 1].senderId !== m.senderId;
-
-            let borderRadii = {};
-            if (isMine) {
-              // Sent messages (right side)
-              if (groupInfo.position === "first") {
-                borderRadii = { borderTopRightRadius: radius.sm, borderBottomRightRadius: radius.lg };
-              } else if (groupInfo.position === "middle") {
-                borderRadii = { borderTopRightRadius: radius.sm, borderBottomRightRadius: radius.sm };
-              } else if (groupInfo.position === "last") {
-                borderRadii = { borderTopRightRadius: radius.lg, borderBottomRightRadius: radius.sm };
-              } else {
-                borderRadii = { borderTopRightRadius: radius.lg, borderBottomRightRadius: radius.sm };
-              }
-            } else {
-              // Received messages (left side)
-              if (groupInfo.position === "first") {
-                borderRadii = { borderTopLeftRadius: radius.sm, borderBottomLeftRadius: radius.lg };
-              } else if (groupInfo.position === "middle") {
-                borderRadii = { borderTopLeftRadius: radius.sm, borderBottomLeftRadius: radius.sm };
-              } else if (groupInfo.position === "last") {
-                borderRadii = { borderTopLeftRadius: radius.lg, borderBottomLeftRadius: radius.sm };
-              } else {
-                borderRadii = { borderTopLeftRadius: radius.lg, borderBottomLeftRadius: radius.sm };
-              }
-            }
-
-            return (
-              <Pressable
-                key={m.id}
-                style={[
-                  styles.bubble,
-                  isMine ? styles.bubbleMine : styles.bubbleTheirs,
-                  borderRadii,
-                  {
-                    marginVertical: groupInfo.isConsecutive
-                      ? groupInfo.position === "first"
-                        ? spacing.xs
-                        : 2
-                      : lastMsgIsDifferentSender
-                      ? spacing.sm
-                      : spacing.xs,
-                  },
-                ]}
-                onLongPress={
-                  canDeleteForEveryone
-                    ? () => {
-                        setMessageActionTarget(m);
-                      }
-                    : undefined
-                }
-                delayLongPress={300}
-                testID={`chat-message-${m.id}`}
-              >
-                <Text style={[styles.bubbleText, isMine && styles.bubbleTextMine]}>{m.text}</Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-
-        <View
-          style={[styles.inputBar, 
-            { 
-              paddingBottom: isKeyboardOpen ? spacing.sm : insets.bottom + spacing.sm
-            }, 
-            inputBlocked && styles.inputBarLocked]}
-          pointerEvents={inputBlocked ? "none" : "auto"}
-        >
-          <TextInput
-            style={styles.input}
-            value={text}
-            onChangeText={setText}
-            placeholder={
-              apartmentLocked
-                ? t("chat.unavailable")
-                : deletedCounterpart
-                ? t("chat.placeholderDeleted")
-                : chatStatus === "pending"
-                ? t("chat.placeholderPending")
-                : t("chat.placeholderMessage", { name: displayName })
-            }
-            placeholderTextColor={colors.onSurfaceTertiary}
-            multiline
-            testID="chat-input"
-            onSubmitEditing={send}
-            editable={!inputBlocked}
-          />
-          <Pressable
-            style={[styles.sendBtn, (!text.trim() || inputBlocked) && styles.sendBtnDisabled]}
-            onPress={send}
-            disabled={!text.trim() || inputBlocked}
-            testID="chat-send-button"
-          >
-            <Ionicons name="paper-plane" size={20} color={colors.onBrand} />
-          </Pressable>
+      {showMutualLikes ? (
+        <View style={styles.flex}>
+          <ScrollView contentContainerStyle={styles.mutualLikesScroll} showsVerticalScrollIndicator={false}>
+            {mutualLikesLoading ? (
+              <View style={styles.mutualLikesLoadingWrap}>
+                <ActivityIndicator size="large" color={colors.brand} />
+              </View>
+            ) : mutualLikedIds.length === 0 ? (
+              <View style={styles.mutualEmptyCard}>
+                <Ionicons name="heart-outline" size={34} color={colors.onSurfaceTertiary} />
+                <Text style={styles.mutualEmptyTitle}>Δεν έχετε κοινά αγαπημένα διαμερίσματα ακόμα</Text>
+                <Text style={styles.mutualEmptySubtitle}>Όταν κάνετε like στα ίδια διαμερίσματα, θα εμφανίζονται εδώ!</Text>
+              </View>
+            ) : (
+              mutualLikedApartments.map((apartment) => (
+                <MutualApartmentCard
+                  key={apartment.id}
+                  apartment={apartment}
+                  colors={colors}
+                  styles={styles}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/apartment-detail",
+                      params: { data: JSON.stringify(apartment) },
+                    } as any)
+                  }
+                />
+              ))
+            )}
+          </ScrollView>
         </View>
+      ) : (
+        <KeyboardAvoidingView
+          style={styles.flex}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? insets.top + 8 : 0}
+        >
+          <ScrollView
+            ref={scrollRef}
+            style={styles.flex}
+            contentContainerStyle={styles.messages}
+            showsVerticalScrollIndicator={false}
+            onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}
+          >
+            {messages.map((m, idx) => {
+              const groupInfo = getMessageGroupInfo(messages, idx, currentUserId || "");
+              const isMine = m.senderId === currentUserId;
+              const canDeleteForEveryone = isMine && !m.id.startsWith("temp-");
+              const lastMsgIsDifferentSender = idx > 0 && messages[idx - 1].senderId !== m.senderId;
 
-        {chatStatus === "rejected" ? (
-          <View style={styles.rejectedActionWrap}>
+              let borderRadii = {};
+              if (isMine) {
+                if (groupInfo.position === "first") {
+                  borderRadii = { borderTopRightRadius: radius.sm, borderBottomRightRadius: radius.lg };
+                } else if (groupInfo.position === "middle") {
+                  borderRadii = { borderTopRightRadius: radius.sm, borderBottomRightRadius: radius.sm };
+                } else if (groupInfo.position === "last") {
+                  borderRadii = { borderTopRightRadius: radius.lg, borderBottomRightRadius: radius.sm };
+                } else {
+                  borderRadii = { borderTopRightRadius: radius.lg, borderBottomRightRadius: radius.sm };
+                }
+              } else {
+                if (groupInfo.position === "first") {
+                  borderRadii = { borderTopLeftRadius: radius.sm, borderBottomLeftRadius: radius.lg };
+                } else if (groupInfo.position === "middle") {
+                  borderRadii = { borderTopLeftRadius: radius.sm, borderBottomLeftRadius: radius.sm };
+                } else if (groupInfo.position === "last") {
+                  borderRadii = { borderTopLeftRadius: radius.lg, borderBottomLeftRadius: radius.sm };
+                } else {
+                  borderRadii = { borderTopLeftRadius: radius.lg, borderBottomLeftRadius: radius.sm };
+                }
+              }
+
+              return (
+                <Pressable
+                  key={m.id}
+                  style={[
+                    styles.bubble,
+                    isMine ? styles.bubbleMine : styles.bubbleTheirs,
+                    borderRadii,
+                    {
+                      marginVertical: groupInfo.isConsecutive
+                        ? groupInfo.position === "first"
+                          ? spacing.xs
+                          : 2
+                        : lastMsgIsDifferentSender
+                        ? spacing.sm
+                        : spacing.xs,
+                    },
+                  ]}
+                  onLongPress={
+                    canDeleteForEveryone
+                      ? () => {
+                          setMessageActionTarget(m);
+                        }
+                      : undefined
+                  }
+                  delayLongPress={300}
+                  testID={`chat-message-${m.id}`}
+                >
+                  <Text style={[styles.bubbleText, isMine && styles.bubbleTextMine]}>{m.text}</Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+
+          <View
+            style={[
+              styles.inputBar,
+              {
+                paddingBottom: isKeyboardOpen ? spacing.sm : insets.bottom + spacing.sm,
+              },
+              inputBlocked && styles.inputBarLocked,
+            ]}
+            pointerEvents={inputBlocked ? "none" : "auto"}
+          >
+            <TextInput
+              style={styles.input}
+              value={text}
+              onChangeText={setText}
+              placeholder={
+                apartmentLocked
+                  ? t("chat.unavailable")
+                  : deletedCounterpart
+                  ? t("chat.placeholderDeleted")
+                  : chatStatus === "pending"
+                  ? t("chat.placeholderPending")
+                  : t("chat.placeholderMessage", { name: displayName })
+              }
+              placeholderTextColor={colors.onSurfaceTertiary}
+              multiline
+              testID="chat-input"
+              onSubmitEditing={send}
+              editable={!inputBlocked}
+            />
             <Pressable
-              style={styles.rejectedDeleteBtn}
-              onPress={() => {
-                void handleDeleteChatForCurrentUser();
-              }}
-              testID="chat-rejected-delete-button"
+              style={[styles.sendBtn, (!text.trim() || inputBlocked) && styles.sendBtnDisabled]}
+              onPress={send}
+              disabled={!text.trim() || inputBlocked}
+              testID="chat-send-button"
             >
-              <Ionicons name="trash-outline" size={16} color={colors.onBrand} />
-              <Text style={styles.rejectedDeleteBtnText}>Delete Chat</Text>
+              <Ionicons name="paper-plane" size={20} color={colors.onBrand} />
             </Pressable>
           </View>
-        ) : null}
-      </KeyboardAvoidingView>
+
+          {chatStatus === "rejected" ? (
+            <View style={styles.rejectedActionWrap}>
+              <Pressable
+                style={styles.rejectedDeleteBtn}
+                onPress={() => {
+                  void handleDeleteChatForCurrentUser();
+                }}
+                testID="chat-rejected-delete-button"
+              >
+                <Ionicons name="trash-outline" size={16} color={colors.onBrand} />
+                <Text style={styles.rejectedDeleteBtnText}>Delete Chat</Text>
+              </Pressable>
+            </View>
+          ) : null}
+        </KeyboardAvoidingView>
+      )}
 
       <Modal
         transparent
@@ -2007,6 +2307,16 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     justifyContent: "center",
     backgroundColor: colors.surfaceTertiary,
   },
+  iconBtnActive: {
+    backgroundColor: colors.brandTertiary,
+  },
+  mutualLikesEmoji: {
+    fontSize: 20,
+    opacity: 0.7,
+  },
+  mutualLikesEmojiActive: {
+    opacity: 1,
+  },
   headerAvatar: { width: 44, height: 44, borderRadius: radius.pill, backgroundColor: colors.surfaceTertiary },
   headerName: {
     fontFamily: fonts.displayExtra,
@@ -2100,6 +2410,162 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   blockedBannerActionDisabled: {
     opacity: 0.5,
+  },
+  mutualLikesScroll: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.lg,
+    gap: spacing.lg,
+  },
+  mutualLikesLoadingWrap: {
+    minHeight: 220,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mutualEmptyCard: {
+    minHeight: 240,
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.lg,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  mutualEmptyTitle: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.lg,
+    color: colors.onSurface,
+    textAlign: "center",
+  },
+  mutualEmptySubtitle: {
+    fontFamily: fonts.regular,
+    fontSize: fontSize.base,
+    color: colors.onSurfaceTertiary,
+    textAlign: "center",
+    lineHeight: 22,
+  },
+  mutualCardWrap: {
+    borderRadius: radius.lg,
+    overflow: "hidden",
+  },
+  mutualCard: {
+    minHeight: 360,
+    borderRadius: radius.lg,
+    overflow: "hidden",
+    backgroundColor: colors.surfaceTertiary,
+  },
+  mutualCardPressed: {
+    opacity: 0.95,
+  },
+  mutualCardPhoto: {
+    width: "100%",
+    height: 360,
+    backgroundColor: colors.surfaceTertiary,
+  },
+  mutualCardPlaceholder: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+  },
+  mutualCardPlaceholderText: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.lg,
+    color: colors.onSurface,
+  },
+  mutualCarouselArrow: {
+    position: "absolute",
+    top: "42%",
+    zIndex: 4,
+    width: 38,
+    height: 38,
+    borderRadius: radius.pill,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mutualCarouselArrowLeft: {
+    left: spacing.sm,
+  },
+  mutualCarouselArrowRight: {
+    right: spacing.sm,
+  },
+  mutualRentBadge: {
+    position: "absolute",
+    top: spacing.md,
+    left: spacing.md,
+    zIndex: 5,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
+  },
+  mutualRentText: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.xl,
+    color: "#FFFFFF",
+  },
+  mutualRentMeta: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.xs,
+    color: "rgba(255,255,255,0.82)",
+    textTransform: "uppercase",
+  },
+  mutualCardBody: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 3,
+    gap: spacing.sm,
+    padding: spacing.lg,
+  },
+  mutualLocRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  mutualLocText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.base,
+    color: "rgba(255,255,255,0.92)",
+    flexShrink: 1,
+  },
+  mutualStatsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  mutualStatText: {
+    fontFamily: fonts.regular,
+    fontSize: fontSize.sm,
+    color: "rgba(255,255,255,0.88)",
+  },
+  mutualDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "rgba(255,255,255,0.7)",
+  },
+  mutualTagRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.xs,
+  },
+  mutualTag: {
+    backgroundColor: "rgba(255,255,255,0.16)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+  },
+  mutualTagText: {
+    fontFamily: fonts.semibold,
+    fontSize: 11,
+    color: "#FFFFFF",
+    textTransform: "capitalize",
   },
   crossChatBanner: {
     marginHorizontal: spacing.lg,
