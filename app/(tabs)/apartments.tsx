@@ -14,6 +14,7 @@ import { getUserId } from "@/src/utils/userId";
 import { useAuth } from "@/src/context/auth";
 import { db } from "@/src/config/firebase";
 import { subscribeUserLikedApartmentIds, toggleApartmentLike } from "@/src/api/apartmentLikes";
+import { saveRecentSearch, subscribeRecentSearches } from "@/src/api/recentSearches";
 import CenteredActionModal from "@/src/components/CenteredActionModal";
 import { t } from "@/src/locales";
 import { getExcludedUserIds } from "@/src/api/blocking";
@@ -299,6 +300,8 @@ export default function ApartmentsScreen() {
   const [showFilters, setShowFilters] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [showRecentSearches, setShowRecentSearches] = useState(false);
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [rentMin, setRentMin] = useState("");
   const [rentMax, setRentMax] = useState("");
   const [cityQuery, setCityQuery] = useState("");
@@ -318,6 +321,41 @@ export default function ApartmentsScreen() {
   const SWIPE_THRESHOLD = 56;
   const canOpenHostInbox = hasPublishedHostApartment || hasApartmentShareFlag;
   const canManageListings = !auth.isGuest && (hasPublishedHostApartment || hasApartmentShareFlag);
+
+  useEffect(() => {
+    if (auth.isGuest || !auth.userId) {
+      setRecentSearches([]);
+      setShowRecentSearches(false);
+      return;
+    }
+
+    const unsubscribe = subscribeRecentSearches(auth.userId, (items) => {
+      setRecentSearches(items);
+    });
+
+    return () => unsubscribe();
+  }, [auth.isGuest, auth.userId]);
+
+  useEffect(() => {
+    if (!showSearch) {
+      setShowRecentSearches(false);
+    }
+  }, [showSearch]);
+
+  const handlePersistedSearch = useCallback(
+    async (queryText: string) => {
+      const trimmedQuery = queryText.trim();
+      if (trimmedQuery.length >= 2 && !auth.isGuest && auth.userId) {
+        try {
+          await saveRecentSearch(auth.userId, trimmedQuery);
+        } catch {
+          // Keep search UX responsive even if persistence fails.
+        }
+      }
+      setShowRecentSearches(false);
+    },
+    [auth.isGuest, auth.userId],
+  );
 
 
   useEffect(() => {
@@ -829,18 +867,67 @@ export default function ApartmentsScreen() {
                 style={styles.searchInput}
                 value={searchQuery}
                 onChangeText={setSearchQuery}
+                onSubmitEditing={() => {
+                  void handlePersistedSearch(searchQuery);
+                }}
                 placeholder="Αναζήτηση τίτλου, περιοχής, amenities..."
                 placeholderTextColor={colors.onSurfaceTertiary}
                 autoCapitalize="none"
                 autoCorrect={false}
+                returnKeyType="search"
                 testID="apartments-search-input"
               />
-              {searchQuery.length > 0 && (
-                <Pressable onPress={() => setSearchQuery("")} style={styles.searchClearBtn} testID="apartments-search-clear">
-                  <Ionicons name="close" size={16} color={colors.onSurfaceTertiary} />
+              <View style={styles.searchActionsWrap}>
+                <Pressable
+                  onPress={() => setShowRecentSearches((prev) => !prev)}
+                  style={[styles.searchHistoryBtn, showRecentSearches && styles.searchHistoryBtnActive]}
+                  testID="apartments-search-history-toggle"
+                >
+                  <Ionicons
+                    name="time-outline"
+                    size={16}
+                    color={showRecentSearches ? colors.onBrand : colors.onSurfaceTertiary}
+                  />
                 </Pressable>
-              )}
+                {searchQuery.length > 0 && (
+                  <Pressable onPress={() => setSearchQuery("")} style={styles.searchClearBtn} testID="apartments-search-clear">
+                    <Ionicons name="close" size={16} color={colors.onSurfaceTertiary} />
+                  </Pressable>
+                )}
+              </View>
             </View>
+              <View style={styles.recentSearchesPanel} testID="apartments-recent-searches-panel">
+                <ScrollView
+                  style={styles.recentSearchesScroll}
+                  contentContainerStyle={styles.recentSearchesContent}
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={false}
+                >
+                  {recentSearches.length === 0 ? (
+                    <View style={styles.recentSearchEmptyRow}>
+                      <Text style={styles.recentSearchEmptyText}>Δεν υπάρχουν πρόσφατες αναζητήσεις</Text>
+                    </View>
+                  ) : (
+                    recentSearches.map((item) => (
+                      <TouchableOpacity
+                        key={item}
+                        style={styles.recentSearchRow}
+                        onPress={() => {
+                          setSearchQuery(item);
+                          void handlePersistedSearch(item);
+                        }}
+                        testID={`apartments-recent-search-${item}`}
+                      >
+                        <Ionicons name="time-outline" size={16} color={colors.onSurfaceTertiary} />
+                        <Text style={styles.recentSearchText} numberOfLines={1}>
+                          {item}
+                        </Text>
+                      </TouchableOpacity>
+                    ))
+                  )}
+                </ScrollView>
+              </View>
+            ) : null}
           </View>
         )}
         {showFilters && (
@@ -1155,11 +1242,30 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     paddingHorizontal: spacing.md,
     height: 48,
   },
+  searchActionsWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   searchInput: {
     flex: 1,
     color: colors.onSurface,
     fontFamily: fonts.semibold,
     fontSize: fontSize.base,
+  },
+  searchHistoryBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  searchHistoryBtnActive: {
+    backgroundColor: colors.brand,
+    borderColor: colors.brand,
   },
   searchClearBtn: {
     width: 28,
@@ -1170,6 +1276,50 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  recentSearchesPanel: {
+    marginTop: spacing.sm,
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: "hidden",
+  },
+  recentSearchesScroll: {
+    maxHeight: 290,
+  },
+  recentSearchesContent: {
+    paddingVertical: 4,
+  },
+  recentSearchRow: {
+    minHeight: 46,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  recentSearchEmptyRow: {
+    minHeight: 46,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  recentSearchText: {
+    flex: 1,
+    color: colors.onSurface,
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.base,
+  },
+  recentSearchEmptyText: {
+    flex: 1,
+    color: colors.onSurfaceTertiary,
+    fontFamily: fonts.regular,
+    fontSize: fontSize.base,
   },
   filterPanel: {
     marginTop: spacing.sm,
