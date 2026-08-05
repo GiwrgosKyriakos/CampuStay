@@ -107,6 +107,18 @@ export default function HelpSupportScreen() {
         <View style={styles.linksSection}>
           <Pressable
             style={styles.linkRow}
+            onPress={() => router.push("/about-us")}
+            testID="help-about-us-link"
+          >
+            <View style={styles.linkIconWrap}>
+              <Ionicons name="information-circle-outline" size={20} color={colors.onSurface} />
+            </View>
+            <Text style={styles.linkLabel}>Σχετικά με εμάς / About Us</Text>
+            <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+          </Pressable>
+
+          <Pressable
+            style={styles.linkRow}
             onPress={openEmailSupport}
             testID="help-email-support"
           >
