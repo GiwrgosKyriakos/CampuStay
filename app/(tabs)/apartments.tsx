@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useTheme } from "@/src/context/ThemeContext";
-import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Switch, Animated, PanResponder } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Switch, TouchableOpacity } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -39,6 +39,7 @@ interface Apartment {
   tags: string[];
   hostId?: string;
   ownerId?: string;
+  available: boolean;
 }
 
 interface FirestoreApartmentDoc {
@@ -62,6 +63,8 @@ interface FirestoreApartmentDoc {
   amenities?: string[];
   hostId?: string;
   ownerId?: string;
+  available?: boolean;
+  isAvailable?: boolean;
 }
 
 interface FirestoreHostChatDoc {
@@ -113,7 +116,7 @@ export default function ApartmentsScreen() {
   const [sizeMax, setSizeMax] = useState("");
   const [petFriendly, setPetFriendly] = useState(false);
   const [nearMetro, setNearMetro] = useState(false);
-  const [activeTab, setActiveTab] = useState<"all" | "liked">("all");
+  const [viewMode, setViewMode] = useState<"grid" | "compact">("grid");
   const [isViewingMyListings, setIsViewingMyListings] = useState(false);
   const [hideCreateFab, setHideCreateFab] = useState(false);
   const [hasPublishedHostApartment, setHasPublishedHostApartment] = useState(false);
@@ -121,8 +124,6 @@ export default function ApartmentsScreen() {
   const [hostInboxHasUnread, setHostInboxHasUnread] = useState(false);
   const [likedApartmentIds, setLikedApartmentIds] = useState<Set<string>>(new Set());
   const [likeErrorModalVisible, setLikeErrorModalVisible] = useState(false);
-  const swipeX = React.useRef(new Animated.Value(0)).current;
-  const SWIPE_THRESHOLD = 56;
   const canOpenHostInbox = hasPublishedHostApartment || hasApartmentShareFlag;
   const canManageListings = !auth.isGuest && (hasPublishedHostApartment || hasApartmentShareFlag);
 
@@ -215,6 +216,7 @@ export default function ApartmentsScreen() {
                 const amenities = Array.isArray(data.amenities) ? data.amenities : [];
                 const rawTags = Array.isArray(data.tags) ? data.tags : amenities;
                 const tags = rawTags.map(normalizeTagSlug);
+                const available = typeof data.available === "boolean" ? data.available : typeof data.isAvailable === "boolean" ? data.isAvailable : true;
 
                 return {
                   id: snap.id,
@@ -233,6 +235,7 @@ export default function ApartmentsScreen() {
                   tags: tags.length ? tags : ["new_listing"],
                   hostId: data.hostId,
                   ownerId: data.ownerId || data.hostId,
+                  available,
                 };
               })
             );
@@ -305,48 +308,6 @@ export default function ApartmentsScreen() {
       unsubscribeUser();
     };
   }, [auth.isGuest, auth.userId]);
-
-  const handleSwipeTabChange = useCallback(
-    (direction: "left" | "right") => {
-      if (direction === "left") {
-        setActiveTab("liked");
-        return;
-      }
-      setActiveTab("all");
-    },
-    [],
-  );
-
-  const contentPanResponder = React.useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: (_evt, gestureState) =>
-          Math.abs(gestureState.dx) > 12 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy),
-        onPanResponderMove: (_evt, gestureState) => {
-          swipeX.setValue(gestureState.dx * 0.35);
-        },
-        onPanResponderRelease: (_evt, gestureState) => {
-          if (gestureState.dx <= -SWIPE_THRESHOLD) {
-            handleSwipeTabChange("left");
-          } else if (gestureState.dx >= SWIPE_THRESHOLD) {
-            handleSwipeTabChange("right");
-          }
-          Animated.spring(swipeX, {
-            toValue: 0,
-            useNativeDriver: true,
-            bounciness: 5,
-          }).start();
-        },
-        onPanResponderTerminate: () => {
-          Animated.spring(swipeX, {
-            toValue: 0,
-            useNativeDriver: true,
-            bounciness: 5,
-          }).start();
-        },
-      }),
-    [handleSwipeTabChange, swipeX],
-  );
 
   useEffect(() => {
     if (!canManageListings && isViewingMyListings) {
@@ -473,9 +434,6 @@ export default function ApartmentsScreen() {
       if (isViewingMyListings) {
         if (!isOwnListing) return false;
       } else {
-        if (activeTab === "liked" && !likedApartmentIds.has(apt.id)) {
-          return false;
-        }
         if (isOwnListing) {
           return false;
         }
@@ -496,7 +454,7 @@ export default function ApartmentsScreen() {
 
       return cityMatch && rentMatch && sizeMatch && petMatch && metroMatch;
     });
-  }, [activeTab, apartments, auth.userId, cityQuery, isViewingMyListings, likedApartmentIds, nearMetro, petFriendly, rentMax, rentMin, sizeMax, sizeMin]);
+  }, [apartments, auth.userId, cityQuery, isViewingMyListings, nearMetro, petFriendly, rentMax, rentMin, sizeMax, sizeMin]);
 
   return (
     <View style={styles.container} testID="apartments-screen">
@@ -527,24 +485,26 @@ export default function ApartmentsScreen() {
           </Pressable>
           <View style={styles.viewToggle} testID="apartments-view-toggle">
             <Pressable
-              style={[styles.viewToggleOption, activeTab === "all" && styles.viewToggleOptionActive]}
-              onPress={() => setActiveTab("all")}
-              testID="apartments-view-all"
+              style={[styles.viewToggleOption, viewMode === "grid" && styles.viewToggleOptionActive]}
+              onPress={() => setViewMode("grid")}
+              testID="apartments-view-grid"
             >
-              <Text style={[styles.viewToggleText, activeTab === "all" && styles.viewToggleTextActive]}>{t("apartments.all")}</Text>
+              <Ionicons
+                name={viewMode === "grid" ? "grid" : "grid-outline"}
+                size={19}
+                color={viewMode === "grid" ? colors.onBrand : colors.onBrandTertiary}
+              />
             </Pressable>
             <Pressable
-              style={[styles.viewToggleOption, activeTab === "liked" && styles.viewToggleOptionActive]}
-              onPress={() => setActiveTab("liked")}
-              testID="apartments-view-liked"
+              style={[styles.viewToggleOption, viewMode === "compact" && styles.viewToggleOptionActive]}
+              onPress={() => setViewMode("compact")}
+              testID="apartments-view-compact"
             >
-              <Text
-                style={[styles.viewToggleText, activeTab === "liked" && styles.viewToggleTextActive]}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-              >
-                {t("apartments.liked")}
-              </Text>
+              <Ionicons
+                name={viewMode === "compact" ? "list" : "contract-outline"}
+                size={19}
+                color={viewMode === "compact" ? colors.onBrand : colors.onBrandTertiary}
+              />
             </Pressable>
           </View>
         </View>
@@ -616,14 +576,89 @@ export default function ApartmentsScreen() {
           </View>
         )}
       </View>
-      <Animated.View style={[styles.flexOne, { transform: [{ translateX: swipeX }] }]} {...contentPanResponder.panHandlers}>
       <ScrollView
-        contentContainerStyle={[styles.list, { paddingBottom: TAB_BAR_SPACE + insets.bottom }]}
+        contentContainerStyle={[styles.list, viewMode === "compact" && styles.compactList, { paddingBottom: TAB_BAR_SPACE + insets.bottom }]}
         showsVerticalScrollIndicator={false}
       >
+        {viewMode === "compact" && filteredApartments.length > 0 && (
+          <View style={styles.compactHeaderRow}>
+            <View style={styles.compactThumbSpacer} />
+            <View style={[styles.compactCol, styles.compactCityCol]}>
+              <Text style={styles.compactHeaderPill}>Πόλη</Text>
+            </View>
+            <View style={[styles.compactCol, styles.compactAreaCol]}>
+              <Text style={styles.compactHeaderPill}>Περιοχή</Text>
+            </View>
+            <View style={[styles.compactCol, styles.compactSqmCol]}>
+              <Text style={styles.compactHeaderPill}>Τ.μ.</Text>
+            </View>
+            <View style={[styles.compactCol, styles.compactAvailCol]}>
+              <Text style={styles.compactHeaderPill}>Διαθ.</Text>
+            </View>
+            <View style={[styles.compactCol, styles.compactRentCol]}>
+              <Text style={styles.compactHeaderPill}>Νοίκιο</Text>
+            </View>
+          </View>
+        )}
+
         {filteredApartments.map((apt) => {
           const isLiked = likedApartmentIds.has(apt.id);
           const isMyListingsView = isViewingMyListings;
+          if (viewMode === "compact") {
+            return (
+              <TouchableOpacity
+                key={apt.id}
+                style={styles.compactRowCard}
+                activeOpacity={0.86}
+                onPress={() =>
+                  router.push({
+                    pathname: "/apartment-detail",
+                    params: { data: JSON.stringify(apt) },
+                  } as any)
+                }
+                testID={`apartment-compact-row-${apt.id}`}
+              >
+                {apt.image ? (
+                  <Image source={{ uri: apt.image }} style={styles.compactThumb} contentFit="cover" transition={100} />
+                ) : (
+                  <View style={[styles.compactThumb, styles.compactThumbPlaceholder]}>
+                    <Ionicons name="home" size={16} color={colors.brand} />
+                  </View>
+                )}
+
+                <View style={[styles.compactCol, styles.compactCityCol]}>
+                  <Text style={styles.compactNeutralPill} numberOfLines={1}>
+                    {apt.city}
+                  </Text>
+                </View>
+
+                <View style={[styles.compactCol, styles.compactAreaCol]}>
+                  <Text style={styles.compactNeutralPill} numberOfLines={1}>
+                    {apt.area}
+                  </Text>
+                </View>
+
+                <View style={[styles.compactCol, styles.compactSqmCol]}>
+                  <Text style={styles.compactCellText} numberOfLines={1}>
+                    {apt.size}
+                  </Text>
+                </View>
+
+                <View style={[styles.compactCol, styles.compactAvailCol]}>
+                  <View style={[styles.availabilityBadge, apt.available ? styles.availabilityOn : styles.availabilityOff]}>
+                    <Ionicons name={apt.available ? "checkmark" : "close"} size={12} color={apt.available ? colors.onBrand : colors.onSurfaceTertiary} />
+                  </View>
+                </View>
+
+                <View style={[styles.compactCol, styles.compactRentCol]}>
+                  <Text style={styles.compactRentPill} numberOfLines={1}>
+                    {`${apt.rent}${CURRENCY}`}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            );
+          }
+
           return (
             <View key={apt.id} style={styles.cardWrap}>
               <Pressable
@@ -693,19 +728,14 @@ export default function ApartmentsScreen() {
         {filteredApartments.length === 0 && (
           <View style={styles.emptyState} testID="apartments-empty-state">
             <Text style={styles.emptyTitle}>
-              {isViewingMyListings
-                ? t("apartments.emptyMine")
-                : activeTab === "liked"
-                ? t("apartments.emptyLiked")
-                : t("apartments.emptyFiltered")}
+              {isViewingMyListings ? t("apartments.emptyMine") : t("apartments.emptyFiltered")}
             </Text>
-            {!isViewingMyListings && activeTab !== "liked" && (
+            {!isViewingMyListings && (
               <Text style={styles.emptySub}>{t("apartments.emptyHint")}</Text>
             )}
           </View>
         )}
       </ScrollView>
-      </Animated.View>
       {!auth.isGuest && !hideCreateFab && (
         <View style={[styles.fabCluster, { bottom: TAB_BAR_SPACE + insets.bottom + spacing.md }]}>
           {canOpenHostInbox && (
@@ -825,18 +855,6 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   viewToggleOptionActive: {
     backgroundColor: colors.brand,
   },
-  viewToggleText: {
-    fontFamily: fonts.bold,
-    fontSize: fontSize.base,
-    color: colors.onBrandTertiary,
-    // --- ΠΡΟΣΘΗΚΕΣ ΓΙΑ ΚΕΝΤΡΑΡΙΣΜΑ ---
-    includeFontPadding: false,  // 1. Αφαιρεί το κρυφό έξτρα padding του Android
-    textAlignVertical: "center", // 2. Αναγκάζει το κείμενο να κάθισε στο κέντρο του
-    transform: [{ translateY: -1 }] // 3. (Προαιρετικό) "Κλέβει" 1 pixel προς τα πάνω αν το font σου είναι πολύ περίεργο
-  },
-  viewToggleTextActive: {
-    color: colors.onBrand,
-  },
   filterPanel: {
     marginTop: spacing.sm,
     backgroundColor: colors.surfaceSecondary,
@@ -882,6 +900,111 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
 
   list: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, gap: spacing.lg },
+  compactList: { gap: spacing.sm },
+  compactHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    gap: spacing.xs,
+  },
+  compactThumbSpacer: {
+    width: 44,
+    height: 1,
+  },
+  compactCol: {
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 0,
+  },
+  compactCityCol: { flex: 1.2 },
+  compactAreaCol: { flex: 1.2 },
+  compactSqmCol: { flex: 0.65 },
+  compactAvailCol: { flex: 0.6 },
+  compactRentCol: { flex: 0.9, alignItems: "flex-end" },
+  compactHeaderPill: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+    color: colors.onSurfaceTertiary,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    overflow: "hidden",
+  },
+  compactRowCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    gap: spacing.xs,
+  },
+  compactThumb: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceTertiary,
+  },
+  compactThumbPlaceholder: {
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  compactNeutralPill: {
+    maxWidth: "100%",
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+    color: colors.onSurface,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 5,
+    overflow: "hidden",
+  },
+  compactCellText: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.base,
+    color: colors.onSurface,
+  },
+  availabilityBadge: {
+    width: 22,
+    height: 22,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+  },
+  availabilityOn: {
+    backgroundColor: colors.brand,
+    borderColor: colors.brand,
+  },
+  availabilityOff: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+  },
+  compactRentPill: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.base,
+    color: colors.onBrand,
+    backgroundColor: colors.brand,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    overflow: "hidden",
+  },
   cardWrap: { position: "relative" },
   card: {
     height: 260,
