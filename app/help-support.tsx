@@ -119,6 +119,18 @@ export default function HelpSupportScreen() {
 
           <Pressable
             style={styles.linkRow}
+            onPress={() => router.push("/feedback")}
+            testID="help-feedback-link"
+          >
+            <View style={styles.linkIconWrap}>
+              <Ionicons name="chatbox-ellipses-outline" size={20} color={colors.onSurface} />
+            </View>
+            <Text style={styles.linkLabel}>{t("helpSupport.feedbackSuggestions")}</Text>
+            <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+          </Pressable>
+
+          <Pressable
+            style={styles.linkRow}
             onPress={openEmailSupport}
             testID="help-email-support"
           >

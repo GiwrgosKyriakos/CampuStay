@@ -186,6 +186,7 @@
   "helpSupport": {
     "title": "Help & Support",
     "subtitle": "Browse frequently asked questions or contact the support team directly.",
+    "feedbackSuggestions": "Feedback & Suggestions",
     "emailSupport": "Email Support",
     "instagram": "Follow us on Instagram",
     "supportSubject": "CampuStay Support Inquiry",
@@ -197,6 +198,22 @@
       "socialAnswer": "Only your confirmed Matches can see your linked social media profiles.",
       "reportQuestion": "How do I report a fake profile?",
       "reportAnswer": "You can report or block a user directly from their profile card or within your chat room."
+    }
+  },
+  "feedback": {
+    "title": "Feedback & Suggestions",
+    "description": "Your opinion helps us improve CampuStay. Share your impressions or suggestions with us.",
+    "placeholder": "Write your comment or suggestion here...",
+    "counter": "{{count}}/{{max}}",
+    "limitWarning": "You have reached the {{max}}-character limit.",
+    "send": "Send",
+    "mailSubject": "Σχόλιο/ Πρόταση για το CampuStay",
+    "alerts": {
+      "successTitle": "Thank you!",
+      "successMessage": "Your feedback was sent successfully.",
+      "errorTitle": "Error",
+      "emptyMessage": "Please write your feedback first.",
+      "sendFailedMessage": "Unable to send your feedback. Please try again."
     }
   },
   "editProfile": {

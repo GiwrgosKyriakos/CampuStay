@@ -42,13 +42,19 @@
           "photosPermission": "Upload photos to complete your roommate profile"
         }
       ],
-      ["expo-navigation-bar", {
-        "enforceContrast": false
-      }],
-      ["expo-notifications", {        
-        "icon": "./assets/notification_icon_big.png",
-        "color": "#07404C"
-      }],
+      [
+        "expo-navigation-bar",
+        {
+          "enforceContrast": false
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification_icon_big.png",
+          "color": "#07404C"
+        }
+      ],
       [
         "expo-splash-screen",
         {
@@ -62,7 +68,8 @@
       "expo-secure-store",
       "expo-web-browser",
       "@react-native-google-signin/google-signin",
-      "expo-localization"
+      "expo-localization",
+      "expo-mail-composer"
     ],
     "experiments": {
       "typedRoutes": true

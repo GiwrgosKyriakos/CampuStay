@@ -186,6 +186,7 @@
   "helpSupport": {
     "title": "Βοήθεια & Υποστήριξη",
     "subtitle": "Δες συχνές ερωτήσεις ή επικοινώνησε απευθείας με την ομάδα υποστήριξης.",
+    "feedbackSuggestions": "Σχόλια & Προτάσεις / Feedback & Suggestions",
     "emailSupport": "Υποστήριξη μέσω Email",
     "instagram": "Ακολούθησέ μας στο Instagram",
     "supportSubject": "Ερώτημα Υποστήριξης CampuStay",
@@ -197,6 +198,22 @@
       "socialAnswer": "Μόνο τα επιβεβαιωμένα Ταιριάσματά σου μπορούν να δουν τα συνδεδεμένα κοινωνικά σου προφίλ.",
       "reportQuestion": "Πώς αναφέρω ένα ψεύτικο προφίλ;",
       "reportAnswer": "Μπορείς να κάνεις αναφορά ή αποκλεισμό απευθείας από την κάρτα προφίλ ή μέσα από το chat σου."
+    }
+  },
+  "feedback": {
+    "title": "Σχόλια & Προτάσεις / Feedback & Suggestions",
+    "description": "Η γνώμη σας μας βοηθάει να βελτιώσουμε το CampuStay. Μοιραστείτε μαζί μας τις εντυπώσεις ή τις προτάσεις σας.",
+    "placeholder": "Γράψτε το σχόλιο ή την πρότασή σας εδώ...",
+    "counter": "{{count}}/{{max}}",
+    "limitWarning": "Έχετε φτάσει το όριο των {{max}} χαρακτήρων.",
+    "send": "Αποστολή / Send",
+    "mailSubject": "Σχόλιο/ Πρόταση για το CampuStay",
+    "alerts": {
+      "successTitle": "Ευχαριστούμε!",
+      "successMessage": "Το σχόλιό σας στάλθηκε με επιτυχία.",
+      "errorTitle": "Σφάλμα",
+      "emptyMessage": "Παρακαλούμε γράψτε πρώτα το σχόλιό σας.",
+      "sendFailedMessage": "Δεν ήταν δυνατή η αποστολή. Προσπαθήστε ξανά."
     }
   },
   "editProfile": {
