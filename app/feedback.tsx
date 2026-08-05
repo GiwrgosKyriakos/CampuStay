@@ -1,64 +1,53 @@
 import React, { useMemo, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import * as Linking from "expo-linking";
-import * as MailComposer from "expo-mail-composer";
+import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 
 import { useTheme } from "@/src/context/ThemeContext";
 import { fontSize, fonts, radius, spacing, type ThemeColors } from "@/src/theme";
 import { t } from "@/src/locales";
+import { db } from "@/src/config/firebase";
+import { useAuth } from "@/src/context/auth";
+import CenteredActionModal from "@/src/components/CenteredActionModal";
 
 const MAX_FEEDBACK_LENGTH = 500;
-const FEEDBACK_RECIPIENT = "gkiriakos92@gmail.com";
-const FEEDBACK_SUBJECT = t("feedback.mailSubject");
 
 export default function FeedbackScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const auth = useAuth();
 
   const [text, setText] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [successModalVisible, setSuccessModalVisible] = useState(false);
+  const [errorModalVisible, setErrorModalVisible] = useState(false);
   const atCharacterLimit = text.length >= MAX_FEEDBACK_LENGTH;
+  const hasContent = text.trim().length > 0;
 
   const handleSend = async () => {
+    if (isSubmitting) return;
+
     const trimmed = text.trim();
-    if (!trimmed) {
-      Alert.alert(t("feedback.alerts.errorTitle"), t("feedback.alerts.emptyMessage"));
-      return;
-    }
+    if (!trimmed) return;
 
+    setIsSubmitting(true);
     try {
-      let isSuccessful = false;
-      const isMailComposerAvailable = await MailComposer.isAvailableAsync();
+      await addDoc(collection(db, "feedback"), {
+        userId: auth.userId || "anonymous",
+        userEmail: auth.user?.email || "not_provided",
+        message: trimmed,
+        createdAt: serverTimestamp(),
+      });
 
-      if (isMailComposerAvailable) {
-        const result = await MailComposer.composeAsync({
-          recipients: [FEEDBACK_RECIPIENT],
-          subject: FEEDBACK_SUBJECT,
-          body: text,
-        });
-
-        isSuccessful = result.status === MailComposer.MailComposerStatus.SENT || result.status === "sent";
-      } else {
-        const mailtoUrl = `mailto:${FEEDBACK_RECIPIENT}?subject=${encodeURIComponent(FEEDBACK_SUBJECT)}&body=${encodeURIComponent(text)}`;
-        const canOpen = await Linking.canOpenURL(mailtoUrl);
-        if (!canOpen) {
-          throw new Error("mail-client-unavailable");
-        }
-
-        await Linking.openURL(mailtoUrl);
-        isSuccessful = true;
-      }
-
-      if (isSuccessful) {
-        Alert.alert(t("feedback.alerts.successTitle"), t("feedback.alerts.successMessage"));
-        setText("");
-      }
+      setSuccessModalVisible(true);
     } catch {
-      Alert.alert(t("feedback.alerts.errorTitle"), t("feedback.alerts.sendFailedMessage"));
+      setErrorModalVisible(true);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -109,10 +98,52 @@ export default function FeedbackScreen() {
           </Text>
         )}
 
-        <Pressable style={styles.sendButton} onPress={handleSend} testID="feedback-send-button">
-          <Text style={styles.sendButtonText}>{t("feedback.send")}</Text>
+        <Pressable
+          style={[styles.sendButton, isSubmitting && styles.sendButtonDisabled]}
+          onPress={handleSend}
+          disabled={isSubmitting || !hasContent}
+          testID="feedback-send-button"
+        >
+          {isSubmitting ? (
+            <ActivityIndicator size="small" color={colors.onBrand} />
+          ) : (
+            <Text style={styles.sendButtonText}>{t("feedback.send")}</Text>
+          )}
         </Pressable>
       </ScrollView>
+
+      <CenteredActionModal
+        visible={successModalVisible}
+        title="Ευχαριστούμε! / Thank You!"
+        description="Το σχόλιο / η πρότασή σας υποβλήθηκε με επιτυχία και θα βοηθήσει στη βελτίωση του CampuStay."
+        onDismiss={() => setSuccessModalVisible(false)}
+        actions={[
+          {
+            label: "Τέλεια",
+            iconName: "checkmark-circle-outline",
+            onPress: () => {
+              setText("");
+              setSuccessModalVisible(false);
+              router.back();
+            },
+          },
+        ]}
+        testID="feedback-success-modal"
+      />
+
+      <CenteredActionModal
+        visible={errorModalVisible}
+        title="Κάτι πήγε στραβά"
+        description="Δεν ήταν δυνατή η αποστολή. Παρακαλούμε δοκιμάστε ξανά σε λίγο."
+        onDismiss={() => setErrorModalVisible(false)}
+        actions={[
+          {
+            label: "Κατάλαβα",
+            onPress: () => setErrorModalVisible(false),
+          },
+        ]}
+        testID="feedback-error-modal"
+      />
     </View>
   );
 }
@@ -197,6 +228,9 @@ function createStyles(colors: ThemeColors) {
       borderRadius: radius.pill,
       paddingVertical: spacing.lg,
       alignItems: "center",
+    },
+    sendButtonDisabled: {
+      opacity: 0.75,
     },
     sendButtonText: {
       fontFamily: fonts.bold,
