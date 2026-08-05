@@ -13,6 +13,11 @@
       "bundleIdentifier": "io.github.giwrgoskyriakos.CampuStay"
     },
     "android": {
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyCPxyTI23tIDtuI8Y7FhTs1meAovj7OZco"
+        }
+      },
       "adaptiveIcon": {
         "foregroundImage": "./assets/campuStayLogoTransparent.png",
         "backgroundColor": "#07404C"

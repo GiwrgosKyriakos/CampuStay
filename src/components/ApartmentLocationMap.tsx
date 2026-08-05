@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef } from "react";
+import MapView, { Circle, Marker, PROVIDER_GOOGLE, Region } from "react-native-maps";
 import { StyleSheet, Text, View } from "react-native";
-import MapView, { Circle, Marker, Region } from "react-native-maps";
 import { Ionicons } from "@expo/vector-icons";
 
 import { fonts, fontSize, radius, type ThemeColors } from "@/src/theme";
@@ -109,6 +109,7 @@ export default function ApartmentLocationMap({
     <View style={[styles.container, { height }]}>
       <MapView
         ref={mapRef}
+        provider={PROVIDER_GOOGLE}
         style={styles.map}
         initialRegion={displayRegion}
         customMapStyle={mapStyle}
