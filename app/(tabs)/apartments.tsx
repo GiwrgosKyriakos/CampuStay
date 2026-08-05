@@ -21,6 +21,62 @@ import { getExcludedUserIds } from "@/src/api/blocking";
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 100;
 
+function normalizeText(str: string): string {
+  const greekAccentMap: Record<string, string> = {
+    ά: "α",
+    έ: "ε",
+    ή: "η",
+    ί: "ι",
+    ΐ: "ι",
+    ό: "ο",
+    ύ: "υ",
+    ΰ: "υ",
+    ώ: "ω",
+    ς: "σ",
+  };
+
+  const latinToGreekMap: Record<string, string> = {
+    a: "α",
+    b: "β",
+    c: "κ",
+    d: "δ",
+    e: "ε",
+    f: "φ",
+    g: "γ",
+    h: "η",
+    i: "ι",
+    j: "ζ",
+    k: "κ",
+    l: "λ",
+    m: "μ",
+    n: "ν",
+    o: "ο",
+    p: "π",
+    q: "κ",
+    r: "ρ",
+    s: "σ",
+    t: "τ",
+    u: "υ",
+    v: "β",
+    w: "ω",
+    x: "χ",
+    y: "υ",
+    z: "ζ",
+  };
+
+  const lower = str.toLowerCase().trim();
+  const noDiacritics = lower.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const mapped = noDiacritics
+    .split("")
+    .map((char) => greekAccentMap[char] ?? latinToGreekMap[char] ?? char)
+    .join("");
+
+  return mapped
+    .replace(/[^a-z0-9α-ω\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 interface Apartment {
   id: string;
   title: string;
@@ -36,7 +92,9 @@ interface Apartment {
   rooms: number;
   size: number;
   image: string;
+  images?: string[];
   tags: string[];
+  amenities: string[];
   hostId?: string;
   ownerId?: string;
   available: boolean;
@@ -59,6 +117,7 @@ interface FirestoreApartmentDoc {
   size?: number;
   sqft?: number;
   image?: string;
+  images?: string[];
   tags?: string[];
   amenities?: string[];
   hostId?: string;
@@ -101,6 +160,135 @@ function translateApartmentTag(tag: string): string {
   return translated === `apartments.tags.${tag}` ? tag.replace(/_/g, " ") : translated;
 }
 
+type ApartmentGridCardProps = {
+  apt: Apartment;
+  styles: ReturnType<typeof createStyles>;
+  colors: ThemeColors;
+  isLiked: boolean;
+  isMyListingsView: boolean;
+  onOpen: () => void;
+  onToggleLike: () => void;
+};
+
+function ApartmentGridCard({
+  apt,
+  styles,
+  colors,
+  isLiked,
+  isMyListingsView,
+  onOpen,
+  onToggleLike,
+}: ApartmentGridCardProps) {
+  const [activeImageIndex, setActiveImageIndex] = useState(0);
+
+  const cardImages = useMemo(() => {
+    const validImages = Array.isArray(apt.images)
+      ? apt.images.filter((img): img is string => typeof img === "string" && img.trim().length > 0)
+      : [];
+
+    if (validImages.length > 0) return validImages;
+    return apt.image ? [apt.image] : [];
+  }, [apt.image, apt.images]);
+
+  useEffect(() => {
+    if (activeImageIndex > cardImages.length - 1) {
+      setActiveImageIndex(0);
+    }
+  }, [activeImageIndex, cardImages.length]);
+
+  const activeImage = cardImages[activeImageIndex] || "";
+
+  return (
+    <View style={styles.cardWrap}>
+      <Pressable
+        style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+        onPress={onOpen}
+        testID={`apartment-card-${apt.id}`}
+      >
+        {activeImage ? (
+          <Image source={{ uri: activeImage }} style={styles.photo} contentFit="cover" transition={150} />
+        ) : (
+          <View style={[styles.photo, styles.cardPlaceholder]}>
+            <Ionicons name="home" size={44} color={colors.brand} />
+            <Text style={styles.cardPlaceholderText}>CampuStay</Text>
+          </View>
+        )}
+
+        {cardImages.length > 1 && activeImageIndex > 0 && (
+          <Pressable
+            style={[styles.carouselArrowButton, styles.carouselArrowLeft]}
+            onPress={(e) => {
+              e.stopPropagation();
+              setActiveImageIndex((prev) => Math.max(0, prev - 1));
+            }}
+            hitSlop={8}
+            testID={`apartment-card-prev-image-${apt.id}`}
+          >
+            <Ionicons name="chevron-back" size={20} color="#FFFFFF" />
+          </Pressable>
+        )}
+
+        {cardImages.length > 1 && activeImageIndex < cardImages.length - 1 && (
+          <Pressable
+            style={[styles.carouselArrowButton, styles.carouselArrowRight]}
+            onPress={(e) => {
+              e.stopPropagation();
+              setActiveImageIndex((prev) => Math.min(cardImages.length - 1, prev + 1));
+            }}
+            hitSlop={8}
+            testID={`apartment-card-next-image-${apt.id}`}
+          >
+            <Ionicons name="chevron-forward" size={20} color="#FFFFFF" />
+          </Pressable>
+        )}
+
+        <LinearGradient
+          colors={["transparent", "rgba(26,26,26,0.95)"]}
+          locations={[0.4, 1]}
+          style={StyleSheet.absoluteFill}
+        />
+        <View style={styles.rentBadge}>
+          <Text style={styles.rentText}>
+            {CURRENCY}
+            {apt.rent}
+          </Text>
+          <Text style={styles.rentMo}>{t("apartments.perMonthShort")}</Text>
+        </View>
+        <View style={styles.cardBody}>
+          <View style={styles.locRow}>
+            <Ionicons name="location-outline" size={14} color="rgba(255,255,255,0.85)" />
+            <Text style={styles.loc}>
+              {apt.area}, {apt.city}
+            </Text>
+          </View>
+          <View style={styles.statsRow}>
+            <Text style={styles.stat}>{`${apt.rooms} ${t("apartments.rooms")}`}</Text>
+            <View style={styles.dot} />
+            <Text style={styles.stat}>{apt.size} m²</Text>
+          </View>
+          <View style={styles.tagRow}>
+            {apt.tags.map((tag) => (
+              <View key={tag} style={styles.tag}>
+                <Text style={styles.tagText}>{translateApartmentTag(tag)}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      </Pressable>
+
+      {!isMyListingsView ? (
+        <Pressable
+          style={[styles.likeBtn, isLiked && styles.likeBtnActive]}
+          onPress={onToggleLike}
+          testID={`apartment-like-${apt.id}`}
+        >
+          <Ionicons name={isLiked ? "heart" : "heart-outline"} size={20} color={isLiked ? "#FFFFFF" : colors.onSurface} />
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
 export default function ApartmentsScreen() {
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -109,6 +297,8 @@ export default function ApartmentsScreen() {
   const auth = useAuth();
   const [publishedApartments, setPublishedApartments] = useState<Apartment[]>([]);
   const [showFilters, setShowFilters] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [rentMin, setRentMin] = useState("");
   const [rentMax, setRentMax] = useState("");
   const [cityQuery, setCityQuery] = useState("");
@@ -218,6 +408,11 @@ export default function ApartmentsScreen() {
                 const amenities = Array.isArray(data.amenities) ? data.amenities : [];
                 const rawTags = Array.isArray(data.tags) ? data.tags : amenities;
                 const tags = rawTags.map(normalizeTagSlug);
+                const imageList = Array.isArray(data.images)
+                  ? data.images.filter((img): img is string => typeof img === "string" && img.trim().length > 0)
+                  : [];
+                const fallbackImage = typeof data.image === "string" ? data.image.trim() : "";
+                const resolvedImages = imageList.length > 0 ? imageList : fallbackImage ? [fallbackImage] : [];
                 const available = typeof data.available === "boolean" ? data.available : typeof data.isAvailable === "boolean" ? data.isAvailable : true;
 
                 return {
@@ -233,8 +428,10 @@ export default function ApartmentsScreen() {
                   rent: typeof data.rent === "number" ? data.rent : typeof data.price === "number" ? data.price : 0,
                   rooms: typeof data.rooms === "number" ? data.rooms : 1,
                   size: typeof data.size === "number" ? data.size : typeof data.sqft === "number" ? data.sqft : 0,
-                  image: data.image || "",
+                  image: resolvedImages[0] || "",
+                  images: resolvedImages,
                   tags: tags.length ? tags : ["new_listing"],
+                  amenities,
                   hostId: data.hostId,
                   ownerId: data.ownerId || data.hostId,
                   available,
@@ -464,9 +661,10 @@ export default function ApartmentsScreen() {
     const minSize = sizeMin ? Number(sizeMin) : null;
     const maxSize = sizeMax ? Number(sizeMax) : null;
     const locationQuery = cityQuery.trim().toLowerCase();
+    const normalizedSearch = normalizeText(searchQuery);
     const currentUid = auth.userId;
 
-    return apartments.filter((apt) => {
+    const baseFiltered = apartments.filter((apt) => {
       const isOwnListing = !!currentUid && apt.ownerId === currentUid;
 
       if (isViewingMyListings) {
@@ -495,7 +693,48 @@ export default function ApartmentsScreen() {
 
       return cityMatch && rentMatch && sizeMatch && petMatch && metroMatch;
     });
-  }, [activeTab, apartments, auth.userId, cityQuery, isViewingMyListings, likedApartmentIds, nearMetro, petFriendly, rentMax, rentMin, sizeMax, sizeMin]);
+
+    if (!normalizedSearch) return baseFiltered;
+
+    return baseFiltered
+      .map((apt, index) => {
+        const titleNorm = normalizeText(apt.title);
+        const areaNorm = normalizeText(apt.area);
+        const descriptionNorm = normalizeText(apt.description || "");
+        const tagsNorm = apt.tags.map((tag) => normalizeText(tag));
+        const amenitiesNorm = apt.amenities.map((amenity) => normalizeText(amenity));
+
+        let score = 0;
+        if (titleNorm.includes(normalizedSearch)) score += 4;
+        if (areaNorm.includes(normalizedSearch)) score += 3;
+        if (descriptionNorm.includes(normalizedSearch)) score += 2;
+        if (
+          tagsNorm.some((item) => item.includes(normalizedSearch)) ||
+          amenitiesNorm.some((item) => item.includes(normalizedSearch))
+        ) {
+          score += 1;
+        }
+
+        return { apt, score, index };
+      })
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score || a.index - b.index)
+      .map((item) => item.apt);
+  }, [
+    activeTab,
+    apartments,
+    auth.userId,
+    cityQuery,
+    isViewingMyListings,
+    likedApartmentIds,
+    nearMetro,
+    petFriendly,
+    rentMax,
+    rentMin,
+    searchQuery,
+    sizeMax,
+    sizeMin,
+  ]);
 
   const isCompactActive = isViewingMyListings && viewMode === "compact";
 
@@ -519,12 +758,18 @@ export default function ApartmentsScreen() {
         <Text style={styles.subtitle}>{t("apartments.subtitle")}</Text>
         <View style={styles.headerControlsRow}>
           <Pressable
-            style={[styles.filterToggle, showFilters && styles.filterToggleActive]}
+            style={[styles.iconControlButton, showFilters && styles.iconControlButtonActive]}
             onPress={() => setShowFilters((v) => !v)}
             testID="apartments-filter-toggle"
           >
             <Ionicons name="options-outline" size={18} color={colors.onBrandTertiary} />
-            <Text style={styles.filterToggleText}>{showFilters ? t("apartments.hideFilters") : t("apartments.showFilters")}</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.iconControlButton, showSearch && styles.iconControlButtonActive]}
+            onPress={() => setShowSearch((prev) => !prev)}
+            testID="apartments-search-toggle"
+          >
+            <Ionicons name="search-outline" size={18} color={colors.onBrandTertiary} />
           </Pressable>
           {!isViewingMyListings ? (
             <View style={styles.viewToggle} testID="apartments-view-toggle">
@@ -576,6 +821,28 @@ export default function ApartmentsScreen() {
             </View>
           )}
         </View>
+        {showSearch && (
+          <View style={styles.searchPanel} testID="apartments-search-panel">
+            <View style={styles.searchInputWrap}>
+              <Ionicons name="search-outline" size={18} color={colors.onSurfaceTertiary} />
+              <TextInput
+                style={styles.searchInput}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                placeholder="Αναζήτηση τίτλου, περιοχής, amenities..."
+                placeholderTextColor={colors.onSurfaceTertiary}
+                autoCapitalize="none"
+                autoCorrect={false}
+                testID="apartments-search-input"
+              />
+              {searchQuery.length > 0 && (
+                <Pressable onPress={() => setSearchQuery("")} style={styles.searchClearBtn} testID="apartments-search-clear">
+                  <Ionicons name="close" size={16} color={colors.onSurfaceTertiary} />
+                </Pressable>
+              )}
+            </View>
+          </View>
+        )}
         {showFilters && (
           <View style={styles.filterPanel} testID="apartments-filter-panel">
             <Text style={styles.filterLabel}>{t("apartments.monthlyRent", { currency: CURRENCY })}</Text>
@@ -720,69 +987,21 @@ export default function ApartmentsScreen() {
           }
 
           return (
-            <View key={apt.id} style={styles.cardWrap}>
-              <Pressable
-                style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-                onPress={() =>
-                  router.push({
-                    pathname: "/apartment-detail",
-                    params: { data: JSON.stringify(apt) },
-                  } as any)
-                }
-                testID={`apartment-card-${apt.id}`}
-              >
-                {apt.image ? (
-                  <Image source={{ uri: apt.image }} style={styles.photo} contentFit="cover" transition={150} />
-                ) : (
-                  <View style={[styles.photo, styles.cardPlaceholder]}>
-                    <Ionicons name="home" size={44} color={colors.brand} />
-                    <Text style={styles.cardPlaceholderText}>CampuStay</Text>
-                  </View>
-                )}
-                <LinearGradient
-                  colors={["transparent", "rgba(26,26,26,0.95)"]}
-                  locations={[0.4, 1]}
-                  style={StyleSheet.absoluteFill}
-                />
-                <View style={styles.rentBadge}>
-                  <Text style={styles.rentText}>
-                    {CURRENCY}
-                    {apt.rent}
-                  </Text>
-                  <Text style={styles.rentMo}>{t("apartments.perMonthShort")}</Text>
-                </View>
-                <View style={styles.cardBody}>
-                  {/*<Text style={styles.aptTitle}>{apt.title}</Text>*/}
-                  <View style={styles.locRow}>
-                    <Ionicons name="location-outline" size={14} color="rgba(255,255,255,0.85)" />
-                    <Text style={styles.loc}>
-                      {apt.area}, {apt.city}
-                    </Text>
-                  </View>
-                  <View style={styles.statsRow}>
-                    <Text style={styles.stat}>{`${apt.rooms} ${t("apartments.rooms")}`}</Text>
-                    <View style={styles.dot} />
-                    <Text style={styles.stat}>{apt.size} m²</Text>
-                  </View>
-                  <View style={styles.tagRow}>
-                    {apt.tags.map((t) => (
-                      <View key={t} style={styles.tag}>
-                        <Text style={styles.tagText}>{translateApartmentTag(t)}</Text>
-                      </View>
-                    ))}
-                  </View>
-                </View>
-              </Pressable>
-              {!isMyListingsView ? (
-                <Pressable
-                  style={[styles.likeBtn, isLiked && styles.likeBtnActive]}
-                  onPress={() => handleToggleLike(apt.id)}
-                  testID={`apartment-like-${apt.id}`}
-                >
-                  <Ionicons name={isLiked ? "heart" : "heart-outline"} size={20} color={isLiked ? "#FFFFFF" : colors.onSurface} />
-                </Pressable>
-              ) : null}
-            </View>
+            <ApartmentGridCard
+              key={apt.id}
+              apt={apt}
+              styles={styles}
+              colors={colors}
+              isLiked={isLiked}
+              isMyListingsView={isMyListingsView}
+              onOpen={() =>
+                router.push({
+                  pathname: "/apartment-detail",
+                  params: { data: JSON.stringify(apt) },
+                } as any)
+              }
+              onToggleLike={() => handleToggleLike(apt.id)}
+            />
           );
         })}
         {filteredApartments.length === 0 && (
@@ -878,26 +1097,17 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     alignItems: "center",
     gap: spacing.sm,
   },
-  filterToggle: {
-    alignSelf: "flex-start",
-    flexDirection: "row",
+  iconControlButton: {
+    width: 46,
+    height: 46,
     alignItems: "center",
     justifyContent: "center",
-    gap: spacing.sm,
     backgroundColor: "#D9F0FF",
     borderRadius: radius.pill,
-    paddingHorizontal: spacing.lg,
-    height: 46,
     borderWidth: 1,
     borderColor: "#A8D9FF",
   },
-  filterToggleActive: { backgroundColor: "#C8E9FF" },
-  filterToggleText: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onBrandTertiary, 
-    // --- ΠΡΟΣΘΗΚΕΣ ΓΙΑ ΚΕΝΤΡΑΡΙΣΜΑ ---
-    includeFontPadding: false,  // 1. Αφαιρεί το κρυφό έξτρα padding του Android
-    textAlignVertical: "center", // 2. Αναγκάζει το κείμενο να κάθισε στο κέντρο του
-    transform: [{ translateY: -1 }] // 3. (Προαιρετικό) "Κλέβει" 1 pixel προς τα πάνω αν το font σου είναι πολύ περίεργο
-   },
+  iconControlButtonActive: { backgroundColor: "#C8E9FF" },
   viewToggle: {
     flex: 1,
     flexDirection: "row",
@@ -930,6 +1140,36 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   viewToggleTextActive: {
     color: colors.onBrand,
+  },
+  searchPanel: {
+    marginTop: spacing.sm,
+  },
+  searchInputWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.md,
+    height: 48,
+  },
+  searchInput: {
+    flex: 1,
+    color: colors.onSurface,
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.base,
+  },
+  searchClearBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   filterPanel: {
     marginTop: spacing.sm,
@@ -1086,6 +1326,26 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderRadius: radius.lg,
     overflow: "hidden",
     backgroundColor: colors.surfaceTertiary,
+  },
+  carouselArrowButton: {
+    position: "absolute",
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(0, 0, 0, 0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 3,
+  },
+  carouselArrowLeft: {
+    left: 10,
+    top: "50%",
+    transform: [{ translateY: -18 }],
+  },
+  carouselArrowRight: {
+    right: 10,
+    top: "50%",
+    transform: [{ translateY: -18 }],
   },
   cardPressed: { opacity: 0.88 },
   likeBtn: {
