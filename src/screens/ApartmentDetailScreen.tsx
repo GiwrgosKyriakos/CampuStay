@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Dimensions,
+  Linking,
   Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -13,7 +14,6 @@ import {
 } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
-import * as Linking from "expo-linking";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -112,6 +112,7 @@ interface FirestoreApartmentDoc {
   images?: string[];
   tags?: string[];
   amenities?: string[];
+  showPhoneNumber?: boolean;
   hostId?: string;
   ownerId?: string;
   address?: string;
@@ -146,6 +147,8 @@ interface FirestoreUserDoc {
   city?: string | null;
   is_broker?: boolean;
   is_visible?: boolean;
+  phone_number?: string;
+  phone?: string;
 }
 
 interface FirestoreLikedApartmentDoc {
@@ -293,6 +296,9 @@ export default function ApartmentDetailScreen() {
   const [resolvedPropertyType, setResolvedPropertyType] = useState<string | null>(null);
   const [checkingVisibility, setCheckingVisibility] = useState(false);
   const [isListingExcluded, setIsListingExcluded] = useState(false);
+  const [showPhoneNumber, setShowPhoneNumber] = useState(false);
+  const [hostPhoneNumber, setHostPhoneNumber] = useState("");
+  const [resolvedHostId, setResolvedHostId] = useState<string | null>(apt?.hostId || apt?.ownerId || null);
 
   const [inquiries, setInquiries] = useState<InquiryItem[]>([]);
   const [loadingInquiries, setLoadingInquiries] = useState(false);
@@ -340,6 +346,8 @@ export default function ApartmentDetailScreen() {
           : [docData.image || docData.imageUrl].filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0);
 
         setDbImages(imgs);
+        setShowPhoneNumber(docData.showPhoneNumber === true);
+        setResolvedHostId(docData.hostId || docData.ownerId || apt?.hostId || apt?.ownerId || null);
 
         if (docData.description || docData.about) {
           setRealDescription((docData.description || docData.about || "").trim());
@@ -377,6 +385,37 @@ export default function ApartmentDetailScreen() {
       mounted = false;
     };
   }, [apt?.id]);
+
+  useEffect(() => {
+    if (!resolvedHostId) {
+      setHostPhoneNumber("");
+      return;
+    }
+
+    let active = true;
+
+    void (async () => {
+      try {
+        const hostSnap = await getDoc(doc(db, "users", resolvedHostId));
+        if (!hostSnap.exists() || !active) {
+          if (active) setHostPhoneNumber("");
+          return;
+        }
+
+        const hostData = hostSnap.data() as FirestoreUserDoc;
+        const rawPhone = typeof hostData.phone_number === "string" ? hostData.phone_number : typeof hostData.phone === "string" ? hostData.phone : "";
+        if (!active) return;
+        setHostPhoneNumber(rawPhone.replace(/[^0-9]/g, "").slice(0, 10));
+      } catch (error) {
+        if (active) setHostPhoneNumber("");
+        console.error("[ApartmentDetail] Failed to load host phone number:", error);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [resolvedHostId]);
 
   useEffect(() => {
     const currentUserId = auth.userId;
@@ -748,6 +787,15 @@ export default function ApartmentDetailScreen() {
   const contactHost = () => {
     const subject = encodeURIComponent(t("apartmentDetail.emailSubject", { title: apt!.title }));
     Linking.openURL(`mailto:${CONTACT_EMAIL}?subject=${subject}`);
+  };
+
+  const callHostPhone = () => {
+    if (!hostPhoneNumber) return;
+
+    const fullPhoneNumber = `+30${hostPhoneNumber.replace(/[^0-9]/g, "")}`;
+    Linking.openURL(`tel:${fullPhoneNumber}`).catch((err) => {
+      console.error("Failed to open phone dialer:", err);
+    });
   };
 
   const startHostChat = async () => {
@@ -1375,6 +1423,22 @@ export default function ApartmentDetailScreen() {
             </Text>
           </View>
         </View>
+
+        {showPhoneNumber && hostPhoneNumber.length > 0 ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Στοιχεία Επικοινωνίας</Text>
+            <Pressable style={styles.phoneContactCard} onPress={callHostPhone} testID="apartment-detail-phone-contact">
+              <View style={styles.phoneContactIconWrap}>
+                <Ionicons name="call-outline" size={18} color={colors.onBrand} />
+              </View>
+              <View style={styles.phoneContactTextWrap}>
+                <Text style={styles.phoneContactLabel}>Τηλέφωνο επικοινωνίας</Text>
+                <Text style={styles.phoneContactValue}>{`+30 ${hostPhoneNumber}`}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+            </Pressable>
+          </View>
+        ) : null}
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: spacing.lg + insets.bottom }]}>
@@ -2028,6 +2092,38 @@ function createStyles(colors: ThemeColors) {
     fontSize: fontSize.sm,
     color: colors.onSurface,
   },
+    phoneContactCard: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.lg,
+      backgroundColor: colors.surfaceSecondary,
+      padding: spacing.md,
+    },
+    phoneContactIconWrap: {
+      width: 42,
+      height: 42,
+      borderRadius: 21,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.brand,
+    },
+    phoneContactTextWrap: {
+      flex: 1,
+      gap: 2,
+    },
+    phoneContactLabel: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.sm,
+      color: colors.onSurfaceTertiary,
+    },
+    phoneContactValue: {
+      fontFamily: fonts.bold,
+      fontSize: fontSize.base,
+      color: colors.onSurface,
+    },
 
     locationMetaRow: {
     flexDirection: "row",

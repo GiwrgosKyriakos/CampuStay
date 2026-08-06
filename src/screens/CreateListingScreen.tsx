@@ -68,6 +68,7 @@ interface FirestoreApartmentDoc {
   amenities?: string[];
   hostId?: string;
   ownerId?: string;
+  showPhoneNumber?: boolean;
 }
 
 const AMENITIES: Amenity[] = [
@@ -109,6 +110,7 @@ export default function CreateListingScreen() {
   const [rooms, setRooms] = useState("1");
   const [maxDiscountPercent, setMaxDiscountPercent] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [showPhoneNumber, setShowPhoneNumber] = useState(true);
   const [permBlocked, setPermBlocked] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [amenities, setAmenities] = useState<Record<AmenityKey, boolean>>({
@@ -219,6 +221,7 @@ export default function CreateListingScreen() {
         setMaxDiscountPercent(mappedMaxDiscount !== null ? String(mappedMaxDiscount) : "");
         setTitle(data.title ?? "");
         setDescription(data.description ?? data.about ?? "");
+        setShowPhoneNumber(data.showPhoneNumber !== false);
         setPropertyCategory(data.propertyCategory ?? null);
         setPropertyType(data.propertyType ?? null);
         setFloor(data.floor ?? null);
@@ -383,6 +386,7 @@ export default function CreateListingScreen() {
         images: uploadedImages,
         tags: selectedAmenitySlugs.length ? selectedAmenitySlugs : ["new_listing"],
         amenities: selectedAmenitySlugs,
+        showPhoneNumber,
         hostId,
         ownerId: hostId,
       };
@@ -718,6 +722,43 @@ export default function CreateListingScreen() {
 
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
           </View>
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Στοιχεία Επικοινωνίας</Text>
+            <View style={styles.contactToggleRow}>
+              <View style={styles.contactToggleTextWrap}>
+                <Text style={styles.contactToggleLabel}>Εμφάνιση τηλεφώνου επικοινωνίας στην αγγελία</Text>
+                <Text style={styles.fieldHint}>Η επιλογή αυτή εμφανίζει το τηλέφωνο του προφίλ του host στη σελίδα της αγγελίας.</Text>
+              </View>
+              <Switch
+                value={showPhoneNumber}
+                onValueChange={setShowPhoneNumber}
+                trackColor={{ false: colors.border, true: colors.brandSecondary }}
+                thumbColor={showPhoneNumber ? colors.brand : colors.onSurface}
+                testID="create-listing-show-phone-toggle"
+              />
+            </View>
+          </View>
+            contactToggleRow: {
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: spacing.md,
+              padding: spacing.md,
+              borderRadius: radius.md,
+              borderWidth: 1,
+              borderColor: colors.border,
+              backgroundColor: colors.surface,
+            },
+            contactToggleTextWrap: {
+              flex: 1,
+              gap: spacing.xs,
+            },
+            contactToggleLabel: {
+              fontFamily: fonts.semibold,
+              fontSize: fontSize.base,
+              color: colors.onSurface,
+              lineHeight: 20,
+            },
         </ScrollView>
 
         <View style={[styles.footer, { paddingBottom: spacing.lg + insets.bottom }]}>

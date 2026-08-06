@@ -22,6 +22,7 @@ export interface UserProfile {
   facebook: string;
   linkedin: string;
   twitter: string;
+  phone_number?: string;
 }
 
 interface FirestoreUserDocument {
@@ -48,6 +49,7 @@ interface FirestoreUserDocument {
   facebook?: string;
   linkedin?: string;
   twitter?: string;
+  phone_number?: string;
 }
 
 interface SaveUserProfileOptions {
@@ -82,6 +84,10 @@ function normalizeProfile(docData: Partial<FirestoreUserDocument>): UserProfile 
     facebook: docData.facebook ?? "",
     linkedin: docData.linkedin ?? "",
     twitter: docData.twitter ?? "",
+    phone_number:
+      typeof docData.phone_number === "string"
+        ? docData.phone_number
+        : undefined,
   };
 }
 
@@ -90,6 +96,7 @@ function buildFirestoreDocument(
   options?: SaveUserProfileOptions,
 ): FirestoreUserDocument & { updatedAt: ReturnType<typeof serverTimestamp> } {
   const firstPhoto = profile.photos?.[0] ?? "";
+  const phoneNumber = typeof profile.phone_number === "string" ? profile.phone_number.trim() : "";
 
   return {
     name: profile.name ?? null,
@@ -115,6 +122,7 @@ function buildFirestoreDocument(
     facebook: profile.facebook ?? "",
     linkedin: profile.linkedin ?? "",
     twitter: profile.twitter ?? "",
+    ...(phoneNumber.length > 0 ? { phone_number: phoneNumber } : {}),
     updatedAt: serverTimestamp(),
   };
 }

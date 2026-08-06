@@ -75,6 +75,7 @@ export default function EditProfileScreen() {
   const [facebook, setFacebook] = useState("");
   const [linkedin, setLinkedin] = useState("");
   const [twitter, setTwitter] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
   const [cityError, setCityError] = useState(false);
   const [budgetError, setBudgetError] = useState<string | null>(null);
   const guestLocked = auth.isGuest;
@@ -114,6 +115,7 @@ export default function EditProfileScreen() {
       setFacebook("");
       setLinkedin("");
       setTwitter("");
+      setPhoneNumber("");
       setLoading(false);
       return;
     }
@@ -143,6 +145,7 @@ export default function EditProfileScreen() {
             setFacebook(p.facebook ?? "");
             setLinkedin(p.linkedin ?? "");
             setTwitter(p.twitter ?? "");
+            setPhoneNumber((p.phone_number ?? "").replace(/[^0-9]/g, "").slice(0, 10));
           }
         }
       } catch {
@@ -266,6 +269,7 @@ export default function EditProfileScreen() {
         facebook: facebook.trim(),
         linkedin: linkedin.trim(),
         twitter: twitter.trim(),
+        phone_number: phoneNumber.trim(),
       };
       if (userId) {
         console.log(`[EditProfile] → Calling saveUserProfile for user: ${userId.substring(0, 8)}...`);
@@ -308,6 +312,7 @@ export default function EditProfileScreen() {
     facebook,
     linkedin,
     twitter,
+    phoneNumber,
     age,
     gender,
     city,
@@ -728,6 +733,31 @@ export default function EditProfileScreen() {
             <Text style={styles.infoText}>{t("editProfile.socialInfo")}</Text>
           </View>
         </View>
+
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <Ionicons name="call-outline" size={22} color={colors.onSurface} />
+            <Text style={styles.cardTitle}>Επιπλέον στοιχεία επικοινωνίας</Text>
+          </View>
+
+          <Text style={styles.label}>Τηλέφωνο</Text>
+          <View style={[styles.phoneInputRow, guestLocked && styles.guestReadOnlyControl]}>
+            <View style={styles.countryCodeBadge}>
+              <Text style={styles.countryCodeText}>+30</Text>
+            </View>
+            <TextInput
+              style={styles.phoneInput}
+              value={phoneNumber}
+              onChangeText={(value) => setPhoneNumber(value.replace(/[^0-9]/g, "").slice(0, 10))}
+              placeholder="69X XXX XXXX"
+              placeholderTextColor={colors.onSurfaceTertiary}
+              keyboardType="phone-pad"
+              maxLength={10}
+              editable={!guestLocked}
+              testID="phone-number-input"
+            />
+          </View>
+        </View>
       </KeyboardAwareScrollView>
 
       {/* Sticky footer */}
@@ -931,6 +961,34 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderRadius: radius.md,
     padding: spacing.md,
     marginTop: spacing.lg,
+  },
+  phoneInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.surface,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.xs,
+  },
+  countryCodeBadge: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surfaceTertiary,
+  },
+  countryCodeText: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface },
+  phoneInput: {
+    flex: 1,
+    minHeight: 54,
+    color: colors.onSurface,
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.base,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
   },
   infoText: { flex: 1, fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary, lineHeight: 18 },
   footer: {
