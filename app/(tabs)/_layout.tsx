@@ -9,13 +9,14 @@ export default function TabsLayout() {
   const { colors } = useTheme();
   const auth = useAuth();
   const isBroker = !!auth.isBroker;
+  const notLookingForRoommate = auth.notLookingForRoommate === true;
   const tabScreens = [
-    { name: "roommates", title: t("tabs.roommates"), visible: !isBroker },
+    { name: "roommates", title: t("tabs.roommates"), visible: !isBroker && !notLookingForRoommate },
     { name: "matches", title: t("tabs.matches"), visible: true },
     { name: "apartments", title: t("tabs.apartments"), visible: true },
     { name: "profile", title: t("tabs.profile"), visible: true },
   ];
-  const visibleTabScreens = (isBroker
+  const visibleTabScreens = (isBroker || notLookingForRoommate
     ? tabScreens.filter((screen) => screen.name !== "roommates").sort((left, right) => {
         const brokerOrder = ["apartments", "matches", "profile"];
         return brokerOrder.indexOf(left.name) - brokerOrder.indexOf(right.name);
@@ -24,7 +25,7 @@ export default function TabsLayout() {
 
   return (
     <Tabs
-      initialRouteName={isBroker ? "apartments" : "roommates"}
+      initialRouteName={isBroker || notLookingForRoommate ? "apartments" : "roommates"}
       tabBar={(props) => <GlassTabBar {...props} />}
       screenOptions={{
         headerShown: false,

@@ -13,6 +13,7 @@ export interface UserProfile {
   already_have_apartment_to_share: boolean;
   is_broker?: boolean;
   looking_for_apartment: boolean;
+  not_looking_for_roommate?: boolean;
   university: string | null;
   year_of_study: string | null;
   budget: number | null;
@@ -39,6 +40,7 @@ interface FirestoreUserDocument {
   already_have_apartment_to_share?: boolean;
   is_broker?: boolean;
   looking_for_apartment?: boolean;
+  not_looking_for_roommate?: boolean;
   year_of_study?: string | null;
   budget?: number | null;
   move_in?: string | null;
@@ -71,6 +73,7 @@ function normalizeProfile(docData: Partial<FirestoreUserDocument>): UserProfile 
     already_have_apartment_to_share: !!docData.already_have_apartment_to_share,
     is_broker: !!docData.is_broker,
     looking_for_apartment: !!docData.looking_for_apartment,
+    not_looking_for_roommate: docData.not_looking_for_roommate === true,
     university: docData.university ?? null,
     year_of_study: yearOfStudy,
     budget,
@@ -104,6 +107,7 @@ function buildFirestoreDocument(
     already_have_apartment_to_share: !!profile.already_have_apartment_to_share,
     is_broker: !!profile.is_broker,
     looking_for_apartment: !!profile.looking_for_apartment,
+    not_looking_for_roommate: profile.not_looking_for_roommate === true,
     year_of_study: profile.year_of_study ?? null,
     budget: profile.budget ?? null,
     move_in: profile.move_in ?? null,

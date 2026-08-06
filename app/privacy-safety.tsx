@@ -45,6 +45,7 @@ export default function PrivacySafetyScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const isGuest = auth.isGuest;
+  const notLookingForRoommate = auth.notLookingForRoommate === true;
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [privacy, setPrivacy] = useState<PrivacyPreferences>({
@@ -271,27 +272,27 @@ export default function PrivacySafetyScreen() {
           />
         )}
 
-        {!auth.isBroker && (
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <View style={styles.iconWrap}>
-              <Ionicons name="eye-outline" size={20} color={colors.onSurface} />
+        {!auth.isBroker && !notLookingForRoommate && (
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <View style={styles.iconWrap}>
+                <Ionicons name="eye-outline" size={20} color={colors.onSurface} />
+              </View>
+              <View style={styles.cardHeaderTextWrap}>
+                <Text style={styles.cardTitle}>{t("privacySafety.visibilityTitle")}</Text>
+                <Text style={styles.subtitle}>{t("privacySafety.visibilityHelp")}</Text>
+              </View>
             </View>
-            <View style={styles.cardHeaderTextWrap}>
-              <Text style={styles.cardTitle}>{t("privacySafety.visibilityTitle")}</Text>
-              <Text style={styles.subtitle}>{t("privacySafety.visibilityHelp")}</Text>
+            <View style={isGuest ? styles.disabledControl : undefined}>
+              <Switch
+                value={privacy.is_visible}
+                onValueChange={toggleVisibility}
+                disabled={isGuest}
+                trackColor={{ false: isGuest ? colors.border : colors.muted, true: isGuest ? colors.onSurfaceTertiary : colors.brand }}
+                thumbColor={isGuest ? colors.surface : privacy.is_visible ? colors.surface : colors.surface}
+              />
             </View>
           </View>
-          <View style={isGuest ? styles.disabledControl : undefined}>
-            <Switch
-              value={privacy.is_visible}
-              onValueChange={toggleVisibility}
-              disabled={isGuest}
-              trackColor={{ false: isGuest ? colors.border : colors.muted, true: isGuest ? colors.onSurfaceTertiary : colors.brand }}
-              thumbColor={isGuest ? colors.surface : privacy.is_visible ? colors.surface : colors.surface}
-            />
-          </View>
-        </View>
         )}
 
         <View style={styles.card}>

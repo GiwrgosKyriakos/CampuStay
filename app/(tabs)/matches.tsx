@@ -186,6 +186,7 @@ export default function MatchesScreen() {
   const SWIPE_THRESHOLD = 56;
   const messageUnsubsRef = React.useRef<Record<string, () => void>>({});
   const isBroker = !!auth.isBroker;
+  const notLookingForRoommate = auth.notLookingForRoommate === true;
 
   const deleteChatForCurrentUser = React.useCallback(
     async (profile: ChatListItem) => {
@@ -267,17 +268,28 @@ export default function MatchesScreen() {
   }, []);
 
   const handleSwipeTabChange = React.useCallback((direction: "left" | "right") => {
+    if (notLookingForRoommate) {
+      setSelectedChatType("host");
+      return;
+    }
     if (direction === "left") {
       setSelectedChatType("host");
       return;
     }
     setSelectedChatType("roommate");
-  }, []);
+  }, [notLookingForRoommate]);
+
+  React.useEffect(() => {
+    if (notLookingForRoommate) {
+      setSelectedChatType("host");
+    }
+  }, [notLookingForRoommate]);
 
   const contentPanResponder = React.useMemo(
     () =>
       PanResponder.create({
         onMoveShouldSetPanResponder: (_evt, gestureState) =>
+          !notLookingForRoommate &&
           Math.abs(gestureState.dx) > 12 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy),
         onPanResponderMove: (_evt, gestureState) => {
           swipeX.setValue(gestureState.dx * 0.35);
@@ -302,7 +314,7 @@ export default function MatchesScreen() {
           }).start();
         },
       }),
-    [handleSwipeTabChange, swipeX],
+    [handleSwipeTabChange, notLookingForRoommate, swipeX],
   );
 
   React.useEffect(() => {
@@ -379,8 +391,8 @@ export default function MatchesScreen() {
             const chatType = chatData.type ?? "roommate";
             // 🚨 ΔΙΑΧΩΡΙΣΜΟΣ ΡΟΛΩΝ:
             // Αν είμαστε στο Tab "Hosts", δείχνουμε ΜΟΝΟ τα chats που ξεκινήσαμε ΕΜΕΙΣ (ως guests).
-            const isVisibleForTab = selectedChatType === "host" 
-              ? (chatType === "host" && chatData.initiatedBy === uid) 
+            const isVisibleForTab = (notLookingForRoommate || selectedChatType === "host")
+              ? (chatType === "host" && chatData.initiatedBy === uid)
               : (chatType !== "host");
             if (!isVisibleForTab) {
               console.log("[Matches] Hiding chat due to tab/type split", {
@@ -491,7 +503,7 @@ export default function MatchesScreen() {
               );
 
               let fallbackRows: Array<{ sortKey: number; item: ChatListItem }> = [];
-              if (selectedChatType !== "host") {
+              if (!notLookingForRoommate && selectedChatType !== "host") {
                 const existingChatIds = new Set(snapshot.docs.map((docSnap) => docSnap.id));
 
                 const likesSnap = await getDocs(query(collection(db, "swipes"), where("fromUid", "==", uid)));
@@ -550,7 +562,7 @@ export default function MatchesScreen() {
       Object.values(messageUnsubsRef.current).forEach((off) => off());
       messageUnsubsRef.current = {};
     };
-  }, [auth.isGuest, auth.userId, ensureRoommateChatsFromLikes, selectedChatType]);
+  }, [auth.isGuest, auth.userId, ensureRoommateChatsFromLikes, notLookingForRoommate, selectedChatType]);
 
   const handleAcceptChat = async (profile: ChatListItem) => {
     if (!currentUserId || !profile.chatRoomId) return;
@@ -633,26 +645,28 @@ export default function MatchesScreen() {
             
         </Text>
       </View>
-      <View style={[styles.toggleShell, { marginHorizontal: spacing.lg }]}> 
-        <Pressable
-          style={[styles.toggleOption, selectedChatType === "roommate" && styles.toggleOptionActive]}
-          onPress={() => setSelectedChatType("roommate")}
-          testID="matches-toggle-roommates"
-        >
-          <Text style={[styles.toggleText, selectedChatType === "roommate" && styles.toggleTextActive]}>
-            {t("matches.roommatesToggle")}
-          </Text>
-        </Pressable>
-        <Pressable
-          style={[styles.toggleOption, selectedChatType === "host" && styles.toggleOptionActive]}
-          onPress={() => setSelectedChatType("host")}
-          testID="matches-toggle-hosts"
-        >
-          <Text style={[styles.toggleText, selectedChatType === "host" && styles.toggleTextActive]}>
-            {t("matches.hostsToggle")}
-          </Text>
-        </Pressable>
-      </View>
+      {!notLookingForRoommate && (
+        <View style={[styles.toggleShell, { marginHorizontal: spacing.lg }]}> 
+          <Pressable
+            style={[styles.toggleOption, selectedChatType === "roommate" && styles.toggleOptionActive]}
+            onPress={() => setSelectedChatType("roommate")}
+            testID="matches-toggle-roommates"
+          >
+            <Text style={[styles.toggleText, selectedChatType === "roommate" && styles.toggleTextActive]}>
+              {t("matches.roommatesToggle")}
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[styles.toggleOption, selectedChatType === "host" && styles.toggleOptionActive]}
+            onPress={() => setSelectedChatType("host")}
+            testID="matches-toggle-hosts"
+          >
+            <Text style={[styles.toggleText, selectedChatType === "host" && styles.toggleTextActive]}>
+              {t("matches.hostsToggle")}
+            </Text>
+          </Pressable>
+        </View>
+      )}
 
       <Animated.View style={[styles.flexOne, { transform: [{ translateX: swipeX }] }]} {...contentPanResponder.panHandlers}>
       {auth.isGuest ? (

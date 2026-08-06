@@ -40,6 +40,7 @@ interface AuthContextValue {
   token: string | null;
   needsProfileSetup: boolean;
   isBroker: boolean;
+  notLookingForRoommate: boolean;
   loginEmail: (email: string, password: string) => Promise<void>;
   registerEmail: (email: string, password: string, name?: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
@@ -128,6 +129,7 @@ async function syncUserDocument(
       linkedin: "",
       twitter: "",
       is_visible: true, // 🟢 Προεπιλεγμένη ορατότητα για νέους χρήστες
+      not_looking_for_roommate: false,
       createdAt: serverTimestamp(),
     });
   }
@@ -142,6 +144,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [needsProfileSetup, setNeedsProfileSetup] = useState(false);
   const [isBroker, setIsBroker] = useState(false);
+  const [notLookingForRoommate, setNotLookingForRoommate] = useState(false);
 
   useEffect(() => {
     GoogleSignin.configure({
@@ -160,6 +163,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
     setNeedsProfileSetup(false);
     setIsBroker(false);
+    setNotLookingForRoommate(false);
     setStatus("guest");
   }, []);
 
@@ -199,6 +203,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (!mounted) return;
             const data = snapshot.exists() ? snapshot.data() : null;
             setIsBroker(!!data?.is_broker);
+            setNotLookingForRoommate(data?.not_looking_for_roommate === true);
           });
         } catch (err) {
           console.error("[Auth] Failed to sync Firebase session:", err);
@@ -211,6 +216,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(null);
       setUserIdCache(null);
       setIsBroker(false);
+      setNotLookingForRoommate(false);
       unsubscribeUserDoc?.();
       unsubscribeUserDoc = null;
 
@@ -347,6 +353,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setToken(null);
     setUser(null);
     setNeedsProfileSetup(false);
+    setNotLookingForRoommate(false);
     setStatus("guest");
   }, []);
 
@@ -368,8 +375,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       enterGuestMode,
       clearProfileSetup,
       isBroker,
+      notLookingForRoommate,
     }),
-    [status, user, token, needsProfileSetup, isBroker, loginEmail, registerEmail, signInWithGoogle, continueAsGuest, logout, enterGuestMode, clearProfileSetup],
+    [
+      status,
+      user,
+      token,
+      needsProfileSetup,
+      isBroker,
+      notLookingForRoommate,
+      loginEmail,
+      registerEmail,
+      signInWithGoogle,
+      continueAsGuest,
+      logout,
+      enterGuestMode,
+      clearProfileSetup,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

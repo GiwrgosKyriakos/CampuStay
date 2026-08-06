@@ -117,6 +117,7 @@ export default function ProfileScreen() {
   const program = auth.isGuest ? t("profile.fallbackProgram") : profile?.year_of_study || t("profile.fallbackProgram");
   const age = auth.isGuest ? null : profile?.age ?? null;
   const budget = profile?.budget ?? null;
+  const notLookingForRoommate = auth.notLookingForRoommate === true;
   const subInfoParts = [age != null ? t("common.format.ageLabel", { age }) : "", program, university].filter(Boolean);
   const effectiveMode = themeMode === "system" ? (isDark ? "dark" : "light") : themeMode;
   const themeTitle = locale === "el" ? "Εμφάνιση" : "Theme";
@@ -242,6 +243,10 @@ export default function ProfileScreen() {
 
         <View style={styles.section}>
           {visibleNavSettings.map((s, i) => {
+            if (s.route === "/roomie-profile" && notLookingForRoommate) {
+              return null;
+            }
+
             return (
               <View key={s.label}>
                 <Pressable
@@ -256,18 +261,22 @@ export default function ProfileScreen() {
                   <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
                 </Pressable>
 
-                {!auth.isBroker && s.route === "/roomie-profile" && (
-                  <View style={styles.quizProgressWrap} testID="quiz-progress-wrap">
-                    <View style={styles.quizProgressTrack}>
-                      <View
-                        style={[
-                          styles.quizProgressFill,
-                          { width: `${Math.min(100, Math.round((quizAnsweredCount / TOTAL_QUESTIONS) * 100))}%` },
-                        ]}
-                      />
-                    </View>
-                    <Text style={styles.quizProgressText}>{t("profile.quizAnswered", { answered: quizAnsweredCount, total: TOTAL_QUESTIONS })}</Text>
-                  </View>
+                {!notLookingForRoommate && (
+                  <>
+                    {!auth.isBroker && s.route === "/roomie-profile" && (
+                      <View style={styles.quizProgressWrap} testID="quiz-progress-wrap">
+                        <View style={styles.quizProgressTrack}>
+                          <View
+                            style={[
+                              styles.quizProgressFill,
+                              { width: `${Math.min(100, Math.round((quizAnsweredCount / TOTAL_QUESTIONS) * 100))}%` },
+                            ]}
+                          />
+                        </View>
+                        <Text style={styles.quizProgressText}>{t("profile.quizAnswered", { answered: quizAnsweredCount, total: TOTAL_QUESTIONS })}</Text>
+                      </View>
+                    )}
+                  </>
                 )}
               </View>
             );

@@ -10,6 +10,7 @@ export interface UserProfile {
   already_have_apartment_to_share: boolean;
   is_broker?: boolean;
   looking_for_apartment?: boolean;
+  not_looking_for_roommate?: boolean;
   university: string | null;
   program?: string | null;
   tags?: string[];

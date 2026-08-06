@@ -20,15 +20,16 @@ export default function GlassTabBar({ state, navigation }: BottomTabBarProps) {
   const { colors } = useTheme();
   const auth = useAuth();
   const isBroker = !!auth.isBroker;
+  const notLookingForRoommate = auth.notLookingForRoommate === true;
   const styles = useMemo(() => createStyles(colors), [colors]);
   const visibleRoutes = useMemo(() => {
-    if (!isBroker) return state.routes;
+    if (!isBroker && !notLookingForRoommate) return state.routes;
 
     const brokerOrder = ["apartments", "matches", "profile"];
     return state.routes
       .filter((route) => route.name !== "roommates")
       .sort((left, right) => brokerOrder.indexOf(left.name) - brokerOrder.indexOf(right.name));
-  }, [isBroker, state.routes]);
+  }, [isBroker, notLookingForRoommate, state.routes]);
 
   return (
     <View style={[styles.wrap, { paddingBottom: Math.max(insets.bottom, spacing.md) }]} testID="bottom-tab-bar">

@@ -45,6 +45,7 @@ export default function NotificationsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const isGuest = auth.isGuest;
+  const notLookingForRoommate = auth.notLookingForRoommate === true;
   const visibleNotificationRows = auth.isBroker
     ? NOTIFICATION_ROWS.filter((row) => row.id !== "new_matches")
     : NOTIFICATION_ROWS;
@@ -141,21 +142,41 @@ export default function NotificationsScreen() {
 
         <View style={styles.centerBlock}>
           {visibleNotificationRows.map((row) => (
-            <View key={row.id} style={styles.settingRow} testID={`notification-row-${row.id}`}>
-              <View style={styles.rowText}>
-                <Text style={styles.settingTitle}>{t(row.title)}</Text>
-                <Text style={styles.settingSubtitle}>{t(row.subtitle)}</Text>
+            row.id === "new_matches" ? (
+              !notLookingForRoommate && (
+                <View key={row.id} style={styles.settingRow} testID={`notification-row-${row.id}`}>
+                  <View style={styles.rowText}>
+                    <Text style={styles.settingTitle}>{t(row.title)}</Text>
+                    <Text style={styles.settingSubtitle}>{t(row.subtitle)}</Text>
+                  </View>
+                  <View style={isGuest ? styles.disabledControl : undefined}>
+                    <Switch
+                      value={preferences[row.id]}
+                      onValueChange={(value) => updatePreference(row.id, value)}
+                      disabled={isGuest}
+                      trackColor={{ false: isGuest ? colors.muted : colors.muted, true: isGuest ? colors.surfaceSecondary : colors.brand }}
+                      thumbColor={isGuest ? colors.surface : preferences[row.id] ? colors.surface : colors.surface}
+                    />
+                  </View>
+                </View>
+              )
+            ) : (
+              <View key={row.id} style={styles.settingRow} testID={`notification-row-${row.id}`}>
+                <View style={styles.rowText}>
+                  <Text style={styles.settingTitle}>{t(row.title)}</Text>
+                  <Text style={styles.settingSubtitle}>{t(row.subtitle)}</Text>
+                </View>
+                <View style={isGuest ? styles.disabledControl : undefined}>
+                  <Switch
+                    value={preferences[row.id]}
+                    onValueChange={(value) => updatePreference(row.id, value)}
+                    disabled={isGuest}
+                    trackColor={{ false: isGuest ? colors.muted : colors.muted, true: isGuest ? colors.surfaceSecondary : colors.brand }}
+                    thumbColor={isGuest ? colors.surface : preferences[row.id] ? colors.surface : colors.surface}
+                  />
+                </View>
               </View>
-              <View style={isGuest ? styles.disabledControl : undefined}>
-                <Switch
-                  value={preferences[row.id]}
-                  onValueChange={(value) => updatePreference(row.id, value)}
-                  disabled={isGuest}
-                  trackColor={{ false: isGuest ? colors.muted : colors.muted, true: isGuest ? colors.surfaceSecondary : colors.brand }}
-                  thumbColor={isGuest ? colors.surface : preferences[row.id] ? colors.surface : colors.surface}
-                />
-              </View>
-            </View>
+            )
           ))}
         </View>
       </View>

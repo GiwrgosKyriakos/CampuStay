@@ -25,6 +25,7 @@ import { GuestModeStickyFooter, GuestModeTopBanner } from "@/src/components/Gues
 import ScreenHeader from "@/src/components/ScreenHeader";
 import { getUserId } from "@/src/utils/userId";
 import { getUserProfile, saveUserProfile, UserProfile } from "@/src/api/userProfile";
+import { getUserSettings, saveUserPrivacy } from "@/src/api/accountSettings";
 import { useAuth } from "@/src/context/auth";
 import { uploadProfileImageAsync } from "@/src/api/imageUpload";
 import { formatMonthYear, t } from "@/src/locales";
@@ -64,6 +65,7 @@ export default function EditProfileScreen() {
   const [city, setCity] = useState<string | null>(null);
   const [hasPlace, setHasPlace] = useState(false);
   const [isBroker, setIsBroker] = useState(false);
+  const [notLookingForRoommate, setNotLookingForRoommate] = useState(false);
   const [lookingForApartment, setLookingForApartment] = useState(false);
   const [university, setUniversity] = useState<string | null>(null);
   const [year, setYear] = useState<string | null>(null);
@@ -102,6 +104,7 @@ export default function EditProfileScreen() {
       setCity(null);
       setHasPlace(false);
       setIsBroker(false);
+      setNotLookingForRoommate(false);
       setLookingForApartment(false);
       setUniversity(null);
       setYear(null);
@@ -130,6 +133,7 @@ export default function EditProfileScreen() {
             setCity(p.city ?? null);
             setHasPlace(!!p.has_place);
             setIsBroker(!!p.is_broker);
+            setNotLookingForRoommate(p.not_looking_for_roommate === true);
             setLookingForApartment(!!p.looking_for_apartment);
             setUniversity(p.university ?? null);
             setYear(p.year_of_study ?? null);
@@ -253,6 +257,7 @@ export default function EditProfileScreen() {
         already_have_apartment_to_share: hasPlace,
         is_broker: isBroker,
         looking_for_apartment: lookingForApartment,
+        not_looking_for_roommate: notLookingForRoommate,
         university,
         year_of_study: year,
         budget: monthlyBudget,
@@ -265,6 +270,15 @@ export default function EditProfileScreen() {
       if (userId) {
         console.log(`[EditProfile] → Calling saveUserProfile for user: ${userId.substring(0, 8)}...`);
         await saveUserProfile(userId, profile, { email: auth.user?.email ?? null });
+
+        if (notLookingForRoommate) {
+          const settings = await getUserSettings(userId);
+          await saveUserPrivacy(userId, {
+            ...settings.privacy,
+            is_visible: false,
+          });
+        }
+
         setPhotos(profile.photos);
         console.log("[EditProfile] ✓ Profile saved successfully");
       }
@@ -299,6 +313,7 @@ export default function EditProfileScreen() {
     city,
     hasPlace,
     isBroker,
+    notLookingForRoommate,
     lookingForApartment,
     university,
     year,
@@ -511,18 +526,6 @@ export default function EditProfileScreen() {
             <Text style={styles.checkboxText}>{t("editProfile.hasPlace")}</Text>
           </Pressable>
 
-          <Pressable
-            style={[styles.checkboxRow, isBroker && styles.checkboxRowActive, guestLocked && styles.guestReadOnlyControl]}
-            onPress={() => setIsBroker((prev) => !prev)}
-            testID="broker-checkbox"
-            disabled={guestLocked}
-          >
-            <View style={[styles.checkbox, isBroker && styles.checkboxActive]}>
-              {isBroker && <Ionicons name="checkmark" size={16} color={colors.onBrand} />}
-            </View>
-            <Text style={styles.checkboxText}>Είμαι επαγγελματίας / μεσίτης ακινήτων</Text>
-          </Pressable>
-
           <Animated.View
             style={[
               styles.housingPromptWrap,
@@ -557,7 +560,11 @@ export default function EditProfileScreen() {
           </Animated.View>
 
           <Pressable
-            style={[styles.checkboxRow, lookingForApartment && styles.checkboxRowActive, guestLocked && styles.guestReadOnlyControl]}
+            style={[
+              styles.checkboxRow,
+              lookingForApartment && styles.checkboxRowActive,
+              guestLocked && styles.guestReadOnlyControl,
+            ]}
             onPress={() => selectHousingOption("looking")}
             testID="looking-apartment-checkbox"
             disabled={guestLocked}
@@ -569,7 +576,43 @@ export default function EditProfileScreen() {
           </Pressable>
         </View>
 
-        {/* SECTION 3: Education & Living */}
+        {/* SECTION 3: User Experience */}
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <Ionicons name="settings-outline" size={22} color={colors.onSurface} />
+            <Text style={styles.cardTitle}>Εμπειρία Χρήστη</Text>
+          </View>
+
+          <Pressable
+            style={[styles.checkboxRow, isBroker && styles.checkboxRowActive, guestLocked && styles.guestReadOnlyControl]}
+            onPress={() => setIsBroker((prev) => !prev)}
+            testID="broker-checkbox"
+            disabled={guestLocked}
+          >
+            <View style={[styles.checkbox, isBroker && styles.checkboxActive]}>
+              {isBroker && <Ionicons name="checkmark" size={16} color={colors.onBrand} />}
+            </View>
+            <Text style={styles.checkboxText}>Είμαι επαγγελματίας / μεσίτης ακινήτων</Text>
+          </Pressable>
+
+          <Pressable
+            style={[
+              styles.checkboxRow,
+              notLookingForRoommate && styles.checkboxRowActive,
+              guestLocked && styles.guestReadOnlyControl,
+            ]}
+            onPress={() => setNotLookingForRoommate((prev) => !prev)}
+            testID="not-looking-roommate-checkbox"
+            disabled={guestLocked}
+          >
+            <View style={[styles.checkbox, notLookingForRoommate && styles.checkboxActive]}>
+              {notLookingForRoommate && <Ionicons name="checkmark" size={16} color={colors.onBrand} />}
+            </View>
+            <Text style={styles.checkboxText}>Δεν ενδιαφέρομαι για συγκάτοικο</Text>
+          </Pressable>
+        </View>
+
+        {/* SECTION 4: Education & Living */}
         {!isBroker && (
           <View style={styles.card}>
             <View style={styles.cardHeader}>
@@ -622,7 +665,7 @@ export default function EditProfileScreen() {
           </View>
         )}
 
-        {/* SECTION 4: Social Media */}
+        {/* SECTION 5: Social Media */}
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Ionicons name="link-outline" size={22} color={colors.onSurface} />
