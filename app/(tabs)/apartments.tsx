@@ -321,6 +321,8 @@ export default function ApartmentsScreen() {
   const SWIPE_THRESHOLD = 56;
   const canOpenHostInbox = hasPublishedHostApartment || hasApartmentShareFlag;
   const canManageListings = !auth.isGuest && (hasPublishedHostApartment || hasApartmentShareFlag);
+  const showCreateFab = !auth.isGuest && (!hideCreateFab || auth.isBroker);
+  const showHostInboxFab = !auth.isGuest && !auth.isBroker && !hideCreateFab && canOpenHostInbox;
 
   useEffect(() => {
     if (auth.isGuest || !auth.userId) {
@@ -896,6 +898,7 @@ export default function ApartmentsScreen() {
                 )}
               </View>
             </View>
+            {showRecentSearches ? (
               <View style={styles.recentSearchesPanel} testID="apartments-recent-searches-panel">
                 <ScrollView
                   style={styles.recentSearchesScroll}
@@ -1107,9 +1110,9 @@ export default function ApartmentsScreen() {
         )}
       </ScrollView>
       </View>
-      {!auth.isGuest && !hideCreateFab && !auth.isBroker && (
+      {showCreateFab && (
         <View style={[styles.fabCluster, { bottom: TAB_BAR_SPACE + insets.bottom + spacing.md }]}>
-          {canOpenHostInbox && (
+          {showHostInboxFab && (
             <Pressable
               style={[styles.hostInboxFab, hostInboxHasUnread && styles.hostInboxFabUnread]}
               onPress={() => router.push("/host-inbox" as any)}

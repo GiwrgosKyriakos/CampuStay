@@ -9,6 +9,18 @@ export default function TabsLayout() {
   const { colors } = useTheme();
   const auth = useAuth();
   const isBroker = !!auth.isBroker;
+  const tabScreens = [
+    { name: "roommates", title: t("tabs.roommates"), visible: !isBroker },
+    { name: "matches", title: t("tabs.matches"), visible: true },
+    { name: "apartments", title: t("tabs.apartments"), visible: true },
+    { name: "profile", title: t("tabs.profile"), visible: true },
+  ];
+  const visibleTabScreens = (isBroker
+    ? tabScreens.filter((screen) => screen.name !== "roommates").sort((left, right) => {
+        const brokerOrder = ["apartments", "matches", "profile"];
+        return brokerOrder.indexOf(left.name) - brokerOrder.indexOf(right.name);
+      })
+    : tabScreens.filter((screen) => screen.visible));
 
   return (
     <Tabs
@@ -23,10 +35,9 @@ export default function TabsLayout() {
         headerTitleStyle: { color: colors.onSurface },
       }}
     >
-      {!isBroker ? <Tabs.Screen name="roommates" options={{ title: t("tabs.roommates") }} /> : null}
-      <Tabs.Screen name="matches" options={{ title: t("tabs.matches") }} />
-      <Tabs.Screen name="apartments" options={{ title: t("tabs.apartments") }} />
-      <Tabs.Screen name="profile" options={{ title: t("tabs.profile") }} />
+      {visibleTabScreens.map((screen) => (
+        <Tabs.Screen key={screen.name} name={screen.name} options={{ title: screen.title }} />
+      ))}
     </Tabs>
   );
 }

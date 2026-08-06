@@ -58,6 +58,20 @@ interface Message {
   senderId: string;
   createdAt: any;
   isRead?: boolean;
+  type?: string;
+  apartmentData?: SharedApartmentData;
+}
+
+interface SharedApartmentData {
+  id: string;
+  title: string;
+  rent: number;
+  city: string;
+  area: string;
+  image: string;
+  rooms: number;
+  size: number;
+  tags?: string[];
 }
 
 interface FirestoreMessageDoc {
@@ -66,6 +80,8 @@ interface FirestoreMessageDoc {
   createdAt?: any;
   isRead?: boolean;
   readAt?: any;
+  type?: string;
+  apartmentData?: SharedApartmentData;
 }
 
 interface FirestoreChatDoc {
@@ -429,6 +445,17 @@ function timestampToMillis(value: unknown): number {
   return 0;
 }
 
+function isSharedApartmentData(value: unknown): value is SharedApartmentData {
+  if (!value || typeof value !== "object") return false;
+  const data = value as Partial<SharedApartmentData>;
+  return (
+    typeof data.id === "string" &&
+    typeof data.title === "string" &&
+    typeof data.city === "string" &&
+    typeof data.area === "string"
+  );
+}
+
 const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   new_matches: true,
   direct_messages: true,
@@ -690,12 +717,15 @@ export default function ChatScreen() {
       const fetched: Message[] = snapshot.docs
         .map((doc) => {
           const data = doc.data() as FirestoreMessageDoc;
+          const apartmentData = isSharedApartmentData(data.apartmentData) ? data.apartmentData : undefined;
           return {
             id: doc.id,
             text: data.text ?? "",
             senderId: data.senderId ?? "",
             createdAt: data.createdAt ?? Date.now(),
             isRead: data.isRead ?? true,
+            type: data.type,
+            apartmentData,
           };
         });
 
@@ -1890,6 +1920,18 @@ export default function ChatScreen() {
               const isMine = m.senderId === currentUserId;
               const canDeleteForEveryone = isMine && !m.id.startsWith("temp-");
               const lastMsgIsDifferentSender = idx > 0 && messages[idx - 1].senderId !== m.senderId;
+              const isApartmentShare = m.type === "apartment_share" && !!m.apartmentData;
+              const apartmentData = m.apartmentData;
+
+              const itemMarginStyle = {
+                marginVertical: groupInfo.isConsecutive
+                  ? groupInfo.position === "first"
+                    ? spacing.xs
+                    : 2
+                  : lastMsgIsDifferentSender
+                  ? spacing.sm
+                  : spacing.xs,
+              };
 
               let borderRadii = {};
               if (isMine) {
@@ -1914,6 +1956,68 @@ export default function ChatScreen() {
                 }
               }
 
+              if (isApartmentShare && apartmentData) {
+                return (
+                  <Pressable
+                    key={m.id}
+                    style={[
+                      styles.shareBubble,
+                      isMine ? styles.shareBubbleMine : styles.shareBubbleTheirs,
+                      itemMarginStyle,
+                    ]}
+                    onPress={() => {
+                      router.push({
+                        pathname: "/apartment-detail",
+                        params: { data: JSON.stringify(apartmentData) },
+                      });
+                    }}
+                    onLongPress={
+                      canDeleteForEveryone
+                        ? () => {
+                            setMessageActionTarget(m);
+                          }
+                        : undefined
+                    }
+                    delayLongPress={300}
+                    testID={`chat-message-${m.id}`}
+                  >
+                    {apartmentData.image ? (
+                      <Image source={{ uri: apartmentData.image }} style={styles.shareImage} contentFit="cover" transition={120} />
+                    ) : (
+                      <View style={styles.shareImageFallback}>
+                        <Ionicons name="home-outline" size={22} color={colors.onSurfaceTertiary} />
+                      </View>
+                    )}
+
+                    <View style={styles.shareContent}>
+                      <Text style={[styles.shareTitle, isMine && styles.shareTitleMine]} numberOfLines={1}>
+                        {apartmentData.title || m.text}
+                      </Text>
+
+                      <View style={styles.shareLocationRow}>
+                        <Ionicons
+                          name="location-outline"
+                          size={13}
+                          color={isMine ? "rgba(255,255,255,0.88)" : colors.onSurfaceTertiary}
+                        />
+                        <Text style={[styles.shareLocationText, isMine && styles.shareLocationTextMine]} numberOfLines={1}>
+                          {[apartmentData.area, apartmentData.city].filter(Boolean).join(", ")}
+                        </Text>
+                      </View>
+
+                      <View style={styles.shareMetaRow}>
+                        <View style={styles.sharePricePill}>
+                          <Text style={styles.sharePriceText}>€{apartmentData.rent ?? 0}</Text>
+                        </View>
+                        <Text style={[styles.shareStatsText, isMine && styles.shareStatsTextMine]} numberOfLines={1}>
+                          {`${apartmentData.rooms ?? 0} rooms · ${apartmentData.size ?? 0} m²`}
+                        </Text>
+                      </View>
+                    </View>
+                  </Pressable>
+                );
+              }
+
               return (
                 <Pressable
                   key={m.id}
@@ -1921,15 +2025,7 @@ export default function ChatScreen() {
                     styles.bubble,
                     isMine ? styles.bubbleMine : styles.bubbleTheirs,
                     borderRadii,
-                    {
-                      marginVertical: groupInfo.isConsecutive
-                        ? groupInfo.position === "first"
-                          ? spacing.xs
-                          : 2
-                        : lastMsgIsDifferentSender
-                        ? spacing.sm
-                        : spacing.xs,
-                    },
+                    itemMarginStyle,
                   ]}
                   onLongPress={
                     canDeleteForEveryone
@@ -2820,6 +2916,95 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   bubbleText: { fontFamily: fonts.regular, fontSize: fontSize.lg, color: colors.onSurface },
   bubbleTextMine: { color: colors.onBrand, fontFamily: fonts.semibold },
+  shareBubble: {
+    maxWidth: "90%",
+    minHeight: 112,
+    borderRadius: radius.lg,
+    padding: spacing.xs,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  shareBubbleTheirs: {
+    alignSelf: "flex-start",
+    backgroundColor: colors.surfaceTertiary,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  shareBubbleMine: {
+    alignSelf: "flex-end",
+    backgroundColor: colors.brand,
+  },
+  shareImage: {
+    width: 100,
+    height: 100,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+  },
+  shareImageFallback: {
+    width: 100,
+    height: 100,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  shareContent: {
+    flex: 1,
+    minWidth: 0,
+    justifyContent: "space-between",
+    gap: 6,
+    paddingRight: spacing.xs,
+  },
+  shareTitle: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.base,
+    color: colors.onSurface,
+  },
+  shareTitleMine: {
+    color: colors.onBrand,
+  },
+  shareLocationRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  shareLocationText: {
+    flex: 1,
+    fontFamily: fonts.regular,
+    fontSize: fontSize.sm,
+    color: colors.onSurfaceTertiary,
+  },
+  shareLocationTextMine: {
+    color: "rgba(255,255,255,0.88)",
+  },
+  shareMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  sharePricePill: {
+    backgroundColor: colors.brand,
+    borderWidth: 1,
+    borderColor: colors.brandSecondary,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+  },
+  sharePriceText: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.sm,
+    color: colors.onBrand,
+  },
+  shareStatsText: {
+    flex: 1,
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+    color: colors.onSurface,
+  },
+  shareStatsTextMine: {
+    color: "rgba(255,255,255,0.92)",
+  },
   inputBar: {
     flexDirection: "row",
     alignItems: "flex-end",

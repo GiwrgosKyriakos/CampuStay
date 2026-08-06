@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Dimensions,
+  Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Pressable,
@@ -16,6 +17,7 @@ import * as Linking from "expo-linking";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
+  addDoc,
   collection,
   doc,
   getDoc,
@@ -26,6 +28,7 @@ import {
   query,
   serverTimestamp,
   setDoc,
+  updateDoc,
   where,
 } from "firebase/firestore";
 
@@ -34,7 +37,9 @@ import { useAuth } from "@/src/context/auth";
 import { useTheme } from "@/src/context/ThemeContext";
 import { getOrCreateHostChat } from "@/src/api/chat";
 import { subscribeUserLikedApartmentIds, toggleApartmentLike } from "@/src/api/apartmentLikes";
+import { getUserSettings } from "@/src/api/accountSettings";
 import { deleteListingPermanently } from "@/src/api/listings";
+import { getUserProfile } from "@/src/api/userProfile";
 import CenteredActionModal from "@/src/components/CenteredActionModal";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import ApartmentLocationMap from "@/src/components/ApartmentLocationMap";
@@ -42,6 +47,8 @@ import { t } from "@/src/locales";
 import { db } from "@/src/config/firebase";
 import { useLocationCoordinates } from "@/src/hooks/useLocationCoordinates";
 import { getExcludedUserIds } from "@/src/api/blocking";
+import { calculateMatchScore } from "@/src/utils/matchAlgorithm";
+import type { CompatibilityQuizAnswers, UserProfile as MatchUserProfile } from "@/src/utils/matchAlgorithm";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const CURRENCY = "€";
@@ -109,18 +116,72 @@ interface FirestoreApartmentDoc {
 
 interface FirestoreInquiryChatDoc {
   users?: string[];
+  type?: "roommate" | "host" | string;
   clearedAt?: Record<string, unknown>;
   apartmentId?: string;
   lastMessageTimestamp?: TimestampLike;
   updatedAt?: TimestampLike;
   createdAt?: TimestampLike;
+  status?: "pending" | "active" | "rejected" | string;
+  initiatedBy?: string | null;
+  rejectedBy?: string | null;
+  rejections?: string[];
 }
 
 interface FirestoreUserDoc {
   name?: string;
   photoUrl?: string;
+  avatar?: string;
   photos?: string[];
+  age?: number | null;
+  budget?: number | null;
+  maxBudget?: number | null;
+  gender?: string | null;
+  city?: string | null;
+  is_broker?: boolean;
+  is_visible?: boolean;
 }
+
+interface FirestoreLikedApartmentDoc {
+  userId?: string;
+  apartmentId?: string;
+  timestamp?: TimestampLike;
+}
+
+interface FirestoreQuizDoc {
+  answers?: Record<string, string>;
+}
+
+type LikedUserItem = {
+  id: string;
+  name: string;
+  avatar: string;
+  age: number | null;
+  gender: string;
+  compatibilityScore: number | null;
+  chatRoomId: string | null;
+  hasExistingChat: boolean;
+  sortKey: number;
+};
+
+type ShareMatchItem = {
+  chatRoomId: string;
+  counterpartId: string;
+  name: string;
+  avatar: string;
+};
+
+type SharedApartmentPayload = {
+  id: string;
+  title: string;
+  rent: number;
+  city: string;
+  area: string;
+  image: string;
+  rooms: number;
+  size: number;
+  tags: string[];
+};
 
 type AmenityDef = {
   key: string;
@@ -135,6 +196,38 @@ function toMillis(value: unknown): number {
     return (value as TimestampLike).toMillis!();
   }
   return 0;
+}
+
+function normalizeGenderForMatch(gender: string | null | undefined): MatchUserProfile["gender"] {
+  if (gender === "Male" || gender === "Female" || gender === "Prefer Not To Say") return gender;
+  return "Prefer Not To Say";
+}
+
+function buildCompatibilityQuiz(answers: Record<string, string>): CompatibilityQuizAnswers {
+  const quiz: Record<string, string> = {};
+
+  Object.keys(answers).forEach((key) => {
+    const value = answers[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      quiz[key] = value;
+    }
+  });
+
+  return quiz as CompatibilityQuizAnswers;
+}
+
+function toMatchProfile(
+  userId: string,
+  profile: { city?: string | null; budget?: number | null; maxBudget?: number | null; gender?: string | null },
+  answers: Record<string, string>,
+): MatchUserProfile {
+  return {
+    uid: userId,
+    city: profile.city?.trim() || "",
+    gender: normalizeGenderForMatch(profile.gender),
+    monthlyBudget: typeof profile.budget === "number" ? profile.budget : typeof profile.maxBudget === "number" ? profile.maxBudget : 0,
+    quiz: buildCompatibilityQuiz(answers),
+  };
 }
 
 function translateApartmentTag(tag: string): string {
@@ -176,6 +269,14 @@ export default function ApartmentDetailScreen() {
   const [isDeletingListing, setIsDeletingListing] = useState(false);
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
   const [actionModal, setActionModal] = useState<{ title: string; description: string } | null>(null);
+  const [showLikedUsersSection, setShowLikedUsersSection] = useState(false);
+  const [likedUsers, setLikedUsers] = useState<LikedUserItem[]>([]);
+  const [loadingLikedUsers, setLoadingLikedUsers] = useState(false);
+  const [chatActionUserId, setChatActionUserId] = useState<string | null>(null);
+  const [shareModalVisible, setShareModalVisible] = useState(false);
+  const [activeShareMatches, setActiveShareMatches] = useState<ShareMatchItem[]>([]);
+  const [loadingShareMatches, setLoadingShareMatches] = useState(false);
+  const [sendingShareChatId, setSendingShareChatId] = useState<string | null>(null);
 
   const [dbImages, setDbImages] = useState<string[]>([]);
   const [realDescription, setRealDescription] = useState<string | null>(null);
@@ -193,6 +294,7 @@ export default function ApartmentDetailScreen() {
     if (!apt || !auth.userId) return false;
     return (!!apt.ownerId && apt.ownerId === auth.userId) || (!!apt.hostId && apt.hostId === auth.userId);
   }, [apt, auth.userId]);
+  const canViewLikedUsers = !isListingOwner && !auth.isBroker;
 
   const cityCoordinates = useLocationCoordinates(apt?.city, apt?.area);
 
@@ -391,6 +493,187 @@ export default function ApartmentDetailScreen() {
     };
   }, [apt?.id, auth.userId, isListingOwner]);
 
+  useEffect(() => {
+    if (!shareModalVisible || !auth.userId) {
+      setLoadingShareMatches(false);
+      setActiveShareMatches([]);
+      return;
+    }
+
+    let active = true;
+    setLoadingShareMatches(true);
+
+    void (async () => {
+      try {
+        const currentUserId = auth.userId!;
+        const chatsSnap = await getDocs(
+          query(collection(db, "chats"), where("users", "array-contains", currentUserId)),
+        );
+
+        const rows = await Promise.all(
+          chatsSnap.docs.map(async (chatDoc) => {
+            const chatData = chatDoc.data() as FirestoreInquiryChatDoc;
+            const users = Array.isArray(chatData.users) ? chatData.users : [];
+            const counterpartId = users.find((uid) => uid !== currentUserId) || "";
+            if (!counterpartId) return null;
+
+            const isRoommateChat = chatData.type !== "host";
+            if (!isRoommateChat || chatData.status !== "active") {
+              return null;
+            }
+
+            const counterpartSnap = await getDoc(doc(db, "users", counterpartId));
+            const counterpartData = counterpartSnap.exists() ? (counterpartSnap.data() as FirestoreUserDoc) : null;
+            const photos = Array.isArray(counterpartData?.photos) ? counterpartData.photos : [];
+
+            return {
+              chatRoomId: chatDoc.id,
+              counterpartId,
+              name: counterpartData?.name?.trim() || t("common.values.unknown"),
+              avatar: counterpartData?.photoUrl || counterpartData?.avatar || photos[0] || "",
+            } satisfies ShareMatchItem;
+          }),
+        );
+
+        if (!active) return;
+        setActiveShareMatches(rows.filter((row): row is ShareMatchItem => !!row));
+      } catch (error) {
+        console.error("[ApartmentDetail] Failed to load active share matches:", error);
+        if (active) {
+          setActiveShareMatches([]);
+        }
+      } finally {
+        if (active) {
+          setLoadingShareMatches(false);
+        }
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [auth.userId, shareModalVisible]);
+
+  useEffect(() => {
+    if (!showLikedUsersSection || !canViewLikedUsers || !apt?.id || !auth.userId || auth.isGuest) {
+      setLikedUsers([]);
+      setLoadingLikedUsers(false);
+      return;
+    }
+
+    let active = true;
+    setLoadingLikedUsers(true);
+
+    void (async () => {
+      try {
+        const currentUserId = auth.userId!;
+        const [likesSnap, excludedUserIds, currentProfile, currentQuizSnap, chatsSnap] = await Promise.all([
+          getDocs(query(collection(db, "liked_apartments"), where("apartmentId", "==", apt.id))),
+          getExcludedUserIds(currentUserId),
+          getUserProfile(currentUserId),
+          getDoc(doc(db, "quiz_answers", currentUserId)).catch(() => null),
+          getDocs(query(collection(db, "chats"), where("users", "array-contains", currentUserId))),
+        ]);
+
+        if (!active) return;
+
+        const rawCurrentQuiz = (currentQuizSnap?.exists() ? (currentQuizSnap.data() as FirestoreQuizDoc).answers : {}) ?? {};
+        const currentMatchProfile = currentProfile
+          ? toMatchProfile(currentUserId, currentProfile, rawCurrentQuiz)
+          : null;
+
+        const existingChatByUser = new Map<string, { chatRoomId: string; status: string }>();
+        const rejectedUserIds = new Set<string>();
+
+        chatsSnap.docs.forEach((chatDoc) => {
+          const chatData = chatDoc.data() as FirestoreInquiryChatDoc;
+          const users = Array.isArray(chatData.users) ? chatData.users : [];
+          const counterpartId = users.find((uid) => uid !== currentUserId);
+          if (!counterpartId) return;
+
+          const hasRejectedState =
+            chatData.status === "rejected" ||
+            typeof chatData.rejectedBy === "string" ||
+            (Array.isArray(chatData.rejections) && chatData.rejections.length > 0);
+
+          if (hasRejectedState) {
+            rejectedUserIds.add(counterpartId);
+            return;
+          }
+
+          if (chatData.status === "pending" || chatData.status === "active") {
+            existingChatByUser.set(counterpartId, {
+              chatRoomId: chatDoc.id,
+              status: chatData.status,
+            });
+          }
+        });
+
+        const rows = await Promise.all(
+          likesSnap.docs.map(async (likeDoc) => {
+            const likeData = likeDoc.data() as FirestoreLikedApartmentDoc;
+            const targetUserId = typeof likeData.userId === "string" ? likeData.userId : "";
+            if (!targetUserId || targetUserId === currentUserId) return null;
+            if (excludedUserIds.has(targetUserId) || rejectedUserIds.has(targetUserId)) return null;
+
+            const [userSnap, settings, counterpartQuizSnap] = await Promise.all([
+              getDoc(doc(db, "users", targetUserId)),
+              getUserSettings(targetUserId).catch(() => null),
+              getDoc(doc(db, "quiz_answers", targetUserId)).catch(() => null),
+            ]);
+
+            if (!userSnap.exists()) return null;
+
+            const userData = userSnap.data() as FirestoreUserDoc;
+            if (userData.is_broker === true) return null;
+
+            const isVisibleInUsers = userData.is_visible !== false;
+            const isVisibleInSettings = settings?.privacy?.is_visible ?? true;
+            if (!isVisibleInUsers || !isVisibleInSettings) return null;
+
+            const rawCounterpartQuiz = (counterpartQuizSnap?.exists()
+              ? (counterpartQuizSnap.data() as FirestoreQuizDoc).answers
+              : {}) ?? {};
+            const counterpartMatchProfile = toMatchProfile(targetUserId, userData, rawCounterpartQuiz);
+            const compatibilityScore = currentMatchProfile
+              ? calculateMatchScore(currentMatchProfile, counterpartMatchProfile)
+              : null;
+            const photos = Array.isArray(userData.photos) ? userData.photos : [];
+            const existingChat = existingChatByUser.get(targetUserId);
+
+            return {
+              id: targetUserId,
+              name: userData.name?.trim() || t("common.values.unknown"),
+              avatar: userData.photoUrl || photos[0] || "",
+              age: typeof userData.age === "number" ? userData.age : null,
+              gender: userData.gender?.trim() || t("common.values.nonBinary"),
+              compatibilityScore,
+              chatRoomId: existingChat?.chatRoomId ?? null,
+              hasExistingChat: !!existingChat,
+              sortKey: compatibilityScore ?? toMillis(likeData.timestamp),
+            } satisfies LikedUserItem;
+          }),
+        );
+
+        if (!active) return;
+        setLikedUsers(
+          rows
+            .filter((row): row is LikedUserItem => !!row)
+            .sort((left, right) => right.sortKey - left.sortKey),
+        );
+      } catch (error) {
+        console.error("[ApartmentDetail] Failed to load liked users:", error);
+        if (active) setLikedUsers([]);
+      } finally {
+        if (active) setLoadingLikedUsers(false);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [apt?.id, auth.isBroker, auth.isGuest, auth.userId, canViewLikedUsers, showLikedUsersSection]);
+
   if (!apt) {
     return (
       <View style={[styles.container, styles.center]}>
@@ -516,6 +799,14 @@ export default function ApartmentDetailScreen() {
     }
   };
 
+  const handleToggleLikedUsersSection = () => {
+    if (auth.isGuest || !auth.userId) {
+      router.push("/auth-landing");
+      return;
+    }
+    setShowLikedUsersSection((current) => !current);
+  };
+
   const handleEditListing = () => {
     if (!isListingOwner) return;
 
@@ -551,6 +842,104 @@ export default function ApartmentDetailScreen() {
 
   const handleOpenInquiry = (item: InquiryItem) => {
     router.push({ pathname: "/chat/[id]", params: { id: item.customerId, chatRoomId: item.chatRoomId } });
+  };
+
+  const handleOpenLikedUserChat = async (item: LikedUserItem) => {
+    if (!auth.userId || !apt?.id) {
+      router.push("/auth-landing");
+      return;
+    }
+
+    if (item.chatRoomId) {
+      router.push({ pathname: "/chat/[id]", params: { id: item.id, chatRoomId: item.chatRoomId } });
+      return;
+    }
+
+    const chatRoomId = [auth.userId, item.id].sort().join("_");
+    setChatActionUserId(item.id);
+
+    try {
+      await setDoc(
+        doc(db, "chats", chatRoomId),
+        {
+          type: "roommate",
+          status: "pending",
+          users: [auth.userId, item.id],
+          initiatedBy: auth.userId,
+          apartmentId: apt.id,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+
+      setLikedUsers((current) =>
+        current.map((entry) =>
+          entry.id === item.id
+            ? { ...entry, chatRoomId, hasExistingChat: true }
+            : entry,
+        ),
+      );
+
+      router.push({ pathname: "/chat/[id]", params: { id: item.id, chatRoomId } });
+    } catch (error) {
+      console.error("[ApartmentDetail] Failed to create roommate chat:", error);
+      setActionModal({
+        title: t("apartmentDetail.chatUnavailableTitle"),
+        description: t("apartmentDetail.chatUnavailableMessage"),
+      });
+    } finally {
+      setChatActionUserId(null);
+    }
+  };
+
+  const handleShareApartmentToMatch = async (item: ShareMatchItem) => {
+    if (!auth.userId || !apt?.id || sendingShareChatId) return;
+
+    setSendingShareChatId(item.chatRoomId);
+    const apartmentData: SharedApartmentPayload = {
+      id: apt.id,
+      title: apt.title,
+      rent: apt.rent,
+      city: apt.city,
+      area: apt.area,
+      image: apt.image,
+      rooms: apt.rooms,
+      size: apt.size,
+      tags: Array.isArray(apt.tags) ? apt.tags : [],
+    };
+
+    try {
+      await addDoc(collection(db, "chats", item.chatRoomId, "messages"), {
+        senderId: auth.userId,
+        type: "apartment_share",
+        text: `[Αγγελία: ${apt.title}]`,
+        apartmentData,
+        createdAt: serverTimestamp(),
+        isRead: false,
+      });
+
+      await updateDoc(doc(db, "chats", item.chatRoomId), {
+        lastMessageText: `[Αγγελία: ${apt.title}]`,
+        lastMessage: `[Αγγελία: ${apt.title}]`,
+        lastMessageTimestamp: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      setShareModalVisible(false);
+      setActionModal({
+        title: "Το διαμέρισμα κοινοποιήθηκε!",
+        description: "Η αγγελία στάλθηκε επιτυχώς στη συνομιλία.",
+      });
+    } catch (error) {
+      console.error("[ApartmentDetail] Failed to share apartment:", error);
+      setActionModal({
+        title: t("common.messages.tryAgain"),
+        description: t("apartmentDetail.chatUnavailableMessage"),
+      });
+    } finally {
+      setSendingShareChatId(null);
+    }
   };
 
   const handleConfirmDeleteInquiry = async () => {
@@ -661,13 +1050,31 @@ export default function ApartmentDetailScreen() {
                 </Pressable>
               </View>
             ) : (
-              <Pressable
-                style={[styles.likeBtn, isLiked && styles.likeBtnActive]}
-                onPress={handleToggleLike}
-                testID={`apartment-detail-like-${apt.id}`}
-              >
-                <Ionicons name={isLiked ? "heart" : "heart-outline"} size={20} color={isLiked ? "#FFFFFF" : colors.onSurface} />
-              </Pressable>
+              <View style={styles.titleActions}>
+                {canViewLikedUsers && (
+                  <Pressable
+                    style={[styles.titleActionBtn, showLikedUsersSection && styles.titleActionBtnActive]}
+                    onPress={handleToggleLikedUsersSection}
+                    testID={`apartment-detail-liked-users-toggle-${apt.id}`}
+                  >
+                    <Text style={styles.doubleHeartText}>💕</Text>
+                  </Pressable>
+                )}
+                <Pressable
+                  style={styles.titleActionBtn}
+                  onPress={() => setShareModalVisible(true)}
+                  testID={`apartment-detail-share-${apt.id}`}
+                >
+                  <Ionicons name="share-social-outline" size={20} color={colors.onSurface} />
+                </Pressable>
+                <Pressable
+                  style={[styles.likeBtn, isLiked && styles.likeBtnActive]}
+                  onPress={handleToggleLike}
+                  testID={`apartment-detail-like-${apt.id}`}
+                >
+                  <Ionicons name={isLiked ? "heart" : "heart-outline"} size={20} color={isLiked ? "#FFFFFF" : colors.onSurface} />
+                </Pressable>
+              </View>
             )}
           </View>
 
@@ -687,6 +1094,70 @@ export default function ApartmentDetailScreen() {
             </View>
           </View>
         </View>
+
+        {!isListingOwner && showLikedUsersSection ? (
+          <View style={styles.section} testID="apartment-detail-liked-users-section">
+            <Text style={styles.sectionTitle}>Ενδιαφερόμενοι Συγκάτοικοι</Text>
+
+            <View style={styles.inquiriesList}>
+              {loadingLikedUsers ? (
+                <View style={styles.inquiriesEmptyState}>
+                  <ActivityIndicator size="small" color={colors.brandSecondary} />
+                </View>
+              ) : likedUsers.length ? (
+                likedUsers.map((item) => (
+                  <View key={item.id} style={styles.likedUserCard}>
+                    <View style={styles.inquiryAvatarWrap}>
+                      {item.avatar ? (
+                        <Image source={{ uri: item.avatar }} style={styles.inquiryAvatarImage} contentFit="cover" />
+                      ) : (
+                        <DefaultProfileAvatar size={50} iconSize={22} />
+                      )}
+                    </View>
+
+                    <View style={styles.likedUserContent}>
+                      <Text style={styles.inquiryName} numberOfLines={1}>{item.name}</Text>
+                      <View style={styles.likedUserPills}>
+                        <View style={styles.statPill}>
+                          <Text style={styles.statText}>{item.age != null ? `${item.age}` : "--"}</Text>
+                        </View>
+                        <View style={styles.statPill}>
+                          <Text style={styles.statText}>{item.gender}</Text>
+                        </View>
+                        <View style={styles.statPill}>
+                          <Text style={styles.statText}>{item.compatibilityScore != null ? `${item.compatibilityScore}% Match` : "-- Match"}</Text>
+                        </View>
+                      </View>
+                    </View>
+
+                    <Pressable
+                      style={styles.likedUserActionBtn}
+                      onPress={() => {
+                        void handleOpenLikedUserChat(item);
+                      }}
+                      disabled={chatActionUserId === item.id}
+                      testID={`apartment-detail-liked-user-action-${item.id}`}
+                    >
+                      {chatActionUserId === item.id ? (
+                        <ActivityIndicator size="small" color={colors.onBrand} />
+                      ) : (
+                        <Ionicons
+                          name={item.hasExistingChat ? "paper-plane-outline" : "add"}
+                          size={20}
+                          color={colors.onBrand}
+                        />
+                      )}
+                    </Pressable>
+                  </View>
+                ))
+              ) : (
+                <View style={styles.inquiriesEmptyState}>
+                  <Text style={styles.inquiriesEmptyText}>Δεν υπάρχουν άλλοι διαθέσιμοι ενδιαφερόμενοι χρήστες</Text>
+                </View>
+              )}
+            </View>
+          </View>
+        ) : null}
 
         {isListingOwner ? (
           <View
@@ -895,6 +1366,73 @@ export default function ApartmentDetailScreen() {
         testID="apartment-detail-delete-chat-modal"
       />
 
+      <Modal
+        transparent
+        animationType="fade"
+        visible={shareModalVisible}
+        onRequestClose={() => {
+          if (!sendingShareChatId) setShareModalVisible(false);
+        }}
+      >
+        <View style={styles.shareModalBackdrop}>
+          <View style={styles.shareModalCard}>
+            <Text style={styles.shareModalTitle}>Κοινοποίηση Διαμερίσματος</Text>
+
+            {loadingShareMatches ? (
+              <View style={styles.shareModalEmptyWrap}>
+                <ActivityIndicator size="small" color={colors.brand} />
+              </View>
+            ) : activeShareMatches.length === 0 ? (
+              <View style={styles.shareModalEmptyWrap}>
+                <Text style={styles.shareModalEmptyText}>Δεν έχετε ενεργές συνομιλίες με συγκατοίκους ακόμα</Text>
+              </View>
+            ) : (
+              <ScrollView style={styles.shareModalList} contentContainerStyle={styles.shareModalListContent}>
+                {activeShareMatches.map((item) => (
+                  <View key={item.chatRoomId} style={styles.shareModalRow}>
+                    <View style={styles.shareAvatarWrap}>
+                      {item.avatar ? (
+                        <Image source={{ uri: item.avatar }} style={styles.shareAvatarImage} contentFit="cover" />
+                      ) : (
+                        <DefaultProfileAvatar size={46} iconSize={20} />
+                      )}
+                    </View>
+
+                    <View style={styles.shareNameWrap}>
+                      <Text style={styles.shareNameText} numberOfLines={1}>{item.name}</Text>
+                    </View>
+
+                    <Pressable
+                      style={styles.shareSendBtn}
+                      onPress={() => {
+                        void handleShareApartmentToMatch(item);
+                      }}
+                      disabled={!!sendingShareChatId}
+                      testID={`apartment-detail-share-send-${item.chatRoomId}`}
+                    >
+                      {sendingShareChatId === item.chatRoomId ? (
+                        <ActivityIndicator size="small" color={colors.onBrand} />
+                      ) : (
+                        <Ionicons name="paper-plane-outline" size={18} color={colors.onBrand} />
+                      )}
+                    </Pressable>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+
+            <Pressable
+              style={styles.shareModalCancelBtn}
+              onPress={() => setShareModalVisible(false)}
+              disabled={!!sendingShareChatId}
+              testID="apartment-detail-share-close"
+            >
+              <Text style={styles.shareModalCancelText}>{t("common.actions.cancel")}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
       <CenteredActionModal
         visible={!!actionModal}
         title={actionModal?.title ?? ""}
@@ -1056,6 +1594,14 @@ function createStyles(colors: ThemeColors) {
       borderWidth: 1,
       borderColor: colors.border,
     },
+    titleActionBtnActive: {
+      backgroundColor: colors.brandTertiary,
+      borderColor: colors.brand,
+    },
+    doubleHeartText: {
+      fontSize: 18,
+      lineHeight: 20,
+    },
     likeBtn: {
       width: 42,
       height: 42,
@@ -1164,6 +1710,132 @@ function createStyles(colors: ThemeColors) {
     borderWidth: 1,
     borderColor: colors.border,
   },
+    likedUserCard: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.lg,
+      backgroundColor: colors.surfaceSecondary,
+      padding: spacing.sm,
+    },
+    likedUserContent: {
+      flex: 1,
+      gap: spacing.xs,
+    },
+    likedUserPills: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: spacing.xs,
+    },
+    likedUserActionBtn: {
+      width: 42,
+      height: 42,
+      borderRadius: 21,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.brand,
+      borderWidth: 1,
+      borderColor: colors.brandSecondary,
+    },
+    shareModalBackdrop: {
+      flex: 1,
+      backgroundColor: "rgba(0,0,0,0.5)",
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: spacing.lg,
+    },
+    shareModalCard: {
+      width: "100%",
+      maxWidth: 440,
+      maxHeight: "78%",
+      backgroundColor: colors.surface,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: spacing.lg,
+      gap: spacing.md,
+    },
+    shareModalTitle: {
+      fontFamily: fonts.bold,
+      fontSize: fontSize.xl,
+      color: colors.onSurface,
+    },
+    shareModalList: {
+      maxHeight: 360,
+    },
+    shareModalListContent: {
+      gap: spacing.sm,
+    },
+    shareModalRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      padding: spacing.sm,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceSecondary,
+    },
+    shareAvatarWrap: {
+      width: 46,
+      height: 46,
+      borderRadius: 23,
+      overflow: "hidden",
+    },
+    shareAvatarImage: {
+      width: "100%",
+      height: "100%",
+    },
+    shareNameWrap: {
+      flex: 1,
+    },
+    shareNameText: {
+      fontFamily: fonts.bold,
+      fontSize: fontSize.base,
+      color: colors.onSurface,
+    },
+    shareSendBtn: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.brand,
+      borderWidth: 1,
+      borderColor: colors.brandSecondary,
+    },
+    shareModalEmptyWrap: {
+      minHeight: 90,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.md,
+      backgroundColor: colors.surfaceSecondary,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: spacing.md,
+    },
+    shareModalEmptyText: {
+      fontFamily: fonts.regular,
+      fontSize: fontSize.sm,
+      color: colors.onSurfaceTertiary,
+      textAlign: "center",
+    },
+    shareModalCancelBtn: {
+      alignSelf: "flex-end",
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceSecondary,
+    },
+    shareModalCancelText: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.sm,
+      color: colors.onSurface,
+    },
 
     amenitiesGrid: {
       flexDirection: "row",

@@ -362,10 +362,6 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
         </Pressable>
       </View>
 
-  export default function HostInboxScreen() {
-    return <HostInboxContent />;
-  }
-
       {searchOpen ? (
         <View style={styles.searchBarWrap}>
           <View style={styles.searchBar}>
@@ -577,6 +573,10 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
     </View>
   );
 }
+
+export default function HostInboxScreen() {
+    return <HostInboxContent />;
+  }
 
 const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },

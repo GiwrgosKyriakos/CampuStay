@@ -419,7 +419,7 @@ export default function EditProfileScreen() {
             testID="name-input"
           />
 
-          {!auth.isBroker && (
+          {!isBroker && (
             <>
               <Text style={styles.label}>{t("editProfile.age")}</Text>
               <TextInput
@@ -452,7 +452,7 @@ export default function EditProfileScreen() {
             {about.length}/{ABOUT_LIMIT}
           </Text>
 
-          {!auth.isBroker && (
+          {!isBroker && (
             <>
               <Text style={styles.label}>{t("editProfile.gender")}</Text>
               <View style={styles.radioRow}>
@@ -570,56 +570,56 @@ export default function EditProfileScreen() {
         </View>
 
         {/* SECTION 3: Education & Living */}
-        {!auth.isBroker && (
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <Ionicons name="book-outline" size={22} color={colors.onSurface} />
-            <Text style={styles.cardTitle}>{t("editProfile.educationTitle")}</Text>
-          </View>
+        {!isBroker && (
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <Ionicons name="book-outline" size={22} color={colors.onSurface} />
+              <Text style={styles.cardTitle}>{t("editProfile.educationTitle")}</Text>
+            </View>
 
-          <Text style={styles.label}>{t("editProfile.university")}</Text>
-          <View style={guestLocked ? styles.guestReadOnlyControl : undefined}>
-            <Dropdown
-              value={university}
-              options={universities}
-              placeholder={t("editProfile.universityPlaceholder")}
-              onSelect={setUniversity}
-              disabled={guestLocked}
-              testID="university-dropdown"
+            <Text style={styles.label}>{t("editProfile.university")}</Text>
+            <View style={guestLocked ? styles.guestReadOnlyControl : undefined}>
+              <Dropdown
+                value={university}
+                options={universities}
+                placeholder={t("editProfile.universityPlaceholder")}
+                onSelect={setUniversity}
+                disabled={guestLocked}
+                testID="university-dropdown"
+              />
+            </View>
+
+            <Text style={styles.label}>{t("editProfile.year")}</Text>
+            <View style={guestLocked ? styles.guestReadOnlyControl : undefined}>
+              <Dropdown value={year} options={years} placeholder={t("editProfile.yearPlaceholder")} onSelect={setYear} disabled={guestLocked} testID="year-dropdown" />
+            </View>
+
+            <Text style={styles.label}>{t("editProfile.budget", { currency: "€" })}</Text>
+            <TextInput
+              style={[styles.input, guestLocked && styles.guestReadOnlyControl]}
+              value={budget}
+              onChangeText={(t) => setBudget(t.replace(/[^0-9]/g, ""))}
+              placeholder={t("editProfile.budgetPlaceholder")}
+              placeholderTextColor={colors.onSurfaceTertiary}
+              keyboardType="number-pad"
+              maxLength={5}
+              editable={!guestLocked}
+              testID="budget-input"
             />
-          </View>
+            {budgetError && !guestLocked && <Text style={styles.cityErrorText}>{budgetError}</Text>}
 
-          <Text style={styles.label}>{t("editProfile.year")}</Text>
-          <View style={guestLocked ? styles.guestReadOnlyControl : undefined}>
-            <Dropdown value={year} options={years} placeholder={t("editProfile.yearPlaceholder")} onSelect={setYear} disabled={guestLocked} testID="year-dropdown" />
+            <Text style={styles.label}>{t("editProfile.moveIn")}</Text>
+            <View style={guestLocked ? styles.guestReadOnlyControl : undefined}>
+              <Dropdown
+                value={moveIn}
+                options={MOVE_IN_OPTIONS}
+                placeholder={t("editProfile.moveInPlaceholder")}
+                onSelect={setMoveIn}
+                disabled={guestLocked}
+                testID="movein-dropdown"
+              />
+            </View>
           </View>
-
-          <Text style={styles.label}>{t("editProfile.budget", { currency: "€" })}</Text>
-          <TextInput
-            style={[styles.input, guestLocked && styles.guestReadOnlyControl]}
-            value={budget}
-            onChangeText={(t) => setBudget(t.replace(/[^0-9]/g, ""))}
-            placeholder={t("editProfile.budgetPlaceholder")}
-            placeholderTextColor={colors.onSurfaceTertiary}
-            keyboardType="number-pad"
-            maxLength={5}
-            editable={!guestLocked}
-            testID="budget-input"
-          />
-          {budgetError && !guestLocked && <Text style={styles.cityErrorText}>{budgetError}</Text>}
-
-          <Text style={styles.label}>{t("editProfile.moveIn")}</Text>
-          <View style={guestLocked ? styles.guestReadOnlyControl : undefined}>
-            <Dropdown
-              value={moveIn}
-              options={MOVE_IN_OPTIONS}
-              placeholder={t("editProfile.moveInPlaceholder")}
-              onSelect={setMoveIn}
-              disabled={guestLocked}
-              testID="movein-dropdown"
-            />
-          </View>
-        </View>
         )}
 
         {/* SECTION 4: Social Media */}

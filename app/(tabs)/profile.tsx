@@ -120,6 +120,9 @@ export default function ProfileScreen() {
   const subInfoParts = [age != null ? t("common.format.ageLabel", { age }) : "", program, university].filter(Boolean);
   const effectiveMode = themeMode === "system" ? (isDark ? "dark" : "light") : themeMode;
   const themeTitle = locale === "el" ? "Εμφάνιση" : "Theme";
+  const visibleNavSettings = auth.isBroker
+    ? NAV_SETTINGS.filter((setting) => setting.route !== "/roomie-profile")
+    : NAV_SETTINGS;
   const modeLabels = {
     system: locale === "el" ? "Σύστημα" : "System",
     light: locale === "el" ? "Φωτεινό" : "Light",
@@ -238,13 +241,11 @@ export default function ProfileScreen() {
         )}
 
         <View style={styles.section}>
-          {NAV_SETTINGS.map((s, i) => {
-            if (auth.isBroker && s.route === "/roomie-profile") return null;
-
+          {visibleNavSettings.map((s, i) => {
             return (
               <View key={s.label}>
                 <Pressable
-                  style={[styles.row, i < NAV_SETTINGS.length - 1 && styles.rowBorder]}
+                  style={[styles.row, i < visibleNavSettings.length - 1 && styles.rowBorder]}
                   testID={s.testID}
                   onPress={() => router.push(s.route as any)}
                 >

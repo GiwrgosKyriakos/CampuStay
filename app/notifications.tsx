@@ -45,6 +45,9 @@ export default function NotificationsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const isGuest = auth.isGuest;
+  const visibleNotificationRows = auth.isBroker
+    ? NOTIFICATION_ROWS.filter((row) => row.id !== "new_matches")
+    : NOTIFICATION_ROWS;
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [preferences, setPreferences] = useState<NotificationPreferences>({
@@ -137,8 +140,7 @@ export default function NotificationsScreen() {
         )}
 
         <View style={styles.centerBlock}>
-          {NOTIFICATION_ROWS.map((row) => (
-            auth.isBroker && row.id === "new_matches" ? null : (
+          {visibleNotificationRows.map((row) => (
             <View key={row.id} style={styles.settingRow} testID={`notification-row-${row.id}`}>
               <View style={styles.rowText}>
                 <Text style={styles.settingTitle}>{t(row.title)}</Text>
@@ -154,7 +156,6 @@ export default function NotificationsScreen() {
                 />
               </View>
             </View>
-            )
           ))}
         </View>
       </View>

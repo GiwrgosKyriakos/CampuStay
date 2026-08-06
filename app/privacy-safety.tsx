@@ -292,6 +292,7 @@ export default function PrivacySafetyScreen() {
             />
           </View>
         </View>
+        )}
 
         <View style={styles.card}>
           <View style={styles.cardHeader}>
@@ -376,8 +377,6 @@ export default function PrivacySafetyScreen() {
 
                       <View>
                         <Pressable
-                  </View>
-                  )}
                           onPress={() => setActiveBlockedMenuId((prev) => (prev === profileRow.id ? null : profileRow.id))}
                           testID={`blocked-row-menu-${profileRow.id}`}
                         >

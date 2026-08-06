@@ -6,6 +6,7 @@ import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 
 import { radius, spacing, type ThemeColors } from "@/src/theme";
 import { useTheme } from "@/src/context/ThemeContext";
+import { useAuth } from "@/src/context/auth";
 
 const ICONS: Record<string, { active: keyof typeof Ionicons.glyphMap; inactive: keyof typeof Ionicons.glyphMap }> = {
   roommates: { active: "flame", inactive: "flame-outline" },
@@ -17,14 +18,24 @@ const ICONS: Record<string, { active: keyof typeof Ionicons.glyphMap; inactive: 
 export default function GlassTabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
+  const auth = useAuth();
+  const isBroker = !!auth.isBroker;
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const visibleRoutes = useMemo(() => {
+    if (!isBroker) return state.routes;
+
+    const brokerOrder = ["apartments", "matches", "profile"];
+    return state.routes
+      .filter((route) => route.name !== "roommates")
+      .sort((left, right) => brokerOrder.indexOf(left.name) - brokerOrder.indexOf(right.name));
+  }, [isBroker, state.routes]);
 
   return (
     <View style={[styles.wrap, { paddingBottom: Math.max(insets.bottom, spacing.md) }]} testID="bottom-tab-bar">
       <View style={styles.bar}>
         <View style={styles.row}>
-          {state.routes.map((route, idx) => {
-            const focused = state.index === idx;
+          {visibleRoutes.map((route) => {
+            const focused = state.routes[state.index]?.key === route.key;
             const cfg = ICONS[route.name] ?? ICONS.roommates;
             const onPress = () => {
               const event = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
