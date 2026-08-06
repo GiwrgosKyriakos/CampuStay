@@ -88,6 +88,7 @@ interface Apartment {
   size: number;
   image: string;
   tags: string[];
+  extraDetails?: Record<string, boolean>;
   hostId?: string;
   ownerId?: string;
 }
@@ -112,6 +113,7 @@ interface FirestoreApartmentDoc {
   images?: string[];
   tags?: string[];
   amenities?: string[];
+  extraDetails?: Record<string, boolean>;
   showPhoneNumber?: boolean;
   hostId?: string;
   ownerId?: string;
@@ -244,6 +246,15 @@ function translateApartmentTag(tag: string): string {
   return translated === `apartments.tags.${tag}` ? tag : translated;
 }
 
+function normalizeExtraDetailsMap(extraDetails: unknown): Record<string, boolean> | null {
+  if (!extraDetails || typeof extraDetails !== "object") return null;
+
+  const entries = Object.entries(extraDetails as Record<string, unknown>).filter(([, value]) => value === true || value === false);
+  if (!entries.length) return null;
+
+  return Object.fromEntries(entries) as Record<string, boolean>;
+}
+
 const AMENITIES: AmenityDef[] = [
   { key: "wifi", label: "apartmentDetail.amenities.wifi", icon: "wifi-outline", tagMatch: ["wifi"] },
   { key: "ac", label: "apartmentDetail.amenities.ac", icon: "snow-outline", tagMatch: ["ac", "air_conditioning"] },
@@ -253,6 +264,66 @@ const AMENITIES: AmenityDef[] = [
   { key: "balcony", label: "createListing.amenities.balcony", icon: "sunny-outline", tagMatch: ["balcony"] },
   { key: "parking", label: "createListing.amenities.parking", icon: "car-sport-outline", tagMatch: ["parking"] },
   { key: "metro", label: "createListing.amenities.nearMetro", icon: "train-outline", tagMatch: ["near_metro", "metro"] },
+];
+
+type ExtraDetailCategory = {
+  title: string;
+  items: string[];
+};
+
+const EXTRA_DETAIL_CATEGORIES: ExtraDetailCategory[] = [
+  {
+    title: "Εσωτερικό",
+    items: [
+      "Ασανσέρ",
+      "Κλιματισμός",
+      "Πόρτα ασφαλείας",
+      "Διπλός υαλοπίνακας",
+      "Φωτεινό",
+      "Βαμμένο",
+      "Επιπλωμένο",
+      "Τζάκι",
+      "Ενδοδαπέδια Θέρμανση",
+      "Ηλιακός Θερμοσίφωνας",
+      "Νυχτερινό ρεύμα",
+      "Αποθήκη",
+      "Σοφίτα",
+      "Playroom",
+      "Δορυφορική κεραία",
+      "Συναγερμός",
+      "Σίτες",
+      "Υποδοχή με Θυρωρό",
+      "Εγκαταστάσεις φόρτισης ηλεκτρικού αυτοκινήτου",
+      "Πολυτελές",
+      "Διαμπερές",
+      "Εσωτερική σκάλα",
+    ],
+  },
+  {
+    title: "Εξωτερικά χαρακτηριστικά",
+    items: [
+      "Βεράντα",
+      "Θέα",
+      "Πρόσβαση από Άσφαλτο",
+      "Οικιστική Ζώνη",
+      "Parking",
+      "Τέντες",
+      "Κήπος",
+      "Εντοιχισμένο BBQ",
+      "Πρόσβαση για ΑμεΑ",
+      "Πισίνα",
+      "Προσόψεως",
+      "Γωνιακό",
+    ],
+  },
+  {
+    title: "Κατασκευή",
+    items: ["Οροφοδιαμέρισμα", "Ανακαινισμένο", "Χρήζει ανακαίνισης", "Νεοκλασικό", "Ρετιρέ", "Διατηρητέο", "Ημιτελές", "Υπόσκαφο"],
+  },
+  {
+    title: "Κατάλληλο για",
+    items: ["Φοιτητικό", "Εξοχικό", "Επαγγελματική χρήση", "Ιατρείο", "Επενδυτικό"],
+  },
 ];
 
 export default function ApartmentDetailScreen() {
@@ -279,6 +350,7 @@ export default function ApartmentDetailScreen() {
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
   const [actionModal, setActionModal] = useState<{ title: string; description: string } | null>(null);
   const [showLikedUsersSection, setShowLikedUsersSection] = useState(false);
+  const [isExtraDetailsOpen, setIsExtraDetailsOpen] = useState(false);
   const [likedUsers, setLikedUsers] = useState<LikedUserItem[]>([]);
   const [loadingLikedUsers, setLoadingLikedUsers] = useState(false);
   const [chatActionUserId, setChatActionUserId] = useState<string | null>(null);
@@ -290,6 +362,7 @@ export default function ApartmentDetailScreen() {
   const [dbImages, setDbImages] = useState<string[]>([]);
   const [realDescription, setRealDescription] = useState<string | null>(null);
   const [realTags, setRealTags] = useState<string[]>([]);
+  const [resolvedExtraDetails, setResolvedExtraDetails] = useState<Record<string, boolean> | null>(null);
   const [resolvedRooms, setResolvedRooms] = useState<number | null>(null);
   const [resolvedFloor, setResolvedFloor] = useState<string | null>(null);
   const [resolvedPropertyCategory, setResolvedPropertyCategory] = useState<string | null>(null);
@@ -348,6 +421,7 @@ export default function ApartmentDetailScreen() {
         setDbImages(imgs);
         setShowPhoneNumber(docData.showPhoneNumber === true);
         setResolvedHostId(docData.hostId || docData.ownerId || apt?.hostId || apt?.ownerId || null);
+        setResolvedExtraDetails(normalizeExtraDetailsMap(docData.extraDetails));
 
         if (docData.description || docData.about) {
           setRealDescription((docData.description || docData.about || "").trim());
@@ -773,7 +847,9 @@ export default function ApartmentDetailScreen() {
   const displayFloor = resolvedFloor ?? (apt.floor?.trim() || "");
   const displayPropertyCategory = resolvedPropertyCategory ?? (apt.propertyCategory?.trim() || "");
   const displayPropertyType = resolvedPropertyType ?? (apt.propertyType?.trim() || "");
+  const displayExtraDetails = resolvedExtraDetails ?? normalizeExtraDetailsMap(apt.extraDetails);
   const shouldShowAdditionalInformation = !!(displayPropertyCategory || displayPropertyType || displayFloor);
+  const shouldShowExtraDetailsSection = !!displayExtraDetails && Object.keys(displayExtraDetails).length > 0;
 
   const images = (dbImages.length > 0 ? dbImages : [apt.image]).filter(
     (uri) => typeof uri === "string" && uri.trim().length > 0,
@@ -1328,6 +1404,72 @@ export default function ApartmentDetailScreen() {
             })}
           </View>
         </View>
+
+        {shouldShowExtraDetailsSection ? (
+          <View style={styles.section}>
+            <Pressable
+              style={styles.extraDetailsHeaderRow}
+              onPress={() => setIsExtraDetailsOpen((prev) => !prev)}
+              testID="apartment-detail-extra-details-toggle"
+            >
+              <Text style={styles.sectionTitle}>Παραπάνω λεπτομέρειες</Text>
+              <Ionicons
+                name={isExtraDetailsOpen ? "chevron-up" : "chevron-down"}
+                size={20}
+                color={colors.onSurface}
+              />
+            </Pressable>
+
+            {isExtraDetailsOpen ? (
+              <View style={styles.extraDetailsCard}>
+                {EXTRA_DETAIL_CATEGORIES.map((category) => {
+                  const items = category.items
+                    .map((itemKey) => {
+                      const value = displayExtraDetails?.[itemKey];
+                      if (value !== true && value !== false) return null;
+
+                      return { itemKey, value };
+                    })
+                    .filter((item): item is { itemKey: string; value: boolean } => item !== null);
+
+                  if (!items.length) return null;
+
+                  return (
+                    <View key={category.title} style={styles.extraDetailsCategoryBlock}>
+                      <Text style={styles.extraDetailsCategoryTitle}>{category.title}</Text>
+                      <View style={styles.extraDetailsItemList}>
+                        {items.map(({ itemKey, value }) => {
+                          const isPositive = value === true;
+
+                          return (
+                            <View key={itemKey} style={styles.extraDetailsItemRow}>
+                              <View style={styles.extraDetailsItemTextWrap}>
+                                <Ionicons
+                                  name={isPositive ? "checkmark-circle-outline" : "close-circle-outline"}
+                                  size={18}
+                                  color={isPositive ? colors.brand : colors.error}
+                                />
+                                <Text
+                                  style={[
+                                    styles.extraDetailsItemLabel,
+                                    !isPositive && styles.extraDetailsItemLabelMuted,
+                                  ]}
+                                >
+                                  {itemKey}
+                                </Text>
+                              </View>
+                              {!isPositive ? <Text style={styles.extraDetailsItemNegativeMark}>—</Text> : null}
+                            </View>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            ) : null}
+          </View>
+        ) : null}
 
         {shouldShowAdditionalInformation ? (
           <View style={styles.section}>
@@ -2036,6 +2178,60 @@ function createStyles(colors: ThemeColors) {
     },
     amenityLabelActive: {
       color: colors.onBrandTertiary,
+    },
+
+    extraDetailsHeaderRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: spacing.sm,
+      marginBottom: spacing.sm,
+    },
+    extraDetailsCard: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.lg,
+      backgroundColor: colors.surfaceSecondary,
+      padding: spacing.md,
+      gap: spacing.md,
+    },
+    extraDetailsCategoryBlock: {
+      gap: spacing.sm,
+    },
+    extraDetailsCategoryTitle: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.base,
+      color: colors.onSurface,
+    },
+    extraDetailsItemList: {
+      gap: spacing.sm,
+    },
+    extraDetailsItemRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: spacing.sm,
+    },
+    extraDetailsItemTextWrap: {
+      flex: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+    },
+    extraDetailsItemLabel: {
+      flex: 1,
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.base,
+      color: colors.onSurface,
+    },
+    extraDetailsItemLabelMuted: {
+      color: colors.onSurfaceTertiary,
+      textDecorationLine: "line-through",
+    },
+    extraDetailsItemNegativeMark: {
+      fontFamily: fonts.bold,
+      fontSize: fontSize.base,
+      color: colors.error,
     },
 
     descBox: {

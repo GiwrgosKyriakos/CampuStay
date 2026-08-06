@@ -66,6 +66,7 @@ interface FirestoreApartmentDoc {
   images?: string[];
   tags?: string[];
   amenities?: string[];
+  extraDetails?: Record<string, boolean>;
   hostId?: string;
   ownerId?: string;
   showPhoneNumber?: boolean;
@@ -79,6 +80,66 @@ const AMENITIES: Amenity[] = [
   { key: "parking", slug: "parking", label: "createListing.amenities.parking", icon: "car-sport-outline" },
 ];
 
+type ExtraDetailCategory = {
+  title: string;
+  items: string[];
+};
+
+const EXTRA_DETAIL_CATEGORIES: ExtraDetailCategory[] = [
+  {
+    title: "Εσωτερικό",
+    items: [
+      "Ασανσέρ",
+      "Κλιματισμός",
+      "Πόρτα ασφαλείας",
+      "Διπλός υαλοπίνακας",
+      "Φωτεινό",
+      "Βαμμένο",
+      "Επιπλωμένο",
+      "Τζάκι",
+      "Ενδοδαπέδια Θέρμανση",
+      "Ηλιακός Θερμοσίφωνας",
+      "Νυχτερινό ρεύμα",
+      "Αποθήκη",
+      "Σοφίτα",
+      "Playroom",
+      "Δορυφορική κεραία",
+      "Συναγερμός",
+      "Σίτες",
+      "Υποδοχή με Θυρωρό",
+      "Εγκαταστάσεις φόρτισης ηλεκτρικού αυτοκινήτου",
+      "Πολυτελές",
+      "Διαμπερές",
+      "Εσωτερική σκάλα",
+    ],
+  },
+  {
+    title: "Εξωτερικά χαρακτηριστικά",
+    items: [
+      "Βεράντα",
+      "Θέα",
+      "Πρόσβαση από Άσφαλτο",
+      "Οικιστική Ζώνη",
+      "Parking",
+      "Τέντες",
+      "Κήπος",
+      "Εντοιχισμένο BBQ",
+      "Πρόσβαση για ΑμεΑ",
+      "Πισίνα",
+      "Προσόψεως",
+      "Γωνιακό",
+    ],
+  },
+  {
+    title: "Κατασκευή",
+    items: ["Οροφοδιαμέρισμα", "Ανακαινισμένο", "Χρήζει ανακαίνισης", "Νεοκλασικό", "Ρετιρέ", "Διατηρητέο", "Ημιτελές", "Υπόσκαφο"],
+  },
+  {
+    title: "Κατάλληλο για",
+    items: ["Φοιτητικό", "Εξοχικό", "Επαγγελματική χρήση", "Ιατρείο", "Επενδυτικό"],
+  },
+];
+
 const PHOTO_SLOTS = 6;
 const IMAGE_QUALITY = 0.7;
 
@@ -89,6 +150,8 @@ export default function CreateListingScreen() {
   const [title, setTitle] = useState("");             
   const [description, setDescription] = useState(""); 
   const [isExtraInfoExpanded, setIsExtraInfoExpanded] = useState(false);
+  const [isExtraDetailsExpanded, setIsExtraDetailsExpanded] = useState(false);
+  const [extraDetailsState, setExtraDetailsState] = useState<Record<string, boolean>>({});
   const router = useRouter();
   const params = useLocalSearchParams<{ mode?: string; listingId?: string }>();
   const insets = useSafeAreaInsets();
@@ -162,6 +225,21 @@ export default function CreateListingScreen() {
     setAmenities((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
+  const handleSetExtraDetailAnswer = useCallback((itemKey: string, answer: boolean) => {
+    setExtraDetailsState((prev) => {
+      if (prev[itemKey] === answer) {
+        const next = { ...prev };
+        delete next[itemKey];
+        return next;
+      }
+
+      return {
+        ...prev,
+        [itemKey]: answer,
+      };
+    });
+  }, []);
+
   const closeFeedbackModal = useCallback(() => {
     const afterClose = formFeedbackModal?.onAcknowledge;
     setFormFeedbackModal(null);
@@ -233,6 +311,17 @@ export default function CreateListingScreen() {
           balcony: mappedAmenities.includes("balcony"),
           parking: mappedAmenities.includes("parking"),
         });
+
+        const mappedExtraDetails =
+          data.extraDetails && typeof data.extraDetails === "object"
+            ? Object.entries(data.extraDetails).reduce((acc, [key, value]) => {
+                if (value === true || value === false) {
+                  acc[key] = value;
+                }
+                return acc;
+              }, {} as Record<string, boolean>)
+            : {};
+        setExtraDetailsState(mappedExtraDetails);
 
         const imageList = Array.isArray(data.images)
           ? data.images
@@ -386,6 +475,7 @@ export default function CreateListingScreen() {
         images: uploadedImages,
         tags: selectedAmenitySlugs.length ? selectedAmenitySlugs : ["new_listing"],
         amenities: selectedAmenitySlugs,
+        extraDetails: Object.keys(extraDetailsState).length > 0 ? extraDetailsState : undefined,
         showPhoneNumber,
         hostId,
         ownerId: hostId,
@@ -738,6 +828,78 @@ export default function CreateListingScreen() {
               />
             </View>
           </View>
+
+          <View style={styles.card}>
+            <Pressable
+              style={styles.extraDetailsHeaderRow}
+              onPress={() => setIsExtraDetailsExpanded((prev) => !prev)}
+              testID="create-listing-extra-details-toggle"
+            >
+              <Text style={styles.sectionTitle}>Παραπάνω λεπτομέρειες</Text>
+              <Ionicons
+                name={isExtraDetailsExpanded ? "chevron-up" : "chevron-down"}
+                size={20}
+                color={colors.onSurface}
+              />
+            </Pressable>
+
+            {isExtraDetailsExpanded ? (
+              <View style={styles.extraDetailsContent}>
+                {EXTRA_DETAIL_CATEGORIES.map((category) => {
+                  return (
+                    <View key={category.title} style={styles.extraDetailsCategoryBlock}>
+                      <Text style={styles.extraDetailsCategoryTitle}>{category.title}</Text>
+                      <View style={styles.extraDetailsItemList}>
+                        {category.items.map((itemKey) => {
+                          const value = extraDetailsState[itemKey];
+                          const isChecked = value === true;
+                          const isRejected = value === false;
+
+                          return (
+                            <View key={itemKey} style={styles.extraDetailsItemRow}>
+                              <Text style={styles.extraDetailsItemLabel}>{itemKey}</Text>
+                              <View style={styles.extraDetailsActionGroup}>
+                                <Pressable
+                                  style={[
+                                    styles.extraDetailsActionButton,
+                                    isChecked && styles.extraDetailsActionButtonChecked,
+                                  ]}
+                                  onPress={() => handleSetExtraDetailAnswer(itemKey, true)}
+                                  hitSlop={6}
+                                  testID={`create-listing-extra-detail-yes-${itemKey}`}
+                                >
+                                  <Ionicons
+                                    name="checkmark-circle"
+                                    size={20}
+                                    color={isChecked ? colors.onBrandTertiary : colors.onSurfaceTertiary}
+                                  />
+                                </Pressable>
+                                <Pressable
+                                  style={[
+                                    styles.extraDetailsActionButton,
+                                    isRejected && styles.extraDetailsActionButtonRejected,
+                                  ]}
+                                  onPress={() => handleSetExtraDetailAnswer(itemKey, false)}
+                                  hitSlop={6}
+                                  testID={`create-listing-extra-detail-no-${itemKey}`}
+                                >
+                                  <Ionicons
+                                    name="close-circle"
+                                    size={20}
+                                    color={isRejected ? colors.onError : colors.onSurfaceTertiary}
+                                  />
+                                </Pressable>
+                              </View>
+                            </View>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            ) : null}
+          </View>
             contactToggleRow: {
               flexDirection: "row",
               alignItems: "center",
@@ -896,6 +1058,62 @@ function createStyles(colors: ThemeColors) {
       alignItems: "center",
       justifyContent: "space-between",
       gap: spacing.sm,
+    },
+    extraDetailsHeaderRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: spacing.sm,
+    },
+    extraDetailsContent: {
+      gap: spacing.md,
+    },
+    extraDetailsCategoryBlock: {
+      gap: spacing.sm,
+    },
+    extraDetailsCategoryTitle: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.base,
+      color: colors.onSurface,
+    },
+    extraDetailsItemList: {
+      gap: spacing.sm,
+    },
+    extraDetailsItemRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: spacing.sm,
+      paddingVertical: spacing.xs,
+    },
+    extraDetailsItemLabel: {
+      flex: 1,
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.base,
+      color: colors.onSurface,
+    },
+    extraDetailsActionGroup: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+    },
+    extraDetailsActionButton: {
+      width: 34,
+      height: 34,
+      borderRadius: radius.pill,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+    },
+    extraDetailsActionButtonChecked: {
+      borderColor: colors.brand,
+      backgroundColor: colors.brandTertiary,
+    },
+    extraDetailsActionButtonRejected: {
+      borderColor: colors.error,
+      backgroundColor: colors.surfaceSecondary,
     },
     input: {
       backgroundColor: colors.surface,
