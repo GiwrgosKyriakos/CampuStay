@@ -46,6 +46,10 @@ interface FirestoreApartmentDoc {
   title?: string;
   description?: string; // 🟢 Νέο πεδίο
   about?: string;       // 🟢 Νέο πεδίο
+  propertyCategory?: string;
+  propertyType?: string;
+  floor?: string;
+  rooms?: number;
   area?: string;
   city?: string;
   address?: string;
@@ -83,6 +87,7 @@ export default function CreateListingScreen() {
   // 2. Προσθήκη των States μέσα στο CreateListingScreen component
   const [title, setTitle] = useState("");             
   const [description, setDescription] = useState(""); 
+  const [isExtraInfoExpanded, setIsExtraInfoExpanded] = useState(false);
   const router = useRouter();
   const params = useLocalSearchParams<{ mode?: string; listingId?: string }>();
   const insets = useSafeAreaInsets();
@@ -98,6 +103,10 @@ export default function CreateListingScreen() {
   const [addressLongitude, setAddressLongitude] = useState<number | null>(null);
   const [hasExactLocation, setHasExactLocation] = useState(false);
   const [sizeSqm, setSizeSqm] = useState("");
+  const [propertyCategory, setPropertyCategory] = useState<string | null>(null);
+  const [propertyType, setPropertyType] = useState<string | null>(null);
+  const [floor, setFloor] = useState<string | null>(null);
+  const [rooms, setRooms] = useState("1");
   const [maxDiscountPercent, setMaxDiscountPercent] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [permBlocked, setPermBlocked] = useState(false);
@@ -118,6 +127,23 @@ export default function CreateListingScreen() {
   } | null>(null);
   const [loadingEditData, setLoadingEditData] = useState(false);
   const cityOptions = t("createListing.options.cities") as unknown as string[];
+  const propertyCategoryOptions = ["Κατοικία", "Επαγγελματική στέγη", "Γη", "Λοιπά ακίνητα"];
+  const propertyTypeOptions = [
+    "Διαμέρισμα",
+    "Studio",
+    "Γκαρσονιέρα",
+    "Μεζονέτα",
+    "Μονοκατοικία",
+    "Βίλλα",
+    "Loft",
+    "Bungalow",
+    "Κτίριο",
+    "Συγκρότημα διαμερισμάτων",
+    "Φάρμα/Ράντσο",
+    "Πλωτό σπίτι",
+    "Άλλες κατηγορίες",
+  ];
+  const floorOptions = ["Υπόγειο", "Ημιώροφος", "Ισόγειο", "1ος", "2ος", "3ος", "4ος", "5ος+"];
   const cityCoordinates = useLocationCoordinates(city, area);
 
   const selectedAmenities = useMemo(
@@ -193,6 +219,10 @@ export default function CreateListingScreen() {
         setMaxDiscountPercent(mappedMaxDiscount !== null ? String(mappedMaxDiscount) : "");
         setTitle(data.title ?? "");
         setDescription(data.description ?? data.about ?? "");
+        setPropertyCategory(data.propertyCategory ?? null);
+        setPropertyType(data.propertyType ?? null);
+        setFloor(data.floor ?? null);
+        setRooms(typeof data.rooms === "number" && Number.isFinite(data.rooms) ? String(Math.max(1, Math.trunc(data.rooms))) : "1");
         setAmenities({
           petFriendly: mappedAmenities.includes("pet_friendly"),
           nearMetro: mappedAmenities.includes("near_metro"),
@@ -326,11 +356,16 @@ export default function CreateListingScreen() {
       const finalDescription = description.trim();
       const finalAddress = address.trim();
       const exactAddressSelected = hasExactLocation && finalAddress.length > 0 && addressLatitude !== null && addressLongitude !== null;
+      const parsedRooms = Number(rooms);
+      const normalizedRooms = Number.isFinite(parsedRooms) && parsedRooms > 0 ? Math.trunc(parsedRooms) : 1;
 
       const data: Record<string, unknown> = {
         title: finalTitle,
         description: finalDescription,
         about: finalDescription, // Για backward compatibility
+        propertyCategory: propertyCategory ?? undefined,
+        propertyType: propertyType ?? undefined,
+        floor: floor ?? undefined,
         area: area.trim(),
         city,
         address: finalAddress.length > 0 ? finalAddress : undefined,
@@ -340,7 +375,7 @@ export default function CreateListingScreen() {
         rent: Number(monthlyRent),
         price: Number(monthlyRent),
         maxDiscountPercent: parsedMaxDiscount,
-        rooms: 1,
+        rooms: normalizedRooms,
         size: Number(sizeSqm),
         sqft: Number(sizeSqm),
         image: firstImage,
@@ -575,6 +610,65 @@ export default function CreateListingScreen() {
           </View>
 
           <View style={styles.card}>
+            <Pressable
+              style={styles.expandHeaderRow}
+              onPress={() => setIsExtraInfoExpanded((prev) => !prev)}
+              testID="create-listing-extra-info-toggle"
+            >
+              <Text style={styles.sectionTitle}>Επιπλέον Πληροφορίες</Text>
+              <Ionicons
+                name={isExtraInfoExpanded ? "chevron-up" : "chevron-down"}
+                size={20}
+                color={colors.onSurface}
+              />
+            </Pressable>
+
+            {isExtraInfoExpanded && (
+              <>
+                <Text style={styles.sectionSubtitle}>Κατηγορία ακινήτου</Text>
+                <Dropdown
+                  value={propertyCategory}
+                  options={propertyCategoryOptions}
+                  placeholder="Επιλέξτε κατηγορία"
+                  onSelect={setPropertyCategory}
+                  testID="create-listing-property-category-dropdown"
+                />
+
+                <Text style={[styles.sectionSubtitle, styles.mtSm]}>Είδος ακινήτου</Text>
+                <Dropdown
+                  value={propertyType}
+                  options={propertyTypeOptions}
+                  placeholder="Επιλέξτε είδος"
+                  onSelect={setPropertyType}
+                  testID="create-listing-property-type-dropdown"
+                />
+
+                <Text style={[styles.sectionSubtitle, styles.mtSm]}>Όροφος</Text>
+                <Dropdown
+                  value={floor}
+                  options={floorOptions}
+                  placeholder="Επιλέξτε όροφο"
+                  onSelect={setFloor}
+                  testID="create-listing-floor-dropdown"
+                />
+
+                <Text style={[styles.sectionSubtitle, styles.mtSm]}>Δωμάτια</Text>
+                <TextInput
+                  value={rooms}
+                  onChangeText={(value) => setRooms(value.replace(/[^0-9]/g, ""))}
+                  placeholder="π.χ. 2"
+                  placeholderTextColor={colors.onSurfaceTertiary}
+                  keyboardType="number-pad"
+                  maxLength={2}
+                  style={styles.input}
+                  testID="create-listing-rooms-input"
+                />
+                <Text style={styles.fieldHint}>Ο αριθμός δωματίων αποθηκεύεται δυναμικά στην αγγελία.</Text>
+              </>
+            )}
+          </View>
+
+          <View style={styles.card}>
             <Text style={styles.sectionTitle}>{t("common.labels.photos")}</Text>
             <Text style={styles.fieldHint}>{t("createListing.photosHint")}</Text>
             <View style={styles.photoGrid}>
@@ -749,6 +843,18 @@ function createStyles(colors: ThemeColors) {
       fontSize: fontSize.lg,
       color: colors.onSurface,
       marginBottom: 2,
+    },
+    sectionSubtitle: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.base,
+      color: colors.onSurface,
+      marginBottom: 2,
+    },
+    expandHeaderRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: spacing.sm,
     },
     input: {
       backgroundColor: colors.surface,

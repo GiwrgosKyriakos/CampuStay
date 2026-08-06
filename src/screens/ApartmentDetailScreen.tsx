@@ -73,6 +73,9 @@ interface Apartment {
   title: string;
   about?: string;
   description?: string;
+  propertyCategory?: string;
+  propertyType?: string;
+  floor?: string;
   area: string;
   city: string;
   address?: string;
@@ -93,6 +96,9 @@ interface FirestoreApartmentDoc {
   title?: string;
   description?: string;
   about?: string;
+  propertyCategory?: string;
+  propertyType?: string;
+  floor?: string;
   area?: string;
   city?: string;
   rent?: number;
@@ -281,6 +287,10 @@ export default function ApartmentDetailScreen() {
   const [dbImages, setDbImages] = useState<string[]>([]);
   const [realDescription, setRealDescription] = useState<string | null>(null);
   const [realTags, setRealTags] = useState<string[]>([]);
+  const [resolvedRooms, setResolvedRooms] = useState<number | null>(null);
+  const [resolvedFloor, setResolvedFloor] = useState<string | null>(null);
+  const [resolvedPropertyCategory, setResolvedPropertyCategory] = useState<string | null>(null);
+  const [resolvedPropertyType, setResolvedPropertyType] = useState<string | null>(null);
   const [checkingVisibility, setCheckingVisibility] = useState(false);
   const [isListingExcluded, setIsListingExcluded] = useState(false);
 
@@ -334,6 +344,19 @@ export default function ApartmentDetailScreen() {
         if (docData.description || docData.about) {
           setRealDescription((docData.description || docData.about || "").trim());
         }
+
+        setResolvedRooms(typeof docData.rooms === "number" && Number.isFinite(docData.rooms) ? Math.max(1, Math.trunc(docData.rooms)) : null);
+        setResolvedFloor(typeof docData.floor === "string" && docData.floor.trim().length > 0 ? docData.floor.trim() : null);
+        setResolvedPropertyCategory(
+          typeof docData.propertyCategory === "string" && docData.propertyCategory.trim().length > 0
+            ? docData.propertyCategory.trim()
+            : null,
+        );
+        setResolvedPropertyType(
+          typeof docData.propertyType === "string" && docData.propertyType.trim().length > 0
+            ? docData.propertyType.trim()
+            : null,
+        );
 
         const mergedTags = Array.from(
           new Set([
@@ -707,6 +730,11 @@ export default function ApartmentDetailScreen() {
   const activeTags = (realTags.length > 0 ? realTags : [...(apt.tags || []), ...((apt as unknown as { amenities?: string[] }).amenities || [])]).map((entry) =>
     String(entry).toLowerCase().trim(),
   );
+  const displayRooms = resolvedRooms ?? apt.rooms;
+  const displayFloor = resolvedFloor ?? (apt.floor?.trim() || "");
+  const displayPropertyCategory = resolvedPropertyCategory ?? (apt.propertyCategory?.trim() || "");
+  const displayPropertyType = resolvedPropertyType ?? (apt.propertyType?.trim() || "");
+  const shouldShowAdditionalInformation = !!(displayPropertyCategory || displayPropertyType || displayFloor);
 
   const images = (dbImages.length > 0 ? dbImages : [apt.image]).filter(
     (uri) => typeof uri === "string" && uri.trim().length > 0,
@@ -981,6 +1009,25 @@ export default function ApartmentDetailScreen() {
         <Ionicons name="chevron-back" size={22} color={colors.onSurface} />
       </Pressable>
 
+      {!isListingOwner && !auth.isGuest ? (
+        <Pressable
+          style={[styles.noteOverlay, { top: insets.top + spacing.sm }]}
+          onPress={() =>
+            router.push({
+              pathname: "/apartment-note",
+              params: {
+                data: JSON.stringify(apt),
+                fromList: "false",
+              },
+            } as never)
+          }
+          hitSlop={10}
+          testID="apartment-detail-note"
+        >
+          <Ionicons name="journal-outline" size={20} color={colors.onSurface} />
+        </Pressable>
+      ) : null}
+
       <ScrollView
         ref={pageScrollRef}
         style={styles.scroll}
@@ -1086,12 +1133,18 @@ export default function ApartmentDetailScreen() {
           <View style={styles.statsRow}>
             <View style={styles.statPill}>
               <Ionicons name="home-outline" size={14} color={colors.onBrandTertiary} />
-              <Text style={styles.statText}>{t("common.format.roomCount", { count: apt.rooms })}</Text>
+              <Text style={styles.statText}>{t("common.format.roomCount", { count: displayRooms })}</Text>
             </View>
             <View style={styles.statPill}>
               <Ionicons name="expand-outline" size={14} color={colors.onBrandTertiary} />
               <Text style={styles.statText}>{`${apt.size} ${t("common.format.squareMetersShort")}`}</Text>
             </View>
+            {displayFloor ? (
+              <View style={styles.statPill}>
+                <Ionicons color={colors.onBrandTertiary} name="layers-outline" size={14} />
+                <Text style={styles.statText}>{displayFloor}</Text>
+              </View>
+            ) : null}
           </View>
         </View>
 
@@ -1227,6 +1280,41 @@ export default function ApartmentDetailScreen() {
             })}
           </View>
         </View>
+
+        {shouldShowAdditionalInformation ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Επιπλέον Πληροφορίες</Text>
+            <View style={styles.detailMetaCard}>
+              {displayPropertyCategory ? (
+                <View style={styles.detailMetaRow}>
+                  <Text style={styles.detailMetaLabel}>Κατηγορία ακινήτου</Text>
+                  <View style={styles.statPill}>
+                    <Text style={styles.statText}>{displayPropertyCategory}</Text>
+                  </View>
+                </View>
+              ) : null}
+
+              {displayPropertyType ? (
+                <View style={styles.detailMetaRow}>
+                  <Text style={styles.detailMetaLabel}>Είδος ακινήτου</Text>
+                  <View style={styles.statPill}>
+                    <Text style={styles.statText}>{displayPropertyType}</Text>
+                  </View>
+                </View>
+              ) : null}
+
+              {displayFloor ? (
+                <View style={styles.detailMetaRow}>
+                  <Text style={styles.detailMetaLabel}>Όροφος</Text>
+                  <View style={styles.statPill}>
+                    <Ionicons color={colors.onBrandTertiary} name="layers-outline" size={14} />
+                    <Text style={styles.statText}>{displayFloor}</Text>
+                  </View>
+                </View>
+              ) : null}
+            </View>
+          </View>
+        ) : null}
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t("apartmentDetail.aboutTitle")}</Text>
@@ -1460,6 +1548,24 @@ function createStyles(colors: ThemeColors) {
     backOverlay: {
       position: "absolute",
       left: spacing.lg,
+      zIndex: 10,
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: colors.surfaceSecondary,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: colors.border,
+      shadowColor: "#000",
+      shadowOpacity: 0.18,
+      shadowRadius: 6,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 4,
+    },
+    noteOverlay: {
+      position: "absolute",
+      right: spacing.lg,
       zIndex: 10,
       width: 40,
       height: 40,
@@ -1876,6 +1982,27 @@ function createStyles(colors: ThemeColors) {
     padding: spacing.md,
     gap: spacing.sm,
   },
+    detailMetaCard: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.lg,
+      backgroundColor: colors.surfaceSecondary,
+      padding: spacing.md,
+      gap: spacing.sm,
+    },
+    detailMetaRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: spacing.sm,
+      flexWrap: "wrap",
+    },
+    detailMetaLabel: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.base,
+      color: colors.onSurface,
+      flexShrink: 1,
+    },
     descText: {
     fontFamily: fonts.regular,
     fontSize: fontSize.base,

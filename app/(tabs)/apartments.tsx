@@ -1,12 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useTheme } from "@/src/context/ThemeContext";
-import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Switch, TouchableOpacity, PanResponder } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Switch, TouchableOpacity, PanResponder, Modal, ActivityIndicator } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
 import { collection, doc, getDocs, onSnapshot, orderBy, query, where, limit } from "firebase/firestore";
+import DraggableFlatList, { ScaleDecorator } from "react-native-draggable-flatlist";
 
 import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
 import { getUserProfile } from "@/src/api/userProfile";
@@ -18,6 +19,7 @@ import { saveRecentSearch, subscribeRecentSearches } from "@/src/api/recentSearc
 import CenteredActionModal from "@/src/components/CenteredActionModal";
 import { t } from "@/src/locales";
 import { getExcludedUserIds } from "@/src/api/blocking";
+import { getUserApartmentNotes, updateNotesOrder, type Apartment as ApartmentNoteData } from "@/src/api/apartmentNotes";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 100;
@@ -82,6 +84,9 @@ interface Apartment {
   id: string;
   title: string;
   description?: string;
+  propertyCategory?: string;
+  propertyType?: string;
+  floor?: string;
   area: string;
   city: string;
   address?: string;
@@ -105,6 +110,9 @@ interface FirestoreApartmentDoc {
   title?: string;
   description?: string; 
   about?: string;       
+  propertyCategory?: string;
+  propertyType?: string;
+  floor?: string;
   area?: string;
   city?: string;
   address?: string;
@@ -169,6 +177,13 @@ type ApartmentGridCardProps = {
   isMyListingsView: boolean;
   onOpen: () => void;
   onToggleLike: () => void;
+};
+
+type ApartmentNoteItem = {
+  id: string;
+  text: string;
+  apartmentData: ApartmentNoteData;
+  orderIndex: number;
 };
 
 function ApartmentGridCard({
@@ -318,6 +333,10 @@ export default function ApartmentsScreen() {
   const [hostInboxHasUnread, setHostInboxHasUnread] = useState(false);
   const [likedApartmentIds, setLikedApartmentIds] = useState<Set<string>>(new Set());
   const [likeErrorModalVisible, setLikeErrorModalVisible] = useState(false);
+  const [showNotesPanel, setShowNotesPanel] = useState(false);
+  const [loadingNotes, setLoadingNotes] = useState(false);
+  const [notesList, setNotesList] = useState<ApartmentNoteItem[]>([]);
+  const [notesOrderSaving, setNotesOrderSaving] = useState(false);
   const SWIPE_THRESHOLD = 56;
   const canOpenHostInbox = hasPublishedHostApartment || hasApartmentShareFlag;
   const canManageListings = !auth.isGuest && (hasPublishedHostApartment || hasApartmentShareFlag);
@@ -343,6 +362,37 @@ export default function ApartmentsScreen() {
       setShowRecentSearches(false);
     }
   }, [showSearch]);
+
+  useEffect(() => {
+    if (!showNotesPanel || auth.isGuest || !auth.userId) {
+      return;
+    }
+
+    let active = true;
+    setLoadingNotes(true);
+
+    void (async () => {
+      try {
+        const notes = await getUserApartmentNotes(auth.userId!);
+        if (!active) return;
+        const sorted = [...notes].sort((left, right) => {
+          const leftIndex = Number.isFinite(left.orderIndex) ? left.orderIndex : Number.MAX_SAFE_INTEGER;
+          const rightIndex = Number.isFinite(right.orderIndex) ? right.orderIndex : Number.MAX_SAFE_INTEGER;
+          return leftIndex - rightIndex;
+        });
+        setNotesList(sorted);
+      } catch {
+        if (!active) return;
+        setNotesList([]);
+      } finally {
+        if (active) setLoadingNotes(false);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [auth.isGuest, auth.userId, showNotesPanel]);
 
   const handlePersistedSearch = useCallback(
     async (queryText: string) => {
@@ -459,6 +509,18 @@ export default function ApartmentsScreen() {
                   id: snap.id,
                   title: data.title?.trim() || t("apartments.unknownListing"),
                   description: data.description || data.about || "",
+                  propertyCategory:
+                    typeof data.propertyCategory === "string" && data.propertyCategory.trim().length > 0
+                      ? data.propertyCategory.trim()
+                      : undefined,
+                  propertyType:
+                    typeof data.propertyType === "string" && data.propertyType.trim().length > 0
+                      ? data.propertyType.trim()
+                      : undefined,
+                  floor:
+                    typeof data.floor === "string" && data.floor.trim().length > 0
+                      ? data.floor.trim()
+                      : undefined,
                   area: data.area?.trim() || t("apartments.unknownArea"),
                   city: data.city?.trim() || t("apartments.unknownCity"),
                   address: data.address?.trim(),
@@ -811,6 +873,13 @@ export default function ApartmentsScreen() {
           >
             <Ionicons name="search-outline" size={18} color={colors.onBrandTertiary} />
           </Pressable>
+          <Pressable
+            style={[styles.iconControlButton, showNotesPanel && styles.iconControlButtonActive]}
+            onPress={() => setShowNotesPanel((prev) => !prev)}
+            testID="apartments-notes-toggle"
+          >
+            <Ionicons name="journal-outline" size={18} color={colors.onBrandTertiary} />
+          </Pressable>
           {!isViewingMyListings ? (
             <View style={styles.viewToggle} testID="apartments-view-toggle">
               <Pressable
@@ -1145,6 +1214,110 @@ export default function ApartmentsScreen() {
         ]}
         testID="apartments-like-error-modal"
       />
+
+      <Modal
+        visible={showNotesPanel}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowNotesPanel(false)}
+      >
+        <View style={styles.notesBackdrop}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setShowNotesPanel(false)}
+            testID="apartments-notes-backdrop"
+          />
+
+          <View style={styles.notesPanel}>
+            <View style={styles.notesHeaderRow}>
+              <Text style={styles.notesPanelTitle}>Σημειώσεις Διαμερισμάτων</Text>
+              <Pressable
+                style={styles.notesCloseBtn}
+                onPress={() => setShowNotesPanel(false)}
+                testID="apartments-notes-close"
+              >
+                <Ionicons name="close" size={16} color={colors.onSurfaceTertiary} />
+              </Pressable>
+            </View>
+
+            {loadingNotes ? (
+              <View style={styles.notesStateWrap}>
+                <ActivityIndicator size="small" color={colors.brand} />
+              </View>
+            ) : notesList.length === 0 ? (
+              <View style={styles.notesStateWrap}>
+                <Text style={styles.notesStateText}>Δεν υπάρχουν αποθηκευμένες σημειώσεις ακόμα.</Text>
+              </View>
+            ) : (
+              <DraggableFlatList
+                data={notesList}
+                keyExtractor={(item) => item.id}
+                contentContainerStyle={styles.notesListContent}
+                showsVerticalScrollIndicator={false}
+                activationDistance={12}
+                onDragEnd={({ data }) => {
+                  setNotesList(data);
+                  if (!auth.userId) return;
+                  const orderedIds = data.map((item) => item.id);
+                  setNotesOrderSaving(true);
+                  void updateNotesOrder(auth.userId, orderedIds)
+                    .catch(() => {
+                      // Keep UX responsive; data already reordered locally.
+                    })
+                    .finally(() => {
+                      setNotesOrderSaving(false);
+                    });
+                }}
+                renderItem={({ item, getIndex, drag, isActive }) => (
+                  <ScaleDecorator>
+                    <TouchableOpacity
+                      activeOpacity={0.9}
+                      onPress={() =>
+                        router.push({
+                          pathname: "/apartment-note",
+                          params: {
+                            data: JSON.stringify(item.apartmentData),
+                            fromList: "true",
+                          },
+                        } as any)
+                      }
+                      onLongPress={drag}
+                      delayLongPress={140}
+                      style={[styles.noteRow, isActive && styles.noteRowActive]}
+                      testID={`apartments-note-row-${item.id}`}
+                    >
+                      <View style={styles.noteIndexBadge}>
+                        <Text style={styles.noteIndexText}>{(getIndex?.() ?? 0) + 1}</Text>
+                      </View>
+
+                      {item.apartmentData.image ? (
+                        <Image source={{ uri: item.apartmentData.image }} style={styles.noteThumb} contentFit="cover" />
+                      ) : (
+                        <View style={[styles.noteThumb, styles.noteThumbPlaceholder]}>
+                          <Ionicons name="home-outline" size={18} color={colors.onSurfaceTertiary} />
+                        </View>
+                      )}
+
+                      <View style={styles.noteMainTextWrap}>
+                        <Text style={styles.noteTitleText} numberOfLines={1}>
+                          {item.apartmentData.title || t("apartments.unknownListing")}
+                        </Text>
+                        <View style={styles.noteRentPill}>
+                          <Text style={styles.noteRentText}>{`${CURRENCY}${item.apartmentData.rent}`}</Text>
+                        </View>
+                      </View>
+
+                      <Ionicons name="reorder-two-outline" size={20} color={colors.onSurfaceTertiary} />
+                    </TouchableOpacity>
+                  </ScaleDecorator>
+                )}
+              />
+            )}
+
+            {notesOrderSaving ? <Text style={styles.notesSavingText}>Αποθήκευση νέας σειράς...</Text> : null}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1198,6 +1371,132 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderColor: "#A8D9FF",
   },
   iconControlButtonActive: { backgroundColor: "#C8E9FF" },
+  notesBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(5,33,40,0.44)",
+    justifyContent: "center",
+    paddingHorizontal: spacing.lg,
+  },
+  notesPanel: {
+    maxHeight: "70%",
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
+  notesHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+  },
+  notesPanelTitle: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.lg,
+    color: colors.onSurface,
+  },
+  notesCloseBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  notesListContent: {
+    gap: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  noteRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.sm,
+  },
+  noteRowActive: {
+    opacity: 0.92,
+    borderColor: colors.brand,
+  },
+  noteIndexBadge: {
+    minWidth: 24,
+    height: 24,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  noteIndexText: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.sm,
+    color: colors.onSurface,
+  },
+  noteThumb: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceTertiary,
+  },
+  noteThumbPlaceholder: {
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  noteMainTextWrap: {
+    flex: 1,
+    gap: spacing.xs,
+  },
+  noteTitleText: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.base,
+    color: colors.onSurface,
+  },
+  noteRentPill: {
+    alignSelf: "flex-start",
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.brandSecondary,
+    backgroundColor: colors.brandTertiary,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+  },
+  noteRentText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+    color: colors.onBrandTertiary,
+  },
+  notesStateWrap: {
+    minHeight: 120,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceSecondary,
+    paddingHorizontal: spacing.md,
+  },
+  notesStateText: {
+    fontFamily: fonts.regular,
+    fontSize: fontSize.base,
+    color: colors.onSurfaceTertiary,
+    textAlign: "center",
+  },
+  notesSavingText: {
+    alignSelf: "flex-end",
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+    color: colors.brand,
+  },
   viewToggle: {
     flex: 1,
     flexDirection: "row",
