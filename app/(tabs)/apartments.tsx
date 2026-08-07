@@ -20,9 +20,55 @@ import CenteredActionModal from "@/src/components/CenteredActionModal";
 import { t } from "@/src/locales";
 import { getExcludedUserIds } from "@/src/api/blocking";
 import { getUserApartmentNotes, updateNotesOrder, type Apartment as ApartmentNoteData } from "@/src/api/apartmentNotes";
+import { storage } from "@/src/utils/storage";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 100;
+const APARTMENTS_SORT_BY_STORAGE_KEY = "apartments.sortBy";
+
+type SortOption = "newest" | "oldest" | "price_asc" | "price_desc" | "size_asc" | "size_desc";
+
+const SORT_OPTION_LABELS: Record<SortOption, string> = {
+  newest: "Πιο πρόσφατα",
+  oldest: "Πιο παλιά",
+  price_asc: "Αύξουσα τιμή (€ -> €€€)",
+  price_desc: "Φθίνουσα τιμή (€€€ -> €)",
+  size_asc: "Αύξον εμβαδόν (m² -> m³)",
+  size_desc: "Φθίνουσα εμβαδόν (m³ -> m²)",
+};
+
+const SORT_OPTIONS: SortOption[] = ["newest", "oldest", "price_asc", "price_desc", "size_asc", "size_desc"];
+
+function parseTimestampToMillis(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (value instanceof Date) {
+    return value.getTime();
+  }
+
+  if (typeof value === "object" && value !== null) {
+    const maybeToMillis = (value as { toMillis?: () => number }).toMillis;
+    if (typeof maybeToMillis === "function") {
+      try {
+        const millis = maybeToMillis();
+        return Number.isFinite(millis) ? millis : 0;
+      } catch {
+        return 0;
+      }
+    }
+
+    const seconds = (value as { seconds?: unknown }).seconds;
+    const nanoseconds = (value as { nanoseconds?: unknown }).nanoseconds;
+    if (typeof seconds === "number" && Number.isFinite(seconds)) {
+      const safeNanos = typeof nanoseconds === "number" && Number.isFinite(nanoseconds) ? nanoseconds : 0;
+      return Math.trunc(seconds * 1000 + safeNanos / 1_000_000);
+    }
+  }
+
+  return 0;
+}
 
 function normalizeText(str: string): string {
   const greekAccentMap: Record<string, string> = {
@@ -97,6 +143,7 @@ interface Apartment {
   maxDiscountPercent?: number;
   rooms: number;
   size: number;
+  createdAt?: number;
   image: string;
   images?: string[];
   tags: string[];
@@ -131,6 +178,7 @@ interface FirestoreApartmentDoc {
   amenities?: string[];
   hostId?: string;
   ownerId?: string;
+  createdAt?: unknown;
   available?: boolean;
   isAvailable?: boolean;
 }
@@ -356,6 +404,8 @@ export default function ApartmentsScreen() {
   const [sizeMax, setSizeMax] = useState("");
   const [petFriendly, setPetFriendly] = useState(false);
   const [nearMetro, setNearMetro] = useState(false);
+  const [sortBy, setSortBy] = useState<SortOption>("newest");
+  const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"all" | "liked">("all");
   const [viewMode, setViewMode] = useState<"grid" | "compact">("grid");
   const [isViewingMyListings, setIsViewingMyListings] = useState(false);
@@ -395,6 +445,32 @@ export default function ApartmentsScreen() {
       setShowRecentSearches(false);
     }
   }, [showSearch]);
+
+  useEffect(() => {
+    let active = true;
+
+    void (async () => {
+      const savedSort = await storage.getItem<SortOption>(APARTMENTS_SORT_BY_STORAGE_KEY, "newest");
+      if (!active || !savedSort) return;
+      if (SORT_OPTIONS.includes(savedSort)) {
+        setSortBy(savedSort);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    void storage.setItem(APARTMENTS_SORT_BY_STORAGE_KEY, sortBy);
+  }, [sortBy]);
+
+  useEffect(() => {
+    if (!showFilters && isSortDropdownOpen) {
+      setIsSortDropdownOpen(false);
+    }
+  }, [isSortDropdownOpen, showFilters]);
 
   useEffect(() => {
     if (!showNotesPanel || auth.isGuest || !auth.userId) {
@@ -608,6 +684,7 @@ export default function ApartmentsScreen() {
                   rent: typeof data.rent === "number" ? data.rent : typeof data.price === "number" ? data.price : 0,
                   rooms: typeof data.rooms === "number" ? data.rooms : 1,
                   size: typeof data.size === "number" ? data.size : typeof data.sqft === "number" ? data.sqft : 0,
+                  createdAt: parseTimestampToMillis(data.createdAt),
                   image: resolvedImages[0] || "",
                   images: resolvedImages,
                   tags: tags.length ? tags : ["new_listing"],
@@ -916,6 +993,26 @@ export default function ApartmentsScreen() {
     sizeMin,
   ]);
 
+  const sortedApartments = useMemo(() => {
+    return [...filteredApartments].sort((a, b) => {
+      switch (sortBy) {
+        case "oldest":
+          return (a.createdAt || 0) - (b.createdAt || 0);
+        case "price_asc":
+          return (a.rent || 0) - (b.rent || 0);
+        case "price_desc":
+          return (b.rent || 0) - (a.rent || 0);
+        case "size_asc":
+          return (a.size || 0) - (b.size || 0);
+        case "size_desc":
+          return (b.size || 0) - (a.size || 0);
+        case "newest":
+        default:
+          return (b.createdAt || 0) - (a.createdAt || 0);
+      }
+    });
+  }, [filteredApartments, sortBy]);
+
   const isCompactActive = isViewingMyListings && viewMode === "compact";
 
   return (
@@ -1082,6 +1179,42 @@ export default function ApartmentsScreen() {
         )}
         {showFilters && (
           <View style={styles.filterPanel} testID="apartments-filter-panel">
+            <Text style={styles.sortTitle}>Ταξινόμηση</Text>
+            <Pressable
+              style={styles.sortSelectionBar}
+              onPress={() => setIsSortDropdownOpen((prev) => !prev)}
+              testID="apartments-sort-toggle"
+            >
+              <Text style={styles.sortSelectionText}>{SORT_OPTION_LABELS[sortBy]}</Text>
+              <Ionicons
+                name={isSortDropdownOpen ? "chevron-up" : "chevron-down"}
+                size={18}
+                color={colors.onSurfaceTertiary}
+              />
+            </Pressable>
+
+            {isSortDropdownOpen ? (
+              <View style={styles.sortDropdownList} testID="apartments-sort-dropdown">
+                {SORT_OPTIONS.map((option) => {
+                  const isActive = option === sortBy;
+                  return (
+                    <Pressable
+                      key={option}
+                      style={styles.sortOptionRow}
+                      onPress={() => {
+                        setSortBy(option);
+                        setIsSortDropdownOpen(false);
+                      }}
+                      testID={`apartments-sort-option-${option}`}
+                    >
+                      <Text style={[styles.sortOptionText, isActive && styles.sortOptionTextActive]}>{SORT_OPTION_LABELS[option]}</Text>
+                      {isActive ? <Ionicons name="checkmark" size={18} color={colors.brand} /> : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : null}
+
             <Text style={styles.filterLabel}>{t("apartments.monthlyRent", { currency: CURRENCY })}</Text>
             <View style={styles.rangeRow}>
               <TextInput
@@ -1153,7 +1286,7 @@ export default function ApartmentsScreen() {
         contentContainerStyle={[styles.list, isCompactActive && styles.compactList, { paddingBottom: TAB_BAR_SPACE + insets.bottom }]}
         showsVerticalScrollIndicator={false}
       >
-        {isCompactActive && filteredApartments.length > 0 && (
+        {isCompactActive && sortedApartments.length > 0 && (
           <View style={styles.compactHeaderRow}>
             <View style={styles.compactThumbSpacer} />
             <View style={[styles.compactCol, styles.compactAreaCol]}>
@@ -1171,7 +1304,7 @@ export default function ApartmentsScreen() {
           </View>
         )}
 
-        {filteredApartments.map((apt) => {
+        {sortedApartments.map((apt) => {
           const isLiked = likedApartmentIds.has(apt.id);
           const isMyListingsView = isViewingMyListings;
           const chatMeta = hostChatByApartmentId[apt.id];
@@ -1250,7 +1383,7 @@ export default function ApartmentsScreen() {
             />
           );
         })}
-        {filteredApartments.length === 0 && (
+        {sortedApartments.length === 0 && (
           <View style={styles.emptyState} testID="apartments-empty-state">
             <Text style={styles.emptyTitle}>
               {isViewingMyListings
@@ -1718,6 +1851,57 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderColor: colors.border,
     padding: spacing.md,
     gap: spacing.sm,
+  },
+  sortTitle: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.lg,
+    color: colors.onSurface,
+  },
+  sortSelectionBar: {
+    minHeight: 48,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceSecondary,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+  },
+  sortSelectionText: {
+    flex: 1,
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.base,
+    color: colors.onSurface,
+  },
+  sortDropdownList: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    overflow: "hidden",
+  },
+  sortOptionRow: {
+    minHeight: 44,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  sortOptionText: {
+    flex: 1,
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.base,
+    color: colors.onSurface,
+  },
+  sortOptionTextActive: {
+    color: colors.brand,
   },
   filterLabel: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface, marginTop: spacing.xs },
   rangeRow: { flexDirection: "row", gap: spacing.sm },
