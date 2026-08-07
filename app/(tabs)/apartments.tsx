@@ -14,7 +14,7 @@ import { getUserProfile } from "@/src/api/userProfile";
 import { getUserId } from "@/src/utils/userId";
 import { useAuth } from "@/src/context/auth";
 import { db } from "@/src/config/firebase";
-import { subscribeUserLikedApartmentIds, toggleApartmentLike } from "@/src/api/apartmentLikes";
+import { toggleApartmentLike } from "@/src/api/apartmentLikes";
 import { saveRecentSearch, subscribeRecentSearches } from "@/src/api/recentSearches";
 import CenteredActionModal from "@/src/components/CenteredActionModal";
 import { t } from "@/src/locales";
@@ -160,6 +160,9 @@ interface Apartment {
   amenities: string[];
   hostId?: string;
   ownerId?: string;
+  status?: "active" | "closed_deal";
+  rentedToUserId?: string | null;
+  rentedAtMillis?: number | null;
   available: boolean;
 }
 
@@ -188,9 +191,17 @@ interface FirestoreApartmentDoc {
   amenities?: string[];
   hostId?: string;
   ownerId?: string;
+  status?: "active" | "closed_deal";
+  rentedToUserId?: string | null;
+  rentedAt?: unknown;
   createdAt?: unknown;
   available?: boolean;
   isAvailable?: boolean;
+}
+
+interface FirestoreLikedApartmentDoc {
+  apartmentId?: string;
+  timestamp?: unknown;
 }
 
 interface FirestoreHostChatDoc {
@@ -430,6 +441,7 @@ export default function ApartmentsScreen() {
   const [hostInboxHasUnread, setHostInboxHasUnread] = useState(false);
   const [hostChatByApartmentId, setHostChatByApartmentId] = useState<Record<string, ApartmentQuickChatMeta>>({});
   const [likedApartmentIds, setLikedApartmentIds] = useState<Set<string>>(new Set());
+  const [likedApartmentTimestampById, setLikedApartmentTimestampById] = useState<Record<string, number>>({});
   const [likeErrorModalVisible, setLikeErrorModalVisible] = useState(false);
   const [showNotesPanel, setShowNotesPanel] = useState(false);
   const [loadingNotes, setLoadingNotes] = useState(false);
@@ -707,6 +719,9 @@ export default function ApartmentsScreen() {
                   amenities,
                   hostId: data.hostId,
                   ownerId: data.ownerId || data.hostId,
+                  status: data.status === "closed_deal" ? "closed_deal" : "active",
+                  rentedToUserId: typeof data.rentedToUserId === "string" ? data.rentedToUserId : data.rentedToUserId === null ? null : null,
+                  rentedAtMillis: parseTimestampToMillis(data.rentedAt) || null,
                   available,
                 };
               })
@@ -880,11 +895,29 @@ export default function ApartmentsScreen() {
   useEffect(() => {
     if (auth.isGuest || !auth.userId) {
       setLikedApartmentIds(new Set());
+      setLikedApartmentTimestampById({});
       return;
     }
 
-    const unsubscribe = subscribeUserLikedApartmentIds(auth.userId, (ids) => {
+    const likesQ = query(collection(db, "liked_apartments"), where("userId", "==", auth.userId));
+    const unsubscribe = onSnapshot(likesQ, (snapshot) => {
+      const ids = new Set<string>();
+      const timestampMap: Record<string, number> = {};
+
+      snapshot.forEach((item) => {
+        const data = item.data() as FirestoreLikedApartmentDoc;
+        const apartmentId = typeof data.apartmentId === "string" ? data.apartmentId : "";
+        if (!apartmentId) return;
+
+        ids.add(apartmentId);
+        const likedAt = parseTimestampToMillis(data.timestamp);
+        if (likedAt > 0) {
+          timestampMap[apartmentId] = likedAt;
+        }
+      });
+
       setLikedApartmentIds(ids);
+      setLikedApartmentTimestampById(timestampMap);
     });
 
     return () => unsubscribe();
@@ -941,14 +974,33 @@ export default function ApartmentsScreen() {
 
     const baseFiltered = apartments.filter((apt) => {
       const isOwnListing = !!currentUid && (apt.ownerId === currentUid || apt.hostId === currentUid);
+      const isClosedDeal = apt.status === "closed_deal";
+      const likedAtMillis = likedApartmentTimestampById[apt.id] ?? 0;
+      const closedAtMillis = typeof apt.rentedAtMillis === "number" ? apt.rentedAtMillis : 0;
+      const isSelectedRenter = !!currentUid && !!apt.rentedToUserId && apt.rentedToUserId === currentUid;
+      const likedBeforeClosure = likedAtMillis > 0 && (closedAtMillis <= 0 || likedAtMillis <= closedAtMillis);
 
       if (isViewingMyListings) {
         if (!isOwnListing) return false;
       } else {
+        if (activeTab === "all" && isClosedDeal && !isOwnListing) {
+          return false;
+        }
+
         if (activeTab === "liked" && !likedApartmentIds.has(apt.id)) {
           return false;
         }
-        if (activeTab === "liked" && isOwnListing) {
+
+        if (activeTab === "liked" && isClosedDeal) {
+          const canViewClosedLiked =
+            isOwnListing ||
+            (isSelectedRenter && likedBeforeClosure);
+          if (!canViewClosedLiked) {
+            return false;
+          }
+        }
+
+        if (activeTab === "liked" && isOwnListing && !isClosedDeal) {
           return false;
         }
         if (activeTab === "all" && isOwnListing && !showOwnListingsInFeed) {
@@ -1019,6 +1071,7 @@ export default function ApartmentsScreen() {
     showOwnListingsInFeed,
     sizeMax,
     sizeMin,
+    likedApartmentTimestampById,
   ]);
 
   const sortedApartments = useMemo(() => {

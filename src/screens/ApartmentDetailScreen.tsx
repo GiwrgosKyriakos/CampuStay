@@ -19,7 +19,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   addDoc,
   collection,
+  collectionGroup,
   doc,
+  type FieldValue,
   getDoc,
   getDocs,
   limit,
@@ -106,6 +108,9 @@ interface Apartment {
   extraInformation?: ListingExtraInformation;
   hostId?: string;
   ownerId?: string;
+  status?: "active" | "closed_deal";
+  rentedToUserId?: string | null;
+  rentedAt?: number | null;
 }
 
 interface FirestoreApartmentDoc {
@@ -133,6 +138,9 @@ interface FirestoreApartmentDoc {
   showPhoneNumber?: boolean;
   hostId?: string;
   ownerId?: string;
+  status?: "active" | "closed_deal";
+  rentedToUserId?: string | null;
+  rentedAt?: FieldValue | null;
   address?: string;
   latitude?: number;
   longitude?: number;
@@ -182,6 +190,12 @@ interface FirestoreQuizDoc {
   answers?: Record<string, string>;
 }
 
+interface FirestoreApprovedOfferDoc {
+  clientUserId?: string;
+  apartmentId?: string;
+  approvedPrice?: number;
+}
+
 type LikedUserItem = {
   id: string;
   name: string;
@@ -197,6 +211,12 @@ type LikedUserItem = {
 type ShareMatchItem = {
   chatRoomId: string;
   counterpartId: string;
+  name: string;
+  avatar: string;
+};
+
+type ClosedDealClientOption = {
+  id: string;
   name: string;
   avatar: string;
 };
@@ -425,6 +445,14 @@ export default function ApartmentDetailScreen() {
   const [activeShareMatches, setActiveShareMatches] = useState<ShareMatchItem[]>([]);
   const [loadingShareMatches, setLoadingShareMatches] = useState(false);
   const [sendingShareChatId, setSendingShareChatId] = useState<string | null>(null);
+  const [closeDealModalVisible, setCloseDealModalVisible] = useState(false);
+  const [closeDealClientOptions, setCloseDealClientOptions] = useState<ClosedDealClientOption[]>([]);
+  const [loadingCloseDealClients, setLoadingCloseDealClients] = useState(false);
+  const [selectedDealClientId, setSelectedDealClientId] = useState<string | null>(null);
+  const [isSubmittingCloseDeal, setIsSubmittingCloseDeal] = useState(false);
+  const [showReopenDealConfirm, setShowReopenDealConfirm] = useState(false);
+  const [apartmentStatus, setApartmentStatus] = useState<"active" | "closed_deal">("active");
+  const [rentedToUserId, setRentedToUserId] = useState<string | null>(null);
 
   const [dbImages, setDbImages] = useState<string[]>([]);
   const [realDescription, setRealDescription] = useState<string | null>(null);
@@ -442,6 +470,7 @@ export default function ApartmentDetailScreen() {
   const [showPhoneNumber, setShowPhoneNumber] = useState(false);
   const [hostPhoneNumber, setHostPhoneNumber] = useState("");
   const [resolvedHostId, setResolvedHostId] = useState<string | null>(apt?.hostId || apt?.ownerId || null);
+  const [approvedClientPrice, setApprovedClientPrice] = useState<number | null>(null);
 
   const [inquiries, setInquiries] = useState<InquiryItem[]>([]);
   const [loadingInquiries, setLoadingInquiries] = useState(false);
@@ -453,6 +482,7 @@ export default function ApartmentDetailScreen() {
     if (!apt || !auth.userId) return false;
     return (!!apt.ownerId && apt.ownerId === auth.userId) || (!!apt.hostId && apt.hostId === auth.userId);
   }, [apt, auth.userId]);
+  const isStrictHostOwner = !!apt?.hostId && !!auth.userId && auth.userId === apt.hostId;
   const canViewLikedUsers = !isListingOwner && !auth.isBroker;
 
   const cityCoordinates = useLocationCoordinates(apt?.city, apt?.area);
@@ -495,6 +525,8 @@ export default function ApartmentDetailScreen() {
         setResolvedExtraInformation(normalizeExtraInformation(docData.extraInformation));
         setPublishedAtMillis(toMillis(docData.publishedAt) || toMillis(docData.createdAt) || null);
         setUpdatedAtMillis(toMillis(docData.updatedAt) || null);
+        setApartmentStatus(docData.status === "closed_deal" ? "closed_deal" : "active");
+        setRentedToUserId(typeof docData.rentedToUserId === "string" ? docData.rentedToUserId : null);
 
         if (docData.description || docData.about) {
           setRealDescription((docData.description || docData.about || "").trim());
@@ -534,6 +566,11 @@ export default function ApartmentDetailScreen() {
   }, [apt?.id]);
 
   useEffect(() => {
+    setApartmentStatus(apt?.status === "closed_deal" ? "closed_deal" : "active");
+    setRentedToUserId(typeof apt?.rentedToUserId === "string" ? apt.rentedToUserId : null);
+  }, [apt?.rentedToUserId, apt?.status]);
+
+  useEffect(() => {
     if (!resolvedHostId) {
       setHostPhoneNumber("");
       return;
@@ -563,6 +600,46 @@ export default function ApartmentDetailScreen() {
       active = false;
     };
   }, [resolvedHostId]);
+
+  useEffect(() => {
+    if (!apt?.id || !auth.userId || auth.isGuest || isListingOwner) {
+      setApprovedClientPrice(null);
+      return;
+    }
+
+    let active = true;
+
+    void (async () => {
+      try {
+        const offersSnap = await getDocs(
+          query(
+            collectionGroup(db, "approvedOffers"),
+            where("clientUserId", "==", auth.userId),
+            where("apartmentId", "==", apt.id),
+            limit(1),
+          ),
+        );
+
+        if (!active) return;
+
+        if (offersSnap.empty) {
+          setApprovedClientPrice(null);
+          return;
+        }
+
+        const approvedOffer = offersSnap.docs[0].data() as FirestoreApprovedOfferDoc;
+        const parsedPrice = typeof approvedOffer.approvedPrice === "number" ? approvedOffer.approvedPrice : null;
+        setApprovedClientPrice(parsedPrice && parsedPrice > 0 ? parsedPrice : null);
+      } catch {
+        if (!active) return;
+        setApprovedClientPrice(null);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [apt?.id, auth.isGuest, auth.userId, isListingOwner]);
 
   useEffect(() => {
     const currentUserId = auth.userId;
@@ -764,6 +841,65 @@ export default function ApartmentDetailScreen() {
   }, [auth.userId, shareModalVisible]);
 
   useEffect(() => {
+    if (!closeDealModalVisible || !isStrictHostOwner || !auth.userId || !apt?.id) {
+      setLoadingCloseDealClients(false);
+      setCloseDealClientOptions([]);
+      return;
+    }
+
+    let active = true;
+    setLoadingCloseDealClients(true);
+
+    void (async () => {
+      try {
+        const chatsSnap = await getDocs(
+          query(
+            collection(db, "chats"),
+            where("apartmentId", "==", apt.id),
+            where("type", "==", "host"),
+            where("users", "array-contains", auth.userId),
+          ),
+        );
+
+        const counterpartIds = new Set<string>();
+        chatsSnap.docs.forEach((chatDoc) => {
+          const data = chatDoc.data() as FirestoreInquiryChatDoc;
+          const users = Array.isArray(data.users) ? data.users : [];
+          const counterpartId = users.find((uid) => uid !== auth.userId);
+          if (counterpartId) counterpartIds.add(counterpartId);
+        });
+
+        const options = await Promise.all(
+          Array.from(counterpartIds).map(async (uid) => {
+            const userSnap = await getDoc(doc(db, "users", uid));
+            const userData = userSnap.exists() ? (userSnap.data() as FirestoreUserDoc) : null;
+            const photos = Array.isArray(userData?.photos) ? userData.photos : [];
+
+            return {
+              id: uid,
+              name: userData?.name?.trim() || t("common.values.unknown"),
+              avatar: userData?.photoUrl || userData?.avatar || photos[0] || "",
+            } satisfies ClosedDealClientOption;
+          }),
+        );
+
+        if (!active) return;
+        setCloseDealClientOptions(options);
+      } catch (error) {
+        console.error("[ApartmentDetail] Failed to load close deal clients:", error);
+        if (!active) return;
+        setCloseDealClientOptions([]);
+      } finally {
+        if (active) setLoadingCloseDealClients(false);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [apt?.id, auth.userId, closeDealModalVisible, isStrictHostOwner]);
+
+  useEffect(() => {
     if (!showLikedUsersSection || !canViewLikedUsers || !apt?.id || !auth.userId || auth.isGuest) {
       setLikedUsers([]);
       setLoadingLikedUsers(false);
@@ -925,7 +1061,9 @@ export default function ApartmentDetailScreen() {
   const shouldShowAdditionalInformation = !!(displayPropertyCategory || displayPropertyType || displayFloor);
   const shouldShowExtraDetailsSection = !!displayExtraDetails && Object.keys(displayExtraDetails).length > 0;
   const shouldShowExtraInformationSection = !!displayExtraInformation;
-  const sqmPrice = calculatePricePerSqm(apt.rent, apt.size);
+  const hasApprovedClientPrice = typeof approvedClientPrice === "number" && approvedClientPrice > 0;
+  const displayRentPrice = hasApprovedClientPrice ? approvedClientPrice : apt.rent;
+  const sqmPrice = calculatePricePerSqm(displayRentPrice, apt.size);
   const extraInformationAvailabilityText = (() => {
     if (!displayExtraInformation) return null;
     if (displayExtraInformation.isImmediatelyAvailable) return "Άμεσα διαθέσιμο";
@@ -1210,6 +1348,79 @@ export default function ApartmentDetailScreen() {
     }
   };
 
+  const handleOpenCloseDeal = () => {
+    if (!isStrictHostOwner || !apt?.id) return;
+    setSelectedDealClientId(rentedToUserId ?? null);
+    setCloseDealModalVisible(true);
+  };
+
+  const handleConfirmCloseDeal = async () => {
+    if (!isStrictHostOwner || !auth.userId || !apt?.id || !selectedDealClientId || isSubmittingCloseDeal) return;
+
+    setIsSubmittingCloseDeal(true);
+    try {
+      await updateDoc(doc(db, "apartments", apt.id), {
+        status: "closed_deal",
+        rentedToUserId: selectedDealClientId,
+        rentedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      await addDoc(collection(db, "apartments", apt.id, "closedDeals"), {
+        apartmentId: apt.id,
+        hostUserId: auth.userId,
+        rentedToUserId: selectedDealClientId,
+        closedAt: serverTimestamp(),
+        source: "apartment_detail",
+      });
+
+      setApartmentStatus("closed_deal");
+      setRentedToUserId(selectedDealClientId);
+      setCloseDealModalVisible(false);
+      setActionModal({
+        title: "Η συμφωνία κατοχυρώθηκε!",
+        description: "Η αγγελία αποκρύφθηκε.",
+      });
+    } catch (error) {
+      console.error("[ApartmentDetail] Failed to close deal:", error);
+      setActionModal({
+        title: t("common.messages.tryAgain"),
+        description: t("apartmentDetail.chatUnavailableMessage"),
+      });
+    } finally {
+      setIsSubmittingCloseDeal(false);
+    }
+  };
+
+  const handleReopenListing = async () => {
+    if (!isStrictHostOwner || !apt?.id || isSubmittingCloseDeal) return;
+
+    setIsSubmittingCloseDeal(true);
+    try {
+      await updateDoc(doc(db, "apartments", apt.id), {
+        status: "active",
+        rentedToUserId: null,
+        rentedAt: null,
+        updatedAt: serverTimestamp(),
+      });
+
+      setApartmentStatus("active");
+      setRentedToUserId(null);
+      setActionModal({
+        title: "Η αγγελία ενεργοποιήθηκε ξανά",
+        description: "Η αγγελία εμφανίζεται ξανά στην αναζήτηση.",
+      });
+    } catch (error) {
+      console.error("[ApartmentDetail] Failed to re-activate listing:", error);
+      setActionModal({
+        title: t("common.messages.tryAgain"),
+        description: t("apartmentDetail.chatUnavailableMessage"),
+      });
+    } finally {
+      setIsSubmittingCloseDeal(false);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <Pressable
@@ -1281,9 +1492,22 @@ export default function ApartmentDetailScreen() {
             </View>
           )}
 
-          <View style={styles.rentBadge}>
-            <Text style={styles.rentValue}>{CURRENCY}{apt.rent}</Text>
-            <Text style={styles.rentPer}>{t("common.format.perMonthShort")}</Text>
+          <View style={[styles.rentBadge, hasApprovedClientPrice && styles.rentBadgeApproved]}>
+            {hasApprovedClientPrice ? (
+              <>
+                <Text style={styles.approvedRentLabel}>Εγκεκριμένη τιμή για εσένα</Text>
+                <View style={styles.approvedRentValueRow}>
+                  <Text style={[styles.rentValue, styles.rentValueApproved]}>{CURRENCY}{displayRentPrice}</Text>
+                  <Text style={[styles.rentPer, styles.rentPerApproved]}>{t("common.format.perMonthShort")}</Text>
+                </View>
+                <Text style={styles.originalRentText}>{`Αρχική: ${CURRENCY}${apt.rent}${t("common.format.perMonthShort")}`}</Text>
+              </>
+            ) : (
+              <>
+                <Text style={styles.rentValue}>{CURRENCY}{displayRentPrice}</Text>
+                <Text style={styles.rentPer}>{t("common.format.perMonthShort")}</Text>
+              </>
+            )}
           </View>
         </View>
 
@@ -1781,6 +2005,39 @@ export default function ApartmentDetailScreen() {
         </Pressable>
       </View>
 
+      {isStrictHostOwner ? (
+        <View style={[styles.dealFabCluster, { bottom: spacing.lg + insets.bottom + 86 }]}>
+          <Pressable
+            style={[
+              styles.hostInboxFab,
+              apartmentStatus === "closed_deal" ? styles.hostInboxFabMuted : styles.hostInboxFabActive,
+            ]}
+            onPress={() => {
+              if (apartmentStatus === "closed_deal") {
+                setShowReopenDealConfirm(true);
+              } else {
+                handleOpenCloseDeal();
+              }
+            }}
+            testID="apartment-detail-close-deal-fab"
+          >
+            <Ionicons
+              name={apartmentStatus === "closed_deal" ? "eye-outline" : "handshake-outline"}
+              size={22}
+              color={apartmentStatus === "closed_deal" ? colors.onSurfaceTertiary : colors.onBrand}
+            />
+          </Pressable>
+
+          <Pressable
+            style={styles.hostInboxFab}
+            onPress={handleScrollToInquiries}
+            testID="apartment-detail-host-inbox-fab"
+          >
+            <Text style={styles.hostInboxFabText}>✉️</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
       <CenteredActionModal
         visible={deleteModalVisible}
         title={t("apartmentDetail.deleteListingTitle")}
@@ -1809,6 +2066,33 @@ export default function ApartmentDetailScreen() {
       />
 
       <CenteredActionModal
+        visible={showReopenDealConfirm}
+        title="Επαναφορά αγγελίας"
+        description="Θέλεις να ξαναενεργοποιήσεις την αγγελία ώστε να εμφανίζεται ξανά στην αναζήτηση;"
+        onDismiss={() => {
+          if (!isSubmittingCloseDeal) setShowReopenDealConfirm(false);
+        }}
+        actionsLayout="horizontal"
+        actions={[
+          {
+            label: t("common.actions.cancel"),
+            variant: "muted",
+            iconName: "close-outline",
+            onPress: () => setShowReopenDealConfirm(false),
+          },
+          {
+            label: "Ενεργοποίηση",
+            iconName: "refresh-circle-outline",
+            onPress: () => {
+              setShowReopenDealConfirm(false);
+              void handleReopenListing();
+            },
+          },
+        ]}
+        testID="apartment-detail-reopen-deal-modal"
+      />
+
+      <CenteredActionModal
         visible={!!inquiryToDelete}
         title={t("apartmentDetail.deleteChatTitle")}
         description={t("apartmentDetail.deleteChatMessage")}
@@ -1834,6 +2118,95 @@ export default function ApartmentDetailScreen() {
         ]}
         testID="apartment-detail-delete-chat-modal"
       />
+
+      <Modal
+        transparent
+        animationType="fade"
+        visible={closeDealModalVisible}
+        onRequestClose={() => {
+          if (!isSubmittingCloseDeal) {
+            setCloseDealModalVisible(false);
+          }
+        }}
+      >
+        <View style={styles.shareModalBackdrop}>
+          <View style={styles.closeDealModalCard}>
+            <Text style={styles.closeDealModalTitle}>Κλείσιμο Συμφωνίας</Text>
+            <Text style={styles.closeDealWarningText}>
+              Προσοχή: Η ενέργεια αυτή θα αποκρύψει την αγγελία από την κεντρική αναζήτηση για όλους τους υπόλοιπους χρήστες.
+            </Text>
+            <Text style={styles.closeDealSubtitle}>Επιλέξτε τον πελάτη που έκλεισε το σπίτι:</Text>
+
+            {loadingCloseDealClients ? (
+              <View style={styles.shareModalEmptyWrap}>
+                <ActivityIndicator size="small" color={colors.brand} />
+              </View>
+            ) : (
+              <ScrollView style={styles.closeDealClientList} contentContainerStyle={styles.closeDealClientListContent}>
+                {closeDealClientOptions.map((option) => {
+                  const selected = selectedDealClientId === option.id;
+                  return (
+                    <Pressable
+                      key={option.id}
+                      style={[styles.closeDealClientRow, selected && styles.closeDealClientRowSelected]}
+                      onPress={() => setSelectedDealClientId(option.id)}
+                      testID={`apartment-detail-close-deal-client-${option.id}`}
+                    >
+                      <View style={styles.shareAvatarWrap}>
+                        {option.avatar ? (
+                          <Image source={{ uri: option.avatar }} style={styles.shareAvatarImage} contentFit="cover" />
+                        ) : (
+                          <DefaultProfileAvatar size={46} iconSize={20} />
+                        )}
+                      </View>
+                      <View style={styles.shareNameWrap}>
+                        <Text style={styles.shareNameText} numberOfLines={1}>{option.name}</Text>
+                      </View>
+                      {selected ? <Ionicons name="checkmark-circle" size={20} color={colors.brand} /> : null}
+                    </Pressable>
+                  );
+                })}
+
+                <Pressable
+                  style={[styles.closeDealClientRow, selectedDealClientId === "other" && styles.closeDealClientRowSelected]}
+                  onPress={() => setSelectedDealClientId("other")}
+                  testID="apartment-detail-close-deal-client-other"
+                >
+                  <View style={styles.closeDealOtherIconWrap}>
+                    <Ionicons name="ellipsis-horizontal-circle-outline" size={20} color={colors.onSurfaceTertiary} />
+                  </View>
+                  <View style={styles.shareNameWrap}>
+                    <Text style={styles.shareNameText}>Άλλο / Εκτός εφαρμογής</Text>
+                  </View>
+                  {selectedDealClientId === "other" ? <Ionicons name="checkmark-circle" size={20} color={colors.brand} /> : null}
+                </Pressable>
+              </ScrollView>
+            )}
+
+            <View style={styles.closeDealActionRow}>
+              <Pressable
+                style={styles.shareModalCancelBtn}
+                onPress={() => setCloseDealModalVisible(false)}
+                disabled={isSubmittingCloseDeal}
+                testID="apartment-detail-close-deal-cancel"
+              >
+                <Text style={styles.shareModalCancelText}>{t("common.actions.cancel")}</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.closeDealConfirmBtn, (!selectedDealClientId || isSubmittingCloseDeal) && styles.closeDealConfirmBtnDisabled]}
+                onPress={() => {
+                  void handleConfirmCloseDeal();
+                }}
+                disabled={!selectedDealClientId || isSubmittingCloseDeal}
+                testID="apartment-detail-close-deal-confirm"
+              >
+                <Ionicons name="checkmark-done-circle-outline" size={20} color={colors.onBrand} />
+                <Text style={styles.closeDealConfirmText}>Κατοχύρωση</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         transparent
@@ -2034,10 +2407,33 @@ function createStyles(colors: ThemeColors) {
       paddingVertical: spacing.sm,
       borderRadius: radius.pill,
     },
+    rentBadgeApproved: {
+      flexDirection: "column",
+      alignItems: "flex-start",
+      backgroundColor: colors.surfaceSecondary,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.md,
+      gap: 2,
+    },
+    approvedRentLabel: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.xs,
+      color: colors.onSurfaceTertiary,
+      textTransform: "uppercase",
+    },
+    approvedRentValueRow: {
+      flexDirection: "row",
+      alignItems: "flex-end",
+    },
     rentValue: {
       fontFamily: fonts.displayExtra,
       fontSize: fontSize["2xl"],
       color: colors.onBrand,
+    },
+    rentValueApproved: {
+      color: colors.brand,
+      fontFamily: fonts.bold,
     },
     rentPer: {
       fontFamily: fonts.bold,
@@ -2045,6 +2441,15 @@ function createStyles(colors: ThemeColors) {
       color: colors.onBrand,
       paddingBottom: 2,
       marginLeft: 2,
+    },
+    rentPerApproved: {
+      color: colors.brand,
+    },
+    originalRentText: {
+      fontFamily: fonts.regular,
+      fontSize: fontSize.xs,
+      color: colors.onSurfaceTertiary,
+      textDecorationLine: "line-through",
     },
 
     infoBlock: {
@@ -2323,6 +2728,91 @@ function createStyles(colors: ThemeColors) {
       fontSize: fontSize.sm,
       color: colors.onSurface,
     },
+    closeDealModalCard: {
+      width: "100%",
+      maxWidth: 460,
+      maxHeight: "82%",
+      backgroundColor: colors.surface,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: spacing.lg,
+      gap: spacing.sm,
+    },
+    closeDealModalTitle: {
+      fontFamily: fonts.bold,
+      fontSize: fontSize.xl,
+      color: colors.onSurface,
+    },
+    closeDealWarningText: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.sm,
+      color: colors.error,
+      lineHeight: 20,
+    },
+    closeDealSubtitle: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.sm,
+      color: colors.onSurfaceTertiary,
+    },
+    closeDealClientList: {
+      maxHeight: 320,
+    },
+    closeDealClientListContent: {
+      gap: spacing.xs,
+      paddingBottom: spacing.xs,
+    },
+    closeDealClientRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      padding: spacing.sm,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceSecondary,
+    },
+    closeDealClientRowSelected: {
+      borderColor: colors.brand,
+      backgroundColor: colors.brandTertiary,
+    },
+    closeDealOtherIconWrap: {
+      width: 46,
+      height: 46,
+      borderRadius: 23,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+    },
+    closeDealActionRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginTop: spacing.xs,
+      gap: spacing.sm,
+    },
+    closeDealConfirmBtn: {
+      minHeight: 40,
+      borderRadius: radius.pill,
+      paddingHorizontal: spacing.md,
+      backgroundColor: colors.brand,
+      borderWidth: 1,
+      borderColor: colors.brandSecondary,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: spacing.xs,
+    },
+    closeDealConfirmBtnDisabled: {
+      opacity: 0.45,
+    },
+    closeDealConfirmText: {
+      fontFamily: fonts.bold,
+      fontSize: fontSize.sm,
+      color: colors.onBrand,
+    },
 
     amenitiesGrid: {
       flexDirection: "row",
@@ -2562,6 +3052,41 @@ function createStyles(colors: ThemeColors) {
     borderTopWidth: 1,
     borderTopColor: colors.divider,
   },
+    dealFabCluster: {
+      position: "absolute",
+      right: spacing.lg,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      zIndex: 30,
+    },
+    hostInboxFab: {
+      width: 50,
+      height: 50,
+      borderRadius: 25,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.muted,
+      borderWidth: 1,
+      borderColor: "#A8D9FF",
+      shadowColor: "#000",
+      shadowOpacity: 0.18,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 7,
+    },
+    hostInboxFabText: {
+      fontSize: 22,
+      color: colors.brandTertiary,
+    },
+    hostInboxFabActive: {
+      backgroundColor: colors.brand,
+      borderColor: colors.brand,
+    },
+    hostInboxFabMuted: {
+      backgroundColor: colors.surfaceTertiary,
+      borderColor: colors.border,
+    },
     contactBtn: {
     minHeight: 56,
     borderRadius: radius.pill,

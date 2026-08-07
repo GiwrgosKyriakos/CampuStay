@@ -59,6 +59,11 @@ interface Message {
   createdAt: any;
   isRead?: boolean;
   type?: string;
+  status?: "pending" | "approved";
+  proposedPrice?: number;
+  requestedDate?: string;
+  requestedTime?: string;
+  apartmentId?: string;
   apartmentData?: SharedApartmentData;
 }
 
@@ -81,6 +86,11 @@ interface FirestoreMessageDoc {
   isRead?: boolean;
   readAt?: any;
   type?: string;
+  status?: "pending" | "approved";
+  proposedPrice?: number;
+  requestedDate?: string;
+  requestedTime?: string;
+  apartmentId?: string;
   apartmentData?: SharedApartmentData;
 }
 
@@ -115,6 +125,11 @@ interface FirestoreApartmentDoc {
   hasExactLocation?: boolean;
   rent?: number;
   price?: number;
+  maxDiscountPercent?: number;
+  maxDiscountPercentage?: number;
+  status?: "active" | "closed_deal";
+  rentedToUserId?: string | null;
+  rentedAt?: unknown;
   rooms?: number;
   size?: number;
   sqft?: number;
@@ -349,6 +364,13 @@ function MutualApartmentCard({ apartment, colors, styles, onPress }: MutualApart
 function buildApartmentRoutePayload(apartmentId: string, data: FirestoreApartmentDoc, fallbackTitle?: string) {
   const amenities = Array.isArray(data.amenities) ? data.amenities : [];
   const tags = Array.isArray(data.tags) ? data.tags : amenities;
+  const rawMaxDiscount =
+    typeof data.maxDiscountPercentage === "number"
+      ? data.maxDiscountPercentage
+      : typeof data.maxDiscountPercent === "number"
+        ? data.maxDiscountPercent
+        : 10;
+  const maxDiscountPercentage = Math.max(0, Math.min(90, Math.round(rawMaxDiscount)));
 
   return {
     id: apartmentId,
@@ -362,6 +384,7 @@ function buildApartmentRoutePayload(apartmentId: string, data: FirestoreApartmen
     longitude: typeof data.longitude === "number" ? data.longitude : undefined,
     hasExactLocation: data.hasExactLocation === true,
     rent: typeof data.rent === "number" ? data.rent : typeof data.price === "number" ? data.price : 0,
+    maxDiscountPercentage,
     rooms: typeof data.rooms === "number" ? data.rooms : 1,
     size: typeof data.size === "number" ? data.size : typeof data.sqft === "number" ? data.sqft : 0,
     image:
@@ -418,6 +441,52 @@ function normalizeSocialUrl(platform: "instagram" | "facebook" | "linkedin" | "t
     default:
       return trimmed;
   }
+}
+
+function toIsoDate(value: Date): string {
+  const year = value.getFullYear();
+  const month = `${value.getMonth() + 1}`.padStart(2, "0");
+  const day = `${value.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function parseIsoDate(value: string): Date | null {
+  const [yearStr, monthStr, dayStr] = value.split("-");
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  const day = Number(dayStr);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+    return null;
+  }
+  const date = new Date(year, month - 1, day);
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+}
+
+function formatRequestDate(value: string): string {
+  const date = parseIsoDate(value);
+  if (!date) return value;
+  return new Intl.DateTimeFormat("el-GR", {
+    day: "2-digit",
+    month: "2-digit",
+  }).format(date);
+}
+
+function getStatusLabel(status: Message["status"]): string {
+  return status === "approved" ? "Επιβεβαιώθηκε" : "Σε αναμονή";
+}
+
+function getNextHalfHour(base: Date): Date {
+  const rounded = new Date(base.getTime());
+  rounded.setSeconds(0, 0);
+  rounded.setMinutes(rounded.getMinutes() + 30);
+  const minutes = rounded.getMinutes();
+  const normalizedMinutes = minutes <= 30 ? 30 : 0;
+  if (normalizedMinutes === 0 && minutes > 30) {
+    rounded.setHours(rounded.getHours() + 1);
+  }
+  rounded.setMinutes(normalizedMinutes, 0, 0);
+  return rounded;
 }
 
 function evaluateEffectiveChatMuted(params: {
@@ -582,6 +651,18 @@ export default function ChatScreen() {
   const [hostApartment, setHostApartment] = useState<ReturnType<typeof buildApartmentRoutePayload> | null>(null);
   const [isApartmentUnavailable, setIsApartmentUnavailable] = useState(false);
   const [showMutualLikes, setShowMutualLikes] = useState(false);
+  const [showHostActionMenu, setShowHostActionMenu] = useState(false);
+  const [showPriceProposalModal, setShowPriceProposalModal] = useState(false);
+  const [showVisitRequestModal, setShowVisitRequestModal] = useState(false);
+  const [proposedPriceInput, setProposedPriceInput] = useState("");
+  const [selectedVisitDate, setSelectedVisitDate] = useState<string | null>(null);
+  const [selectedVisitHour, setSelectedVisitHour] = useState("12");
+  const [selectedVisitMinute, setSelectedVisitMinute] = useState<"00" | "30">("00");
+  const [visitMonthCursor, setVisitMonthCursor] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
+  const [isSubmittingHostAction, setIsSubmittingHostAction] = useState(false);
   const [currentUserLikedIds, setCurrentUserLikedIds] = useState<Set<string>>(new Set());
   const [counterpartLikedIds, setCounterpartLikedIds] = useState<Set<string>>(new Set());
   const [mutualLikedApartments, setMutualLikedApartments] = useState<MutualApartment[]>([]);
@@ -738,6 +819,11 @@ export default function ChatScreen() {
             createdAt: data.createdAt ?? Date.now(),
             isRead: data.isRead ?? true,
             type: data.type,
+            status: data.status,
+            proposedPrice: typeof data.proposedPrice === "number" ? data.proposedPrice : undefined,
+            requestedDate: typeof data.requestedDate === "string" ? data.requestedDate : undefined,
+            requestedTime: typeof data.requestedTime === "string" ? data.requestedTime : undefined,
+            apartmentId: typeof data.apartmentId === "string" ? data.apartmentId : undefined,
             apartmentData,
           };
         });
@@ -850,6 +936,12 @@ export default function ChatScreen() {
   useEffect(() => {
     setIsNoticeDismissedLocally(false);
   }, [chatRoomId, currentUserId, counterpartId]);
+
+  useEffect(() => {
+    setShowHostActionMenu(false);
+    setShowPriceProposalModal(false);
+    setShowVisitRequestModal(false);
+  }, [chatRoomId]);
 
   useEffect(() => {
     if (!currentUserId || !counterpartId || !chatRoomId) {
@@ -1276,6 +1368,266 @@ export default function ChatScreen() {
   const apartmentPreviewPrice = !apartmentLocked && hostApartment?.rent
     ? `${CURRENCY}${hostApartment.rent}${t("common.format.perMonthShort")}`
     : "";
+  const hostUserId =
+    chatType === "host" && typeof hostApartment?.hostId === "string" && hostApartment.hostId.trim().length > 0
+      ? hostApartment.hostId.trim()
+      : null;
+  const isCurrentUserHost = !!currentUserId && !!hostUserId && currentUserId === hostUserId;
+  const shouldShowHostClientActions =
+    chatType === "host" &&
+    !!hostUserId &&
+    !isCurrentUserHost &&
+    !auth.isGuest &&
+    !!hostApartmentId;
+
+  const hostDiscountPercentage =
+    typeof hostApartment?.maxDiscountPercentage === "number" ? hostApartment.maxDiscountPercentage : 10;
+  const hostRent = typeof hostApartment?.rent === "number" ? hostApartment.rent : 0;
+  const minRecommendedPrice = hostRent * ((100 - hostDiscountPercentage) / 100);
+
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const todayIso = toIsoDate(todayStart);
+
+  const calendarCells = useMemo(() => {
+    const year = visitMonthCursor.getFullYear();
+    const month = visitMonthCursor.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const firstDayRaw = new Date(year, month, 1).getDay();
+    const firstDay = (firstDayRaw + 6) % 7;
+
+    const cells: Array<{ day: number; iso: string; disabled: boolean } | null> = [];
+    for (let i = 0; i < firstDay; i += 1) {
+      cells.push(null);
+    }
+    for (let day = 1; day <= daysInMonth; day += 1) {
+      const date = new Date(year, month, day);
+      const iso = toIsoDate(date);
+      const disabled = date.getTime() < todayStart.getTime();
+      cells.push({ day, iso, disabled });
+    }
+    while (cells.length % 7 !== 0) {
+      cells.push(null);
+    }
+    return cells;
+  }, [todayStart, visitMonthCursor]);
+
+  const canGoToPreviousMonth =
+    visitMonthCursor.getFullYear() > todayStart.getFullYear() ||
+    (visitMonthCursor.getFullYear() === todayStart.getFullYear() && visitMonthCursor.getMonth() > todayStart.getMonth());
+
+  const hourOptions = useMemo(
+    () => Array.from({ length: 24 }, (_, value) => `${value}`.padStart(2, "0")),
+    [],
+  );
+  const minuteOptions = useMemo(() => ["00", "30"] as const, []);
+  const isSelectedDateToday = selectedVisitDate === todayIso;
+
+  const isHourDisabled = useCallback(
+    (hour: string) => {
+      if (!isSelectedDateToday) return false;
+      const numericHour = Number(hour);
+      if (numericHour < now.getHours()) return true;
+      if (numericHour > now.getHours()) return false;
+      return minuteOptions.every((minute) => Number(minute) < now.getMinutes());
+    },
+    [isSelectedDateToday, minuteOptions, now],
+  );
+
+  const isMinuteDisabled = useCallback(
+    (minute: "00" | "30") => {
+      if (!isSelectedDateToday) return false;
+      const numericHour = Number(selectedVisitHour);
+      if (numericHour > now.getHours()) return false;
+      if (numericHour < now.getHours()) return true;
+      return Number(minute) < now.getMinutes();
+    },
+    [isSelectedDateToday, now, selectedVisitHour],
+  );
+
+  const openVisitRequestModal = useCallback(() => {
+    const nextSlot = getNextHalfHour(new Date());
+    setSelectedVisitDate(toIsoDate(nextSlot));
+    setSelectedVisitHour(`${nextSlot.getHours()}`.padStart(2, "0"));
+    setSelectedVisitMinute(nextSlot.getMinutes() >= 30 ? "30" : "00");
+    setVisitMonthCursor(new Date(nextSlot.getFullYear(), nextSlot.getMonth(), 1));
+    setShowVisitRequestModal(true);
+    setShowHostActionMenu(false);
+  }, []);
+
+  const submitPriceProposal = useCallback(async () => {
+    if (!currentUserId || !chatRoomId || !hostApartmentId || isSubmittingHostAction) return;
+
+    const parsedPrice = Number(proposedPriceInput.replace(/,/g, ".").replace(/[^0-9.]/g, ""));
+    if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) return;
+
+    setIsSubmittingHostAction(true);
+    try {
+      await addDoc(collection(db, "chats", chatRoomId, "messages"), {
+        senderId: currentUserId,
+        type: "price_proposal",
+        proposedPrice: Math.round(parsedPrice),
+        status: "pending",
+        apartmentId: hostApartmentId,
+        createdAt: serverTimestamp(),
+      });
+
+      await setDoc(
+        doc(db, "chats", chatRoomId),
+        {
+          lastMessage: `Πρόταση τιμής: ${Math.round(parsedPrice)}${CURRENCY}`,
+          lastMessageTimestamp: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+
+      setProposedPriceInput("");
+      setShowPriceProposalModal(false);
+    } catch {
+      setActionModal({
+        title: t("chat.modals.actionFailedTitle"),
+        description: t("common.messages.tryAgain"),
+        actions: [
+          {
+            label: t("common.actions.gotIt"),
+            iconName: "alert-circle-outline",
+            onPress: () => setActionModal(null),
+          },
+        ],
+      });
+    } finally {
+      setIsSubmittingHostAction(false);
+    }
+  }, [chatRoomId, currentUserId, hostApartmentId, isSubmittingHostAction, proposedPriceInput]);
+
+  const submitVisitRequest = useCallback(async () => {
+    if (!currentUserId || !chatRoomId || !hostApartmentId || !selectedVisitDate || isSubmittingHostAction) return;
+    if (isHourDisabled(selectedVisitHour) || isMinuteDisabled(selectedVisitMinute)) return;
+
+    const visitDate = parseIsoDate(selectedVisitDate);
+    if (!visitDate) return;
+
+    setIsSubmittingHostAction(true);
+    try {
+      await addDoc(collection(db, "chats", chatRoomId, "messages"), {
+        senderId: currentUserId,
+        type: "visit_request",
+        requestedDate: selectedVisitDate,
+        requestedTime: `${selectedVisitHour}:${selectedVisitMinute}`,
+        status: "pending",
+        apartmentId: hostApartmentId,
+        createdAt: serverTimestamp(),
+      });
+
+      await setDoc(
+        doc(db, "chats", chatRoomId),
+        {
+          lastMessage: `Αίτημα επίσκεψης: ${formatRequestDate(selectedVisitDate)} ${selectedVisitHour}:${selectedVisitMinute}`,
+          lastMessageTimestamp: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+
+      setShowVisitRequestModal(false);
+    } catch {
+      setActionModal({
+        title: t("chat.modals.actionFailedTitle"),
+        description: t("common.messages.tryAgain"),
+        actions: [
+          {
+            label: t("common.actions.gotIt"),
+            iconName: "alert-circle-outline",
+            onPress: () => setActionModal(null),
+          },
+        ],
+      });
+    } finally {
+      setIsSubmittingHostAction(false);
+    }
+  }, [
+    chatRoomId,
+    currentUserId,
+    hostApartmentId,
+    isHourDisabled,
+    isMinuteDisabled,
+    isSubmittingHostAction,
+    selectedVisitDate,
+    selectedVisitHour,
+    selectedVisitMinute,
+  ]);
+
+  const approveHostActionMessage = useCallback(
+    async (message: Message) => {
+      if (!chatRoomId || !currentUserId || !isCurrentUserHost || message.status !== "pending") return;
+
+      try {
+        await updateDoc(doc(db, "chats", chatRoomId, "messages", message.id), {
+          status: "approved",
+          approvedBy: currentUserId,
+          approvedAt: serverTimestamp(),
+        });
+
+        if (message.type === "price_proposal" && typeof message.proposedPrice === "number") {
+          const offerApartmentId =
+            typeof message.apartmentId === "string" && message.apartmentId.trim().length > 0
+              ? message.apartmentId
+              : hostApartmentId || "";
+
+          if (offerApartmentId) {
+            const offerDocId = `${message.senderId}_${offerApartmentId}`;
+            await setDoc(
+              doc(db, "chats", chatRoomId, "approvedOffers", offerDocId),
+              {
+                clientUserId: message.senderId,
+                apartmentId: offerApartmentId,
+                approvedPrice: message.proposedPrice,
+                approvedAt: serverTimestamp(),
+              },
+              { merge: true },
+            );
+          }
+        }
+
+        const confirmationText =
+          message.type === "price_proposal"
+            ? "Ο αγγελιοδότης επιβεβαίωσε την πρόταση τιμής!"
+            : "Ο αγγελιοδότης επιβεβαίωσε το αίτημα επίσκεψης!";
+
+        await addDoc(collection(db, "chats", chatRoomId, "messages"), {
+          senderId: "system",
+          text: confirmationText,
+          type: "system_notice",
+          createdAt: serverTimestamp(),
+          isRead: true,
+        });
+
+        await setDoc(
+          doc(db, "chats", chatRoomId),
+          {
+            lastMessage: confirmationText,
+            lastMessageTimestamp: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true },
+        );
+      } catch {
+        setActionModal({
+          title: t("chat.modals.actionFailedTitle"),
+          description: t("common.messages.tryAgain"),
+          actions: [
+            {
+              label: t("common.actions.gotIt"),
+              iconName: "alert-circle-outline",
+              onPress: () => setActionModal(null),
+            },
+          ],
+        });
+      }
+    },
+    [chatRoomId, currentUserId, hostApartmentId, isCurrentUserHost],
+  );
 
   const handleApartmentPillPress = () => {
     if (!hostApartment || apartmentLocked) return;
@@ -1727,7 +2079,46 @@ export default function ChatScreen() {
                 </Text>
               ) : null}
             </View>
+            {shouldShowHostClientActions && !inputBlocked ? (
+              <Pressable
+                style={styles.hostActionTrigger}
+                onPress={(event) => {
+                  event.stopPropagation();
+                  setShowContextMenu(false);
+                  setShowHostActionMenu((prev) => !prev);
+                }}
+                hitSlop={6}
+                testID="chat-host-actions-trigger"
+              >
+                <Ionicons
+                  name={showHostActionMenu ? "chevron-down" : "chevron-down-circle-outline"}
+                  size={22}
+                  color={colors.onSurfaceTertiary}
+                />
+              </Pressable>
+            ) : null}
           </Pressable>
+        ) : null}
+        {showHostActionMenu && shouldShowHostClientActions && !inputBlocked ? (
+          <View style={styles.hostActionMenu} testID="chat-host-actions-menu">
+            <Pressable
+              style={styles.hostActionMenuItem}
+              onPress={() => {
+                setShowHostActionMenu(false);
+                setShowPriceProposalModal(true);
+              }}
+              testID="chat-host-action-price-proposal"
+            >
+              <Text style={styles.hostActionMenuText}>Πρότεινε τιμή</Text>
+            </Pressable>
+            <Pressable
+              style={styles.hostActionMenuItem}
+              onPress={openVisitRequestModal}
+              testID="chat-host-action-visit-request"
+            >
+              <Text style={styles.hostActionMenuText}>Ζήτα επίσκεψη</Text>
+            </Pressable>
+          </View>
         ) : null}
         <View style={styles.headerTop}>
           <Pressable
@@ -1768,7 +2159,10 @@ export default function ChatScreen() {
           </Pressable>
           <Pressable
             style={styles.iconBtn}
-            onPress={() => setShowContextMenu((prev) => !prev)}
+            onPress={() => {
+              setShowHostActionMenu(false);
+              setShowContextMenu((prev) => !prev);
+            }}
             testID="chat-context-menu-button"
             hitSlop={8}
           >
@@ -1856,10 +2250,13 @@ export default function ChatScreen() {
         ) : null}
       </View>
 
-      {showContextMenu ? (
+      {showContextMenu || showHostActionMenu ? (
         <Pressable
           style={styles.contextMenuBackdrop}
-          onPress={() => setShowContextMenu(false)}
+          onPress={() => {
+            setShowContextMenu(false);
+            setShowHostActionMenu(false);
+          }}
           testID="chat-context-menu-backdrop"
         />
       ) : null}
@@ -1951,6 +2348,9 @@ export default function ChatScreen() {
               const canDeleteForEveryone = isMine && !m.id.startsWith("temp-");
               const lastMsgIsDifferentSender = idx > 0 && messages[idx - 1].senderId !== m.senderId;
               const isApartmentShare = m.type === "apartment_share" && !!m.apartmentData;
+              const isPriceProposal = m.type === "price_proposal";
+              const isVisitRequest = m.type === "visit_request";
+              const isSystemNotice = m.type === "system_notice";
               const apartmentData = m.apartmentData;
 
               const itemMarginStyle = {
@@ -2048,6 +2448,51 @@ export default function ChatScreen() {
                 );
               }
 
+              if (chatType === "host" && (isPriceProposal || isVisitRequest)) {
+                const statusLabel = getStatusLabel(m.status);
+                const isPending = m.status !== "approved";
+                const canApprove = isCurrentUserHost && isPending;
+                const title = isPriceProposal ? "Πρόταση τιμής" : "Αίτημα επίσκεψης";
+                const detailText = isPriceProposal
+                  ? `${typeof m.proposedPrice === "number" ? m.proposedPrice : 0}${CURRENCY}/μήνα`
+                  : `${m.requestedDate ? formatRequestDate(m.requestedDate) : "-"} στις ${m.requestedTime || "--:--"}`;
+
+                return (
+                  <View key={m.id} style={[styles.hostActionCardWrap, itemMarginStyle]} testID={`chat-message-${m.id}`}>
+                    <View style={styles.hostActionCard}>
+                      <Text style={styles.hostActionCardTitle}>{title}</Text>
+                      <Text style={styles.hostActionCardDetail}>{detailText}</Text>
+                      <View style={styles.hostActionCardFooter}>
+                        <View style={[styles.hostActionStatusBadge, !isPending && styles.hostActionStatusBadgeApproved]}>
+                          <Text style={[styles.hostActionStatusText, !isPending && styles.hostActionStatusTextApproved]}>
+                            {statusLabel}
+                          </Text>
+                        </View>
+                        {canApprove ? (
+                          <Pressable
+                            style={styles.hostActionApproveBtn}
+                            onPress={() => {
+                              void approveHostActionMessage(m);
+                            }}
+                            testID={`chat-host-action-approve-${m.id}`}
+                          >
+                            <Ionicons name="checkmark-circle" size={28} color={colors.brand} />
+                          </Pressable>
+                        ) : null}
+                      </View>
+                    </View>
+                  </View>
+                );
+              }
+
+              if (isSystemNotice) {
+                return (
+                  <View key={m.id} style={[styles.systemNoticeWrap, itemMarginStyle]} testID={`chat-message-${m.id}`}>
+                    <Text style={styles.systemNoticeText}>{m.text}</Text>
+                  </View>
+                );
+              }
+
               return (
                 <Pressable
                   key={m.id}
@@ -2128,6 +2573,245 @@ export default function ChatScreen() {
           ) : null}
         </KeyboardAvoidingView>
       )}
+
+      <Modal
+        transparent
+        animationType="fade"
+        visible={showPriceProposalModal}
+        onRequestClose={() => {
+          if (!isSubmittingHostAction) {
+            setShowPriceProposalModal(false);
+          }
+        }}
+      >
+        <View style={styles.hostRequestModalBackdrop}>
+          <View style={styles.hostRequestModalCard}>
+            <Text style={styles.hostRequestModalTitle}>Υπόβαλλε πρόταση τιμής στον αγγελιοδότη</Text>
+            <TextInput
+              style={styles.hostRequestPriceInput}
+              value={proposedPriceInput}
+              onChangeText={setProposedPriceInput}
+              placeholder="0"
+              placeholderTextColor={colors.onSurfaceTertiary}
+              keyboardType="numeric"
+              editable={!isSubmittingHostAction}
+              testID="chat-price-proposal-input"
+            />
+            <Text style={styles.hostRequestHintText}>
+              {`Η πρόταση τιμής θα ήταν καλό να μην είναι λιγότερο από ${minRecommendedPrice.toFixed(0)}${CURRENCY} (${hostDiscountPercentage}% κάτω)`}
+            </Text>
+
+            <View style={styles.hostRequestModalActions}>
+              <Pressable
+                style={styles.hostRequestCancelBtn}
+                onPress={() => setShowPriceProposalModal(false)}
+                disabled={isSubmittingHostAction}
+                testID="chat-price-proposal-cancel"
+              >
+                <Text style={styles.hostRequestCancelText}>{t("common.actions.cancel")}</Text>
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.hostRequestSubmitBtn,
+                  (!proposedPriceInput.trim() || isSubmittingHostAction) && styles.hostRequestSubmitBtnDisabled,
+                ]}
+                onPress={() => {
+                  void submitPriceProposal();
+                }}
+                disabled={!proposedPriceInput.trim() || isSubmittingHostAction}
+                testID="chat-price-proposal-submit"
+              >
+                <Ionicons name="checkmark-circle" size={30} color={colors.onBrand} />
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        transparent
+        animationType="slide"
+        visible={showVisitRequestModal}
+        onRequestClose={() => {
+          if (!isSubmittingHostAction) {
+            setShowVisitRequestModal(false);
+          }
+        }}
+      >
+        <View style={styles.hostRequestModalBackdrop}>
+          <View style={styles.hostVisitModalCard}>
+            <Text style={styles.hostRequestModalTitle}>Ζήτα επίσκεψη</Text>
+
+            <View style={styles.visitCalendarHeader}>
+              <Pressable
+                style={[styles.visitCalendarNavBtn, !canGoToPreviousMonth && styles.visitCalendarNavBtnDisabled]}
+                onPress={() => {
+                  if (!canGoToPreviousMonth) return;
+                  setVisitMonthCursor((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+                }}
+                disabled={!canGoToPreviousMonth}
+                testID="chat-visit-prev-month"
+              >
+                <Ionicons name="chevron-back" size={16} color={colors.onSurface} />
+              </Pressable>
+              <Text style={styles.visitCalendarHeaderText}>
+                {new Intl.DateTimeFormat("el-GR", { month: "long", year: "numeric" }).format(visitMonthCursor)}
+              </Text>
+              <Pressable
+                style={styles.visitCalendarNavBtn}
+                onPress={() => {
+                  setVisitMonthCursor((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+                }}
+                testID="chat-visit-next-month"
+              >
+                <Ionicons name="chevron-forward" size={16} color={colors.onSurface} />
+              </Pressable>
+            </View>
+
+            <View style={styles.visitWeekdaysRow}>
+              {["Δε", "Τρ", "Τε", "Πε", "Πα", "Σα", "Κυ"].map((weekday) => (
+                <Text key={weekday} style={styles.visitWeekdayText}>{weekday}</Text>
+              ))}
+            </View>
+
+            <View style={styles.visitDaysGrid}>
+              {calendarCells.map((cell, index) => {
+                if (!cell) {
+                  return <View key={`empty-${index}`} style={styles.visitDayCell} />;
+                }
+
+                const isSelected = selectedVisitDate === cell.iso;
+                return (
+                  <Pressable
+                    key={cell.iso}
+                    style={[
+                      styles.visitDayCell,
+                      styles.visitDayButton,
+                      isSelected && styles.visitDayButtonSelected,
+                      cell.disabled && styles.visitDayButtonDisabled,
+                    ]}
+                    onPress={() => {
+                      if (cell.disabled) return;
+                      setSelectedVisitDate(cell.iso);
+                    }}
+                    disabled={cell.disabled}
+                    testID={`chat-visit-day-${cell.iso}`}
+                  >
+                    <Text
+                      style={[
+                        styles.visitDayText,
+                        isSelected && styles.visitDayTextSelected,
+                        cell.disabled && styles.visitDayTextDisabled,
+                      ]}
+                    >
+                      {cell.day}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <View style={styles.visitTimePickerWrap}>
+              <View style={styles.visitTimeColumn}>
+                <Text style={styles.visitTimeColumnLabel}>Ώρα</Text>
+                <ScrollView style={styles.visitTimeList} showsVerticalScrollIndicator={false}>
+                  {hourOptions.map((hour) => {
+                    const disabled = isHourDisabled(hour);
+                    const selected = selectedVisitHour === hour;
+                    return (
+                      <Pressable
+                        key={hour}
+                        style={[
+                          styles.visitTimeOption,
+                          selected && styles.visitTimeOptionSelected,
+                          disabled && styles.visitTimeOptionDisabled,
+                        ]}
+                        onPress={() => {
+                          if (disabled) return;
+                          setSelectedVisitHour(hour);
+                        }}
+                        disabled={disabled}
+                        testID={`chat-visit-hour-${hour}`}
+                      >
+                        <Text
+                          style={[
+                            styles.visitTimeOptionText,
+                            selected && styles.visitTimeOptionTextSelected,
+                            disabled && styles.visitTimeOptionTextDisabled,
+                          ]}
+                        >
+                          {hour}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+
+              <View style={styles.visitTimeColumn}>
+                <Text style={styles.visitTimeColumnLabel}>Λεπτά</Text>
+                <ScrollView style={styles.visitTimeList} showsVerticalScrollIndicator={false}>
+                  {minuteOptions.map((minute) => {
+                    const disabled = isMinuteDisabled(minute);
+                    const selected = selectedVisitMinute === minute;
+                    return (
+                      <Pressable
+                        key={minute}
+                        style={[
+                          styles.visitTimeOption,
+                          selected && styles.visitTimeOptionSelected,
+                          disabled && styles.visitTimeOptionDisabled,
+                        ]}
+                        onPress={() => {
+                          if (disabled) return;
+                          setSelectedVisitMinute(minute);
+                        }}
+                        disabled={disabled}
+                        testID={`chat-visit-minute-${minute}`}
+                      >
+                        <Text
+                          style={[
+                            styles.visitTimeOptionText,
+                            selected && styles.visitTimeOptionTextSelected,
+                            disabled && styles.visitTimeOptionTextDisabled,
+                          ]}
+                        >
+                          {minute}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            </View>
+
+            <View style={styles.hostRequestModalActions}>
+              <Pressable
+                style={styles.hostRequestCancelBtn}
+                onPress={() => setShowVisitRequestModal(false)}
+                disabled={isSubmittingHostAction}
+                testID="chat-visit-request-cancel"
+              >
+                <Text style={styles.hostRequestCancelText}>{t("common.actions.cancel")}</Text>
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.hostRequestSubmitBtn,
+                  (!selectedVisitDate || isSubmittingHostAction || isHourDisabled(selectedVisitHour) || isMinuteDisabled(selectedVisitMinute)) &&
+                    styles.hostRequestSubmitBtnDisabled,
+                ]}
+                onPress={() => {
+                  void submitVisitRequest();
+                }}
+                disabled={!selectedVisitDate || isSubmittingHostAction || isHourDisabled(selectedVisitHour) || isMinuteDisabled(selectedVisitMinute)}
+                testID="chat-visit-request-submit"
+              >
+                <Ionicons name="checkmark-circle" size={30} color={colors.onBrand} />
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         transparent
@@ -2412,6 +3096,44 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     fontFamily: fonts.regular,
     fontSize: fontSize.xs,
     color: colors.onSurfaceTertiary,
+  },
+  hostActionTrigger: {
+    width: 30,
+    height: 30,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  hostActionMenu: {
+    position: "absolute",
+    right: spacing.lg,
+    top: 66,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    minWidth: 180,
+    zIndex: 35,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+  },
+  hostActionMenuItem: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  hostActionMenuText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+    color: colors.onSurface,
   },
   headerTop: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   headerProfileTapArea: {
@@ -3059,6 +3781,76 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   shareStatsTextMine: {
     color: "rgba(255,255,255,0.92)",
   },
+  hostActionCardWrap: {
+    alignItems: "center",
+  },
+  hostActionCard: {
+    width: "92%",
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    gap: 6,
+  },
+  hostActionCardTitle: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.base,
+    color: colors.onSurface,
+    textAlign: "center",
+  },
+  hostActionCardDetail: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.base,
+    color: colors.onSurfaceTertiary,
+    textAlign: "center",
+  },
+  hostActionCardFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 2,
+  },
+  hostActionStatusBadge: {
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    backgroundColor: colors.surfaceTertiary,
+  },
+  hostActionStatusBadgeApproved: {
+    backgroundColor: colors.brandTertiary,
+  },
+  hostActionStatusText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.xs,
+    color: colors.onSurfaceTertiary,
+  },
+  hostActionStatusTextApproved: {
+    color: colors.brand,
+  },
+  hostActionApproveBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  systemNoticeWrap: {
+    alignItems: "center",
+  },
+  systemNoticeText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+    color: colors.onSurfaceTertiary,
+    textAlign: "center",
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+  },
   inputBar: {
     flexDirection: "row",
     alignItems: "flex-end",
@@ -3116,6 +3908,190 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     fontFamily: fonts.bold,
     fontSize: fontSize.base,
     color: colors.onSurface,
+  },
+  hostRequestModalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "center",
+    paddingHorizontal: spacing.lg,
+  },
+  hostRequestModalCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.lg,
+    gap: spacing.sm,
+  },
+  hostVisitModalCard: {
+    maxHeight: "92%",
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.lg,
+    gap: spacing.sm,
+  },
+  hostRequestModalTitle: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.base,
+    color: colors.onSurface,
+  },
+  hostRequestPriceInput: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.lg,
+    color: colors.onSurface,
+    backgroundColor: colors.surfaceSecondary,
+  },
+  hostRequestHintText: {
+    fontFamily: fonts.regular,
+    fontSize: fontSize.sm,
+    color: colors.onSurfaceTertiary,
+  },
+  hostRequestModalActions: {
+    marginTop: spacing.xs,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  hostRequestCancelBtn: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  hostRequestCancelText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.base,
+    color: colors.onSurfaceTertiary,
+  },
+  hostRequestSubmitBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.brand,
+  },
+  hostRequestSubmitBtnDisabled: {
+    opacity: 0.45,
+  },
+  visitCalendarHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: spacing.xs,
+  },
+  visitCalendarNavBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  visitCalendarNavBtnDisabled: {
+    opacity: 0.45,
+  },
+  visitCalendarHeaderText: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.base,
+    color: colors.onSurface,
+    textTransform: "capitalize",
+  },
+  visitWeekdaysRow: {
+    marginTop: spacing.sm,
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  visitWeekdayText: {
+    width: "14.28%",
+    textAlign: "center",
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.xs,
+    color: colors.onSurfaceTertiary,
+  },
+  visitDaysGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginTop: spacing.xs,
+  },
+  visitDayCell: {
+    width: "14.28%",
+    height: 34,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 4,
+  },
+  visitDayButton: {
+    borderRadius: radius.pill,
+  },
+  visitDayButtonSelected: {
+    backgroundColor: colors.brand,
+  },
+  visitDayButtonDisabled: {
+    opacity: 0.32,
+  },
+  visitDayText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+    color: colors.onSurface,
+  },
+  visitDayTextSelected: {
+    color: colors.onBrand,
+  },
+  visitDayTextDisabled: {
+    color: colors.onSurfaceTertiary,
+  },
+  visitTimePickerWrap: {
+    flexDirection: "row",
+    gap: spacing.md,
+    marginTop: spacing.sm,
+  },
+  visitTimeColumn: {
+    flex: 1,
+    gap: 6,
+  },
+  visitTimeColumnLabel: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+    color: colors.onSurfaceTertiary,
+  },
+  visitTimeList: {
+    maxHeight: 118,
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: 4,
+  },
+  visitTimeOption: {
+    borderRadius: radius.md,
+    paddingVertical: 6,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  visitTimeOptionSelected: {
+    backgroundColor: colors.brand,
+  },
+  visitTimeOptionDisabled: {
+    opacity: 0.35,
+  },
+  visitTimeOptionText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.base,
+    color: colors.onSurface,
+  },
+  visitTimeOptionTextSelected: {
+    color: colors.onBrand,
+  },
+  visitTimeOptionTextDisabled: {
+    color: colors.onSurfaceTertiary,
   },
   sheetBackground: {
     backgroundColor: colors.surface,
