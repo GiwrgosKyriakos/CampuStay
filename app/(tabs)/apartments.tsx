@@ -139,7 +139,15 @@ interface FirestoreHostChatDoc {
   users?: string[];
   type?: "roommate" | "host" | string;
   initiatedBy?: string | null;
+  apartmentId?: string;
 }
+
+type ApartmentQuickChatMeta = {
+  hasContactedHost: boolean;
+  chatRoomId: string;
+  hostId: string;
+  initiatedByCurrentUser: boolean;
+};
 
 interface FirestoreHostInboxUserDoc {
   already_have_apartment_to_share?: boolean;
@@ -175,6 +183,7 @@ type ApartmentGridCardProps = {
   colors: ThemeColors;
   isLiked: boolean;
   isMyListingsView: boolean;
+  quickChatMeta?: ApartmentQuickChatMeta;
   onOpen: () => void;
   onToggleLike: () => void;
 };
@@ -192,9 +201,11 @@ function ApartmentGridCard({
   colors,
   isLiked,
   isMyListingsView,
+  quickChatMeta,
   onOpen,
   onToggleLike,
 }: ApartmentGridCardProps) {
+  const router = useRouter();
   const [activeImageIndex, setActiveImageIndex] = useState(0);
 
   const cardImages = useMemo(() => {
@@ -293,13 +304,34 @@ function ApartmentGridCard({
       </Pressable>
 
       {!isMyListingsView ? (
-        <Pressable
-          style={[styles.likeBtn, isLiked && styles.likeBtnActive]}
-          onPress={onToggleLike}
-          testID={`apartment-like-${apt.id}`}
-        >
-          <Ionicons name={isLiked ? "heart" : "heart-outline"} size={20} color={isLiked ? "#FFFFFF" : colors.onSurface} />
-        </Pressable>
+        <>
+          {quickChatMeta?.hasContactedHost ? (
+            <Pressable
+              style={[styles.likeBtn, styles.quickChatBtn]}
+              onPress={(e) => {
+                e.stopPropagation();
+                router.push({
+                  pathname: "/chat/[id]",
+                  params: {
+                    id: quickChatMeta.hostId,
+                    chatRoomId: quickChatMeta.chatRoomId,
+                  },
+                });
+              }}
+              testID={`apartment-quick-chat-${apt.id}`}
+            >
+              <Ionicons name="chatbubble-ellipses-outline" size={20} color={colors.onBrand} />
+            </Pressable>
+          ) : null}
+
+          <Pressable
+            style={[styles.likeBtn, isLiked && styles.likeBtnActive]}
+            onPress={onToggleLike}
+            testID={`apartment-like-${apt.id}`}
+          >
+            <Ionicons name={isLiked ? "heart" : "heart-outline"} size={20} color={isLiked ? "#FFFFFF" : colors.onSurface} />
+          </Pressable>
+        </>
       ) : null}
     </View>
   );
@@ -331,6 +363,7 @@ export default function ApartmentsScreen() {
   const [hasPublishedHostApartment, setHasPublishedHostApartment] = useState(false);
   const [hasApartmentShareFlag, setHasApartmentShareFlag] = useState(false);
   const [hostInboxHasUnread, setHostInboxHasUnread] = useState(false);
+  const [hostChatByApartmentId, setHostChatByApartmentId] = useState<Record<string, ApartmentQuickChatMeta>>({});
   const [likedApartmentIds, setLikedApartmentIds] = useState<Set<string>>(new Set());
   const [likeErrorModalVisible, setLikeErrorModalVisible] = useState(false);
   const [showNotesPanel, setShowNotesPanel] = useState(false);
@@ -472,6 +505,51 @@ export default function ApartmentsScreen() {
       unsubscribe();
     };
   }, [auth.isGuest, auth.userId, canOpenHostInbox]);
+
+  useEffect(() => {
+    if (auth.isGuest || !auth.userId) {
+      setHostChatByApartmentId({});
+      return;
+    }
+
+    const chatsQ = query(
+      collection(db, "chats"),
+      where("users", "array-contains", auth.userId),
+      where("type", "==", "host"),
+    );
+
+    const unsubscribe = onSnapshot(
+      chatsQ,
+      (snapshot) => {
+        const nextMap: Record<string, ApartmentQuickChatMeta> = {};
+
+        snapshot.docs.forEach((chatDoc) => {
+          const data = chatDoc.data() as FirestoreHostChatDoc;
+          const apartmentId = typeof data.apartmentId === "string" ? data.apartmentId.trim() : "";
+          if (!apartmentId) return;
+
+          const users = Array.isArray(data.users) ? data.users : [];
+          const hostId = users.find((uid) => uid !== auth.userId) ?? "";
+          if (!hostId) return;
+
+          const initiatedByCurrentUser = data.initiatedBy === auth.userId;
+          nextMap[apartmentId] = {
+            hasContactedHost: true,
+            chatRoomId: chatDoc.id,
+            hostId,
+            initiatedByCurrentUser,
+          };
+        });
+
+        setHostChatByApartmentId(nextMap);
+      },
+      () => {
+        setHostChatByApartmentId({});
+      },
+    );
+
+    return () => unsubscribe();
+  }, [auth.isGuest, auth.userId]);
 
   useEffect(() => {
     if (auth.isLoading) return;
@@ -1096,6 +1174,14 @@ export default function ApartmentsScreen() {
         {filteredApartments.map((apt) => {
           const isLiked = likedApartmentIds.has(apt.id);
           const isMyListingsView = isViewingMyListings;
+          const chatMeta = hostChatByApartmentId[apt.id];
+          const canShowQuickChat =
+            !!chatMeta &&
+            !!auth.userId &&
+            apt.hostId !== auth.userId &&
+            (chatMeta.initiatedByCurrentUser || apt.hostId !== auth.userId);
+          const quickChatMeta = canShowQuickChat ? chatMeta : undefined;
+
           if (isCompactActive) {
             return (
               <TouchableOpacity
@@ -1153,6 +1239,7 @@ export default function ApartmentsScreen() {
               colors={colors}
               isLiked={isLiked}
               isMyListingsView={isMyListingsView}
+              quickChatMeta={quickChatMeta}
               onOpen={() =>
                 router.push({
                   pathname: "/apartment-detail",
@@ -1821,6 +1908,11 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   likeBtnActive: {
     backgroundColor: "#FF5A66",
     borderColor: "#FF5A66",
+  },
+  quickChatBtn: {
+    right: spacing.md + 42 + spacing.sm,
+    backgroundColor: colors.brand,
+    borderColor: colors.brand,
   },
   photo: { ...StyleSheet.absoluteFillObject },
   rentBadge: {
