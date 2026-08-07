@@ -49,6 +49,7 @@ import { useLocationCoordinates } from "@/src/hooks/useLocationCoordinates";
 import { getExcludedUserIds } from "@/src/api/blocking";
 import { calculateMatchScore } from "@/src/utils/matchAlgorithm";
 import type { CompatibilityQuizAnswers, UserProfile as MatchUserProfile } from "@/src/utils/matchAlgorithm";
+import { calculatePricePerSqm } from "@/src/utils/pricing";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const CURRENCY = "€";
@@ -924,6 +925,7 @@ export default function ApartmentDetailScreen() {
   const shouldShowAdditionalInformation = !!(displayPropertyCategory || displayPropertyType || displayFloor);
   const shouldShowExtraDetailsSection = !!displayExtraDetails && Object.keys(displayExtraDetails).length > 0;
   const shouldShowExtraInformationSection = !!displayExtraInformation;
+  const sqmPrice = calculatePricePerSqm(apt.rent, apt.size);
   const extraInformationAvailabilityText = (() => {
     if (!displayExtraInformation) return null;
     if (displayExtraInformation.isImmediatelyAvailable) return "Άμεσα διαθέσιμο";
@@ -1685,6 +1687,13 @@ export default function ApartmentDetailScreen() {
 
             {isExtraInformationOpen ? (
               <View style={styles.extraInformationCard}>
+                {sqmPrice > 0 ? (
+                  <View style={styles.sqmPricePill}>
+                    <Ionicons name="resize-outline" size={14} color={colors.onBrandTertiary} />
+                    <Text style={styles.sqmPricePillText}>{`${sqmPrice.toFixed(1)} € / τ.μ.`}</Text>
+                  </View>
+                ) : null}
+
                 <View style={styles.extraInformationRow}>
                   <Text style={styles.extraInformationLabel}>🛋️ Living Rooms</Text>
                   <Text style={styles.extraInformationValue}>{displayExtraInformation?.livingRooms}</Text>
@@ -2457,6 +2466,23 @@ function createStyles(colors: ThemeColors) {
       color: colors.onSurfaceTertiary,
       textAlign: "right",
       flexShrink: 1,
+    },
+    sqmPricePill: {
+      alignSelf: "flex-start",
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+      backgroundColor: colors.brandTertiary,
+      borderColor: colors.brand,
+      borderWidth: 1,
+      borderRadius: radius.pill,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.xs,
+    },
+    sqmPricePillText: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.base,
+      color: colors.onBrandTertiary,
     },
     descText: {
     fontFamily: fonts.regular,

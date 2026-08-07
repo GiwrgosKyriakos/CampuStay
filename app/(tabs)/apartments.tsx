@@ -21,12 +21,13 @@ import { t } from "@/src/locales";
 import { getExcludedUserIds } from "@/src/api/blocking";
 import { getUserApartmentNotes, updateNotesOrder, type Apartment as ApartmentNoteData } from "@/src/api/apartmentNotes";
 import { storage } from "@/src/utils/storage";
+import { calculatePricePerSqm } from "@/src/utils/pricing";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 100;
 const APARTMENTS_SORT_BY_STORAGE_KEY = "apartments.sortBy";
 
-type SortOption = "newest" | "oldest" | "price_asc" | "price_desc" | "size_asc" | "size_desc";
+type SortOption = "newest" | "oldest" | "price_asc" | "price_desc" | "size_asc" | "size_desc" | "price_sqm_asc" | "price_sqm_desc";
 
 const SORT_OPTION_LABELS: Record<SortOption, string> = {
   newest: "Πιο πρόσφατα",
@@ -35,9 +36,18 @@ const SORT_OPTION_LABELS: Record<SortOption, string> = {
   price_desc: "Φθίνουσα τιμή (€€€ -> €)",
   size_asc: "Αύξον εμβαδόν (m² -> m³)",
   size_desc: "Φθίνουσα εμβαδόν (m³ -> m²)",
+  price_sqm_asc: "Αύξουσα τιμή/τ.μ. (€/m² -> €€€/m²)",
+  price_sqm_desc: "Φθίνουσα τιμή/τ.μ. (€€€/m² -> €/m²)",
 };
 
-const SORT_OPTIONS: SortOption[] = ["newest", "oldest", "price_asc", "price_desc", "size_asc", "size_desc"];
+const SORT_OPTIONS: SortOption[] = ["newest", "oldest", "price_asc", "price_desc", "size_asc", "size_desc", "price_sqm_asc", "price_sqm_desc"];
+
+function sanitizeDecimalInput(value: string): string {
+  const normalized = value.replace(/,/g, ".").replace(/[^0-9.]/g, "");
+  const [head, ...rest] = normalized.split(".");
+  if (!rest.length) return head;
+  return `${head}.${rest.join("")}`;
+}
 
 function parseTimestampToMillis(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -401,6 +411,8 @@ export default function ApartmentsScreen() {
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [rentMin, setRentMin] = useState("");
   const [rentMax, setRentMax] = useState("");
+  const [minSqmPrice, setMinSqmPrice] = useState<string>("");
+  const [maxSqmPrice, setMaxSqmPrice] = useState<string>("");
   const [cityQuery, setCityQuery] = useState("");
   const [sizeMin, setSizeMin] = useState("");
   const [sizeMax, setSizeMax] = useState("");
@@ -919,6 +931,8 @@ export default function ApartmentsScreen() {
   const filteredApartments = useMemo(() => {
     const minRent = rentMin ? Number(rentMin) : null;
     const maxRent = rentMax ? Number(rentMax) : null;
+    const minSqm = minSqmPrice ? parseFloat(minSqmPrice) : Number.NaN;
+    const maxSqm = maxSqmPrice ? parseFloat(maxSqmPrice) : Number.NaN;
     const minSize = sizeMin ? Number(sizeMin) : null;
     const maxSize = sizeMax ? Number(sizeMax) : null;
     const locationQuery = cityQuery.trim().toLowerCase();
@@ -954,6 +968,10 @@ export default function ApartmentsScreen() {
         (maxSize == null || apt.size <= maxSize);
       const petMatch = !petFriendly || apt.tags.includes("pet_friendly");
       const metroMatch = !nearMetro || apt.tags.includes("near_metro");
+      const sqmPrice = calculatePricePerSqm(apt.rent, apt.size);
+
+      if (!Number.isNaN(minSqm) && sqmPrice < minSqm) return false;
+      if (!Number.isNaN(maxSqm) && sqmPrice > maxSqm) return false;
 
       return cityMatch && rentMatch && sizeMatch && petMatch && metroMatch;
     });
@@ -993,6 +1011,8 @@ export default function ApartmentsScreen() {
     likedApartmentIds,
     nearMetro,
     petFriendly,
+    minSqmPrice,
+    maxSqmPrice,
     rentMax,
     rentMin,
     searchQuery,
@@ -1014,6 +1034,10 @@ export default function ApartmentsScreen() {
           return (a.size || 0) - (b.size || 0);
         case "size_desc":
           return (b.size || 0) - (a.size || 0);
+        case "price_sqm_asc":
+          return calculatePricePerSqm(a.rent, a.size) - calculatePricePerSqm(b.rent, b.size);
+        case "price_sqm_desc":
+          return calculatePricePerSqm(b.rent, b.size) - calculatePricePerSqm(a.rent, a.size);
         case "newest":
         default:
           return (b.createdAt || 0) - (a.createdAt || 0);
@@ -1257,6 +1281,28 @@ export default function ApartmentsScreen() {
                 keyboardType="number-pad"
                 placeholderTextColor={colors.onSurfaceTertiary}
                 testID="apartments-rent-max"
+              />
+            </View>
+
+            <Text style={styles.filterLabel}>Τιμή ανά τ.μ. (€/m²)</Text>
+            <View style={styles.rangeRow}>
+              <TextInput
+                style={styles.rangeInput}
+                value={minSqmPrice}
+                onChangeText={(value) => setMinSqmPrice(sanitizeDecimalInput(value))}
+                placeholder="Από (€/m²)"
+                keyboardType="numeric"
+                placeholderTextColor={colors.onSurfaceTertiary}
+                testID="apartments-sqm-min"
+              />
+              <TextInput
+                style={styles.rangeInput}
+                value={maxSqmPrice}
+                onChangeText={(value) => setMaxSqmPrice(sanitizeDecimalInput(value))}
+                placeholder="Έως (€/m²)"
+                keyboardType="numeric"
+                placeholderTextColor={colors.onSurfaceTertiary}
+                testID="apartments-sqm-max"
               />
             </View>
 
