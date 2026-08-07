@@ -89,6 +89,8 @@ interface FirestoreChatDoc {
   type?: "roommate" | "host" | string;
   apartmentId?: string;
   apartmentTitle?: string;
+  hostPhoneNumber?: string;
+  counterpartPhoneNumber?: string;
   apartmentUnavailable?: boolean;
   status?: "pending" | "active" | "rejected";
   initiatedBy?: string | null;
@@ -158,6 +160,8 @@ interface FirestoreUserDoc {
   twitter?: string;
   photoUrl?: string;
   photos?: string[];
+  phone_number?: string | null;
+  phone?: string | null;
   directMessagesEnabled?: boolean;
 }
 
@@ -572,6 +576,7 @@ export default function ChatScreen() {
   const [isNoticeDismissedLocally, setIsNoticeDismissedLocally] = useState(false);
   const clearedAtCutoffRef = useRef<number | null>(null);
   const [chatType, setChatType] = useState<"roommate" | "host">("roommate");
+  const [hostPhoneFromChatMeta, setHostPhoneFromChatMeta] = useState("");
   const [hostApartmentId, setHostApartmentId] = useState<string | null>(null);
   const [hostApartmentTitle, setHostApartmentTitle] = useState<string | null>(null);
   const [hostApartment, setHostApartment] = useState<ReturnType<typeof buildApartmentRoutePayload> | null>(null);
@@ -679,6 +684,7 @@ export default function ChatScreen() {
         setIsNoticeDismissedLocally(false);
         clearedAtCutoffRef.current = null;
         setChatType("roommate");
+        setHostPhoneFromChatMeta("");
         setHostApartmentId(null);
         setHostApartmentTitle(null);
         setIsApartmentUnavailable(false);
@@ -699,6 +705,13 @@ export default function ChatScreen() {
       clearedAtCutoffRef.current = clearCutoff > 0 ? clearCutoff : null;
       setIsCrossChatNoticeDismissed(currentUserId ? dismissedCrossChatNoticesMap[currentUserId] === true : false);
       setChatType(data.type === "host" ? "host" : "roommate");
+      const rawHostPhoneFromChat =
+        typeof data.hostPhoneNumber === "string"
+          ? data.hostPhoneNumber
+          : typeof data.counterpartPhoneNumber === "string"
+            ? data.counterpartPhoneNumber
+            : "";
+      setHostPhoneFromChatMeta(rawHostPhoneFromChat.trim());
       setHostApartmentId(typeof data.apartmentId === "string" && data.apartmentId.trim().length > 0 ? data.apartmentId : null);
       setHostApartmentTitle(typeof data.apartmentTitle === "string" && data.apartmentTitle.trim().length > 0 ? data.apartmentTitle : null);
       setIsApartmentUnavailable(!!data.apartmentUnavailable);
@@ -1215,6 +1228,15 @@ export default function ChatScreen() {
   }
 
   const apartmentLocked = chatType === "host" && isApartmentUnavailable;
+  const hostPhoneNumber =
+    chatType === "host"
+      ? (
+          hostPhoneFromChatMeta ||
+          (typeof counterpartDetails?.phone_number === "string" ? counterpartDetails.phone_number : "") ||
+          (typeof counterpartDetails?.phone === "string" ? counterpartDetails.phone : "")
+        ).trim()
+      : "";
+  const shouldShowHostPhoneBadge = chatType === "host" && hostPhoneNumber.length > 0;
   const isAllMuteActive = notificationPreferences.mute_all_notifications;
   const isChatMutedEffective = evaluateEffectiveChatMuted({
     chatRoomId,
@@ -1728,9 +1750,17 @@ export default function ChatScreen() {
               <DefaultProfileAvatar size={44} iconSize={22} testID="chat-header-avatar-fallback" />
             )}
             <View style={[styles.headerTextWrap, !displayUniversity?.trim() && { transform: [{ translateY: 7 }] }]}>
-              <Text style={styles.headerName} numberOfLines={1}>
-                {displayName}
-              </Text>
+              <View style={styles.headerNameRow}>
+                <Text style={styles.headerName} numberOfLines={1}>
+                  {displayName}
+                </Text>
+                {shouldShowHostPhoneBadge ? (
+                  <View style={styles.hostPhoneBadge}>
+                    <Ionicons name="call-outline" size={11} color={colors.onSurfaceTertiary} />
+                    <Text style={styles.hostPhoneBadgeText} numberOfLines={1}>{hostPhoneNumber}</Text>
+                  </View>
+                ) : null}
+              </View>
               <Text style={styles.headerUni} numberOfLines={1}>
                 {displayUniversity}
               </Text>
@@ -2395,6 +2425,12 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     justifyContent: "center",
     paddingTop: 2,
   },
+  headerNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    flexWrap: "wrap",
+  },
   iconBtn: {
     width: 40,
     height: 40,
@@ -2419,6 +2455,24 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     fontSize: fontSize.xl,
     color: colors.onSurface,
     transform: [{ translateY: 0 }],
+  },
+  hostPhoneBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 2,
+    backgroundColor: colors.surfaceTertiary,
+    borderWidth: 1,
+    borderColor: colors.border,
+    maxWidth: "100%",
+  },
+  hostPhoneBadgeText: {
+    fontFamily: fonts.medium,
+    fontSize: fontSize.xs,
+    color: colors.onSurfaceTertiary,
+    flexShrink: 1,
   },
   headerUni: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
   detailRow: { flexDirection: "row", gap: spacing.sm },
