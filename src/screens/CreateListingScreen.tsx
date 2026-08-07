@@ -85,6 +85,11 @@ type ExtraDetailCategory = {
   items: string[];
 };
 
+type CompletionBadgeProps = {
+  colors: ThemeColors;
+  styles: ReturnType<typeof createStyles>;
+};
+
 const EXTRA_DETAIL_CATEGORIES: ExtraDetailCategory[] = [
   {
     title: "Εσωτερικό",
@@ -142,6 +147,14 @@ const EXTRA_DETAIL_CATEGORIES: ExtraDetailCategory[] = [
 
 const PHOTO_SLOTS = 6;
 const IMAGE_QUALITY = 0.7;
+
+function CompletionBadge({ colors, styles }: CompletionBadgeProps) {
+  return (
+    <View style={styles.sectionCompleteBadge}>
+      <Ionicons name="checkmark" size={13} color={colors.onBrand} />
+    </View>
+  );
+}
 
 export default function CreateListingScreen() {
   const { colors } = useTheme();
@@ -220,6 +233,85 @@ export default function CreateListingScreen() {
     () => AMENITIES.filter((item) => amenities[item.key]).map((item) => item.slug),
     [amenities],
   );
+
+  const hasValidPhoto = useMemo(
+    () => photos.some((uri) => typeof uri === "string" && uri.trim().length > 0),
+    [photos],
+  );
+
+  const extraDetailsAnswersCount = useMemo(
+    () => Object.keys(extraDetailsState).length,
+    [extraDetailsState],
+  );
+
+  const numericRent = useMemo(() => Number(monthlyRent), [monthlyRent]);
+  const numericSize = useMemo(() => Number(sizeSqm), [sizeSqm]);
+  const numericRooms = useMemo(() => Number(rooms), [rooms]);
+  const cityValue = city?.trim() ?? "";
+
+  const isLocationSectionComplete = useMemo(
+    () => cityValue.length > 0 && area.trim().length > 0,
+    [area, cityValue],
+  );
+
+  const isSpecsSectionComplete = useMemo(
+    () => numericRent > 0 && numericSize > 0 && numericRooms > 0,
+    [numericRent, numericRooms, numericSize],
+  );
+
+  const isPhotosSectionComplete = useMemo(() => hasValidPhoto, [hasValidPhoto]);
+
+  const isAmenitiesSectionComplete = useMemo(
+    () => selectedAmenitySlugs.length > 0,
+    [selectedAmenitySlugs],
+  );
+
+  const isExtraDetailsSectionComplete = useMemo(
+    () => extraDetailsAnswersCount > 0,
+    [extraDetailsAnswersCount],
+  );
+
+  const hasAmenitiesDetailsOrContactInput = useMemo(
+    () => isAmenitiesSectionComplete || isExtraDetailsSectionComplete || showPhoneNumber === false,
+    [isAmenitiesSectionComplete, isExtraDetailsSectionComplete, showPhoneNumber],
+  );
+
+  const progressChecks = useMemo(
+    () => [
+      title.trim().length > 0,
+      description.trim().length > 0,
+      cityValue.length > 0,
+      area.trim().length > 0,
+      numericRent > 0,
+      numericSize > 0,
+      numericRooms > 0,
+      hasValidPhoto,
+      hasAmenitiesDetailsOrContactInput,
+    ],
+    [
+      area,
+      cityValue,
+      description,
+      hasAmenitiesDetailsOrContactInput,
+      hasValidPhoto,
+      numericRent,
+      numericRooms,
+      numericSize,
+      title,
+    ],
+  );
+
+  const listingProgress = useMemo(() => {
+    const completed = progressChecks.filter(Boolean).length;
+    const total = progressChecks.length;
+    const ratio = total > 0 ? completed / total : 0;
+    return {
+      completed,
+      total,
+      ratio,
+      percent: Math.round(ratio * 100),
+    };
+  }, [progressChecks]);
 
   const handleToggleAmenity = (key: AmenityKey) => {
     setAmenities((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -506,6 +598,10 @@ export default function CreateListingScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
+      <View style={styles.progressTrack}>
+        <View style={[styles.progressFill, { width: `${listingProgress.percent}%` }]} />
+      </View>
+
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.flexOne}>
         <ScrollView
           contentContainerStyle={[styles.content, { paddingBottom: spacing["2xl"] + insets.bottom }]}
@@ -531,7 +627,10 @@ export default function CreateListingScreen() {
           ) : null}
 
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>{t("createListing.monthlyRent")}</Text>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionTitle}>{t("createListing.monthlyRent")}</Text>
+              {isSpecsSectionComplete ? <CompletionBadge colors={colors} styles={styles} /> : null}
+            </View>
             <TextInput
               value={monthlyRent}
               onChangeText={(t) => setMonthlyRent(t.replace(/[^0-9]/g, ""))}
@@ -625,7 +724,10 @@ export default function CreateListingScreen() {
           </View>
 
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>{t("createListing.location")}</Text>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionTitle}>{t("createListing.location")}</Text>
+              {isLocationSectionComplete ? <CompletionBadge colors={colors} styles={styles} /> : null}
+            </View>
             <Dropdown
               value={city}
               options={cityOptions}
@@ -673,7 +775,10 @@ export default function CreateListingScreen() {
           </View>
 
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>{t("createListing.amenitiesTitle")}</Text>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionTitle}>{t("createListing.amenitiesTitle")}</Text>
+              {isAmenitiesSectionComplete ? <CompletionBadge colors={colors} styles={styles} /> : null}
+            </View>
             <View style={styles.amenityList}>
               {AMENITIES.map((amenity) => {
                 const active = amenities[amenity.key];
@@ -763,7 +868,10 @@ export default function CreateListingScreen() {
           </View>
 
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>{t("common.labels.photos")}</Text>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionTitle}>{t("common.labels.photos")}</Text>
+              {isPhotosSectionComplete ? <CompletionBadge colors={colors} styles={styles} /> : null}
+            </View>
             <Text style={styles.fieldHint}>{t("createListing.photosHint")}</Text>
             <View style={styles.photoGrid}>
               {Array.from({ length: PHOTO_SLOTS }, (_, index) => index).map((index) => {
@@ -835,12 +943,11 @@ export default function CreateListingScreen() {
               onPress={() => setIsExtraDetailsExpanded((prev) => !prev)}
               testID="create-listing-extra-details-toggle"
             >
-              <Text style={styles.sectionTitle}>Παραπάνω λεπτομέρειες</Text>
-              <Ionicons
-                name={isExtraDetailsExpanded ? "chevron-up" : "chevron-down"}
-                size={20}
-                color={colors.onSurface}
-              />
+              <View style={styles.sectionHeaderRowInline}>
+                <Text style={styles.sectionTitle}>Παραπάνω λεπτομέρειες</Text>
+                {isExtraDetailsSectionComplete ? <CompletionBadge colors={colors} styles={styles} /> : null}
+              </View>
+              <Ionicons name={isExtraDetailsExpanded ? "chevron-up" : "chevron-down"} size={20} color={colors.onSurface} />
             </Pressable>
 
             {isExtraDetailsExpanded ? (
@@ -900,27 +1007,6 @@ export default function CreateListingScreen() {
               </View>
             ) : null}
           </View>
-            contactToggleRow: {
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: spacing.md,
-              padding: spacing.md,
-              borderRadius: radius.md,
-              borderWidth: 1,
-              borderColor: colors.border,
-              backgroundColor: colors.surface,
-            },
-            contactToggleTextWrap: {
-              flex: 1,
-              gap: spacing.xs,
-            },
-            contactToggleLabel: {
-              fontFamily: fonts.semibold,
-              fontSize: fontSize.base,
-              color: colors.onSurface,
-              lineHeight: 20,
-            },
         </ScrollView>
 
         <View style={[styles.footer, { paddingBottom: spacing.lg + insets.bottom }]}>
@@ -1005,6 +1091,16 @@ function createStyles(colors: ThemeColors) {
       paddingTop: spacing.sm,
       gap: spacing.md,
     },
+    progressTrack: {
+      width: "100%",
+      height: 4,
+      backgroundColor: colors.border,
+      paddingHorizontal: 0,
+    },
+    progressFill: {
+      height: "100%",
+      backgroundColor: colors.brand,
+    },
     headerRow: {
       flexDirection: "row",
       alignItems: "center",
@@ -1046,6 +1142,27 @@ function createStyles(colors: ThemeColors) {
       fontSize: fontSize.lg,
       color: colors.onSurface,
       marginBottom: 2,
+    },
+    sectionHeaderRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: spacing.sm,
+    },
+    sectionHeaderRowInline: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      flexShrink: 1,
+    },
+    sectionCompleteBadge: {
+      width: 22,
+      height: 22,
+      borderRadius: radius.pill,
+      backgroundColor: colors.brand,
+      alignItems: "center",
+      justifyContent: "center",
+      flexShrink: 0,
     },
     sectionSubtitle: {
       fontFamily: fonts.semibold,
@@ -1253,6 +1370,27 @@ function createStyles(colors: ThemeColors) {
       fontFamily: fonts.semibold,
       fontSize: fontSize.sm,
       color: colors.error,
+    },
+    contactToggleRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: spacing.md,
+      padding: spacing.md,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+    },
+    contactToggleTextWrap: {
+      flex: 1,
+      gap: spacing.xs,
+    },
+    contactToggleLabel: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.base,
+      color: colors.onSurface,
+      lineHeight: 20,
     },
     footer: {
       paddingHorizontal: spacing.lg,
