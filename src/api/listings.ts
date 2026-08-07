@@ -102,6 +102,7 @@ export async function upsertListing(params: {
   await setDoc(newRef, {
     ...payload,
     createdAt: serverTimestamp(),
+    publishedAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
   return newRef.id;

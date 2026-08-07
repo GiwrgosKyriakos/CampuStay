@@ -58,6 +58,19 @@ type TimestampLike = {
   toMillis?: () => number;
 };
 
+type ListingExtraInformation = {
+  livingRooms: number;
+  bathrooms: number;
+  kitchens: number;
+  buildYear?: number;
+  commonExpenses?: number;
+  levels: number;
+  heatingSystem?: string;
+  energyClass?: string;
+  availableFromDate?: string;
+  isImmediatelyAvailable?: boolean;
+};
+
 type InquiryItem = {
   id: string;
   customerId: string;
@@ -89,6 +102,7 @@ interface Apartment {
   image: string;
   tags: string[];
   extraDetails?: Record<string, boolean>;
+  extraInformation?: ListingExtraInformation;
   hostId?: string;
   ownerId?: string;
 }
@@ -114,6 +128,7 @@ interface FirestoreApartmentDoc {
   tags?: string[];
   amenities?: string[];
   extraDetails?: Record<string, boolean>;
+  extraInformation?: Partial<ListingExtraInformation>;
   showPhoneNumber?: boolean;
   hostId?: string;
   ownerId?: string;
@@ -121,6 +136,9 @@ interface FirestoreApartmentDoc {
   latitude?: number;
   longitude?: number;
   hasExactLocation?: boolean;
+  publishedAt?: unknown;
+  updatedAt?: unknown;
+  createdAt?: unknown;
 }
 
 interface FirestoreInquiryChatDoc {
@@ -255,6 +273,53 @@ function normalizeExtraDetailsMap(extraDetails: unknown): Record<string, boolean
   return Object.fromEntries(entries) as Record<string, boolean>;
 }
 
+function normalizeExtraInformation(extraInformation: unknown): ListingExtraInformation | null {
+  if (!extraInformation || typeof extraInformation !== "object") return null;
+
+  const raw = extraInformation as Partial<ListingExtraInformation>;
+  const livingRooms = typeof raw.livingRooms === "number" && Number.isFinite(raw.livingRooms) ? Math.min(9, Math.max(1, Math.trunc(raw.livingRooms))) : null;
+  const bathrooms = typeof raw.bathrooms === "number" && Number.isFinite(raw.bathrooms) ? Math.min(9, Math.max(1, Math.trunc(raw.bathrooms))) : null;
+  const kitchens = typeof raw.kitchens === "number" && Number.isFinite(raw.kitchens) ? Math.min(9, Math.max(1, Math.trunc(raw.kitchens))) : null;
+  const levels = typeof raw.levels === "number" && Number.isFinite(raw.levels) ? Math.min(9, Math.max(1, Math.trunc(raw.levels))) : null;
+
+  if (livingRooms === null || bathrooms === null || kitchens === null || levels === null) {
+    return null;
+  }
+
+  return {
+    livingRooms,
+    bathrooms,
+    kitchens,
+    levels,
+    buildYear: typeof raw.buildYear === "number" && Number.isFinite(raw.buildYear) ? Math.trunc(raw.buildYear) : undefined,
+    commonExpenses: typeof raw.commonExpenses === "number" && Number.isFinite(raw.commonExpenses) ? Math.max(0, Math.trunc(raw.commonExpenses)) : undefined,
+    heatingSystem: typeof raw.heatingSystem === "string" && raw.heatingSystem.trim().length > 0 ? raw.heatingSystem.trim() : undefined,
+    energyClass: typeof raw.energyClass === "string" && raw.energyClass.trim().length > 0 ? raw.energyClass.trim() : undefined,
+    availableFromDate: typeof raw.availableFromDate === "string" && raw.availableFromDate.trim().length > 0 ? raw.availableFromDate.trim() : undefined,
+    isImmediatelyAvailable: raw.isImmediatelyAvailable === true,
+  };
+}
+
+function formatIsoDate(isoDate: string): string {
+  const date = new Date(`${isoDate}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return isoDate;
+  return new Intl.DateTimeFormat("el-GR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date);
+}
+
+function formatDateTime(millis: number): string {
+  return new Intl.DateTimeFormat("el-GR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(millis));
+}
+
 const AMENITIES: AmenityDef[] = [
   { key: "wifi", label: "apartmentDetail.amenities.wifi", icon: "wifi-outline", tagMatch: ["wifi"] },
   { key: "ac", label: "apartmentDetail.amenities.ac", icon: "snow-outline", tagMatch: ["ac", "air_conditioning"] },
@@ -351,6 +416,7 @@ export default function ApartmentDetailScreen() {
   const [actionModal, setActionModal] = useState<{ title: string; description: string } | null>(null);
   const [showLikedUsersSection, setShowLikedUsersSection] = useState(false);
   const [isExtraDetailsOpen, setIsExtraDetailsOpen] = useState(false);
+  const [isExtraInformationOpen, setIsExtraInformationOpen] = useState(false);
   const [likedUsers, setLikedUsers] = useState<LikedUserItem[]>([]);
   const [loadingLikedUsers, setLoadingLikedUsers] = useState(false);
   const [chatActionUserId, setChatActionUserId] = useState<string | null>(null);
@@ -363,10 +429,13 @@ export default function ApartmentDetailScreen() {
   const [realDescription, setRealDescription] = useState<string | null>(null);
   const [realTags, setRealTags] = useState<string[]>([]);
   const [resolvedExtraDetails, setResolvedExtraDetails] = useState<Record<string, boolean> | null>(null);
+  const [resolvedExtraInformation, setResolvedExtraInformation] = useState<ListingExtraInformation | null>(null);
   const [resolvedRooms, setResolvedRooms] = useState<number | null>(null);
   const [resolvedFloor, setResolvedFloor] = useState<string | null>(null);
   const [resolvedPropertyCategory, setResolvedPropertyCategory] = useState<string | null>(null);
   const [resolvedPropertyType, setResolvedPropertyType] = useState<string | null>(null);
+  const [publishedAtMillis, setPublishedAtMillis] = useState<number | null>(null);
+  const [updatedAtMillis, setUpdatedAtMillis] = useState<number | null>(null);
   const [checkingVisibility, setCheckingVisibility] = useState(false);
   const [isListingExcluded, setIsListingExcluded] = useState(false);
   const [showPhoneNumber, setShowPhoneNumber] = useState(false);
@@ -422,6 +491,9 @@ export default function ApartmentDetailScreen() {
         setShowPhoneNumber(docData.showPhoneNumber === true);
         setResolvedHostId(docData.hostId || docData.ownerId || apt?.hostId || apt?.ownerId || null);
         setResolvedExtraDetails(normalizeExtraDetailsMap(docData.extraDetails));
+        setResolvedExtraInformation(normalizeExtraInformation(docData.extraInformation));
+        setPublishedAtMillis(toMillis(docData.publishedAt) || toMillis(docData.createdAt) || null);
+        setUpdatedAtMillis(toMillis(docData.updatedAt) || null);
 
         if (docData.description || docData.about) {
           setRealDescription((docData.description || docData.about || "").trim());
@@ -848,8 +920,22 @@ export default function ApartmentDetailScreen() {
   const displayPropertyCategory = resolvedPropertyCategory ?? (apt.propertyCategory?.trim() || "");
   const displayPropertyType = resolvedPropertyType ?? (apt.propertyType?.trim() || "");
   const displayExtraDetails = resolvedExtraDetails ?? normalizeExtraDetailsMap(apt.extraDetails);
+  const displayExtraInformation = resolvedExtraInformation ?? normalizeExtraInformation(apt.extraInformation);
   const shouldShowAdditionalInformation = !!(displayPropertyCategory || displayPropertyType || displayFloor);
   const shouldShowExtraDetailsSection = !!displayExtraDetails && Object.keys(displayExtraDetails).length > 0;
+  const shouldShowExtraInformationSection = !!displayExtraInformation;
+  const extraInformationAvailabilityText = (() => {
+    if (!displayExtraInformation) return null;
+    if (displayExtraInformation.isImmediatelyAvailable) return "Άμεσα διαθέσιμο";
+    if (!displayExtraInformation.availableFromDate) return null;
+
+    const availableFromMillis = new Date(`${displayExtraInformation.availableFromDate}T00:00:00`).getTime();
+    if (!Number.isNaN(availableFromMillis) && Date.now() >= availableFromMillis) {
+      return "Άμεσα διαθέσιμο";
+    }
+
+    return `Διαθέσιμο από: ${formatIsoDate(displayExtraInformation.availableFromDate)}`;
+  })();
 
   const images = (dbImages.length > 0 ? dbImages : [apt.image]).filter(
     (uri) => typeof uri === "string" && uri.trim().length > 0,
@@ -1473,7 +1559,7 @@ export default function ApartmentDetailScreen() {
 
         {shouldShowAdditionalInformation ? (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Επιπλέον Πληροφορίες</Text>
+            <Text style={styles.sectionTitle}>Χαρακτηριστικά ακινήτου</Text>
             <View style={styles.detailMetaCard}>
               {displayPropertyCategory ? (
                 <View style={styles.detailMetaRow}>
@@ -1579,6 +1665,86 @@ export default function ApartmentDetailScreen() {
               </View>
               <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
             </Pressable>
+          </View>
+        ) : null}
+
+        {shouldShowExtraInformationSection ? (
+          <View style={styles.section}>
+            <Pressable
+              style={styles.extraDetailsHeaderRow}
+              onPress={() => setIsExtraInformationOpen((prev) => !prev)}
+              testID="apartment-detail-extra-information-toggle"
+            >
+              <Text style={styles.sectionTitle}>Επιπλέον πληροφορίες</Text>
+              <Ionicons
+                name={isExtraInformationOpen ? "chevron-up" : "chevron-down"}
+                size={20}
+                color={colors.onSurface}
+              />
+            </Pressable>
+
+            {isExtraInformationOpen ? (
+              <View style={styles.extraInformationCard}>
+                <View style={styles.extraInformationRow}>
+                  <Text style={styles.extraInformationLabel}>🛋️ Living Rooms</Text>
+                  <Text style={styles.extraInformationValue}>{displayExtraInformation?.livingRooms}</Text>
+                </View>
+                <View style={styles.extraInformationRow}>
+                  <Text style={styles.extraInformationLabel}>🚿 Bathrooms</Text>
+                  <Text style={styles.extraInformationValue}>{displayExtraInformation?.bathrooms}</Text>
+                </View>
+                <View style={styles.extraInformationRow}>
+                  <Text style={styles.extraInformationLabel}>🍳 Kitchens</Text>
+                  <Text style={styles.extraInformationValue}>{displayExtraInformation?.kitchens}</Text>
+                </View>
+                {displayExtraInformation?.buildYear ? (
+                  <View style={styles.extraInformationRow}>
+                    <Text style={styles.extraInformationLabel}>🏗️ Construction Year</Text>
+                    <Text style={styles.extraInformationValue}>{displayExtraInformation.buildYear}</Text>
+                  </View>
+                ) : null}
+                {typeof displayExtraInformation?.commonExpenses === "number" ? (
+                  <View style={styles.extraInformationRow}>
+                    <Text style={styles.extraInformationLabel}>💶 Monthly Common Expenses</Text>
+                    <Text style={styles.extraInformationValue}>{`${displayExtraInformation.commonExpenses}${CURRENCY}`}</Text>
+                  </View>
+                ) : null}
+                <View style={styles.extraInformationRow}>
+                  <Text style={styles.extraInformationLabel}>🪜 Levels</Text>
+                  <Text style={styles.extraInformationValue}>{displayExtraInformation?.levels}</Text>
+                </View>
+                {displayExtraInformation?.heatingSystem ? (
+                  <View style={styles.extraInformationRow}>
+                    <Text style={styles.extraInformationLabel}>🪟 Heating System</Text>
+                    <Text style={styles.extraInformationValue}>{displayExtraInformation.heatingSystem}</Text>
+                  </View>
+                ) : null}
+                {displayExtraInformation?.energyClass ? (
+                  <View style={styles.extraInformationRow}>
+                    <Text style={styles.extraInformationLabel}>⚡ Energy Class</Text>
+                    <Text style={styles.extraInformationValue}>{displayExtraInformation.energyClass}</Text>
+                  </View>
+                ) : null}
+                {extraInformationAvailabilityText ? (
+                  <View style={styles.extraInformationRow}>
+                    <Text style={styles.extraInformationLabel}>📅 Availability Status</Text>
+                    <Text style={styles.extraInformationValue}>{extraInformationAvailabilityText}</Text>
+                  </View>
+                ) : null}
+                {publishedAtMillis ? (
+                  <View style={styles.extraInformationRow}>
+                    <Text style={styles.extraInformationLabel}>🕒 Ημερομηνία δημοσίευσης</Text>
+                    <Text style={styles.extraInformationValue}>{formatDateTime(publishedAtMillis)}</Text>
+                  </View>
+                ) : null}
+                {updatedAtMillis ? (
+                  <View style={styles.extraInformationRow}>
+                    <Text style={styles.extraInformationLabel}>🕒 Τελευταία τροποποίηση</Text>
+                    <Text style={styles.extraInformationValue}>{formatDateTime(updatedAtMillis)}</Text>
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
           </View>
         ) : null}
       </ScrollView>
@@ -2261,6 +2427,35 @@ function createStyles(colors: ThemeColors) {
       fontFamily: fonts.semibold,
       fontSize: fontSize.base,
       color: colors.onSurface,
+      flexShrink: 1,
+    },
+    extraInformationCard: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.lg,
+      backgroundColor: colors.surfaceSecondary,
+      padding: spacing.md,
+      gap: spacing.sm,
+    },
+    extraInformationRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: spacing.md,
+      flexWrap: "wrap",
+    },
+    extraInformationLabel: {
+      flex: 1,
+      minWidth: 180,
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.base,
+      color: colors.onSurface,
+    },
+    extraInformationValue: {
+      fontFamily: fonts.regular,
+      fontSize: fontSize.base,
+      color: colors.onSurfaceTertiary,
+      textAlign: "right",
       flexShrink: 1,
     },
     descText: {

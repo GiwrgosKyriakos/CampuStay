@@ -230,6 +230,7 @@ type ApartmentGridCardProps = {
   styles: ReturnType<typeof createStyles>;
   colors: ThemeColors;
   isLiked: boolean;
+  isOwnListing: boolean;
   isMyListingsView: boolean;
   quickChatMeta?: ApartmentQuickChatMeta;
   onOpen: () => void;
@@ -248,6 +249,7 @@ function ApartmentGridCard({
   styles,
   colors,
   isLiked,
+  isOwnListing,
   isMyListingsView,
   quickChatMeta,
   onOpen,
@@ -351,7 +353,7 @@ function ApartmentGridCard({
         </View>
       </Pressable>
 
-      {!isMyListingsView ? (
+      {!isMyListingsView && !isOwnListing ? (
         <>
           {quickChatMeta?.hasContactedHost ? (
             <Pressable
@@ -406,6 +408,7 @@ export default function ApartmentsScreen() {
   const [nearMetro, setNearMetro] = useState(false);
   const [sortBy, setSortBy] = useState<SortOption>("newest");
   const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false);
+  const [showOwnListingsInFeed, setShowOwnListingsInFeed] = useState(false);
   const [activeTab, setActiveTab] = useState<"all" | "liked">("all");
   const [viewMode, setViewMode] = useState<"grid" | "compact">("grid");
   const [isViewingMyListings, setIsViewingMyListings] = useState(false);
@@ -423,6 +426,7 @@ export default function ApartmentsScreen() {
   const SWIPE_THRESHOLD = 56;
   const canOpenHostInbox = hasPublishedHostApartment || hasApartmentShareFlag;
   const canManageListings = !auth.isGuest && (hasPublishedHostApartment || hasApartmentShareFlag);
+  const isHostUser = canManageListings;
   const showCreateFab = !auth.isGuest && (!hideCreateFab || auth.isBroker);
   const showHostInboxFab = !auth.isGuest && !auth.isBroker && !hideCreateFab && canOpenHostInbox;
 
@@ -922,7 +926,7 @@ export default function ApartmentsScreen() {
     const currentUid = auth.userId;
 
     const baseFiltered = apartments.filter((apt) => {
-      const isOwnListing = !!currentUid && apt.ownerId === currentUid;
+      const isOwnListing = !!currentUid && (apt.ownerId === currentUid || apt.hostId === currentUid);
 
       if (isViewingMyListings) {
         if (!isOwnListing) return false;
@@ -930,7 +934,10 @@ export default function ApartmentsScreen() {
         if (activeTab === "liked" && !likedApartmentIds.has(apt.id)) {
           return false;
         }
-        if (isOwnListing) {
+        if (activeTab === "liked" && isOwnListing) {
+          return false;
+        }
+        if (activeTab === "all" && isOwnListing && !showOwnListingsInFeed) {
           return false;
         }
       }
@@ -989,6 +996,7 @@ export default function ApartmentsScreen() {
     rentMax,
     rentMin,
     searchQuery,
+    showOwnListingsInFeed,
     sizeMax,
     sizeMin,
   ]);
@@ -1215,6 +1223,21 @@ export default function ApartmentsScreen() {
               </View>
             ) : null}
 
+            {isHostUser && !isViewingMyListings ? (
+              <View style={styles.hostFeedToggleRow} testID="apartments-own-listings-toggle-row">
+                <View style={styles.hostFeedToggleTextWrap}>
+                  <Text style={styles.hostFeedToggleTitle}>Εμφάνιση των δικών μου καταχωρίσεων στο All</Text>
+                </View>
+                <Switch
+                  value={showOwnListingsInFeed}
+                  onValueChange={setShowOwnListingsInFeed}
+                  trackColor={{ true: colors.brand, false: colors.border }}
+                  thumbColor={showOwnListingsInFeed ? colors.onBrand : colors.onSurface}
+                  testID="apartments-own-listings-toggle"
+                />
+              </View>
+            ) : null}
+
             <Text style={styles.filterLabel}>{t("apartments.monthlyRent", { currency: CURRENCY })}</Text>
             <View style={styles.rangeRow}>
               <TextInput
@@ -1307,6 +1330,7 @@ export default function ApartmentsScreen() {
         {sortedApartments.map((apt) => {
           const isLiked = likedApartmentIds.has(apt.id);
           const isMyListingsView = isViewingMyListings;
+          const isOwnListing = !!auth.userId && (apt.ownerId === auth.userId || apt.hostId === auth.userId);
           const chatMeta = hostChatByApartmentId[apt.id];
           const canShowQuickChat =
             !!chatMeta &&
@@ -1371,6 +1395,7 @@ export default function ApartmentsScreen() {
               styles={styles}
               colors={colors}
               isLiked={isLiked}
+              isOwnListing={isOwnListing}
               isMyListingsView={isMyListingsView}
               quickChatMeta={quickChatMeta}
               onOpen={() =>
@@ -1902,6 +1927,27 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   sortOptionTextActive: {
     color: colors.brand,
+  },
+  hostFeedToggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  hostFeedToggleTextWrap: {
+    flex: 1,
+  },
+  hostFeedToggleTitle: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.base,
+    color: colors.onSurface,
+    lineHeight: 20,
   },
   filterLabel: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface, marginTop: spacing.xs },
   rangeRow: { flexDirection: "row", gap: spacing.sm },

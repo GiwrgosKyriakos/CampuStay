@@ -67,9 +67,13 @@ interface FirestoreApartmentDoc {
   tags?: string[];
   amenities?: string[];
   extraDetails?: Record<string, boolean>;
+  extraInformation?: Partial<ListingExtraInformation>;
   hostId?: string;
   ownerId?: string;
   showPhoneNumber?: boolean;
+  publishedAt?: unknown;
+  updatedAt?: unknown;
+  createdAt?: unknown;
 }
 
 const AMENITIES: Amenity[] = [
@@ -83,6 +87,19 @@ const AMENITIES: Amenity[] = [
 type ExtraDetailCategory = {
   title: string;
   items: string[];
+};
+
+type ListingExtraInformation = {
+  livingRooms: number;
+  bathrooms: number;
+  kitchens: number;
+  buildYear?: number;
+  commonExpenses?: number;
+  levels: number;
+  heatingSystem?: string;
+  energyClass?: string;
+  availableFromDate?: string;
+  isImmediatelyAvailable?: boolean;
 };
 
 type CompletionBadgeProps = {
@@ -147,6 +164,82 @@ const EXTRA_DETAIL_CATEGORIES: ExtraDetailCategory[] = [
 
 const PHOTO_SLOTS = 6;
 const IMAGE_QUALITY = 0.7;
+const CURRENT_BUILD_YEAR = 2026;
+const HEATING_SYSTEM_OPTIONS = ["Αυτόνομη", "Κεντρική", "Ρεύμα", "Φυσικό Αέριο", "Αντλία Θερμότητας", "Πετρέλαιο", "Χωρίς Θέρμανση", "Άλλο"];
+const ENERGY_CLASS_OPTIONS = ["A++", "A+", "A", "B+", "B", "C", "D", "E", "F", "G"];
+
+function parseTimestampToMillis(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+
+  if (value && typeof value === "object") {
+    const maybeToMillis = (value as { toMillis?: () => number }).toMillis;
+    if (typeof maybeToMillis === "function") {
+      try {
+        const millis = maybeToMillis();
+        return Number.isFinite(millis) ? millis : null;
+      } catch {
+        return null;
+      }
+    }
+
+    const seconds = (value as { seconds?: unknown }).seconds;
+    const nanoseconds = (value as { nanoseconds?: unknown }).nanoseconds;
+    if (typeof seconds === "number" && Number.isFinite(seconds)) {
+      const safeNanos = typeof nanoseconds === "number" && Number.isFinite(nanoseconds) ? nanoseconds : 0;
+      return Math.trunc(seconds * 1000 + safeNanos / 1_000_000);
+    }
+  }
+
+  return null;
+}
+
+function clampRequiredIntegerInput(rawValue: string, min: number, max: number, fallback: number): string {
+  const digitsOnly = rawValue.replace(/[^0-9]/g, "");
+  if (!digitsOnly.length) return String(fallback);
+  const parsed = Number(digitsOnly);
+  if (!Number.isFinite(parsed)) return String(fallback);
+  return String(Math.min(max, Math.max(min, Math.trunc(parsed))));
+}
+
+function clampOptionalIntegerInput(rawValue: string, min: number, max: number): string {
+  const digitsOnly = rawValue.replace(/[^0-9]/g, "");
+  if (!digitsOnly.length) return "";
+  const parsed = Number(digitsOnly);
+  if (!Number.isFinite(parsed)) return "";
+  return String(Math.min(max, Math.max(min, Math.trunc(parsed))));
+}
+
+function digitsOnlyInput(rawValue: string): string {
+  return rawValue.replace(/[^0-9]/g, "");
+}
+
+function toIsoDateString(date: Date): string {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function toDateLabel(isoDate: string): string {
+  const date = new Date(`${isoDate}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return isoDate;
+  return new Intl.DateTimeFormat("el-GR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date);
+}
+
+function toDateTimeLabel(millis: number | null): string | null {
+  if (!millis || !Number.isFinite(millis)) return null;
+  return new Intl.DateTimeFormat("el-GR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(millis));
+}
 
 function CompletionBadge({ colors, styles }: CompletionBadgeProps) {
   return (
@@ -164,6 +257,7 @@ export default function CreateListingScreen() {
   const [description, setDescription] = useState(""); 
   const [isExtraInfoExpanded, setIsExtraInfoExpanded] = useState(false);
   const [isExtraDetailsExpanded, setIsExtraDetailsExpanded] = useState(false);
+  const [isExtraInformationExpanded, setIsExtraInformationExpanded] = useState(false);
   const [extraDetailsState, setExtraDetailsState] = useState<Record<string, boolean>>({});
   const router = useRouter();
   const params = useLocalSearchParams<{ mode?: string; listingId?: string }>();
@@ -184,6 +278,18 @@ export default function CreateListingScreen() {
   const [propertyType, setPropertyType] = useState<string | null>(null);
   const [floor, setFloor] = useState<string | null>(null);
   const [rooms, setRooms] = useState("1");
+  const [livingRooms, setLivingRooms] = useState("1");
+  const [bathrooms, setBathrooms] = useState("1");
+  const [kitchens, setKitchens] = useState("1");
+  const [buildYear, setBuildYear] = useState("");
+  const [commonExpenses, setCommonExpenses] = useState("");
+  const [levels, setLevels] = useState("1");
+  const [heatingSystem, setHeatingSystem] = useState<string | null>(null);
+  const [energyClass, setEnergyClass] = useState<string | null>(null);
+  const [availableFromDate, setAvailableFromDate] = useState<string | null>(null);
+  const [isImmediatelyAvailable, setIsImmediatelyAvailable] = useState(false);
+  const [publishedAtMillis, setPublishedAtMillis] = useState<number | null>(null);
+  const [updatedAtMillis, setUpdatedAtMillis] = useState<number | null>(null);
   const [maxDiscountPercent, setMaxDiscountPercent] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [showPhoneNumber, setShowPhoneNumber] = useState(true);
@@ -223,6 +329,35 @@ export default function CreateListingScreen() {
   ];
   const floorOptions = ["Υπόγειο", "Ημιώροφος", "Ισόγειο", "1ος", "2ος", "3ος", "4ος", "5ος+"];
   const cityCoordinates = useLocationCoordinates(city, area);
+  const availableFromDateOptions = useMemo(() => {
+    const startDate = new Date();
+    startDate.setHours(12, 0, 0, 0);
+
+    return Array.from({ length: 366 }, (_, index) => {
+      const nextDate = new Date(startDate);
+      nextDate.setDate(startDate.getDate() + index);
+      const value = toIsoDateString(nextDate);
+      return {
+        label: toDateLabel(value),
+        value,
+      };
+    });
+  }, []);
+
+  const availableFromDateLabel = useMemo(
+    () => availableFromDateOptions.find((item) => item.value === availableFromDate)?.label ?? null,
+    [availableFromDate, availableFromDateOptions],
+  );
+
+  const publishedAtLabel = useMemo(
+    () => toDateTimeLabel(publishedAtMillis) ?? "Θα δημιουργηθεί με τη δημοσίευση",
+    [publishedAtMillis],
+  );
+
+  const updatedAtLabel = useMemo(
+    () => toDateTimeLabel(updatedAtMillis) ?? "Θα ενημερωθεί με την αποθήκευση",
+    [updatedAtMillis],
+  );
 
   const selectedAmenities = useMemo(
     () => AMENITIES.filter((item) => amenities[item.key]).map((item) => t(item.label)),
@@ -396,6 +531,58 @@ export default function CreateListingScreen() {
         setPropertyType(data.propertyType ?? null);
         setFloor(data.floor ?? null);
         setRooms(typeof data.rooms === "number" && Number.isFinite(data.rooms) ? String(Math.max(1, Math.trunc(data.rooms))) : "1");
+        const mappedExtraInformation =
+          data.extraInformation && typeof data.extraInformation === "object"
+            ? data.extraInformation
+            : null;
+        setLivingRooms(
+          typeof mappedExtraInformation?.livingRooms === "number" && Number.isFinite(mappedExtraInformation.livingRooms)
+            ? clampRequiredIntegerInput(String(mappedExtraInformation.livingRooms), 1, 9, 1)
+            : "1",
+        );
+        setBathrooms(
+          typeof mappedExtraInformation?.bathrooms === "number" && Number.isFinite(mappedExtraInformation.bathrooms)
+            ? clampRequiredIntegerInput(String(mappedExtraInformation.bathrooms), 1, 9, 1)
+            : "1",
+        );
+        setKitchens(
+          typeof mappedExtraInformation?.kitchens === "number" && Number.isFinite(mappedExtraInformation.kitchens)
+            ? clampRequiredIntegerInput(String(mappedExtraInformation.kitchens), 1, 9, 1)
+            : "1",
+        );
+        setBuildYear(
+          typeof mappedExtraInformation?.buildYear === "number" && Number.isFinite(mappedExtraInformation.buildYear)
+            ? clampOptionalIntegerInput(String(mappedExtraInformation.buildYear), 1000, CURRENT_BUILD_YEAR)
+            : "",
+        );
+        setCommonExpenses(
+          typeof mappedExtraInformation?.commonExpenses === "number" && Number.isFinite(mappedExtraInformation.commonExpenses)
+            ? digitsOnlyInput(String(Math.max(0, Math.trunc(mappedExtraInformation.commonExpenses))))
+            : "",
+        );
+        setLevels(
+          typeof mappedExtraInformation?.levels === "number" && Number.isFinite(mappedExtraInformation.levels)
+            ? clampRequiredIntegerInput(String(mappedExtraInformation.levels), 1, 9, 1)
+            : "1",
+        );
+        setHeatingSystem(
+          typeof mappedExtraInformation?.heatingSystem === "string" && mappedExtraInformation.heatingSystem.trim().length > 0
+            ? mappedExtraInformation.heatingSystem.trim()
+            : null,
+        );
+        setEnergyClass(
+          typeof mappedExtraInformation?.energyClass === "string" && mappedExtraInformation.energyClass.trim().length > 0
+            ? mappedExtraInformation.energyClass.trim()
+            : null,
+        );
+        setAvailableFromDate(
+          typeof mappedExtraInformation?.availableFromDate === "string" && mappedExtraInformation.availableFromDate.trim().length > 0
+            ? mappedExtraInformation.availableFromDate.trim()
+            : null,
+        );
+        setIsImmediatelyAvailable(mappedExtraInformation?.isImmediatelyAvailable === true);
+        setPublishedAtMillis(parseTimestampToMillis(data.publishedAt) ?? parseTimestampToMillis(data.createdAt));
+        setUpdatedAtMillis(parseTimestampToMillis(data.updatedAt));
         setAmenities({
           petFriendly: mappedAmenities.includes("pet_friendly"),
           nearMetro: mappedAmenities.includes("near_metro"),
@@ -542,6 +729,18 @@ export default function CreateListingScreen() {
       const exactAddressSelected = hasExactLocation && finalAddress.length > 0 && addressLatitude !== null && addressLongitude !== null;
       const parsedRooms = Number(rooms);
       const normalizedRooms = Number.isFinite(parsedRooms) && parsedRooms > 0 ? Math.trunc(parsedRooms) : 1;
+      const extraInformation: ListingExtraInformation = {
+        livingRooms: Number(livingRooms),
+        bathrooms: Number(bathrooms),
+        kitchens: Number(kitchens),
+        levels: Number(levels),
+        isImmediatelyAvailable,
+        buildYear: buildYear.trim().length > 0 ? Number(buildYear) : undefined,
+        commonExpenses: commonExpenses.trim().length > 0 ? Number(commonExpenses) : undefined,
+        heatingSystem: heatingSystem ?? undefined,
+        energyClass: energyClass ?? undefined,
+        availableFromDate: availableFromDate ?? undefined,
+      };
 
       const data: Record<string, unknown> = {
         title: finalTitle,
@@ -568,6 +767,7 @@ export default function CreateListingScreen() {
         tags: selectedAmenitySlugs.length ? selectedAmenitySlugs : ["new_listing"],
         amenities: selectedAmenitySlugs,
         extraDetails: Object.keys(extraDetailsState).length > 0 ? extraDetailsState : undefined,
+        extraInformation,
         showPhoneNumber,
         hostId,
         ownerId: hostId,
@@ -814,7 +1014,7 @@ export default function CreateListingScreen() {
               onPress={() => setIsExtraInfoExpanded((prev) => !prev)}
               testID="create-listing-extra-info-toggle"
             >
-              <Text style={styles.sectionTitle}>Επιπλέον Πληροφορίες</Text>
+              <Text style={styles.sectionTitle}>Χαρακτηριστικά Ακινήτου</Text>
               <Ionicons
                 name={isExtraInfoExpanded ? "chevron-up" : "chevron-down"}
                 size={20}
@@ -1007,6 +1207,172 @@ export default function CreateListingScreen() {
               </View>
             ) : null}
           </View>
+
+          <View style={styles.card}>
+            <Pressable
+              style={styles.expandHeaderRow}
+              onPress={() => setIsExtraInformationExpanded((prev) => !prev)}
+              testID="create-listing-extra-information-toggle"
+            >
+              <Text style={styles.sectionTitle}>Επιπλέον Πληροφορίες</Text>
+              <Ionicons
+                name={isExtraInformationExpanded ? "chevron-up" : "chevron-down"}
+                size={20}
+                color={colors.onSurface}
+              />
+            </Pressable>
+
+            {isExtraInformationExpanded ? (
+              <View style={styles.extraInformationContent}>
+                <Text style={styles.sectionSubtitle}>Χώροι</Text>
+                <View style={styles.formRow}>
+                  <View style={styles.formColumn}>
+                    <Text style={styles.fieldLabel}>Σαλόνι</Text>
+                    <TextInput
+                      value={livingRooms}
+                      onChangeText={(value) => setLivingRooms(clampRequiredIntegerInput(value, 1, 9, 1))}
+                      keyboardType="number-pad"
+                      maxLength={1}
+                      placeholder="1"
+                      placeholderTextColor={colors.onSurfaceTertiary}
+                      style={styles.input}
+                      testID="create-listing-extra-info-living-rooms"
+                    />
+                  </View>
+                  <View style={styles.formColumn}>
+                    <Text style={styles.fieldLabel}>Μπάνιο</Text>
+                    <TextInput
+                      value={bathrooms}
+                      onChangeText={(value) => setBathrooms(clampRequiredIntegerInput(value, 1, 9, 1))}
+                      keyboardType="number-pad"
+                      maxLength={1}
+                      placeholder="1"
+                      placeholderTextColor={colors.onSurfaceTertiary}
+                      style={styles.input}
+                      testID="create-listing-extra-info-bathrooms"
+                    />
+                  </View>
+                  <View style={styles.formColumn}>
+                    <Text style={styles.fieldLabel}>Κουζίνα</Text>
+                    <TextInput
+                      value={kitchens}
+                      onChangeText={(value) => setKitchens(clampRequiredIntegerInput(value, 1, 9, 1))}
+                      keyboardType="number-pad"
+                      maxLength={1}
+                      placeholder="1"
+                      placeholderTextColor={colors.onSurfaceTertiary}
+                      style={styles.input}
+                      testID="create-listing-extra-info-kitchens"
+                    />
+                  </View>
+                </View>
+
+                <Text style={styles.sectionSubtitle}>Κατασκευή και κόστος</Text>
+                <View style={styles.formRow}>
+                  <View style={styles.formColumn}>
+                    <Text style={styles.fieldLabel}>Έτος κατασκευής</Text>
+                    <TextInput
+                      value={buildYear}
+                      onChangeText={(value) => setBuildYear(clampOptionalIntegerInput(value, 1000, CURRENT_BUILD_YEAR))}
+                      keyboardType="number-pad"
+                      maxLength={4}
+                      placeholder="π.χ. 2008"
+                      placeholderTextColor={colors.onSurfaceTertiary}
+                      style={styles.input}
+                      testID="create-listing-extra-info-build-year"
+                    />
+                  </View>
+                  <View style={styles.formColumn}>
+                    <Text style={styles.fieldLabel}>Μηνιαία κοινόχρηστα (€)</Text>
+                    <TextInput
+                      value={commonExpenses}
+                      onChangeText={(value) => setCommonExpenses(digitsOnlyInput(value))}
+                      keyboardType="number-pad"
+                      maxLength={5}
+                      placeholder="π.χ. 35"
+                      placeholderTextColor={colors.onSurfaceTertiary}
+                      style={styles.input}
+                      testID="create-listing-extra-info-common-expenses"
+                    />
+                  </View>
+                  <View style={styles.formColumn}>
+                    <Text style={styles.fieldLabel}>Επίπεδα</Text>
+                    <TextInput
+                      value={levels}
+                      onChangeText={(value) => setLevels(clampRequiredIntegerInput(value, 1, 9, 1))}
+                      keyboardType="number-pad"
+                      maxLength={1}
+                      placeholder="1"
+                      placeholderTextColor={colors.onSurfaceTertiary}
+                      style={styles.input}
+                      testID="create-listing-extra-info-levels"
+                    />
+                  </View>
+                </View>
+
+                <Text style={styles.sectionSubtitle}>Θέρμανση και ενεργειακή κλάση</Text>
+                <Text style={styles.fieldLabel}>Σύστημα θέρμανσης</Text>
+                <Dropdown
+                  value={heatingSystem}
+                  options={HEATING_SYSTEM_OPTIONS}
+                  placeholder="Επιλέξτε σύστημα θέρμανσης"
+                  onSelect={setHeatingSystem}
+                  testID="create-listing-extra-info-heating-system"
+                />
+
+                <Text style={[styles.fieldLabel, styles.mtSm]}>Ενεργειακή κλάση</Text>
+                <Dropdown
+                  value={energyClass}
+                  options={ENERGY_CLASS_OPTIONS}
+                  placeholder="Επιλέξτε ενεργειακή κλάση"
+                  onSelect={setEnergyClass}
+                  testID="create-listing-extra-info-energy-class"
+                />
+
+                <Text style={styles.sectionSubtitle}>Διαθεσιμότητα</Text>
+                <Pressable
+                  style={styles.checkboxRow}
+                  onPress={() => setIsImmediatelyAvailable((prev) => !prev)}
+                  testID="create-listing-extra-info-immediately-available"
+                >
+                  <View style={[styles.checkboxIconWrap, isImmediatelyAvailable && styles.checkboxIconWrapActive]}>
+                    <Ionicons
+                      name={isImmediatelyAvailable ? "checkmark" : "square-outline"}
+                      size={18}
+                      color={isImmediatelyAvailable ? colors.onBrand : colors.onSurfaceTertiary}
+                    />
+                  </View>
+                  <Text style={styles.checkboxLabel}>Άμεσα διαθέσιμο</Text>
+                </Pressable>
+
+                <Text style={styles.fieldLabel}>Available From</Text>
+                <Dropdown
+                  value={availableFromDateLabel}
+                  options={availableFromDateOptions.map((item) => item.label)}
+                  placeholder="Επιλέξτε ημερομηνία"
+                  onSelect={(selectedLabel) => {
+                    const selectedOption = availableFromDateOptions.find((item) => item.label === selectedLabel);
+                    setAvailableFromDate(selectedOption?.value ?? null);
+                  }}
+                  disabled={isImmediatelyAvailable}
+                  testID="create-listing-extra-info-available-from"
+                />
+                <Text style={styles.fieldHint}>Η επιλογή ημερομηνίας επιτρέπει μόνο σημερινές ή μελλοντικές ημερομηνίες.</Text>
+
+                <Text style={styles.sectionSubtitle}>Χρονικές σημάνσεις</Text>
+                <View style={styles.readOnlyMetaCard}>
+                  <View style={styles.readOnlyMetaRow}>
+                    <Text style={styles.readOnlyMetaLabel}>Ημερομηνία δημοσίευσης</Text>
+                    <Text style={styles.readOnlyMetaValue}>{publishedAtLabel}</Text>
+                  </View>
+                  <View style={styles.readOnlyMetaRow}>
+                    <Text style={styles.readOnlyMetaLabel}>Τελευταία τροποποίηση</Text>
+                    <Text style={styles.readOnlyMetaValue}>{updatedAtLabel}</Text>
+                  </View>
+                </View>
+              </View>
+            ) : null}
+          </View>
         </ScrollView>
 
         <View style={[styles.footer, { paddingBottom: spacing.lg + insets.bottom }]}>
@@ -1170,11 +1536,88 @@ function createStyles(colors: ThemeColors) {
       color: colors.onSurface,
       marginBottom: 2,
     },
+    fieldLabel: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.sm,
+      color: colors.onSurface,
+      marginBottom: spacing.xs,
+    },
     expandHeaderRow: {
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
       gap: spacing.sm,
+    },
+    extraInformationContent: {
+      gap: spacing.md,
+    },
+    formRow: {
+      flexDirection: "row",
+      gap: spacing.sm,
+      alignItems: "flex-start",
+    },
+    formColumn: {
+      flex: 1,
+      minWidth: 0,
+    },
+    checkboxRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.md,
+      backgroundColor: colors.surface,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+    },
+    checkboxIconWrap: {
+      width: 24,
+      height: 24,
+      borderRadius: radius.pill,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceSecondary,
+    },
+    checkboxIconWrapActive: {
+      backgroundColor: colors.brand,
+      borderColor: colors.brand,
+    },
+    checkboxLabel: {
+      flex: 1,
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.base,
+      color: colors.onSurface,
+    },
+    readOnlyMetaCard: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.md,
+      backgroundColor: colors.surface,
+      padding: spacing.md,
+      gap: spacing.sm,
+    },
+    readOnlyMetaRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: spacing.sm,
+      flexWrap: "wrap",
+    },
+    readOnlyMetaLabel: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.sm,
+      color: colors.onSurface,
+      flexShrink: 1,
+    },
+    readOnlyMetaValue: {
+      fontFamily: fonts.regular,
+      fontSize: fontSize.sm,
+      color: colors.onSurfaceTertiary,
+      textAlign: "right",
+      flexShrink: 1,
     },
     extraDetailsHeaderRow: {
       flexDirection: "row",
