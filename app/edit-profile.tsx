@@ -274,6 +274,7 @@ export default function EditProfileScreen() {
       if (userId) {
         console.log(`[EditProfile] → Calling saveUserProfile for user: ${userId.substring(0, 8)}...`);
         await saveUserProfile(userId, profile, { email: auth.user?.email ?? null });
+        auth.updateRoleStates(isBroker, notLookingForRoommate);
 
         if (notLookingForRoommate) {
           const settings = await getUserSettings(userId);
@@ -287,16 +288,18 @@ export default function EditProfileScreen() {
         console.log("[EditProfile] ✓ Profile saved successfully");
       }
       
+      const targetRoute = isBroker || notLookingForRoommate ? "/apartments" : "/roommates";
+
       // Clear profile setup flag if this was a post-login flow
       if (auth.needsProfileSetup) {
         console.log("[EditProfile] → Clearing profile setup flag");
         await auth.clearProfileSetup();
         console.log("[EditProfile] ✓ Profile setup flag cleared");
-        console.log("[EditProfile] → Navigating to roommates...");
-        router.replace("/roommates");
+        console.log(`[EditProfile] → Navigating to ${targetRoute}...`);
+        router.replace(targetRoute as any);
       } else {
-        console.log("[EditProfile] → Redirecting to roommates...");
-        router.replace("/roommates");
+        console.log(`[EditProfile] → Redirecting to ${targetRoute}...`);
+        router.replace(targetRoute as any);
       }
     } catch (err) {
       console.error("[EditProfile] ✗ Error saving profile:", err);

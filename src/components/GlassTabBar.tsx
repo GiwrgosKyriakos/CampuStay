@@ -10,6 +10,7 @@ import { useAuth } from "@/src/context/auth";
 
 const ICONS: Record<string, { active: keyof typeof Ionicons.glyphMap; inactive: keyof typeof Ionicons.glyphMap }> = {
   roommates: { active: "flame", inactive: "flame-outline" },
+  broker: { active: "calendar", inactive: "calendar-outline" },
   matches: { active: "heart", inactive: "heart-outline" },
   apartments: { active: "home", inactive: "home-outline" },
   profile: { active: "person", inactive: "person-outline" },
@@ -22,13 +23,20 @@ export default function GlassTabBar({ state, navigation }: BottomTabBarProps) {
   const isBroker = !!auth.isBroker;
   const notLookingForRoommate = auth.notLookingForRoommate === true;
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const visibleRoutes = useMemo(() => {
-    if (!isBroker && !notLookingForRoommate) return state.routes;
 
-    const brokerOrder = ["apartments", "matches", "profile"];
+  const visibleRoutes = useMemo(() => {
     return state.routes
-      .filter((route) => route.name !== "roommates")
-      .sort((left, right) => brokerOrder.indexOf(left.name) - brokerOrder.indexOf(right.name));
+      .filter((route) => {
+        if (route.name === "broker") return isBroker;
+        if (route.name === "roommates") return !isBroker && !notLookingForRoommate;
+        return true;
+      })
+      .sort((left, right) => {
+        const order = isBroker
+          ? ["broker", "apartments", "matches", "profile"]
+          : ["roommates", "matches", "apartments", "profile"];
+        return order.indexOf(left.name) - order.indexOf(right.name);
+      });
   }, [isBroker, notLookingForRoommate, state.routes]);
 
   return (
@@ -102,8 +110,7 @@ function createStyles(colors: ThemeColors) {
       borderRadius: 26,
       alignItems: "center",
       justifyContent: "center",
-      overflow: 'hidden', // Εμποδίζει το περιεχόμενο να ξεχειλώσει τις γωνίες
-      //backgroundColor: "transparent",
+      overflow: "hidden",
     },
     iconPillActive: {
       backgroundColor: colors.brand,

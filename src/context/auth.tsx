@@ -3,7 +3,6 @@ import { GoogleSignin } from "@react-native-google-signin/google-signin";
 import {
   createUserWithEmailAndPassword,
   onAuthStateChanged,
-  onSnapshot,
   signInWithCredential,
   signInWithEmailAndPassword,
   signOut,
@@ -11,7 +10,7 @@ import {
   updateProfile,
   type User as FirebaseUser,
 } from "firebase/auth";
-import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import { doc, getDoc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
 
 import { storage } from "@/src/utils/storage";
 import { setUserIdCache } from "@/src/utils/userId";
@@ -48,6 +47,7 @@ interface AuthContextValue {
   logout: () => Promise<void>;
   enterGuestMode: () => Promise<void>;
   clearProfileSetup: () => Promise<void>;
+  updateRoleStates: (isBroker: boolean, notLookingForRoommate: boolean) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -139,6 +139,10 @@ async function syncUserDocument(
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const updateRoleStates = useCallback((brokerState: boolean, noRoommateState: boolean) => {
+    setIsBroker(brokerState);
+    setNotLookingForRoommate(noRoommateState);
+  }, []);
   const [status, setStatus] = useState<Status>("loading");
   const [user, setUser] = useState<AuthUser | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -374,6 +378,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       logout,
       enterGuestMode,
       clearProfileSetup,
+      updateRoleStates,
       isBroker,
       notLookingForRoommate,
     }),
@@ -391,6 +396,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       logout,
       enterGuestMode,
       clearProfileSetup,
+      updateRoleStates,
     ],
   );
 

@@ -219,7 +219,7 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {!auth.isGuest ? (
+        {!auth.isGuest && !auth.isBroker && !notLookingForRoommate ? (
           <View style={styles.statsCard}>
             <View style={styles.statItem}>
               <Text style={styles.statNum}>{auth.isGuest ? "—" : matchCount}</Text>
@@ -233,13 +233,15 @@ export default function ProfileScreen() {
               <Text style={styles.statLabel}>{t("profile.statsBudget")}</Text>
             </View>
           </View>
-        ) : (
+        ) : null}
+
+        {auth.isGuest ? (
           <View style={styles.guestBanner}>
             <Ionicons name="eye-off-outline" size={36} color={colors.onSurfaceTertiary} />
             <Text style={styles.guestTitle}>{t("profile.guestTitle")}</Text>
             <Text style={styles.guestText}>{t("common.guest.disabledProfileDescription")}</Text>
           </View>
-        )}
+        ) : null}
 
         <View style={styles.section}>
           {visibleNavSettings.map((s, i) => {

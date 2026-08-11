@@ -449,7 +449,7 @@ export default function ApartmentsScreen() {
   const [notesOrderSaving, setNotesOrderSaving] = useState(false);
   const SWIPE_THRESHOLD = 56;
   const canOpenHostInbox = hasPublishedHostApartment || hasApartmentShareFlag;
-  const canManageListings = !auth.isGuest && (hasPublishedHostApartment || hasApartmentShareFlag);
+  const canManageListings = !auth.isGuest && (hasPublishedHostApartment || hasApartmentShareFlag || auth.isBroker);
   const isHostUser = canManageListings;
   const showCreateFab = !auth.isGuest && (!hideCreateFab || auth.isBroker);
   const showHostInboxFab = !auth.isGuest && !auth.isBroker && !hideCreateFab && canOpenHostInbox;

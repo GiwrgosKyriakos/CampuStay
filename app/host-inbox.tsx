@@ -155,8 +155,6 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
               const lastMessageAt = toMillis(chatData.lastMessageTimestamp);
               if (myClearedAt > 0 && lastMessageAt <= myClearedAt) return false;
 
-              if (chatData.initiatedBy === currentUid) return false;
-              
               return true;
             });
 

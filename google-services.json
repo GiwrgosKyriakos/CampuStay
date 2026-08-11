@@ -51,6 +51,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "311068327323-2hm5ulfc4pa4aqqifsiqibstoa13pk8q.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.gksolutions.campustay",
+            "certificate_hash": "78416dabf06cef0325767bee41aa6c93d946d630"
+          }
+        },
+        {
           "client_id": "311068327323-7gefvlsvjfp2baqmt384slp9vs32pho1.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
