@@ -15,6 +15,36 @@ import {
 import { db } from "@/src/config/firebase";
 import { colors } from "@/src/theme";
 
+
+/**
+ * Καθαρίζει αναδρομικά το αντικείμενο από πεδία που έχουν τιμή `undefined`,
+ * ώστε το Firestore setDoc() να μην πετάει σφάλμα.
+ */
+function sanitizePayload(data: Record<string, unknown>): Record<string, unknown> {
+  const sanitized: Record<string, unknown> = {};
+
+  for (const [key, value] of Object.entries(data)) {
+    if (value === undefined) {
+      continue;
+    }
+
+    // Καθαρισμός και στα ένθετα αντικείμενα (π.χ. extraInformation)
+    if (
+      value !== null &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      !(value instanceof Date) &&
+      typeof (value as { toMillis?: unknown }).toMillis !== "function"
+    ) {
+      sanitized[key] = sanitizePayload(value as Record<string, unknown>);
+    } else {
+      sanitized[key] = value;
+    }
+  }
+
+  return sanitized;
+}
+
 export type NoteCategory =
   | "visit"
   | "keys"

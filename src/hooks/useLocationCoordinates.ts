@@ -35,6 +35,7 @@ async function geocodeQuery(queryText: string, signal: AbortSignal): Promise<Coo
     signal,
     headers: {
       Accept: "application/json",
+      "User-Agent": "CampuStayApp/1.0 (contact@campustay.com)",
     },
   });
 

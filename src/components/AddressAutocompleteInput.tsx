@@ -42,6 +42,11 @@ type NominatimResult = {
   address?: NominatimAddress;
 };
 
+type Coordinates = {
+  latitude: number;
+  longitude: number;
+};
+
 type Props = {
   value: string;
   city?: string | null;
@@ -84,6 +89,37 @@ function formatContextLabel(result: NominatimResult): string {
   return parts.slice(0, 3).join(" · ");
 }
 
+async function geocodeAddress(queryText: string, signal: AbortSignal): Promise<Coordinates | null> {
+  const url = new URL("https://nominatim.openstreetmap.org/search");
+  url.searchParams.set("format", "jsonv2");
+  url.searchParams.set("q", queryText);
+  url.searchParams.set("countrycodes", "gr");
+  url.searchParams.set("addressdetails", "1");
+  url.searchParams.set("limit", "1");
+  url.searchParams.set("accept-language", "el,en");
+
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    signal,
+    headers: {
+      Accept: "application/json",
+      "User-Agent": "CampuStayApp/1.0 (contact@campustay.com)",
+    },
+  });
+
+  if (!response.ok) return null;
+
+  const payload = (await response.json()) as NominatimResult[];
+  const firstResult = Array.isArray(payload) ? payload[0] : null;
+  if (!firstResult) return null;
+
+  const latitude = Number(firstResult.lat);
+  const longitude = Number(firstResult.lon);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+
+  return { latitude, longitude };
+}
+
 export default function AddressAutocompleteInput({
   value,
   city,
@@ -100,9 +136,11 @@ export default function AddressAutocompleteInput({
   const [results, setResults] = useState<NominatimResult[]>([]);
   const [visibleCount, setVisibleCount] = useState(5);
   const [loading, setLoading] = useState(false);
+  const [isResolvingManual, setIsResolvingManual] = useState(false);
   const [focused, setFocused] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const blurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const manualResolveControllerRef = useRef<AbortController | null>(null);
 
   const trimmedQuery = value.trim();
   const normalizedQuery = useMemo(() => normalizeSearchText(trimmedQuery), [trimmedQuery]);
@@ -152,6 +190,7 @@ export default function AddressAutocompleteInput({
         signal: controller.signal,
         headers: {
           Accept: "application/json",
+          "User-Agent": "CampuStayApp/1.0 (contact@campustay.com)",
         },
       })
         .then(async (response) => {
@@ -185,6 +224,15 @@ export default function AddressAutocompleteInput({
 
   const hasMore = visibleCount < filteredResults.length;
 
+  useEffect(() => {
+    return () => {
+      if (manualResolveControllerRef.current) {
+        manualResolveControllerRef.current.abort();
+        manualResolveControllerRef.current = null;
+      }
+    };
+  }, []);
+
   const handleFocus = () => {
     if (disabled) return;
     setFocused(true);
@@ -192,6 +240,45 @@ export default function AddressAutocompleteInput({
   };
 
   const handleBlur = () => {
+    const trimmedValue = value.trim();
+
+    if (!disabled && trimmedValue.length >= 2) {
+      if (manualResolveControllerRef.current) {
+        manualResolveControllerRef.current.abort();
+      }
+
+      const controller = new AbortController();
+      manualResolveControllerRef.current = controller;
+      setIsResolvingManual(true);
+
+      const queryText = [trimmedValue, area?.trim(), city?.trim(), "Ελλάδα"]
+        .filter((part): part is string => !!part && part.length > 0)
+        .join(", ");
+
+      void geocodeAddress(queryText, controller.signal)
+        .then((coordinates) => {
+          if (!coordinates || controller.signal.aborted) return;
+
+          onAddressSelect({
+            address: trimmedValue,
+            latitude: coordinates.latitude,
+            longitude: coordinates.longitude,
+            hasExactLocation: true,
+          });
+        })
+        .catch(() => {
+          // Keep existing manual text without crashing if geocoding fails.
+        })
+        .finally(() => {
+          if (manualResolveControllerRef.current === controller) {
+            manualResolveControllerRef.current = null;
+          }
+          if (!controller.signal.aborted) {
+            setIsResolvingManual(false);
+          }
+        });
+    }
+
     blurTimeoutRef.current = setTimeout(() => {
       setFocused(false);
       setShowDropdown(false);
@@ -240,7 +327,7 @@ export default function AddressAutocompleteInput({
         <View style={styles.dropdownCard}>
           <View style={styles.dropdownHeader}>
             <Text style={styles.dropdownTitle}>Αναζήτηση διεύθυνσης</Text>
-            {loading ? <ActivityIndicator size="small" color={colors.brandSecondary} /> : null}
+            {loading || isResolvingManual ? <ActivityIndicator size="small" color={colors.brandSecondary} /> : null}
           </View>
 
           <ScrollView style={styles.resultsScroll} contentContainerStyle={styles.resultsContent} keyboardShouldPersistTaps="handled">

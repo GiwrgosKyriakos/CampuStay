@@ -101,8 +101,9 @@ export default function ApartmentLocationMap({
   }, [cityCoordinates.latitude, cityCoordinates.longitude, exactCoordinates]);
 
   useEffect(() => {
-    const nextRegion = displayRegion;
-    mapRef.current?.animateToRegion(nextRegion, 350);
+    if (mapRef.current && displayRegion) {
+      mapRef.current.animateToRegion(displayRegion, 500);
+    }
   }, [displayRegion]);
 
   return (
@@ -125,7 +126,7 @@ export default function ApartmentLocationMap({
         zoomEnabled
         loadingEnabled
       >
-        {exactCoordinates ? (
+        {hasExactLocation && exactCoordinates ? (
           <Marker coordinate={exactCoordinates} anchor={{ x: 0.5, y: 1 }}>
             <View style={styles.pinWrap}>
               <View style={styles.pinOuter}>
@@ -135,7 +136,7 @@ export default function ApartmentLocationMap({
               </View>
             </View>
           </Marker>
-        ) : (
+        ) : !hasExactLocation ? (
           <Circle
             center={cityCoordinates}
             radius={AREA_RADIUS_METERS}
@@ -143,7 +144,7 @@ export default function ApartmentLocationMap({
             strokeColor="#38bdf8"
             strokeWidth={2}
           />
-        )}
+        ) : null}
       </MapView>
 
       <View pointerEvents="none" style={styles.overlayBorder} />

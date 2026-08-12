@@ -12,6 +12,35 @@ import {
 
 import { db } from "@/src/config/firebase";
 
+/**
+ * Καθαρίζει αναδρομικά το αντικείμενο από πεδία που έχουν τιμή `undefined`,
+ * ώστε το Firestore setDoc() να μην πετάει σφάλμα.
+ */
+function sanitizePayload(data: Record<string, unknown>): Record<string, unknown> {
+  const sanitized: Record<string, unknown> = {};
+
+  for (const [key, value] of Object.entries(data)) {
+    if (value === undefined) {
+      continue;
+    }
+
+    // Καθαρισμός και στα ένθετα αντικείμενα (π.χ. extraInformation)
+    if (
+      value !== null &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      !(value instanceof Date) &&
+      typeof (value as { toMillis?: unknown }).toMillis !== "function"
+    ) {
+      sanitized[key] = sanitizePayload(value as Record<string, unknown>);
+    } else {
+      sanitized[key] = value;
+    }
+  }
+
+  return sanitized;
+}
+
 async function deleteListingLikes(apartmentId: string): Promise<void> {
   const likesQ = query(collection(db, "liked_apartments"), where("apartmentId", "==", apartmentId));
   const likesSnap = await getDocs(likesQ);
@@ -85,12 +114,15 @@ export async function upsertListing(params: {
 }): Promise<string> {
   const { apartmentId, payload } = params;
 
+  // 🎯 Αφαίρεση όλων των undefined πεδίων πριν την αποθήκευση
+  const cleanPayload = sanitizePayload(payload);
+
   if (apartmentId) {
     const aptRef = doc(db, "apartments", apartmentId);
     await setDoc(
       aptRef,
       {
-        ...payload,
+        ...cleanPayload,
         updatedAt: serverTimestamp(),
       },
       { merge: true },
@@ -100,7 +132,7 @@ export async function upsertListing(params: {
 
   const newRef = doc(collection(db, "apartments"));
   await setDoc(newRef, {
-    ...payload,
+    ...cleanPayload,
     createdAt: serverTimestamp(),
     publishedAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
