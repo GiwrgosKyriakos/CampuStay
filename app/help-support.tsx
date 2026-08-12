@@ -22,11 +22,25 @@ export default function HelpSupportScreen() {
   const auth = useAuth();
   const [openIndex, setOpenIndex] = useState<number | null>(null);
   const faqItems = [
-    { question: t("helpSupport.faq.matchesQuestion"), answer: t("helpSupport.faq.matchesAnswer") },
-    { question: t("helpSupport.faq.socialQuestion"), answer: t("helpSupport.faq.socialAnswer") },
-    { question: t("helpSupport.faq.reportQuestion"), answer: t("helpSupport.faq.reportAnswer") },
-  ];
-  const visibleFaqItems = auth.isBroker ? faqItems.filter((item) => item.question === t("helpSupport.faq.reportQuestion")) : faqItems;
+    {
+      id: "matches",
+      question: t("helpSupport.faq.matchesQuestion"),
+      answer: t("helpSupport.faq.matchesAnswer"),
+    },
+    {
+      id: "social",
+      question: t("helpSupport.faq.socialQuestion"),
+      answer: t("helpSupport.faq.socialAnswer"),
+    },
+    {
+      id: "report",
+      question: t("helpSupport.faq.reportQuestion"),
+      answer: t("helpSupport.faq.reportAnswer"),
+    },
+  ] as const;
+  const visibleFaqItems = auth.isBroker
+    ? faqItems.filter((item) => item.id === "report")
+    : faqItems;
 
   const openEmailSupport = async () => {
     await Linking.openURL(`mailto:gkiriakos92@gmail.com?subject=${encodeURIComponent(t("helpSupport.supportSubject"))}`);
@@ -97,7 +111,7 @@ export default function HelpSupportScreen() {
           );
         })}
 
-        {!auth.isBroker && (
+        {!auth.isGuest && (
           <Pressable
             style={styles.contactButton}
             onPress={() => Linking.openURL(`mailto:support@unimates.com?subject=${encodeURIComponent(t("helpSupport.supportRequestSubject"))}`)}
@@ -154,6 +168,20 @@ export default function HelpSupportScreen() {
                 <Ionicons name="logo-instagram" size={20} color={colors.onSurface} />
               </View>
               <Text style={styles.linkLabel}>{t("helpSupport.instagram")}</Text>
+              <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+            </Pressable>
+          </View>
+        ) : !auth.isGuest ? (
+          <View style={styles.linksSection}>
+            <Pressable
+              style={styles.linkRow}
+              onPress={openEmailSupport}
+              testID="help-email-support"
+            >
+              <View style={styles.linkIconWrap}>
+                <Ionicons name="mail-outline" size={20} color={colors.onSurface} />
+              </View>
+              <Text style={styles.linkLabel}>{t("helpSupport.emailSupport")}</Text>
               <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
             </Pressable>
           </View>
