@@ -23,6 +23,7 @@ type CenteredActionModalProps = {
   visible: boolean;
   title: string;
   description?: string;
+  children?: React.ReactNode;
   onDismiss?: () => void;
   actions: CenteredModalAction[];
   actionsLayout?: "vertical" | "horizontal";
@@ -33,6 +34,7 @@ export default function CenteredActionModal({
   visible,
   title,
   description,
+  children,
   onDismiss,
   actions,
   actionsLayout = "vertical",
@@ -50,6 +52,7 @@ export default function CenteredActionModal({
           <View style={styles.headerAccent} />
           <Text style={styles.title}>{title}</Text>
           {!!description && <Text style={styles.description}>{description}</Text>}
+          {children}
 
           <View style={[styles.actionsWrap, actionsLayout === "horizontal" && styles.actionsWrapHorizontal]}>
             {actions.map((action) => {

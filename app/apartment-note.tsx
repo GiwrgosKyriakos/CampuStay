@@ -425,23 +425,24 @@ export default function ApartmentNoteScreen() {
         ]}
       />
 
-      {shareModalVisible ? (
-        <View style={styles.shareModalBackdrop} pointerEvents="box-none">
-          <Pressable
-            style={StyleSheet.absoluteFill}
-            onPress={() => {
-              if (!sendingShareChatId) setShareModalVisible(false);
-            }}
-            pointerEvents={sendingShareChatId ? "none" : "auto"}
-          />
-
-          <View style={styles.shareModalCard}>
-            <View style={styles.shareModalHeader}>
-              <Text style={styles.shareModalTitle}>Κοινοποίηση Διαμερίσματος</Text>
-              <Text style={styles.shareModalSubtitle}>Επιλέξτε συνομιλία για κοινοποίηση</Text>
-            </View>
-
-            {loadingShareMatches ? (
+      <CenteredActionModal
+        visible={shareModalVisible}
+        title="Κοινοποίηση Διαμερίσματος"
+        description="Επιλέξτε συνομιλία για κοινοποίηση"
+        onDismiss={() => {
+          if (!sendingShareChatId) setShareModalVisible(false);
+        }}
+        actions={[
+          {
+            label: "Κλείσιμο",
+            variant: "outline",
+            iconName: "close-outline",
+            onPress: () => setShareModalVisible(false),
+          },
+        ]}
+        testID="apartment-note-share-modal-shell"
+      >
+        {loadingShareMatches ? (
               <View style={styles.shareStateWrap}>
                 <ActivityIndicator size="small" color={colors.brand} />
               </View>
@@ -450,11 +451,7 @@ export default function ApartmentNoteScreen() {
                 <Text style={styles.shareStateText}>Δεν έχετε ενεργές συνομιλίες με συγκατοίκους ακόμα</Text>
               </View>
             ) : (
-              <ScrollView
-                style={styles.shareModalList}
-                contentContainerStyle={styles.shareModalListContent}
-                showsVerticalScrollIndicator={false}
-              >
+              <ScrollView style={styles.shareList} contentContainerStyle={styles.shareListContent}>
                 {activeShareMatches.map((item) => (
                   <View key={item.chatRoomId} style={styles.shareRow}>
                     <View style={styles.shareAvatarWrap}>
@@ -487,20 +484,7 @@ export default function ApartmentNoteScreen() {
                 ))}
               </ScrollView>
             )}
-
-            <Pressable
-              style={styles.shareModalCloseBtn}
-              onPress={() => {
-                if (!sendingShareChatId) setShareModalVisible(false);
-              }}
-              disabled={!!sendingShareChatId}
-              testID="apartment-note-share-close"
-            >
-              <Text style={styles.shareModalCloseBtnText}>× Κλείσιμο</Text>
-            </Pressable>
-          </View>
-        </View>
-      ) : null}
+      </CenteredActionModal>
     </View>
   );
 }
@@ -624,68 +608,6 @@ function createStyles(colors: ThemeColors) {
       paddingHorizontal: spacing.lg,
     },
     backPillText: {
-      fontFamily: fonts.semibold,
-      fontSize: fontSize.base,
-      color: colors.onSurface,
-    },
-    shareModalBackdrop: {
-      ...StyleSheet.absoluteFillObject,
-      backgroundColor: "rgba(5, 33, 40, 0.68)",
-      alignItems: "center",
-      justifyContent: "center",
-      paddingHorizontal: spacing.lg,
-    },
-    shareModalCard: {
-      width: "100%",
-      maxHeight: "75%",
-      backgroundColor: colors.surface,
-      borderRadius: radius.lg,
-      borderWidth: 1,
-      borderColor: colors.border,
-      overflow: "hidden",
-      flexDirection: "column",
-    },
-    shareModalHeader: {
-      paddingHorizontal: spacing.lg,
-      paddingTop: spacing.lg,
-      paddingBottom: spacing.sm,
-      alignItems: "center",
-      gap: spacing.xs,
-    },
-    shareModalTitle: {
-      fontFamily: fonts.displayExtra,
-      fontSize: fontSize.lg,
-      color: colors.onSurface,
-      textAlign: "center",
-    },
-    shareModalSubtitle: {
-      fontFamily: fonts.regular,
-      fontSize: fontSize.base,
-      color: colors.onSurfaceTertiary,
-      textAlign: "center",
-    },
-    shareModalList: {
-      flex: 1,
-      marginHorizontal: spacing.lg,
-      marginVertical: spacing.md,
-    },
-    shareModalListContent: {
-      gap: spacing.sm,
-      paddingBottom: spacing.sm,
-    },
-    shareModalCloseBtn: {
-      marginHorizontal: spacing.lg,
-      marginBottom: spacing.lg,
-      paddingVertical: spacing.sm,
-      paddingHorizontal: spacing.lg,
-      borderRadius: radius.md,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surfaceSecondary,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    shareModalCloseBtnText: {
       fontFamily: fonts.semibold,
       fontSize: fontSize.base,
       color: colors.onSurface,
