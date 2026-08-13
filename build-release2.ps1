@@ -50,5 +50,5 @@ Set-Content -Path $buildGradlePath -Value $buildGradleContent
 # 4. Εκτέλεση του Release Build (Gradle)
 cd android
 .\gradlew assembleRelease
-#.\gradlew bundleRelease
+.\gradlew bundleRelease
 cd ..
