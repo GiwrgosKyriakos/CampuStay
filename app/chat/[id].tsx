@@ -391,8 +391,7 @@ function buildApartmentRoutePayload(apartmentId: string, data: FirestoreApartmen
     maxDiscountPercentage,
     rooms: typeof data.rooms === "number" ? data.rooms : 1,
     size: typeof data.size === "number" ? data.size : typeof data.sqft === "number" ? data.sqft : 0,
-    image:
-    data.image || "",
+    image: data.image || data.imageUrl || data.images?.[0] || "",
     tags: tags.length ? tags : [t("apartments.newListing")],
     hostId: data.hostId,
   };
@@ -550,21 +549,21 @@ export default function ChatScreen() {
 
   useEffect(() => {
     const showListener = Keyboard.addListener(
-      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
       () => {
         setIsKeyboardOpen(true);
-        
-        // 🚀 Δίνουμε ένα ελάχιστο delay (50-100ms) για να προλάβει το KeyboardAvoidingView 
+
+        // 🚀 Δίνουμε ένα ελάχιστο delay (50-100ms) για να προλάβει το KeyboardAvoidingView
         // να μικρύνει το layout, και μετά κάνουμε scroll στο τελευταίο μήνυμα.
         setTimeout(() => {
           scrollRef.current?.scrollToEnd({ animated: true });
         }, 80);
-      }
+      },
     );
-    
+
     const hideListener = Keyboard.addListener(
-      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
-      () => setIsKeyboardOpen(false)
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
+      () => setIsKeyboardOpen(false),
     );
 
     return () => {
@@ -1057,6 +1056,7 @@ export default function ChatScreen() {
           longitude: undefined,
           hasExactLocation: false,
           rent: 0,
+          maxDiscountPercentage: 10,
           rooms: 1,
           size: 0,
           image: "https://images.unsplash.com/photo-1564078516393-cf04bd966897?crop=entropy&cs=srgb&fm=jpg&w=1200&q=85",
@@ -2419,6 +2419,7 @@ export default function ChatScreen() {
                     delayLongPress={300}
                     testID={`chat-message-${m.id}`}
                   >
+                    {/*
                     {apartmentCoverImage ? (
                       <Image source={{ uri: apartmentCoverImage }} style={styles.shareImage} contentFit="cover" transition={120} />
                     ) : (
@@ -2426,7 +2427,7 @@ export default function ChatScreen() {
                         <Ionicons name="home-outline" size={22} color={colors.onSurfaceTertiary} />
                       </View>
                     )}
-
+                    */}
                     <View style={styles.shareContent}>
                       <Text style={[styles.shareTitle, isMine && styles.shareTitleMine]} numberOfLines={1}>
                         {apartmentData.title || m.text}
@@ -2507,6 +2508,7 @@ export default function ChatScreen() {
                     </View>
 
                     <View style={styles.noteShareFooter}>
+                      {/*
                       {apartmentCoverImage ? (
                         <Image
                           source={{ uri: apartmentCoverImage }}
@@ -2519,6 +2521,7 @@ export default function ChatScreen() {
                           <Ionicons name="home-outline" size={18} color={colors.onSurfaceTertiary} />
                         </View>
                       )}
+                      */}
 
                       <View style={styles.noteShareApartmentTextWrap}>
                         <Text style={[styles.noteShareApartmentTitle, isMine && styles.noteShareApartmentTitleMine]} numberOfLines={1}>
@@ -3183,7 +3186,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   apartmentPillMeta: {
     fontFamily: fonts.regular,
-    fontSize: fontSize.xs,
+    fontSize: 12,
     color: colors.onSurfaceTertiary,
   },
   hostActionTrigger: {
@@ -3280,8 +3283,8 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     maxWidth: "100%",
   },
   hostPhoneBadgeText: {
-    fontFamily: fonts.medium,
-    fontSize: fontSize.xs,
+    fontFamily: fonts.semibold,
+    fontSize: 11,
     color: colors.onSurfaceTertiary,
     flexShrink: 1,
   },
@@ -3469,7 +3472,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   mutualRentMeta: {
     fontFamily: fonts.semibold,
-    fontSize: fontSize.xs,
+    fontSize: 11,
     color: "rgba(255,255,255,0.82)",
     textTransform: "uppercase",
   },
@@ -3907,7 +3910,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   noteShareBadgeText: {
     fontFamily: fonts.semibold,
-    fontSize: fontSize.xs,
+    fontSize: 11,
     color: colors.onBrandTertiary,
     textTransform: "uppercase",
     letterSpacing: 0.4,
@@ -3969,7 +3972,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   noteShareApartmentMeta: {
     fontFamily: fonts.regular,
-    fontSize: fontSize.xs,
+    fontSize: 11,
     color: colors.onSurfaceTertiary,
   },
   noteShareApartmentMetaMine: {
@@ -4037,7 +4040,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   hostActionStatusText: {
     fontFamily: fonts.semibold,
-    fontSize: fontSize.xs,
+    fontSize: 11,
     color: colors.onSurfaceTertiary,
   },
   hostActionStatusTextApproved: {
@@ -4227,7 +4230,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     width: "14.28%",
     textAlign: "center",
     fontFamily: fonts.semibold,
-    fontSize: fontSize.xs,
+    fontSize: 11,
     color: colors.onSurfaceTertiary,
   },
   visitDaysGrid: {
