@@ -34,6 +34,11 @@ import { db } from "@/src/config/firebase";
 import { saveApartmentNote, getApartmentNote, type Apartment } from "@/src/api/apartmentNotes";
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
 
+function getApartmentCoverImage(apartment: Apartment | null | undefined): string {
+  if (!apartment) return "";
+  return apartment.image || apartment.imageUrl || apartment.images?.[0] || "";
+}
+
 type ShareMatchItem = {
   chatRoomId: string;
   counterpartId: string;
@@ -210,7 +215,7 @@ export default function ApartmentNoteScreen() {
     rent: apartmentData.rent,
     city: apartmentData.city,
     area: apartmentData.area,
-    image: apartmentData.image,
+    image: getApartmentCoverImage(apartmentData),
     rooms: apartmentData.rooms,
     size: apartmentData.size,
     tags: Array.isArray(apartmentData.tags) ? apartmentData.tags : [],
@@ -264,16 +269,17 @@ export default function ApartmentNoteScreen() {
     try {
       await addDoc(collection(db, "chats", item.chatRoomId, "messages"), {
         senderId: auth.userId,
-        type: "apartment_share",
-        text: `[Αγγελία: ${apartmentData.title}]`,
+        type: "apartment_note_share",
+        text: noteText,
+        noteText,
         apartmentData: sharedApartmentPayload,
         createdAt: serverTimestamp(),
         isRead: false,
       });
 
       await updateDoc(doc(db, "chats", item.chatRoomId), {
-        lastMessageText: `[Αγγελία: ${apartmentData.title}]`,
-        lastMessage: `[Αγγελία: ${apartmentData.title}]`,
+        lastMessageText: `📝 Σημείωση αγγελίας: ${apartmentData.title}`,
+        lastMessage: `📝 Σημείωση αγγελίας: ${apartmentData.title}`,
         lastMessageTimestamp: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });

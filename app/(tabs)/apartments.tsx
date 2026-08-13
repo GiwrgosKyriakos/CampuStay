@@ -1612,49 +1612,57 @@ export default function ApartmentsScreen() {
                       setNotesOrderSaving(false);
                     });
                 }}
-                renderItem={({ item, getIndex, drag, isActive }) => (
-                  <ScaleDecorator>
-                    <TouchableOpacity
-                      activeOpacity={0.9}
-                      onPress={() =>
-                        router.push({
-                          pathname: "/apartment-note",
-                          params: {
-                            data: JSON.stringify(item.apartmentData),
-                            fromList: "true",
-                          },
-                        } as any)
-                      }
-                      onLongPress={drag}
-                      delayLongPress={140}
-                      style={[styles.noteRow, isActive && styles.noteRowActive]}
-                      testID={`apartments-note-row-${item.id}`}
-                    >
-                      <View style={styles.noteIndexBadge}>
-                        <Text style={styles.noteIndexText}>{(getIndex?.() ?? 0) + 1}</Text>
-                      </View>
+                renderItem={({ item, getIndex, drag, isActive }) => {
+                  const coverImage = item.apartmentData?.image || item.apartmentData?.imageUrl || item.apartmentData?.images?.[0] || "";
+                  const noteExcerpt = item.text?.trim() || t("common.values.notAvailable");
 
-                      {item.apartmentData.image ? (
-                        <Image source={{ uri: item.apartmentData.image }} style={styles.noteThumb} contentFit="cover" />
-                      ) : (
-                        <View style={[styles.noteThumb, styles.noteThumbPlaceholder]}>
-                          <Ionicons name="home-outline" size={18} color={colors.onSurfaceTertiary} />
+                  return (
+                    <ScaleDecorator>
+                      <TouchableOpacity
+                        activeOpacity={0.9}
+                        onPress={() =>
+                          router.push({
+                            pathname: "/apartment-note",
+                            params: {
+                              data: JSON.stringify(item.apartmentData),
+                              fromList: "true",
+                            },
+                          } as any)
+                        }
+                        onLongPress={drag}
+                        delayLongPress={140}
+                        style={[styles.noteRow, isActive && styles.noteRowActive]}
+                        testID={`apartments-note-row-${item.id}`}
+                      >
+                        <View style={styles.noteIndexBadge}>
+                          <Text style={styles.noteIndexText}>{(getIndex?.() ?? 0) + 1}</Text>
                         </View>
-                      )}
 
-                      <View style={styles.noteMainTextWrap}>
-                        <Text style={styles.noteTitleText} numberOfLines={1}>
-                          {item.apartmentData.title || t("apartments.unknownListing")}
-                        </Text>
-                        <View style={styles.noteRentPill}>
-                          <Text style={styles.noteRentText}>{`${CURRENCY}${item.apartmentData.rent}`}</Text>
+                        {coverImage ? (
+                          <Image source={{ uri: coverImage }} style={styles.noteThumb} contentFit="cover" />
+                        ) : (
+                          <View style={[styles.noteThumb, styles.noteThumbPlaceholder]}>
+                            <Ionicons name="home-outline" size={18} color={colors.onSurfaceTertiary} />
+                          </View>
+                        )}
+
+                        <View style={styles.noteMainTextWrap}>
+                          <Text style={styles.noteTitleText} numberOfLines={1}>
+                            {item.apartmentData.title || t("apartments.unknownListing")}
+                          </Text>
+                          <Text style={styles.noteExcerptText} numberOfLines={2}>
+                            {noteExcerpt}
+                          </Text>
+                          <View style={styles.noteRentPill}>
+                            <Text style={styles.noteRentText}>{`${CURRENCY}${item.apartmentData.rent}`}</Text>
+                          </View>
                         </View>
-                      </View>
 
-                      <Ionicons name="reorder-two-outline" size={20} color={colors.onSurfaceTertiary} />
-                    </TouchableOpacity>
-                  </ScaleDecorator>
-                )}
+                        <Ionicons name="reorder-two-outline" size={20} color={colors.onSurfaceTertiary} />
+                      </TouchableOpacity>
+                    </ScaleDecorator>
+                  );
+                }}
               />
             )}
 
@@ -1757,7 +1765,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   noteRow: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: spacing.sm,
     backgroundColor: colors.surfaceSecondary,
     borderWidth: 1,
@@ -1785,8 +1793,8 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     color: colors.onSurface,
   },
   noteThumb: {
-    width: 44,
-    height: 44,
+    width: 56,
+    height: 56,
     borderRadius: radius.md,
     backgroundColor: colors.surfaceTertiary,
   },
@@ -1798,12 +1806,18 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   noteMainTextWrap: {
     flex: 1,
-    gap: spacing.xs,
+    gap: 4,
   },
   noteTitleText: {
     fontFamily: fonts.bold,
     fontSize: fontSize.base,
     color: colors.onSurface,
+  },
+  noteExcerptText: {
+    fontFamily: fonts.regular,
+    fontSize: fontSize.sm,
+    lineHeight: 18,
+    color: colors.onSurfaceTertiary,
   },
   noteRentPill: {
     alignSelf: "flex-start",

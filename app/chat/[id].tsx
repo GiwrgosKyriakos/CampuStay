@@ -55,6 +55,7 @@ const CURRENCY = "€";
 interface Message {
   id: string;
   text: string;
+  noteText?: string;
   senderId: string;
   createdAt: any;
   isRead?: boolean;
@@ -74,6 +75,8 @@ interface SharedApartmentData {
   city: string;
   area: string;
   image: string;
+  imageUrl?: string;
+  images?: string[];
   rooms: number;
   size: number;
   tags?: string[];
@@ -81,6 +84,7 @@ interface SharedApartmentData {
 
 interface FirestoreMessageDoc {
   text?: string;
+  noteText?: string;
   senderId?: string;
   createdAt?: any;
   isRead?: boolean;
@@ -238,15 +242,15 @@ function translateApartmentTag(tag: string): string {
     .replace(/\b\w/g, (match) => match.toUpperCase());
 }
 
+function getApartmentCoverImage(apartment?: { image?: string; imageUrl?: string; images?: string[] } | null): string {
+  return apartment?.image?.trim() || apartment?.imageUrl?.trim() || apartment?.images?.[0] || "";
+}
+
 function normalizeApartmentImages(data: FirestoreApartmentDoc): string[] {
   const images = Array.isArray(data.images)
     ? data.images.filter((img): img is string => typeof img === "string" && img.trim().length > 0)
     : [];
-  const fallback = typeof data.image === "string" && data.image.trim().length > 0
-    ? data.image.trim()
-    : typeof data.imageUrl === "string" && data.imageUrl.trim().length > 0
-      ? data.imageUrl.trim()
-      : "";
+  const fallback = getApartmentCoverImage(data);
   return images.length > 0 ? images : fallback ? [fallback] : [];
 }
 
@@ -815,6 +819,7 @@ export default function ChatScreen() {
           return {
             id: doc.id,
             text: data.text ?? "",
+            noteText: typeof data.noteText === "string" ? data.noteText : undefined,
             senderId: data.senderId ?? "",
             createdAt: data.createdAt ?? Date.now(),
             isRead: data.isRead ?? true,
@@ -2348,10 +2353,13 @@ export default function ChatScreen() {
               const canDeleteForEveryone = isMine && !m.id.startsWith("temp-");
               const lastMsgIsDifferentSender = idx > 0 && messages[idx - 1].senderId !== m.senderId;
               const isApartmentShare = m.type === "apartment_share" && !!m.apartmentData;
+              const isApartmentNoteShare = m.type === "apartment_note_share" && !!m.apartmentData;
               const isPriceProposal = m.type === "price_proposal";
               const isVisitRequest = m.type === "visit_request";
               const isSystemNotice = m.type === "system_notice";
               const apartmentData = m.apartmentData;
+              const apartmentCoverImage = getApartmentCoverImage(apartmentData);
+              const apartmentNoteText = (m.noteText || m.text || "").trim();
 
               const itemMarginStyle = {
                 marginVertical: groupInfo.isConsecutive
@@ -2411,8 +2419,8 @@ export default function ChatScreen() {
                     delayLongPress={300}
                     testID={`chat-message-${m.id}`}
                   >
-                    {apartmentData.image ? (
-                      <Image source={{ uri: apartmentData.image }} style={styles.shareImage} contentFit="cover" transition={120} />
+                    {apartmentCoverImage ? (
+                      <Image source={{ uri: apartmentCoverImage }} style={styles.shareImage} contentFit="cover" transition={120} />
                     ) : (
                       <View style={styles.shareImageFallback}>
                         <Ionicons name="home-outline" size={22} color={colors.onSurfaceTertiary} />
@@ -2442,6 +2450,87 @@ export default function ChatScreen() {
                         <Text style={[styles.shareStatsText, isMine && styles.shareStatsTextMine]} numberOfLines={1}>
                           {`${apartmentData.rooms ?? 0} rooms · ${apartmentData.size ?? 0} m²`}
                         </Text>
+                      </View>
+                    </View>
+                  </Pressable>
+                );
+              }
+
+              if (isApartmentNoteShare && apartmentData) {
+                return (
+                  <Pressable
+                    key={m.id}
+                    style={[
+                      styles.noteShareBubble,
+                      isMine ? styles.noteShareBubbleMine : styles.noteShareBubbleTheirs,
+                      itemMarginStyle,
+                    ]}
+                    onPress={() => {
+                      router.push({
+                        pathname: "/apartment-detail",
+                        params: { data: JSON.stringify(apartmentData) },
+                      });
+                    }}
+                    onLongPress={
+                      canDeleteForEveryone
+                        ? () => {
+                            setMessageActionTarget(m);
+                          }
+                        : undefined
+                    }
+                    delayLongPress={300}
+                    accessibilityRole="button"
+                    testID={`chat-message-${m.id}`}
+                  >
+                    <View style={styles.noteShareHeader}>
+                      <View style={styles.noteShareBadge}>
+                        <Ionicons
+                          name="document-text-outline"
+                          size={12}
+                          color={isMine ? colors.onBrand : colors.onBrandTertiary}
+                        />
+                        <Text style={[styles.noteShareBadgeText, isMine && styles.noteShareBadgeTextMine]} numberOfLines={1}>
+                          Σημείωση Αγγελίας
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.noteShareQuote}>
+                      <Ionicons
+                        name="open-outline"
+                        size={16}
+                        color={isMine ? "rgba(255,255,255,0.72)" : colors.onSurfaceTertiary}
+                      />
+                      <Text style={[styles.noteShareQuoteText, isMine && styles.noteShareQuoteTextMine]}>
+                        {apartmentNoteText || m.text}
+                      </Text>
+                    </View>
+
+                    <View style={styles.noteShareFooter}>
+                      {apartmentCoverImage ? (
+                        <Image
+                          source={{ uri: apartmentCoverImage }}
+                          style={styles.noteShareThumb}
+                          contentFit="cover"
+                          transition={120}
+                        />
+                      ) : (
+                        <View style={styles.noteShareThumbFallback}>
+                          <Ionicons name="home-outline" size={18} color={colors.onSurfaceTertiary} />
+                        </View>
+                      )}
+
+                      <View style={styles.noteShareApartmentTextWrap}>
+                        <Text style={[styles.noteShareApartmentTitle, isMine && styles.noteShareApartmentTitleMine]} numberOfLines={1}>
+                          {apartmentData.title || m.text}
+                        </Text>
+                        <Text style={[styles.noteShareApartmentMeta, isMine && styles.noteShareApartmentMetaMine]} numberOfLines={1}>
+                          {[apartmentData.area, apartmentData.city].filter(Boolean).join(", ") || t("common.values.notAvailable")}
+                        </Text>
+                      </View>
+
+                      <View style={[styles.noteShareRentPill, isMine && styles.noteShareRentPillMine]}>
+                        <Text style={[styles.noteShareRentText, isMine && styles.noteShareRentTextMine]}>{`€${apartmentData.rent ?? 0}`}</Text>
                       </View>
                     </View>
                   </Pressable>
@@ -3780,6 +3869,131 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   shareStatsTextMine: {
     color: "rgba(255,255,255,0.92)",
+  },
+  noteShareBubble: {
+    maxWidth: "90%",
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
+  noteShareBubbleTheirs: {
+    alignSelf: "flex-start",
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  noteShareBubbleMine: {
+    alignSelf: "flex-end",
+    backgroundColor: colors.brand,
+    borderWidth: 1,
+    borderColor: colors.brandSecondary,
+  },
+  noteShareHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-start",
+  },
+  noteShareBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    alignSelf: "flex-start",
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    backgroundColor: colors.brandTertiary,
+    borderWidth: 1,
+    borderColor: colors.brandSecondary,
+  },
+  noteShareBadgeText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.xs,
+    color: colors.onBrandTertiary,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  noteShareBadgeTextMine: {
+    color: colors.onBrand,
+  },
+  noteShareQuote: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+  },
+  noteShareQuoteText: {
+    flex: 1,
+    fontFamily: fonts.regular,
+    fontSize: fontSize.base,
+    fontStyle: "italic",
+    lineHeight: 21,
+    color: colors.onSurface,
+  },
+  noteShareQuoteTextMine: {
+    color: colors.onSurface,
+  },
+  noteShareFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  noteShareThumb: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+  },
+  noteShareThumbFallback: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  noteShareApartmentTextWrap: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  noteShareApartmentTitle: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.sm,
+    color: colors.onSurface,
+  },
+  noteShareApartmentTitleMine: {
+    color: colors.onBrand,
+  },
+  noteShareApartmentMeta: {
+    fontFamily: fonts.regular,
+    fontSize: fontSize.xs,
+    color: colors.onSurfaceTertiary,
+  },
+  noteShareApartmentMetaMine: {
+    color: "rgba(255,255,255,0.84)",
+  },
+  noteShareRentPill: {
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.brandSecondary,
+    backgroundColor: colors.brandTertiary,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+  },
+  noteShareRentPillMine: {
+    backgroundColor: "rgba(255,255,255,0.14)",
+    borderColor: "rgba(255,255,255,0.18)",
+  },
+  noteShareRentText: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.sm,
+    color: colors.onBrandTertiary,
+  },
+  noteShareRentTextMine: {
+    color: colors.onBrand,
   },
   hostActionCardWrap: {
     alignItems: "center",

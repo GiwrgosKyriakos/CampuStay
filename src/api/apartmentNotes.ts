@@ -23,6 +23,8 @@ export interface Apartment {
   city: string;
   area: string;
   image: string;
+  imageUrl?: string;
+  images?: string[];
   rooms: number;
   size: number;
   tags: string[];
@@ -63,7 +65,7 @@ function normalizeApartmentData(apartmentId: string, apartmentData: Apartment): 
     rent: typeof apartmentData.rent === "number" ? apartmentData.rent : 0,
     city: apartmentData.city || "",
     area: apartmentData.area || "",
-    image: apartmentData.image || "",
+    image: apartmentData.image || apartmentData.imageUrl || apartmentData.images?.[0] || "",
     rooms: typeof apartmentData.rooms === "number" ? apartmentData.rooms : 1,
     size: typeof apartmentData.size === "number" ? apartmentData.size : 0,
     tags: Array.isArray(apartmentData.tags) ? apartmentData.tags : [],
