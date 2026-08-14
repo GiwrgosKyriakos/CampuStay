@@ -2419,7 +2419,6 @@ export default function ChatScreen() {
                     delayLongPress={300}
                     testID={`chat-message-${m.id}`}
                   >
-                    {/*
                     {apartmentCoverImage ? (
                       <Image source={{ uri: apartmentCoverImage }} style={styles.shareImage} contentFit="cover" transition={120} />
                     ) : (
@@ -2427,7 +2426,6 @@ export default function ChatScreen() {
                         <Ionicons name="home-outline" size={22} color={colors.onSurfaceTertiary} />
                       </View>
                     )}
-                    */}
                     <View style={styles.shareContent}>
                       <Text style={[styles.shareTitle, isMine && styles.shareTitleMine]} numberOfLines={1}>
                         {apartmentData.title || m.text}
@@ -2508,7 +2506,7 @@ export default function ChatScreen() {
                     </View>
 
                     <View style={styles.noteShareFooter}>
-                      {/*
+                      
                       {apartmentCoverImage ? (
                         <Image
                           source={{ uri: apartmentCoverImage }}
@@ -2521,7 +2519,7 @@ export default function ChatScreen() {
                           <Ionicons name="home-outline" size={18} color={colors.onSurfaceTertiary} />
                         </View>
                       )}
-                      */}
+                      
 
                       <View style={styles.noteShareApartmentTextWrap}>
                         <Text style={[styles.noteShareApartmentTitle, isMine && styles.noteShareApartmentTitleMine]} numberOfLines={1}>

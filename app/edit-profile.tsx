@@ -585,7 +585,6 @@ export default function EditProfileScreen() {
         </View>
 
         {/* SECTION 3: User Experience */}
-        {/*
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Ionicons name="settings-outline" size={22} color={colors.onSurface} />
@@ -620,8 +619,6 @@ export default function EditProfileScreen() {
             <Text style={styles.checkboxText}>Δεν ενδιαφέρομαι για συγκάτοικο</Text>
           </Pressable>
         </View>
-        */}
-        
 
         {/* SECTION 4: Education & Living */}
         {!isBroker && (

@@ -1638,7 +1638,6 @@ export default function ApartmentsScreen() {
                           <Text style={styles.noteIndexText}>{(getIndex?.() ?? 0) + 1}</Text>
                         </View>
 
-                        {/*
                         {coverImage ? (
                           <Image source={{ uri: coverImage }} style={styles.noteThumb} contentFit="cover" />
                         ) : (
@@ -1646,7 +1645,6 @@ export default function ApartmentsScreen() {
                             <Ionicons name="home-outline" size={18} color={colors.onSurfaceTertiary} />
                           </View>
                         )}
-                        */}
                         <View style={styles.noteMainTextWrap}>
                           <Text style={styles.noteTitleText} numberOfLines={1}>
                             {item.apartmentData.title || t("apartments.unknownListing")}
