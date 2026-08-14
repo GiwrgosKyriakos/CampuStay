@@ -17,7 +17,11 @@
     },
     "production": {
       "distribution": "store",
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_WEB_CLIENT_ID": "311068327323-cmdkalllbaojgsf9dq2bp6fpjs5c9ut6.apps.googleusercontent.com",
+        "EXPO_PUBLIC_ANDROID_CLIENT_ID": "311068327323-41q60bdi4b9a45prhhkcfgq6kkj98kih.apps.googleusercontent.com"
+      }
     }
   },
   "submit": {
