@@ -675,7 +675,7 @@ function ClientsView({
   );
 }
 
-export default function BrokerTabScreen() {
+export default function BrokerTabScreen({ onOpenSettings }: { onOpenSettings?: () => void } = {}) {
   const auth = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -1164,6 +1164,18 @@ export default function BrokerTabScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.surface, paddingTop: insets.top + spacing.md }]}> 
+      {onOpenSettings ? (
+        <View style={styles.dashboardHeaderRow}>
+          <Pressable
+            style={styles.headerIconButton}
+            onPress={onOpenSettings}
+            testID="broker-dashboard-settings-btn"
+            hitSlop={8}
+          >
+            <Ionicons name="settings-outline" size={22} color={colors.onSurface} />
+          </Pressable>
+        </View>
+      ) : null}
       <View
         style={[styles.toggleContainer, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
         onLayout={(event) => {
@@ -1442,6 +1454,17 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     marginBottom: spacing.sm,
+  },
+  dashboardHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: spacing.sm,
+  },
+  headerIconButton: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
   },
   weekLabelSpacer: {
     width: 38,

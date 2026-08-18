@@ -18,6 +18,7 @@ import { uploadProfileImageAsync } from "@/src/api/imageUpload";
 import { t } from "@/src/locales";
 import { useLocale } from "@/src/context/locale";
 import { useTheme } from "@/src/context/ThemeContext";
+import BrokerTabScreen from "./broker";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 100;
@@ -56,6 +57,7 @@ export default function ProfileScreen() {
   const [updatingPhoto, setUpdatingPhoto] = useState(false);
   const [quizAnsweredCount, setQuizAnsweredCount] = useState(0);
   const [isLoggingOut, setIsLoggingOut] = useState(false); // 🎯 ΠΡΟΣΘΗΚΗ: Κλειδώνει το UI κατά το logout
+  const [showBrokerSettings, setShowBrokerSettings] = useState(false);
 
   React.useEffect(() => {
     if (auth.isGuest) {
@@ -179,12 +181,28 @@ export default function ProfileScreen() {
     }
   }, [auth.isGuest, auth.user?.email, auth.user?.name, profile, router]);
 
+  if (auth.isBroker && !showBrokerSettings) {
+    return <BrokerTabScreen onOpenSettings={() => setShowBrokerSettings(true)} />;
+  }
+
   return (
     <View style={styles.container} testID="profile-screen">
       <ScrollView
         contentContainerStyle={{ paddingBottom: TAB_BAR_SPACE + insets.bottom }}
         showsVerticalScrollIndicator={false}
       >
+        {auth.isBroker ? (
+          <View style={[styles.brokerHeaderRow, { paddingTop: insets.top + spacing.sm }]}>
+            <Pressable
+              style={styles.headerIconButton}
+              onPress={() => setShowBrokerSettings(false)}
+              testID="broker-settings-back-btn"
+              hitSlop={8}
+            >
+              <Ionicons name="chevron-back" size={24} color={colors.onSurface} />
+            </Pressable>
+          </View>
+        ) : null}
         <View style={[styles.hero, { paddingTop: spacing.xl }]}> 
           <View style={styles.avatarWrap}>
             <Pressable
@@ -437,6 +455,17 @@ export default function ProfileScreen() {
 
 const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
+  brokerHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: spacing.lg,
+  },
+  headerIconButton: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   hero: { alignItems: "center", paddingTop: spacing["3xl"], paddingBottom: spacing.xl, gap: spacing.sm },
   avatarWrap: { marginTop: spacing.lg, marginBottom: spacing.sm },
   avatarButton: { alignItems: "center", justifyContent: "center" },

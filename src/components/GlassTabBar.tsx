@@ -11,6 +11,7 @@ import { useAuth } from "@/src/context/auth";
 const ICONS: Record<string, { active: keyof typeof Ionicons.glyphMap; inactive: keyof typeof Ionicons.glyphMap }> = {
   roommates: { active: "flame", inactive: "flame-outline" },
   broker: { active: "calendar", inactive: "calendar-outline" },
+  "broker-hub": { active: "person", inactive: "person-outline" },
   matches: { active: "heart", inactive: "heart-outline" },
   apartments: { active: "home", inactive: "home-outline" },
   profile: { active: "person", inactive: "person-outline" },
@@ -27,13 +28,14 @@ export default function GlassTabBar({ state, navigation }: BottomTabBarProps) {
   const visibleRoutes = useMemo(() => {
     return state.routes
       .filter((route) => {
-        if (route.name === "broker") return isBroker;
+        if (route.name === "broker") return false;
+        if (route.name === "broker-hub") return isBroker;
         if (route.name === "roommates") return !isBroker && !notLookingForRoommate;
         return true;
       })
       .sort((left, right) => {
         const order = isBroker
-          ? ["broker", "apartments", "matches", "profile"]
+          ? ["broker-hub", "apartments", "matches", "profile"]
           : ["roommates", "matches", "apartments", "profile"];
         return order.indexOf(left.name) - order.indexOf(right.name);
       });

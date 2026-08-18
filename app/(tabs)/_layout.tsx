@@ -25,6 +25,13 @@ export default function TabsLayout() {
       }}
     >
       <Tabs.Screen
+        name="broker-hub"
+        options={{
+          title: t("tabs.profile"),
+          href: isBroker ? undefined : null,
+        }}
+      />
+      <Tabs.Screen
         name="roommates"
         options={{
           title: t("tabs.roommates"),
@@ -35,7 +42,7 @@ export default function TabsLayout() {
         name="broker"
         options={{
           title: "Broker",
-          href: isBroker ? undefined : null,
+          href: null,
         }}
       />
       <Tabs.Screen
