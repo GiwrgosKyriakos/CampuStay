@@ -46,3 +46,5 @@ build-release.ps1
 *.keystore
 *.jsk
 *.bak.jsk
+/android
+/ios
