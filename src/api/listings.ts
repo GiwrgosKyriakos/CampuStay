@@ -24,12 +24,18 @@ function sanitizePayload(data: Record<string, unknown>): Record<string, unknown>
       continue;
     }
 
-    // Καθαρισμός και στα ένθετα αντικείμενα (π.χ. extraInformation)
+    // Εξαίρεση για Firestore FieldValues (όπως serverTimestamp, deleteField, arrayUnion)
+    const isFirestoreFieldValue =
+      value !== null &&
+      typeof value === "object" &&
+      ("_methodName" in value || (value as { constructor?: { name?: string } }).constructor?.name === "FieldValue");
+
     if (
       value !== null &&
       typeof value === "object" &&
       !Array.isArray(value) &&
       !(value instanceof Date) &&
+      !isFirestoreFieldValue &&
       typeof (value as { toMillis?: unknown }).toMillis !== "function"
     ) {
       sanitized[key] = sanitizePayload(value as Record<string, unknown>);

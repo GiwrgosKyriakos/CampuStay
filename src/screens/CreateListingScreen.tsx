@@ -21,13 +21,13 @@ import { Image } from "expo-image";
 
 import Dropdown from "@/src/components/Dropdown";
 import AddressAutocompleteInput from "@/src/components/AddressAutocompleteInput";
-import ApartmentLocationMap from "@/src/components/ApartmentLocationMap";
+// import ApartmentLocationMap from "@/src/components/ApartmentLocationMap";
 import CenteredActionModal from "@/src/components/CenteredActionModal";
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
 import { db } from "@/src/config/firebase";
 import { useAuth } from "@/src/context/auth";
 import { useTheme } from "@/src/context/ThemeContext";
-import { useLocationCoordinates } from "@/src/hooks/useLocationCoordinates";
+// import { useLocationCoordinates } from "@/src/hooks/useLocationCoordinates";
 import { uploadListingImageAsync } from "@/src/api/imageUpload";
 import { upsertListing } from "@/src/api/listings";
 import { t } from "@/src/locales";
@@ -328,7 +328,7 @@ export default function CreateListingScreen() {
     "Άλλες κατηγορίες",
   ];
   const floorOptions = ["Υπόγειο", "Ημιώροφος", "Ισόγειο", "1ος", "2ος", "3ος", "4ος", "5ος+"];
-  const cityCoordinates = useLocationCoordinates(city, area);
+  // const cityCoordinates = useLocationCoordinates(city, area);
   const availableFromDateOptions = useMemo(() => {
     const startDate = new Date();
     startDate.setHours(12, 0, 0, 0);
@@ -962,7 +962,7 @@ export default function CreateListingScreen() {
               }}
               testID="create-listing-address-input"
             />
-            <ApartmentLocationMap
+            {/* <ApartmentLocationMap
               latitude={addressLatitude ?? undefined}
               longitude={addressLongitude ?? undefined}
               cityCoordinates={cityCoordinates}
@@ -971,7 +971,7 @@ export default function CreateListingScreen() {
             />
             <Text style={styles.fieldHint}>
               Η ακριβής τοποθεσία αποθηκεύεται μόνο όταν επιλέξεις πρόταση από τη λίστα.
-            </Text>
+            </Text> */}
           </View>
 
           <View style={styles.card}>
