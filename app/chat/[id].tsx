@@ -51,6 +51,16 @@ import {
 import { t } from "@/src/locales";
 
 const CURRENCY = "€";
+const FILTER_SORT_LABELS: Record<string, string> = {
+  newest: "Πιο πρόσφατα",
+  oldest: "Πιο παλιά",
+  price_asc: "Αύξουσα τιμή",
+  price_desc: "Φθίνουσα τιμή",
+  size_asc: "Αύξον εμβαδόν",
+  size_desc: "Φθίνουσα εμβαδόν",
+  price_sqm_asc: "Αύξουσα τιμή/τ.μ.",
+  price_sqm_desc: "Φθίνουσα τιμή/τ.μ.",
+};
 
 interface Message {
   id: string;
@@ -66,6 +76,23 @@ interface Message {
   requestedTime?: string;
   apartmentId?: string;
   apartmentData?: SharedApartmentData;
+  filterSetData?: FilterSetMessageData;
+}
+
+interface FilterSetMessageData {
+  title?: string;
+  rentMin?: string;
+  rentMax?: string;
+  minSqmPrice?: string;
+  maxSqmPrice?: string;
+  cityQuery?: string;
+  sizeMin?: string;
+  sizeMax?: string;
+  petFriendly?: boolean;
+  nearMetro?: boolean;
+  sortBy?: string;
+  summary?: string;
+  sharedAt?: number;
 }
 
 interface SharedApartmentData {
@@ -96,6 +123,7 @@ interface FirestoreMessageDoc {
   requestedTime?: string;
   apartmentId?: string;
   apartmentData?: SharedApartmentData;
+  filterSetData?: FilterSetMessageData;
 }
 
 interface FirestoreChatDoc {
@@ -676,6 +704,7 @@ export default function ChatScreen() {
   const [showBlockModal, setShowBlockModal] = useState(false);
   const [showGlobalUnmuteModal, setShowGlobalUnmuteModal] = useState(false);
   const [messageActionTarget, setMessageActionTarget] = useState<Message | null>(null);
+  const [selectedFilterSetMessage, setSelectedFilterSetMessage] = useState<Message | null>(null);
   const [isDeletingMessage, setIsDeletingMessage] = useState(false);
   const [expandReport, setExpandReport] = useState(false);
   const [reportReason, setReportReason] = useState("");
@@ -829,6 +858,7 @@ export default function ChatScreen() {
             requestedTime: typeof data.requestedTime === "string" ? data.requestedTime : undefined,
             apartmentId: typeof data.apartmentId === "string" ? data.apartmentId : undefined,
             apartmentData,
+            filterSetData: data.filterSetData,
           };
         });
 
@@ -2354,6 +2384,7 @@ export default function ChatScreen() {
               const lastMsgIsDifferentSender = idx > 0 && messages[idx - 1].senderId !== m.senderId;
               const isApartmentShare = m.type === "apartment_share" && !!m.apartmentData;
               const isApartmentNoteShare = m.type === "apartment_note_share" && !!m.apartmentData;
+              const isFilterSetShare = m.type === "filter_set_share" && !!m.filterSetData;
               const isPriceProposal = m.type === "price_proposal";
               const isVisitRequest = m.type === "visit_request";
               const isSystemNotice = m.type === "system_notice";
@@ -2450,6 +2481,45 @@ export default function ChatScreen() {
                           {`${apartmentData.rooms ?? 0} rooms · ${apartmentData.size ?? 0} m²`}
                         </Text>
                       </View>
+                    </View>
+                  </Pressable>
+                );
+              }
+
+              if (isFilterSetShare && m.filterSetData) {
+                const filterSet = m.filterSetData;
+                return (
+                  <Pressable
+                    key={m.id}
+                    style={[
+                      styles.filterSetShareBubble,
+                      isMine ? styles.filterSetShareBubbleMine : styles.filterSetShareBubbleTheirs,
+                      itemMarginStyle,
+                    ]}
+                    onPress={() => setSelectedFilterSetMessage(m)}
+                    onLongPress={
+                      canDeleteForEveryone
+                        ? () => {
+                            setMessageActionTarget(m);
+                          }
+                        : undefined
+                    }
+                    delayLongPress={300}
+                    testID={`chat-message-${m.id}`}
+                  >
+                    <View style={styles.filterSetShareIcon}>
+                      <Ionicons name="options-outline" size={20} color={isMine ? colors.onBrand : colors.brand} />
+                    </View>
+                    <View style={styles.filterSetShareContent}>
+                      <Text style={[styles.filterSetShareTag, isMine && styles.filterSetShareTagMine]}>
+                        Κριτήρια Αναζήτησης / Set Φίλτρων
+                      </Text>
+                      <Text style={[styles.filterSetShareTitle, isMine && styles.filterSetShareTitleMine]} numberOfLines={1}>
+                        {filterSet.title || filterSet.summary || "Όλα τα διαμερίσματα"}
+                      </Text>
+                      <Text style={[styles.filterSetShareSubtitle, isMine && styles.filterSetShareSubtitleMine]}>
+                        Πατήστε για προβολή λεπτομερειών
+                      </Text>
                     </View>
                   </Pressable>
                 );
@@ -3077,6 +3147,86 @@ export default function ChatScreen() {
             <Text style={styles.modalCloseBtnText}>{t("common.actions.done")}</Text>
           </Pressable>
           </Animated.View>
+        </View>
+      </Modal>
+
+      <Modal
+        transparent
+        animationType="fade"
+        visible={!!selectedFilterSetMessage}
+        onRequestClose={() => setSelectedFilterSetMessage(null)}
+      >
+        <View style={styles.filterSetModalBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setSelectedFilterSetMessage(null)} />
+          <View style={styles.filterSetModalCard} testID="chat-filter-set-details-modal">
+            <View style={styles.filterSetModalHeader}>
+              <Text style={styles.filterSetModalTitle}>Κριτήρια Αναζήτησης</Text>
+              <Pressable
+                style={styles.filterSetModalClose}
+                onPress={() => setSelectedFilterSetMessage(null)}
+                testID="chat-filter-set-details-close"
+              >
+                <Ionicons name="close-outline" size={22} color={colors.onSurface} />
+              </Pressable>
+            </View>
+            {selectedFilterSetMessage?.filterSetData ? (
+              <>
+                <ScrollView style={styles.filterSetModalScroll} contentContainerStyle={styles.filterSetModalContent}>
+                  {selectedFilterSetMessage.filterSetData.title ? (
+                    <View style={styles.filterSetDetailRow}>
+                      <Text style={styles.filterSetDetailLabel}>Τίτλος</Text>
+                      <Text style={styles.filterSetDetailValue}>{selectedFilterSetMessage.filterSetData.title}</Text>
+                    </View>
+                  ) : null}
+                  <View style={styles.filterSetDetailRow}>
+                    <Text style={styles.filterSetDetailLabel}>Ενοίκιο</Text>
+                    <Text style={styles.filterSetDetailValue}>{`${selectedFilterSetMessage.filterSetData.rentMin || "0"} - ${selectedFilterSetMessage.filterSetData.rentMax || "∞"} €`}</Text>
+                  </View>
+                  <View style={styles.filterSetDetailRow}>
+                    <Text style={styles.filterSetDetailLabel}>Τιμή / τ.μ.</Text>
+                    <Text style={styles.filterSetDetailValue}>{`${selectedFilterSetMessage.filterSetData.minSqmPrice || "0"} - ${selectedFilterSetMessage.filterSetData.maxSqmPrice || "∞"} €/m²`}</Text>
+                  </View>
+                  <View style={styles.filterSetDetailRow}>
+                    <Text style={styles.filterSetDetailLabel}>Περιοχή / Πόλη</Text>
+                    <Text style={styles.filterSetDetailValue}>{selectedFilterSetMessage.filterSetData.cityQuery?.trim() || "Όλες οι περιοχές"}</Text>
+                  </View>
+                  <View style={styles.filterSetDetailRow}>
+                    <Text style={styles.filterSetDetailLabel}>Εμβαδόν</Text>
+                    <Text style={styles.filterSetDetailValue}>{`${selectedFilterSetMessage.filterSetData.sizeMin || "0"} - ${selectedFilterSetMessage.filterSetData.sizeMax || "∞"} m²`}</Text>
+                  </View>
+                  <View style={styles.filterSetDetailRow}>
+                    <Text style={styles.filterSetDetailLabel}>Κατοικίδια</Text>
+                    <Text style={styles.filterSetDetailValue}>{selectedFilterSetMessage.filterSetData.petFriendly ? "Ναι" : "Όχι"}</Text>
+                  </View>
+                  <View style={styles.filterSetDetailRow}>
+                    <Text style={styles.filterSetDetailLabel}>Μετρό</Text>
+                    <Text style={styles.filterSetDetailValue}>{selectedFilterSetMessage.filterSetData.nearMetro ? "Ναι" : "Όχι"}</Text>
+                  </View>
+                  <View style={styles.filterSetDetailRow}>
+                    <Text style={styles.filterSetDetailLabel}>Ταξινόμηση</Text>
+                    <Text style={styles.filterSetDetailValue}>{FILTER_SORT_LABELS[selectedFilterSetMessage.filterSetData.sortBy || "newest"] || selectedFilterSetMessage.filterSetData.sortBy || "Πιο πρόσφατα"}</Text>
+                  </View>
+                </ScrollView>
+                {auth.isBroker && selectedFilterSetMessage.senderId !== currentUserId ? (
+                  <Pressable
+                    style={styles.filterSetApplyButton}
+                    onPress={() => {
+                      const filterSetData = selectedFilterSetMessage.filterSetData;
+                      setSelectedFilterSetMessage(null);
+                      router.push({
+                        pathname: "/(tabs)/apartments",
+                        params: { importedFilters: JSON.stringify(filterSetData) },
+                      } as never);
+                    }}
+                    testID="broker-apply-filter-set-btn"
+                  >
+                    <Ionicons name="search-outline" size={19} color={colors.onBrand} />
+                    <Text style={styles.filterSetApplyButtonText}>Εφαρμογή στην Αναζήτηση</Text>
+                  </Pressable>
+                ) : null}
+              </>
+            ) : null}
+          </View>
         </View>
       </Modal>
 
@@ -3782,6 +3932,146 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   bubbleText: { fontFamily: fonts.regular, fontSize: fontSize.lg, color: colors.onSurface },
   bubbleTextMine: { color: colors.onBrand, fontFamily: fonts.semibold },
+  filterSetShareBubble: {
+    maxWidth: "90%",
+    minHeight: 92,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  filterSetShareBubbleTheirs: {
+    alignSelf: "flex-start",
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  filterSetShareBubbleMine: {
+    alignSelf: "flex-end",
+    backgroundColor: colors.brand,
+  },
+  filterSetShareIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surface,
+  },
+  filterSetShareContent: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
+  },
+  filterSetShareTag: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.sm,
+    color: colors.brand,
+  },
+  filterSetShareTagMine: {
+    color: colors.onBrand,
+  },
+  filterSetShareTitle: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.base,
+    color: colors.onSurface,
+  },
+  filterSetShareTitleMine: {
+    color: colors.onBrand,
+  },
+  filterSetShareSubtitle: {
+    fontFamily: fonts.regular,
+    fontSize: fontSize.sm,
+    color: colors.onSurfaceTertiary,
+  },
+  filterSetShareSubtitleMine: {
+    color: "rgba(255,255,255,0.82)",
+  },
+  filterSetModalBackdrop: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.5)",
+    padding: spacing.lg,
+  },
+  filterSetModalCard: {
+    width: "100%",
+    maxHeight: "82%",
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    padding: spacing.lg,
+    gap: spacing.md,
+  },
+  filterSetModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+  },
+  filterSetModalTitle: {
+    flex: 1,
+    fontFamily: fonts.bold,
+    fontSize: fontSize.lg,
+    color: colors.onSurface,
+  },
+  filterSetModalClose: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceSecondary,
+  },
+  filterSetModalScroll: {
+    flexGrow: 0,
+  },
+  filterSetModalContent: {
+    gap: spacing.sm,
+  },
+  filterSetDetailRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceSecondary,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  filterSetDetailLabel: {
+    flex: 1,
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+    color: colors.onSurfaceTertiary,
+  },
+  filterSetDetailValue: {
+    flex: 1,
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+    color: colors.onSurface,
+    textAlign: "right",
+  },
+  filterSetApplyButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+    borderRadius: radius.md,
+    backgroundColor: colors.brand,
+    paddingVertical: spacing.md,
+  },
+  filterSetApplyButtonText: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.base,
+    color: colors.onBrand,
+  },
   shareBubble: {
     maxWidth: "90%",
     minHeight: 112,

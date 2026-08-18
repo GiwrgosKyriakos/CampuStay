@@ -5,8 +5,8 @@ import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useFocusEffect, useRouter } from "expo-router";
-import { collection, doc, getDocs, onSnapshot, orderBy, query, where, limit } from "firebase/firestore";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { addDoc, collection, doc, getDocs, onSnapshot, orderBy, query, serverTimestamp, setDoc, where, limit } from "firebase/firestore";
 import DraggableFlatList, { ScaleDecorator } from "react-native-draggable-flatlist";
 
 import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
@@ -27,7 +27,70 @@ const CURRENCY = "€";
 const TAB_BAR_SPACE = 100;
 const APARTMENTS_SORT_BY_STORAGE_KEY = "apartments.sortBy";
 
-type SortOption = "newest" | "oldest" | "price_asc" | "price_desc" | "size_asc" | "size_desc" | "price_sqm_asc" | "price_sqm_desc";
+export type SortOption = "newest" | "oldest" | "price_asc" | "price_desc" | "size_asc" | "size_desc" | "price_sqm_asc" | "price_sqm_desc";
+
+export interface FilterSetPayload {
+  title?: string;
+  rentMin?: string;
+  rentMax?: string;
+  minSqmPrice?: string;
+  maxSqmPrice?: string;
+  cityQuery?: string;
+  sizeMin?: string;
+  sizeMax?: string;
+  petFriendly: boolean;
+  nearMetro: boolean;
+  sortBy?: SortOption;
+}
+
+export interface FilterSetDoc extends FilterSetPayload {
+  userId: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface SavedFilterSet extends FilterSetPayload {
+  id: string;
+  userId: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export function formatFilterSetSummary(filters: FilterSetPayload): string {
+  const parts: string[] = [];
+  if (filters.rentMin || filters.rentMax) {
+    parts.push(`${filters.rentMin || "0"}€ - ${filters.rentMax || "∞"}€`);
+  }
+  if (filters.minSqmPrice || filters.maxSqmPrice) {
+    parts.push(`${filters.minSqmPrice || "0"} - ${filters.maxSqmPrice || "∞"} €/m²`);
+  }
+  if (filters.sizeMin || filters.sizeMax) {
+    parts.push(`${filters.sizeMin || "0"} - ${filters.sizeMax || "∞"} m²`);
+  }
+  if (filters.cityQuery?.trim()) {
+    parts.push(filters.cityQuery.trim());
+  }
+  if (filters.petFriendly) parts.push("Pets");
+  if (filters.nearMetro) parts.push("Metro");
+
+  return parts.length > 0 ? parts.join(" · ") : "Όλα τα διαμερίσματα";
+}
+
+function sanitizeFirestorePayload<T extends Record<string, unknown>>(payload: T): T {
+  const cleaned = { ...payload } as T;
+  Object.keys(cleaned).forEach((key) => {
+    if (cleaned[key] === undefined) {
+      delete cleaned[key];
+    }
+  });
+  return cleaned;
+}
+
+interface BrokerDirectoryItem {
+  id: string;
+  name: string;
+  avatar: string;
+}
 
 const SORT_OPTION_LABELS: Record<SortOption, string> = {
   newest: "Πιο πρόσφατα",
@@ -414,6 +477,7 @@ export default function ApartmentsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const auth = useAuth();
+  const { importedFilters } = useLocalSearchParams<{ importedFilters?: string }>();
   const [publishedApartments, setPublishedApartments] = useState<Apartment[]>([]);
   const [showFilters, setShowFilters] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
@@ -432,6 +496,18 @@ export default function ApartmentsScreen() {
   const [sortBy, setSortBy] = useState<SortOption>("newest");
   const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false);
   const [showOwnListingsInFeed, setShowOwnListingsInFeed] = useState(false);
+  const [filterSetTitle, setFilterSetTitle] = useState("");
+  const [activeSavedSetId, setActiveSavedSetId] = useState<string | null>(null);
+  const [savedFilterSets, setSavedFilterSets] = useState<SavedFilterSet[]>([]);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [selectedSetForPreview, setSelectedSetForPreview] = useState<SavedFilterSet | null>(null);
+  const [savingFilterSet, setSavingFilterSet] = useState(false);
+  const [brokerShareModalVisible, setBrokerShareModalVisible] = useState(false);
+  const [availableBrokers, setAvailableBrokers] = useState<BrokerDirectoryItem[]>([]);
+  const [loadingBrokers, setLoadingBrokers] = useState(false);
+  const [sendingBrokerId, setSendingBrokerId] = useState<string | null>(null);
+  const [shareConfirmationVisible, setShareConfirmationVisible] = useState(false);
   const [activeTab, setActiveTab] = useState<"all" | "liked">("all");
   const [viewMode, setViewMode] = useState<"grid" | "compact">("grid");
   const [isViewingMyListings, setIsViewingMyListings] = useState(false);
@@ -453,6 +529,237 @@ export default function ApartmentsScreen() {
   const isHostUser = canManageListings;
   const showCreateFab = !auth.isGuest && (!hideCreateFab || auth.isBroker);
   const showHostInboxFab = !auth.isGuest && !auth.isBroker && !hideCreateFab && canOpenHostInbox;
+
+  const detachSavedFilterSet = useCallback(() => {
+    if (activeSavedSetId !== null) {
+      setActiveSavedSetId(null);
+      setFilterSetTitle("");
+    }
+  }, [activeSavedSetId]);
+
+  const updateFilterValue = useCallback(
+    <T,>(setter: React.Dispatch<React.SetStateAction<T>>, value: React.SetStateAction<T>) => {
+      detachSavedFilterSet();
+      setter(value);
+    },
+    [detachSavedFilterSet],
+  );
+
+  const currentFilterSet = useMemo<FilterSetPayload>(
+    () => ({
+      title: filterSetTitle.trim() || undefined,
+      rentMin: rentMin || undefined,
+      rentMax: rentMax || undefined,
+      minSqmPrice: minSqmPrice || undefined,
+      maxSqmPrice: maxSqmPrice || undefined,
+      cityQuery: cityQuery || undefined,
+      sizeMin: sizeMin || undefined,
+      sizeMax: sizeMax || undefined,
+      petFriendly,
+      nearMetro,
+      sortBy,
+    }),
+    [cityQuery, filterSetTitle, maxSqmPrice, nearMetro, petFriendly, rentMax, rentMin, sizeMax, sizeMin, sortBy, minSqmPrice],
+  );
+
+  const savedFilterSetsRef = useMemo(() => auth.userId ? collection(db, "users", auth.userId, "savedFilterSets") : null, [auth.userId]);
+
+  const loadSavedFilterSets = useCallback(async () => {
+    if (!savedFilterSetsRef) {
+      setSavedFilterSets([]);
+      return;
+    }
+
+    const snapshot = await getDocs(query(savedFilterSetsRef, orderBy("updatedAt", "desc"), limit(20)));
+    const sets = snapshot.docs.map((savedDoc) => ({
+      id: savedDoc.id,
+      ...(savedDoc.data() as FilterSetDoc),
+    }));
+    setSavedFilterSets(sets);
+  }, [savedFilterSetsRef]);
+
+  useEffect(() => {
+    if (!showHistoryModal) return;
+
+    setLoadingHistory(true);
+    void loadSavedFilterSets()
+      .catch(() => setSavedFilterSets([]))
+      .finally(() => setLoadingHistory(false));
+  }, [loadSavedFilterSets, showHistoryModal]);
+
+  const saveFilterSet = useCallback(async () => {
+    if (!savedFilterSetsRef || !auth.userId || savingFilterSet) return;
+
+    setSavingFilterSet(true);
+    try {
+      const now = Date.now();
+      const rawPayload: FilterSetDoc = {
+        ...currentFilterSet,
+        userId: auth.userId,
+        createdAt: now,
+        updatedAt: now,
+      };
+      const payload = sanitizeFirestorePayload(rawPayload as unknown as Record<string, unknown>);
+      const savedDoc = await addDoc(savedFilterSetsRef, payload);
+      setActiveSavedSetId(savedDoc.id);
+      setFilterSetTitle(currentFilterSet.title ?? "");
+      await loadSavedFilterSets();
+    } catch (error) {
+      console.error("[Apartments] Error saving filter set:", error);
+    } finally {
+      setSavingFilterSet(false);
+    }
+  }, [auth.userId, currentFilterSet, loadSavedFilterSets, savedFilterSetsRef, savingFilterSet]);
+
+  const applySavedFilterSet = useCallback((savedSet: SavedFilterSet) => {
+    setRentMin(savedSet.rentMin ?? "");
+    setRentMax(savedSet.rentMax ?? "");
+    setMinSqmPrice(savedSet.minSqmPrice ?? "");
+    setMaxSqmPrice(savedSet.maxSqmPrice ?? "");
+    setCityQuery(savedSet.cityQuery ?? "");
+    setSizeMin(savedSet.sizeMin ?? "");
+    setSizeMax(savedSet.sizeMax ?? "");
+    setPetFriendly(savedSet.petFriendly === true);
+    setNearMetro(savedSet.nearMetro === true);
+    setSortBy(savedSet.sortBy && SORT_OPTIONS.includes(savedSet.sortBy) ? savedSet.sortBy : "newest");
+    setFilterSetTitle(savedSet.title ?? "");
+    setActiveSavedSetId(savedSet.id);
+    setSelectedSetForPreview(null);
+    setShowHistoryModal(false);
+  }, []);
+
+  const shareFilterSet = useCallback(async () => {
+    if (!auth.userId || auth.isGuest) return;
+    setBrokerShareModalVisible(true);
+  }, [auth.isGuest, auth.userId]);
+
+  useEffect(() => {
+    if (!brokerShareModalVisible || !auth.userId) return;
+
+    let active = true;
+    setLoadingBrokers(true);
+    void (async () => {
+      try {
+        const snapshot = await getDocs(
+          query(collection(db, "users"), where("is_broker", "==", true)),
+        );
+        if (!active) return;
+        const brokers: BrokerDirectoryItem[] = [];
+
+        snapshot.docs.forEach((brokerDoc) => {
+          if (brokerDoc.id === auth.userId) return;
+
+          const data = brokerDoc.data() as {
+            name?: string;
+            photoUrl?: string;
+            avatar?: string;
+            photos?: string[];
+            is_visible?: boolean;
+            isVisible?: boolean;
+          };
+          const isVisible = data.is_visible !== false && data.isVisible !== false;
+
+          if (isVisible) {
+            brokers.push({
+              id: brokerDoc.id,
+              name: data.name?.trim() || "Μεσίτης",
+              avatar: data.photoUrl || data.avatar || data.photos?.[0] || "",
+            });
+          }
+        });
+
+        setAvailableBrokers(brokers);
+      } catch (error) {
+        console.error("[Apartments] Error loading brokers:", error);
+        if (active) setAvailableBrokers([]);
+      } finally {
+        if (active) setLoadingBrokers(false);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [auth.userId, brokerShareModalVisible]);
+
+  const sendFilterSetToBroker = useCallback(async (brokerId: string) => {
+    if (!auth.userId || sendingBrokerId) return;
+
+    const title = filterSetTitle.trim();
+    const summary = formatFilterSetSummary(currentFilterSet);
+    const messageText = `[Κριτήρια Αναζήτησης: ${title || summary}]`;
+    setSendingBrokerId(brokerId);
+    try {
+      const chatRoomId = [auth.userId, brokerId].sort().join("_");
+      await setDoc(
+        doc(db, "chats", chatRoomId),
+        sanitizeFirestorePayload({
+          users: [auth.userId, brokerId],
+          type: "host",
+          status: "active",
+          apartmentId: null,
+          apartmentTitle: null,
+          apartmentUnavailable: false,
+          updatedAt: serverTimestamp(),
+          lastMessageText: messageText,
+          lastMessageTimestamp: serverTimestamp(),
+        }),
+        { merge: true },
+      );
+      const filterSetData = sanitizeFirestorePayload({
+        title: title || "",
+        rentMin: rentMin || "",
+        rentMax: rentMax || "",
+        minSqmPrice: minSqmPrice || "",
+        maxSqmPrice: maxSqmPrice || "",
+        cityQuery: cityQuery || "",
+        sizeMin: sizeMin || "",
+        sizeMax: sizeMax || "",
+        petFriendly: Boolean(petFriendly),
+        nearMetro: Boolean(nearMetro),
+        sortBy: sortBy || "newest",
+        summary,
+        sharedAt: Date.now(),
+      });
+      await addDoc(collection(db, "chats", chatRoomId, "messages"), {
+        senderId: auth.userId,
+        type: "filter_set_share",
+        text: messageText,
+        filterSetData,
+        createdAt: serverTimestamp(),
+        isRead: false,
+      });
+      setBrokerShareModalVisible(false);
+      setShareConfirmationVisible(true);
+    } catch (error) {
+      console.error("[Apartments] Error sharing filter set to broker:", error);
+    } finally {
+      setSendingBrokerId(null);
+    }
+  }, [auth.userId, cityQuery, currentFilterSet, filterSetTitle, maxSqmPrice, minSqmPrice, nearMetro, petFriendly, rentMax, rentMin, sendingBrokerId, sizeMax, sizeMin, sortBy]);
+
+  useEffect(() => {
+    if (typeof importedFilters !== "string" || !importedFilters.trim()) return;
+    try {
+      const imported = JSON.parse(importedFilters) as Partial<FilterSetPayload>;
+      setRentMin(imported.rentMin || "");
+      setRentMax(imported.rentMax || "");
+      setMinSqmPrice(imported.minSqmPrice || "");
+      setMaxSqmPrice(imported.maxSqmPrice || "");
+      setCityQuery(imported.cityQuery || "");
+      setSizeMin(imported.sizeMin || "");
+      setSizeMax(imported.sizeMax || "");
+      setPetFriendly(imported.petFriendly === true);
+      setNearMetro(imported.nearMetro === true);
+      if (imported.sortBy && SORT_OPTIONS.includes(imported.sortBy)) setSortBy(imported.sortBy);
+      setFilterSetTitle(imported.title || "");
+      setActiveSavedSetId(null);
+      setActiveTab("all");
+      setShowFilters(true);
+    } catch {
+      // Ignore malformed imported filter payloads.
+    }
+  }, [importedFilters]);
 
   useEffect(() => {
     if (auth.isGuest || !auth.userId) {
@@ -1272,6 +1579,22 @@ export default function ApartmentsScreen() {
             nestedScrollEnabled={true}
             testID="apartments-filter-panel"
           >
+            <View style={styles.filterActionsRow}>
+              <Pressable
+                style={[styles.filterActionButton, showHistoryModal && styles.filterActionButtonActive]}
+                onPress={() => {
+                  setSelectedSetForPreview(null);
+                  setShowHistoryModal(true);
+                }}
+                testID="apartments-filter-history-btn"
+              >
+                <Ionicons name="time-outline" size={18} color={colors.onSurface} />
+              </Pressable>
+              <Pressable style={styles.filterActionButton} onPress={() => void shareFilterSet()} testID="apartments-filter-share-btn">
+                <Ionicons name="share-social-outline" size={18} color={colors.onSurface} />
+              </Pressable>
+            </View>
+
             <Text style={styles.sortTitle}>Ταξινόμηση</Text>
             <Pressable
               style={styles.sortSelectionBar}
@@ -1323,12 +1646,32 @@ export default function ApartmentsScreen() {
               </View>
             ) : null}
 
+            <Text style={styles.filterLabel}>Τίτλος set φίλτρων</Text>
+            <TextInput
+              style={styles.singleInput}
+              value={filterSetTitle}
+              onChangeText={setFilterSetTitle}
+              maxLength={40}
+              placeholder="π.χ. 2άρι κέντρο φοιτητικό (έως 40 χαρ.)"
+              placeholderTextColor={colors.onSurfaceTertiary}
+              testID="apartments-filter-set-title-input"
+            />
+            <Pressable
+              style={[styles.saveFilterSetButton, savingFilterSet && styles.saveFilterSetButtonDisabled]}
+              onPress={() => void saveFilterSet()}
+              disabled={savingFilterSet || auth.isGuest || !auth.userId}
+              testID="apartments-filter-set-save"
+            >
+              <Ionicons name="bookmark-outline" size={17} color={colors.onBrand} />
+              <Text style={styles.saveFilterSetButtonText}>Αποθήκευση Set</Text>
+            </Pressable>
+
             <Text style={styles.filterLabel}>{t("apartments.monthlyRent", { currency: CURRENCY })}</Text>
             <View style={styles.rangeRow}>
               <TextInput
                 style={styles.rangeInput}
                 value={rentMin}
-                onChangeText={(t) => setRentMin(t.replace(/[^0-9]/g, ""))}
+                  onChangeText={(value) => updateFilterValue(setRentMin, value.replace(/[^0-9]/g, ""))}
                 placeholder={t("apartments.min")}
                 keyboardType="number-pad"
                 placeholderTextColor={colors.onSurfaceTertiary}
@@ -1337,7 +1680,7 @@ export default function ApartmentsScreen() {
               <TextInput
                 style={styles.rangeInput}
                 value={rentMax}
-                onChangeText={(t) => setRentMax(t.replace(/[^0-9]/g, ""))}
+                  onChangeText={(value) => updateFilterValue(setRentMax, value.replace(/[^0-9]/g, ""))}
                 placeholder={t("apartments.max")}
                 keyboardType="number-pad"
                 placeholderTextColor={colors.onSurfaceTertiary}
@@ -1350,7 +1693,7 @@ export default function ApartmentsScreen() {
               <TextInput
                 style={styles.rangeInput}
                 value={minSqmPrice}
-                onChangeText={(value) => setMinSqmPrice(sanitizeDecimalInput(value))}
+                onChangeText={(value) => updateFilterValue(setMinSqmPrice, sanitizeDecimalInput(value))}
                 placeholder="Από (€/m²)"
                 keyboardType="numeric"
                 placeholderTextColor={colors.onSurfaceTertiary}
@@ -1359,7 +1702,7 @@ export default function ApartmentsScreen() {
               <TextInput
                 style={styles.rangeInput}
                 value={maxSqmPrice}
-                onChangeText={(value) => setMaxSqmPrice(sanitizeDecimalInput(value))}
+                onChangeText={(value) => updateFilterValue(setMaxSqmPrice, sanitizeDecimalInput(value))}
                 placeholder="Έως (€/m²)"
                 keyboardType="numeric"
                 placeholderTextColor={colors.onSurfaceTertiary}
@@ -1371,7 +1714,7 @@ export default function ApartmentsScreen() {
             <TextInput
               style={styles.singleInput}
               value={cityQuery}
-              onChangeText={setCityQuery}
+              onChangeText={(value) => updateFilterValue(setCityQuery, value)}
               placeholder={t("apartments.cityPlaceholder")}
               placeholderTextColor={colors.onSurfaceTertiary}
               testID="apartments-city-filter"
@@ -1382,7 +1725,7 @@ export default function ApartmentsScreen() {
               <TextInput
                 style={styles.rangeInput}
                 value={sizeMin}
-                onChangeText={(t) => setSizeMin(t.replace(/[^0-9]/g, ""))}
+                onChangeText={(value) => updateFilterValue(setSizeMin, value.replace(/[^0-9]/g, ""))}
                 placeholder={t("apartments.min")}
                 keyboardType="number-pad"
                 placeholderTextColor={colors.onSurfaceTertiary}
@@ -1391,7 +1734,7 @@ export default function ApartmentsScreen() {
               <TextInput
                 style={styles.rangeInput}
                 value={sizeMax}
-                onChangeText={(t) => setSizeMax(t.replace(/[^0-9]/g, ""))}
+                onChangeText={(value) => updateFilterValue(setSizeMax, value.replace(/[^0-9]/g, ""))}
                 placeholder={t("apartments.max")}
                 keyboardType="number-pad"
                 placeholderTextColor={colors.onSurfaceTertiary}
@@ -1402,11 +1745,11 @@ export default function ApartmentsScreen() {
             <Text style={styles.filterLabel}>{t("apartments.preferences")}</Text>
             <View style={styles.switchRow}>
               <Text style={styles.switchText}>{t("apartments.petFriendly")}</Text>
-              <Switch value={petFriendly} onValueChange={setPetFriendly} trackColor={{ true: colors.brand, false: colors.border }} />
+              <Switch value={petFriendly} onValueChange={(value) => updateFilterValue(setPetFriendly, value)} trackColor={{ true: colors.brand, false: colors.border }} />
             </View>
             <View style={styles.switchRow}>
               <Text style={styles.switchText}>{t("apartments.nearMetro")}</Text>
-              <Switch value={nearMetro} onValueChange={setNearMetro} trackColor={{ true: colors.brand, false: colors.border }} />
+              <Switch value={nearMetro} onValueChange={(value) => updateFilterValue(setNearMetro, value)} trackColor={{ true: colors.brand, false: colors.border }} />
             </View>
           </ScrollView>
         )}
@@ -1566,6 +1909,206 @@ export default function ApartmentsScreen() {
         ]}
         testID="apartments-like-error-modal"
       />
+
+      <CenteredActionModal
+        visible={shareConfirmationVisible}
+        title="Το set φίλτρων κοινοποιήθηκε επιτυχώς στον μεσίτη!"
+        onDismiss={() => setShareConfirmationVisible(false)}
+        actions={[
+          {
+            label: "OK",
+            iconName: "checkmark-circle-outline",
+            onPress: () => setShareConfirmationVisible(false),
+            testID: "apartments-filter-share-confirmation-ok",
+          },
+        ]}
+        testID="apartments-filter-share-confirmation"
+      />
+
+      <Modal
+        visible={brokerShareModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setBrokerShareModalVisible(false)}
+      >
+        <View style={styles.filterHistoryBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setBrokerShareModalVisible(false)} />
+          <View style={styles.filterHistoryCard} testID="apartments-broker-share-modal">
+            <View style={styles.filterHistoryHeader}>
+              <Text style={styles.filterHistoryTitle}>Κοινοποίηση σε μεσίτη</Text>
+              <Pressable
+                style={styles.filterHistoryCloseButton}
+                onPress={() => setBrokerShareModalVisible(false)}
+                testID="apartments-broker-share-close"
+              >
+                <Ionicons name="close-outline" size={22} color={colors.onSurface} />
+              </Pressable>
+            </View>
+            {loadingBrokers ? (
+              <View style={styles.filterHistoryState}>
+                <ActivityIndicator size="small" color={colors.brand} />
+              </View>
+            ) : availableBrokers.length === 0 ? (
+              <View style={styles.filterHistoryState}>
+                <Text style={styles.filterHistoryMutedText}>Δεν βρέθηκαν διαθέσιμοι μεσίτες.</Text>
+              </View>
+            ) : (
+              <ScrollView style={styles.filterHistoryList} contentContainerStyle={styles.filterHistoryListContent}>
+                {availableBrokers.map((broker) => (
+                  <View key={broker.id} style={styles.brokerShareRow}>
+                    {broker.avatar ? (
+                      <Image source={{ uri: broker.avatar }} style={styles.brokerShareAvatar} contentFit="cover" />
+                    ) : (
+                      <View style={styles.brokerShareAvatarFallback}>
+                        <Ionicons name="person-outline" size={20} color={colors.onSurfaceTertiary} />
+                      </View>
+                    )}
+                    <Text style={styles.brokerShareName} numberOfLines={1}>{broker.name}</Text>
+                    <Pressable
+                      style={[styles.brokerShareSendButton, sendingBrokerId === broker.id && styles.saveFilterSetButtonDisabled]}
+                      onPress={() => void sendFilterSetToBroker(broker.id)}
+                      disabled={sendingBrokerId !== null}
+                      testID={`apartments-send-filter-set-${broker.id}`}
+                    >
+                      {sendingBrokerId === broker.id ? (
+                        <ActivityIndicator size="small" color={colors.onBrand} />
+                      ) : (
+                        <Ionicons name="paper-plane-outline" size={18} color={colors.onBrand} />
+                      )}
+                    </Pressable>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showHistoryModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setSelectedSetForPreview(null);
+          setShowHistoryModal(false);
+        }}
+      >
+        <View style={styles.filterHistoryBackdrop} testID="apartments-filter-history-modal">
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => {
+              setSelectedSetForPreview(null);
+              setShowHistoryModal(false);
+            }}
+          />
+          <View style={styles.filterHistoryCard}>
+            {selectedSetForPreview === null ? (
+              <>
+                <View style={styles.filterHistoryHeader}>
+                  <Text style={styles.filterHistoryTitle}>Ιστορικό Set Φίλτρων</Text>
+                  <Pressable
+                    style={styles.filterHistoryCloseButton}
+                    onPress={() => setShowHistoryModal(false)}
+                    testID="apartments-filter-history-close"
+                  >
+                    <Ionicons name="close-outline" size={22} color={colors.onSurface} />
+                  </Pressable>
+                </View>
+                {loadingHistory ? (
+                  <View style={styles.filterHistoryState}>
+                    <ActivityIndicator size="small" color={colors.brand} />
+                  </View>
+                ) : savedFilterSets.length === 0 ? (
+                  <View style={styles.filterHistoryState}>
+                    <Text style={styles.filterHistoryMutedText}>Δεν υπάρχουν αποθηκευμένα set φίλτρων.</Text>
+                  </View>
+                ) : (
+                  <ScrollView style={styles.filterHistoryList} contentContainerStyle={styles.filterHistoryListContent}>
+                    {savedFilterSets.map((item) => (
+                      <Pressable
+                        key={item.id}
+                        style={styles.filterSetHistoryRow}
+                        onPress={() => setSelectedSetForPreview(item)}
+                        testID={`apartments-filter-set-history-row-${item.id}`}
+                      >
+                        <View style={styles.filterSetHistoryTextColumn}>
+                          {item.title ? (
+                            <Text style={styles.filterSetHistoryTitle} numberOfLines={1}>{item.title}</Text>
+                          ) : null}
+                          <Text style={styles.filterSetHistorySummary} numberOfLines={1}>
+                            {formatFilterSetSummary(item)}
+                          </Text>
+                        </View>
+                        <View style={styles.filterSetHistoryAction}>
+                          <Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />
+                        </View>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                )}
+              </>
+            ) : (
+              <>
+                <View style={styles.filterHistoryHeader}>
+                  <Pressable
+                    style={styles.filterHistoryCloseButton}
+                    onPress={() => setSelectedSetForPreview(null)}
+                    testID="apartments-filter-preview-back"
+                  >
+                    <Ionicons name="chevron-back" size={22} color={colors.onSurface} />
+                  </Pressable>
+                  <Text style={styles.filterHistoryTitle}>Προεπισκόπηση Φίλτρων</Text>
+                  <View style={styles.filterHistoryHeaderSpacer} />
+                </View>
+                <ScrollView style={styles.filterHistoryList} contentContainerStyle={styles.filterPreviewContent}>
+                  {selectedSetForPreview.title ? (
+                    <View style={styles.filterPreviewPill}>
+                      <Text style={styles.filterPreviewLabel}>Τίτλος</Text>
+                      <Text style={styles.filterPreviewValue}>{selectedSetForPreview.title}</Text>
+                    </View>
+                  ) : null}
+                  <View style={styles.filterPreviewPill}>
+                    <Text style={styles.filterPreviewLabel}>Ενοίκιο</Text>
+                    <Text style={styles.filterPreviewValue}>{`${selectedSetForPreview.rentMin || "0"} - ${selectedSetForPreview.rentMax || "∞"} €`}</Text>
+                  </View>
+                  <View style={styles.filterPreviewPill}>
+                    <Text style={styles.filterPreviewLabel}>Τιμή / τ.μ.</Text>
+                    <Text style={styles.filterPreviewValue}>{`${selectedSetForPreview.minSqmPrice || "0"} - ${selectedSetForPreview.maxSqmPrice || "∞"} €/m²`}</Text>
+                  </View>
+                  <View style={styles.filterPreviewPill}>
+                    <Text style={styles.filterPreviewLabel}>Περιοχή / Πόλη</Text>
+                    <Text style={styles.filterPreviewValue}>{selectedSetForPreview.cityQuery?.trim() || "Όλες οι περιοχές"}</Text>
+                  </View>
+                  <View style={styles.filterPreviewPill}>
+                    <Text style={styles.filterPreviewLabel}>Εμβαδόν</Text>
+                    <Text style={styles.filterPreviewValue}>{`${selectedSetForPreview.sizeMin || "0"} - ${selectedSetForPreview.sizeMax || "∞"} m²`}</Text>
+                  </View>
+                  <View style={styles.filterPreviewPill}>
+                    <Text style={styles.filterPreviewLabel}>Κατοικίδια</Text>
+                    <Text style={styles.filterPreviewValue}>{selectedSetForPreview.petFriendly ? "Ναι" : "Όχι"}</Text>
+                  </View>
+                  <View style={styles.filterPreviewPill}>
+                    <Text style={styles.filterPreviewLabel}>Μετρό</Text>
+                    <Text style={styles.filterPreviewValue}>{selectedSetForPreview.nearMetro ? "Ναι" : "Όχι"}</Text>
+                  </View>
+                  <View style={styles.filterPreviewPill}>
+                    <Text style={styles.filterPreviewLabel}>Ταξινόμηση</Text>
+                    <Text style={styles.filterPreviewValue}>{SORT_OPTION_LABELS[selectedSetForPreview.sortBy || "newest"]}</Text>
+                  </View>
+                </ScrollView>
+                <Pressable
+                  style={styles.filterConfirmRestoreButton}
+                  onPress={() => applySavedFilterSet(selectedSetForPreview)}
+                  testID="apartments-confirm-restore-btn"
+                >
+                  <Ionicons name="checkmark-circle-outline" size={19} color={colors.onBrand} />
+                  <Text style={styles.filterConfirmRestoreText}>Επαναφορά & Εφαρμογή</Text>
+                </Pressable>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         visible={showNotesPanel}
@@ -1730,6 +2273,180 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderColor: "#A8D9FF",
   },
   iconControlButtonActive: { backgroundColor: "#C8E9FF" },
+  filterHistoryBackdrop: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.48)",
+    padding: spacing.lg,
+  },
+  filterHistoryCard: {
+    width: "100%",
+    maxHeight: "82%",
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    padding: spacing.lg,
+    gap: spacing.md,
+  },
+  filterHistoryHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+  },
+  filterHistoryTitle: {
+    flex: 1,
+    fontFamily: fonts.bold,
+    fontSize: fontSize.lg,
+    color: colors.onSurface,
+    textAlign: "center",
+  },
+  filterHistoryCloseButton: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceSecondary,
+  },
+  filterHistoryHeaderSpacer: {
+    width: 34,
+  },
+  filterHistoryList: {
+    flexGrow: 0,
+  },
+  filterHistoryListContent: {
+    gap: spacing.sm,
+  },
+  filterSetHistoryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceSecondary,
+    padding: spacing.md,
+  },
+  filterSetHistoryTextColumn: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
+  },
+  filterSetHistoryTitle: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.base,
+    color: colors.onSurface,
+  },
+  filterSetHistorySummary: {
+    fontFamily: fonts.regular,
+    fontSize: fontSize.sm,
+    color: colors.onSurfaceTertiary,
+  },
+  filterSetHistoryAction: {
+    width: 32,
+    height: 32,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surface,
+  },
+  filterHistoryState: {
+    minHeight: 90,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  filterHistoryMutedText: {
+    fontFamily: fonts.regular,
+    fontSize: fontSize.base,
+    color: colors.onSurfaceTertiary,
+    textAlign: "center",
+  },
+  filterPreviewContent: {
+    gap: spacing.sm,
+    paddingBottom: spacing.xs,
+  },
+  filterPreviewPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceSecondary,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  filterPreviewLabel: {
+    flex: 1,
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+    color: colors.onSurfaceTertiary,
+  },
+  filterPreviewValue: {
+    flex: 1,
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+    color: colors.onSurface,
+    textAlign: "right",
+  },
+  filterConfirmRestoreButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+    borderRadius: radius.md,
+    backgroundColor: colors.brand,
+    paddingVertical: spacing.md,
+  },
+  filterConfirmRestoreText: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.base,
+    color: colors.onBrand,
+  },
+  brokerShareRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceSecondary,
+    padding: spacing.sm,
+  },
+  brokerShareAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceTertiary,
+  },
+  brokerShareAvatarFallback: {
+    width: 42,
+    height: 42,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surfaceTertiary,
+  },
+  brokerShareName: {
+    flex: 1,
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.base,
+    color: colors.onSurface,
+  },
+  brokerShareSendButton: {
+    width: 38,
+    height: 38,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.brand,
+  },
   notesBackdrop: {
     flex: 1,
     backgroundColor: "rgba(5,33,40,0.44)",
@@ -2001,6 +2718,43 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     padding: spacing.md,
     gap: spacing.sm,
     paddingBottom: spacing.lg,
+  },
+  filterActionsRow: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: spacing.sm,
+  },
+  filterActionButton: {
+    width: 38,
+    height: 38,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  filterActionButtonActive: {
+    borderColor: colors.brand,
+    backgroundColor: colors.brandTertiary,
+  },
+  saveFilterSetButton: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    borderRadius: radius.md,
+    backgroundColor: colors.brand,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  saveFilterSetButtonDisabled: {
+    opacity: 0.55,
+  },
+  saveFilterSetButtonText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+    color: colors.onBrand,
   },
   sortTitle: {
     fontFamily: fonts.bold,
