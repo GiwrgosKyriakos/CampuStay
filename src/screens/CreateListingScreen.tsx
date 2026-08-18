@@ -53,6 +53,17 @@ export const PROPERTY_STATUS_OPTIONS: { key: PropertyStatusKey; label: string }[
   { key: "on_hold_owner_request", label: "Σε αναμονή / Ανενεργό (μετά από έκκληση ιδιοκτήτη)" },
 ];
 
+const ORIENTATION_OPTIONS = [
+  "Ανατολικός",
+  "Δυτικός",
+  "Βόρειος",
+  "Νότιος",
+  "Βορειοανατολικός",
+  "Βορειοδυτικός",
+  "Νοτιοανατολικός",
+  "Νοτιοδυτικός",
+];
+
 export type PriceHistoryEntry = {
   price: number;
   timestamp: number;
@@ -97,6 +108,7 @@ interface FirestoreApartmentDoc {
   extraDetails?: Record<string, boolean>;
   extraInformation?: Partial<ListingExtraInformation>;
   technicalSpecifications?: TechnicalSpecificationPayload[];
+  orientation?: string;
   propertyStatus?: PropertyStatusKey;
   closedDealPrice?: number | null;
   priceHistory?: PriceHistoryEntry[];
@@ -130,10 +142,12 @@ type ListingExtraInformation = {
   bathrooms: number;
   kitchens: number;
   buildYear?: number;
+  renovationYear?: number;
   commonExpenses?: number;
   levels: number;
   heatingSystem?: string;
   energyClass?: string;
+  windowFrames?: string;
   availableFromDate?: string;
   isImmediatelyAvailable?: boolean;
 };
@@ -212,6 +226,7 @@ const EXTRA_DETAIL_CATEGORIES: ExtraDetailCategory[] = [
       "Πολυτελές",
       "Διαμπερές",
       "Εσωτερική σκάλα",
+      "Διαχωριστικό ντους",
     ],
   },
   {
@@ -229,6 +244,7 @@ const EXTRA_DETAIL_CATEGORIES: ExtraDetailCategory[] = [
       "Πισίνα",
       "Προσόψεως",
       "Γωνιακό",
+      "Θέση στάθμευσης: στεγασμένη/πυλωτή",
     ],
   },
   {
@@ -566,15 +582,18 @@ export default function CreateListingScreen() {
   const [propertyCategory, setPropertyCategory] = useState<string | null>(null);
   const [propertyType, setPropertyType] = useState<string | null>(null);
   const [floor, setFloor] = useState<string | null>(null);
+  const [orientation, setOrientation] = useState<string | null>(null);
   const [rooms, setRooms] = useState("1");
   const [livingRooms, setLivingRooms] = useState("1");
   const [bathrooms, setBathrooms] = useState("1");
   const [kitchens, setKitchens] = useState("1");
   const [buildYear, setBuildYear] = useState("");
+  const [renovationYear, setRenovationYear] = useState("");
   const [commonExpenses, setCommonExpenses] = useState("");
   const [levels, setLevels] = useState("1");
   const [heatingSystem, setHeatingSystem] = useState<string | null>(null);
   const [energyClass, setEnergyClass] = useState<string | null>(null);
+  const [windowFrames, setWindowFrames] = useState("");
   const [availableFromDate, setAvailableFromDate] = useState<string | null>(null);
   const [isImmediatelyAvailable, setIsImmediatelyAvailable] = useState(false);
   const [publishedAtMillis, setPublishedAtMillis] = useState<number | null>(null);
@@ -929,6 +948,7 @@ export default function CreateListingScreen() {
         setPropertyCategory(data.propertyCategory ?? null);
         setPropertyType(data.propertyType ?? null);
         setFloor(data.floor ?? null);
+        setOrientation(data.orientation ?? null);
         setRooms(typeof data.rooms === "number" && Number.isFinite(data.rooms) ? String(Math.max(1, Math.trunc(data.rooms))) : "1");
         const mappedExtraInformation =
           data.extraInformation && typeof data.extraInformation === "object"
@@ -954,6 +974,11 @@ export default function CreateListingScreen() {
             ? clampOptionalIntegerInput(String(mappedExtraInformation.buildYear), 1000, CURRENT_BUILD_YEAR)
             : "",
         );
+        setRenovationYear(
+          typeof mappedExtraInformation?.renovationYear === "number" && Number.isFinite(mappedExtraInformation.renovationYear)
+            ? clampOptionalIntegerInput(String(mappedExtraInformation.renovationYear), 1900, CURRENT_BUILD_YEAR)
+            : "",
+        );
         setCommonExpenses(
           typeof mappedExtraInformation?.commonExpenses === "number" && Number.isFinite(mappedExtraInformation.commonExpenses)
             ? digitsOnlyInput(String(Math.max(0, Math.trunc(mappedExtraInformation.commonExpenses))))
@@ -973,6 +998,11 @@ export default function CreateListingScreen() {
           typeof mappedExtraInformation?.energyClass === "string" && mappedExtraInformation.energyClass.trim().length > 0
             ? mappedExtraInformation.energyClass.trim()
             : null,
+        );
+        setWindowFrames(
+          typeof mappedExtraInformation?.windowFrames === "string" && mappedExtraInformation.windowFrames.trim().length > 0
+            ? mappedExtraInformation.windowFrames.trim()
+            : "",
         );
         setAvailableFromDate(
           typeof mappedExtraInformation?.availableFromDate === "string" && mappedExtraInformation.availableFromDate.trim().length > 0
@@ -1302,9 +1332,11 @@ export default function CreateListingScreen() {
         levels: Number(levels),
         isImmediatelyAvailable,
         buildYear: buildYear.trim().length > 0 ? Number(buildYear) : undefined,
+        renovationYear: renovationYear.trim().length > 0 ? Number(renovationYear) : undefined,
         commonExpenses: commonExpenses.trim().length > 0 ? Number(commonExpenses) : undefined,
         heatingSystem: heatingSystem ?? undefined,
         energyClass: energyClass ?? undefined,
+        windowFrames: windowFrames.trim().length > 0 ? windowFrames.trim() : undefined,
         availableFromDate: availableFromDate ?? undefined,
       };
       const currentPrice = Number(monthlyRent);
@@ -1331,6 +1363,7 @@ export default function CreateListingScreen() {
         propertyCategory: propertyCategory ?? undefined,
         propertyType: propertyType ?? undefined,
         floor: floor ?? undefined,
+        orientation: orientation ?? undefined,
         area: area.trim(),
         city,
         address: finalAddress.length > 0 ? finalAddress : undefined,
@@ -1703,6 +1736,15 @@ export default function CreateListingScreen() {
                   testID="create-listing-rooms-input"
                 />
                 <Text style={styles.fieldHint}>Ο αριθμός δωματίων αποθηκεύεται δυναμικά στην αγγελία.</Text>
+
+                <Text style={[styles.sectionSubtitle, styles.mtSm]}>Προσανατολισμός</Text>
+                <Dropdown
+                  value={orientation}
+                  options={ORIENTATION_OPTIONS}
+                  placeholder="Επιλέξτε προσανατολισμό"
+                  onSelect={setOrientation}
+                  testID="create-listing-orientation-dropdown"
+                />
               </>
             )}
           </View>
@@ -2130,6 +2172,21 @@ export default function CreateListingScreen() {
                     />
                   </View>
                 </View>
+                <View style={styles.formRow}>
+                  <View style={styles.formColumn}>
+                    <Text style={styles.fieldLabel}>Έτος ανακαίνισης</Text>
+                    <TextInput
+                      value={renovationYear}
+                      onChangeText={(value) => setRenovationYear(clampOptionalIntegerInput(value, 1900, CURRENT_BUILD_YEAR))}
+                      keyboardType="number-pad"
+                      maxLength={4}
+                      placeholder="π.χ. 2021"
+                      placeholderTextColor={colors.onSurfaceTertiary}
+                      style={styles.input}
+                      testID="create-listing-extra-info-renovation-year"
+                    />
+                  </View>
+                </View>
 
                 <Text style={styles.sectionSubtitle}>Θέρμανση και ενεργειακή κλάση</Text>
                 <Text style={styles.fieldLabel}>Σύστημα θέρμανσης</Text>
@@ -2148,6 +2205,16 @@ export default function CreateListingScreen() {
                   placeholder="Επιλέξτε ενεργειακή κλάση"
                   onSelect={setEnergyClass}
                   testID="create-listing-extra-info-energy-class"
+                />
+
+                <Text style={[styles.fieldLabel, styles.mtSm]}>Τύπος κουφωμάτων</Text>
+                <TextInput
+                  value={windowFrames}
+                  onChangeText={setWindowFrames}
+                  placeholder="π.χ. Αλουμινίου, Συνθετικά (PVC), Ξύλινα"
+                  placeholderTextColor={colors.onSurfaceTertiary}
+                  style={styles.input}
+                  testID="create-listing-extra-info-window-frames"
                 />
 
                 <Text style={styles.sectionSubtitle}>Διαθεσιμότητα</Text>

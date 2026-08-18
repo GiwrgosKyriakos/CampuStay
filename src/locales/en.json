@@ -426,6 +426,10 @@
       "nonBinary": "Non-binary"
     }
   },
+  "apartmentNote": {
+    "userNotice": "Your notes are private, are not published anywhere, and are accessible only to you unless you choose to share them.",
+    "brokerPrivateNotice": "Private Log / Internal Note: Office team only"
+  },
   "apartments": {
     "title": "Apartments",
     "subtitle": "Available homes in your study city",

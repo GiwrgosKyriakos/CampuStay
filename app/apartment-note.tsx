@@ -33,6 +33,7 @@ import { useAuth } from "@/src/context/auth";
 import { db } from "@/src/config/firebase";
 import { saveApartmentNote, getApartmentNote, type Apartment } from "@/src/api/apartmentNotes";
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
+import { t } from "@/src/locales";
 
 function getApartmentCoverImage(apartment: Apartment | null | undefined): string {
   if (!apartment) return "";
@@ -65,7 +66,8 @@ export default function ApartmentNoteScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const auth = useAuth();
-  const params = useLocalSearchParams<{ apartmentData?: string; data?: string; fromList?: string}>();
+  const params = useLocalSearchParams<{ apartmentData?: string; data?: string; fromList?: string; isOwner?: string }>();
+  const isBrokerOwnerNote = auth.isBroker === true && params.isOwner === "true";
 
   const [noteText, setNoteText] = useState("");
   const [initialText, setInitialText] = useState("");
@@ -351,11 +353,22 @@ export default function ApartmentNoteScreen() {
         contentContainerStyle={[styles.content, { paddingBottom: spacing.xl + insets.bottom }]}
         showsVerticalScrollIndicator={false}
       >
-        {initialText === "" ? (
+        {isBrokerOwnerNote || initialText === "" ? (
           <View style={styles.infoBanner}>
-            <Text style={styles.infoBannerText}>
-              Οι σημειώσεις σας είναι προσωπικές, δεν δημοσιεύονται πουθενά και έχετε πρόσβαση μόνο εσείς, εκτός αν επιλέξετε να τις μοιραστείτε.
-            </Text>
+            <Ionicons
+              name={isBrokerOwnerNote ? "shield-checkmark-outline" : "information-circle-outline"}
+              size={20}
+              color={colors.onSurface}
+            />
+            <View style={styles.infoBannerTextWrap}>
+              {isBrokerOwnerNote ? (
+                <Text style={styles.infoBannerTitle}>{t("apartmentNote.brokerPrivateNotice")}</Text>
+              ) : (
+                <Text style={styles.infoBannerText}>
+                  {t("apartmentNote.userNotice")}
+                </Text>
+              )}
+            </View>
           </View>
         ) : null}
 
@@ -546,11 +559,23 @@ function createStyles(colors: ThemeColors) {
       gap: spacing.md,
     },
     infoBanner: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      gap: spacing.sm,
       borderRadius: radius.md,
       borderWidth: 1,
       borderColor: colors.brandSecondary,
       backgroundColor: colors.brandTertiary,
       padding: spacing.md,
+    },
+    infoBannerTextWrap: {
+      flex: 1,
+    },
+    infoBannerTitle: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.base,
+      color: colors.onBrandTertiary,
+      lineHeight: 20,
     },
     infoBannerText: {
       fontFamily: fonts.regular,

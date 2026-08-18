@@ -66,10 +66,12 @@ type ListingExtraInformation = {
   bathrooms: number;
   kitchens: number;
   buildYear?: number;
+  renovationYear?: number;
   commonExpenses?: number;
   levels: number;
   heatingSystem?: string;
   energyClass?: string;
+  windowFrames?: string;
   availableFromDate?: string;
   isImmediatelyAvailable?: boolean;
 };
@@ -135,6 +137,7 @@ interface FirestoreApartmentDoc {
   amenities?: string[];
   extraDetails?: Record<string, boolean>;
   extraInformation?: Partial<ListingExtraInformation>;
+  orientation?: string;
   showPhoneNumber?: boolean;
   hostId?: string;
   ownerId?: string;
@@ -313,9 +316,11 @@ function normalizeExtraInformation(extraInformation: unknown): ListingExtraInfor
     kitchens,
     levels,
     buildYear: typeof raw.buildYear === "number" && Number.isFinite(raw.buildYear) ? Math.trunc(raw.buildYear) : undefined,
+    renovationYear: typeof raw.renovationYear === "number" && Number.isFinite(raw.renovationYear) ? Math.trunc(raw.renovationYear) : undefined,
     commonExpenses: typeof raw.commonExpenses === "number" && Number.isFinite(raw.commonExpenses) ? Math.max(0, Math.trunc(raw.commonExpenses)) : undefined,
     heatingSystem: typeof raw.heatingSystem === "string" && raw.heatingSystem.trim().length > 0 ? raw.heatingSystem.trim() : undefined,
     energyClass: typeof raw.energyClass === "string" && raw.energyClass.trim().length > 0 ? raw.energyClass.trim() : undefined,
+    windowFrames: typeof raw.windowFrames === "string" && raw.windowFrames.trim().length > 0 ? raw.windowFrames.trim() : undefined,
     availableFromDate: typeof raw.availableFromDate === "string" && raw.availableFromDate.trim().length > 0 ? raw.availableFromDate.trim() : undefined,
     isImmediatelyAvailable: raw.isImmediatelyAvailable === true,
   };
@@ -383,6 +388,7 @@ const EXTRA_DETAIL_CATEGORIES: ExtraDetailCategory[] = [
       "Πολυτελές",
       "Διαμπερές",
       "Εσωτερική σκάλα",
+      "Διαχωριστικό ντους",
     ],
   },
   {
@@ -400,6 +406,7 @@ const EXTRA_DETAIL_CATEGORIES: ExtraDetailCategory[] = [
       "Πισίνα",
       "Προσόψεως",
       "Γωνιακό",
+      "Θέση στάθμευσης: στεγασμένη/πυλωτή",
     ],
   },
   {
@@ -463,6 +470,7 @@ export default function ApartmentDetailScreen() {
   const [resolvedFloor, setResolvedFloor] = useState<string | null>(null);
   const [resolvedPropertyCategory, setResolvedPropertyCategory] = useState<string | null>(null);
   const [resolvedPropertyType, setResolvedPropertyType] = useState<string | null>(null);
+  const [resolvedOrientation, setResolvedOrientation] = useState<string | null>(null);
   const [publishedAtMillis, setPublishedAtMillis] = useState<number | null>(null);
   const [updatedAtMillis, setUpdatedAtMillis] = useState<number | null>(null);
   const [checkingVisibility, setCheckingVisibility] = useState(false);
@@ -542,6 +550,11 @@ export default function ApartmentDetailScreen() {
         setResolvedPropertyType(
           typeof docData.propertyType === "string" && docData.propertyType.trim().length > 0
             ? docData.propertyType.trim()
+            : null,
+        );
+        setResolvedOrientation(
+          typeof docData.orientation === "string" && docData.orientation.trim().length > 0
+            ? docData.orientation.trim()
             : null,
         );
 
@@ -1056,9 +1069,10 @@ export default function ApartmentDetailScreen() {
   const displayFloor = resolvedFloor ?? (apt.floor?.trim() || "");
   const displayPropertyCategory = resolvedPropertyCategory ?? (apt.propertyCategory?.trim() || "");
   const displayPropertyType = resolvedPropertyType ?? (apt.propertyType?.trim() || "");
+  const displayOrientation = resolvedOrientation ?? "";
   const displayExtraDetails = resolvedExtraDetails ?? normalizeExtraDetailsMap(apt.extraDetails);
   const displayExtraInformation = resolvedExtraInformation ?? normalizeExtraInformation(apt.extraInformation);
-  const shouldShowAdditionalInformation = !!(displayPropertyCategory || displayPropertyType || displayFloor);
+  const shouldShowAdditionalInformation = !!(displayPropertyCategory || displayPropertyType || displayFloor || displayOrientation);
   const shouldShowExtraDetailsSection = !!displayExtraDetails && Object.keys(displayExtraDetails).length > 0;
   const shouldShowExtraInformationSection = !!displayExtraInformation;
   const hasApprovedClientPrice = typeof approvedClientPrice === "number" && approvedClientPrice > 0;
@@ -1432,7 +1446,7 @@ export default function ApartmentDetailScreen() {
         <Ionicons name="chevron-back" size={22} color={colors.onSurface} />
       </Pressable>
 
-      {!isListingOwner && !auth.isGuest ? (
+      {!auth.isGuest ? (
         <Pressable
           style={[styles.noteOverlay, { top: insets.top + spacing.sm }]}
           onPress={() =>
@@ -1441,6 +1455,7 @@ export default function ApartmentDetailScreen() {
               params: {
                 data: JSON.stringify(apt),
                 fromList: "false",
+                isOwner: String(isListingOwner),
               },
             } as never)
           }
@@ -1814,6 +1829,15 @@ export default function ApartmentDetailScreen() {
                   </View>
                 </View>
               ) : null}
+
+              {displayOrientation ? (
+                <View style={styles.detailMetaRow}>
+                  <Text style={styles.detailMetaLabel}>Προσανατολισμός</Text>
+                  <View style={styles.statPill}>
+                    <Text style={styles.statText}>{displayOrientation}</Text>
+                  </View>
+                </View>
+              ) : null}
             </View>
           </View>
         ) : null}
@@ -1936,6 +1960,12 @@ export default function ApartmentDetailScreen() {
                     <Text style={styles.extraInformationValue}>{displayExtraInformation.buildYear}</Text>
                   </View>
                 ) : null}
+                {displayExtraInformation?.renovationYear ? (
+                  <View style={styles.extraInformationRow}>
+                    <Text style={styles.extraInformationLabel}>🔨 Renovation Year</Text>
+                    <Text style={styles.extraInformationValue}>{displayExtraInformation.renovationYear}</Text>
+                  </View>
+                ) : null}
                 {typeof displayExtraInformation?.commonExpenses === "number" ? (
                   <View style={styles.extraInformationRow}>
                     <Text style={styles.extraInformationLabel}>💶 Monthly Common Expenses</Text>
@@ -1956,6 +1986,12 @@ export default function ApartmentDetailScreen() {
                   <View style={styles.extraInformationRow}>
                     <Text style={styles.extraInformationLabel}>⚡ Energy Class</Text>
                     <Text style={styles.extraInformationValue}>{displayExtraInformation.energyClass}</Text>
+                  </View>
+                ) : null}
+                {displayExtraInformation?.windowFrames ? (
+                  <View style={styles.extraInformationRow}>
+                    <Text style={styles.extraInformationLabel}>🪟 Window Frames</Text>
+                    <Text style={styles.extraInformationValue}>{displayExtraInformation.windowFrames}</Text>
                   </View>
                 ) : null}
                 {extraInformationAvailabilityText ? (
