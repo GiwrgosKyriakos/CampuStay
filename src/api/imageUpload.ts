@@ -84,6 +84,49 @@ export async function uploadListingImageAsync(uri: string, userId: string, index
   return uploadImageAsync(uri, `listings/${userId}/${Date.now()}-${index}.jpg`);
 }
 
+/** Ιδιωτικές φωτογραφίες αγγελίας, ορατές μόνο στο γραφείο που τη διαχειρίζεται. */
+export async function uploadBrokerPrivateImageAsync(uri: string, apartmentId: string, index: number): Promise<string> {
+  if (!apartmentId?.trim()) {
+    throw new Error("Apartment id is required for broker private image uploads");
+  }
+
+  return uploadImageAsync(uri, `apartments/${apartmentId}/broker_private/${index}_${Date.now()}.jpg`);
+}
+
+export async function uploadListingDocumentAsync(params: {
+  uri: string;
+  apartmentId: string;
+  categoryKey: string;
+  fileName: string;
+  mimeType?: string;
+}): Promise<string> {
+  const { uri, apartmentId, categoryKey, fileName, mimeType } = params;
+
+  if (isRemoteUrl(uri)) {
+    return uri;
+  }
+
+  if (!apartmentId?.trim()) {
+    throw new Error("Apartment id is required for document uploads");
+  }
+
+  const safeName = (fileName || "document").replace(/[^a-zA-Z0-9._-]/g, "_");
+  const blob = await uriToBlob(uri);
+  const documentRef = ref(storage, `apartments/${apartmentId}/documents/${categoryKey}/${safeName}`);
+
+  try {
+    await uploadBytes(documentRef, blob, { contentType: mimeType?.trim() || "application/octet-stream" });
+    return await getDownloadURL(documentRef);
+  } catch (error) {
+    console.error("[DocumentUpload] Firebase Storage upload failed", { apartmentId, categoryKey, error });
+    throw error;
+  } finally {
+    if (blob && typeof (blob as any).close === "function") {
+      (blob as any).close();
+    }
+  }
+}
+
 export async function uploadApartmentImages(imageUris: string[], apartmentId: string): Promise<string[]> {
   const validUris = imageUris
     .map((uri) => uri?.trim())

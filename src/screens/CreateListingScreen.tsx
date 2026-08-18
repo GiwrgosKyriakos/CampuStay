@@ -17,6 +17,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { doc, getDoc } from "firebase/firestore";
 import * as ImagePicker from "expo-image-picker";
+import * as DocumentPicker from "expo-document-picker";
 import { Image } from "expo-image";
 
 import Dropdown from "@/src/components/Dropdown";
@@ -28,7 +29,7 @@ import { db } from "@/src/config/firebase";
 import { useAuth } from "@/src/context/auth";
 import { useTheme } from "@/src/context/ThemeContext";
 // import { useLocationCoordinates } from "@/src/hooks/useLocationCoordinates";
-import { uploadListingImageAsync } from "@/src/api/imageUpload";
+import { uploadBrokerPrivateImageAsync, uploadListingDocumentAsync, uploadListingImageAsync } from "@/src/api/imageUpload";
 import { upsertListing } from "@/src/api/listings";
 import { t } from "@/src/locales";
 
@@ -64,10 +65,13 @@ interface FirestoreApartmentDoc {
   image?: string;
   imageUrl?: string;
   images?: string[];
+  brokerPrivatePhotos?: string[];
+  documents?: Partial<Record<DocumentCategoryKey, ListingDocument[]>>;
   tags?: string[];
   amenities?: string[];
   extraDetails?: Record<string, boolean>;
   extraInformation?: Partial<ListingExtraInformation>;
+  technicalSpecifications?: TechnicalSpecificationPayload[];
   hostId?: string;
   ownerId?: string;
   showPhoneNumber?: boolean;
@@ -100,6 +104,49 @@ type ListingExtraInformation = {
   energyClass?: string;
   availableFromDate?: string;
   isImmediatelyAvailable?: boolean;
+};
+
+type RoomCountField = "rooms" | "livingRooms" | "bathrooms" | "kitchens";
+
+type DocumentCategoryKey =
+  | "topographicPlans"
+  | "ownershipContracts"
+  | "buildingPermits"
+  | "engineerCertificates"
+  | "unauthorizedConstructionsSettlement"
+  | "energyCertificates"
+  | "signedBrokerageAgreement"
+  | "gdprConsent";
+
+type ListingDocument = {
+  id: string;
+  name: string;
+  url: string;
+  size: number;
+  uploadedAt: string;
+};
+
+type DocumentsState = Record<DocumentCategoryKey, ListingDocument[]>;
+
+type TechnicalSpecConfig = {
+  type: string;
+  label: string;
+  countField?: RoomCountField;
+};
+
+type TechnicalSpecEntry = {
+  id: string;
+  type: string;
+  label: string;
+  sqft: number;
+  index: number;
+};
+
+type TechnicalSpecificationPayload = {
+  type: string;
+  index: number;
+  sizeSqm: number;
+  label: string;
 };
 
 type CompletionBadgeProps = {
@@ -163,10 +210,60 @@ const EXTRA_DETAIL_CATEGORIES: ExtraDetailCategory[] = [
 ];
 
 const PHOTO_SLOTS = 6;
+const BROKER_PRIVATE_PHOTO_SLOTS = 12;
 const IMAGE_QUALITY = 0.7;
 const CURRENT_BUILD_YEAR = 2026;
 const HEATING_SYSTEM_OPTIONS = ["Αυτόνομη", "Κεντρική", "Ρεύμα", "Φυσικό Αέριο", "Αντλία Θερμότητας", "Πετρέλαιο", "Χωρίς Θέρμανση", "Άλλο"];
 const ENERGY_CLASS_OPTIONS = ["A++", "A+", "A", "B+", "B", "C", "D", "E", "F", "G"];
+
+const TECHNICAL_SPEC_ITEMS: TechnicalSpecConfig[] = [
+  { type: "bathroom", label: "Μπάνιο", countField: "bathrooms" },
+  { type: "openPlanMain", label: "Ενιαίος χώρος" },
+  { type: "bedroom", label: "Κρεβατοκάμαρα", countField: "rooms" },
+  { type: "livingRoom", label: "Σαλόνι", countField: "livingRooms" },
+  { type: "kitchen", label: "Κουζίνα", countField: "kitchens" },
+  { type: "balcony", label: "Μπαλκόνι" },
+  { type: "elevator", label: "Ασανσέρ" },
+  { type: "windows", label: "Παράθυρα" },
+  { type: "hall", label: "Χωλ" },
+  { type: "storageRoom", label: "Αποθήκη" },
+  { type: "pool", label: "Πισίνα" },
+  { type: "shower", label: "Ντουζιέρα" },
+  { type: "bathtub", label: "Μπανιέρα" },
+  { type: "garden", label: "Κήπος" },
+];
+
+const ROOM_COUNT_FIELD_NOUNS: Record<RoomCountField, string> = {
+  rooms: "δωμάτια",
+  livingRooms: "σαλόνια",
+  bathrooms: "μπάνια",
+  kitchens: "κουζίνες",
+};
+
+const DOCUMENT_CATEGORIES: { key: DocumentCategoryKey; title: string }[] = [
+  { key: "topographicPlans", title: "Τοπογραφικά διαγράμματα και έγγραφα" },
+  { key: "ownershipContracts", title: "Συμβόλαια ιδιοκτησίας" },
+  { key: "buildingPermits", title: "Οικοδομικές άδειες" },
+  { key: "engineerCertificates", title: "Βεβαιώσεις μηχανικού" },
+  { key: "unauthorizedConstructionsSettlement", title: "Τακτοποίηση αυθαιρέτων" },
+  { key: "energyCertificates", title: "Πιστοποιητικά ενεργειακής απόδοσης" },
+  { key: "signedBrokerageAgreement", title: "Υπογεγραμμένη σύμβαση ανάθεσης με τον ιδιοκτήτη" },
+  { key: "gdprConsent", title: "Έγγραφη συγκατάθεση επεξεργασίας προσωπικών δεδομένων" },
+];
+
+function createEmptyDocumentsState(): DocumentsState {
+  return DOCUMENT_CATEGORIES.reduce((acc, category) => {
+    acc[category.key] = [];
+    return acc;
+  }, {} as DocumentsState);
+}
+
+function formatFileSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 function parseTimestampToMillis(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -211,6 +308,11 @@ function clampOptionalIntegerInput(rawValue: string, min: number, max: number): 
 
 function digitsOnlyInput(rawValue: string): string {
   return rawValue.replace(/[^0-9]/g, "");
+}
+
+/** Επιτρέπει ελεύθερη πληκτρολόγηση· η τιμή διορθώνεται μόνο όταν φύγει η εστίαση. */
+function normalizeIntegerOnBlur(value: string, min: number, max: number, fallback: number): string {
+  return clampRequiredIntegerInput(value, min, max, fallback);
 }
 
 function toIsoDateString(date: Date): string {
@@ -258,6 +360,10 @@ export default function CreateListingScreen() {
   const [isExtraInfoExpanded, setIsExtraInfoExpanded] = useState(false);
   const [isExtraDetailsExpanded, setIsExtraDetailsExpanded] = useState(false);
   const [isExtraInformationExpanded, setIsExtraInformationExpanded] = useState(false);
+  const [isTechnicalSpecsExpanded, setIsTechnicalSpecsExpanded] = useState(false);
+  const [technicalSpecEntries, setTechnicalSpecEntries] = useState<TechnicalSpecEntry[]>([]);
+  const [technicalSpecInputs, setTechnicalSpecInputs] = useState<Record<string, string>>({});
+  const [technicalSpecEditingIds, setTechnicalSpecEditingIds] = useState<Record<string, string | null>>({});
   const [extraDetailsState, setExtraDetailsState] = useState<Record<string, boolean>>({});
   const router = useRouter();
   const params = useLocalSearchParams<{ mode?: string; listingId?: string }>();
@@ -303,6 +409,13 @@ export default function CreateListingScreen() {
     parking: false,
   });
   const [photos, setPhotos] = useState<string[]>([]);
+  const [brokerPrivatePhotos, setBrokerPrivatePhotos] = useState<string[]>([]);
+  const [isBrokerPrivatePhotosExpanded, setIsBrokerPrivatePhotosExpanded] = useState(false);
+  const [isDocumentsExpanded, setIsDocumentsExpanded] = useState(false);
+  const [expandedDocumentCategory, setExpandedDocumentCategory] = useState<DocumentCategoryKey | null>(null);
+  const [documents, setDocuments] = useState<DocumentsState>(() => createEmptyDocumentsState());
+  const [uploadingDocumentCategory, setUploadingDocumentCategory] = useState<DocumentCategoryKey | null>(null);
+  const [photoPickerTarget, setPhotoPickerTarget] = useState<"listing" | "brokerPrivate">("listing");
   const [photoSourceModalVisible, setPhotoSourceModalVisible] = useState(false);
   const [formFeedbackModal, setFormFeedbackModal] = useState<{
     title: string;
@@ -467,8 +580,96 @@ export default function CreateListingScreen() {
     });
   }, []);
 
-  const closeFeedbackModal = useCallback(() => {
-    const afterClose = formFeedbackModal?.onAcknowledge;
+  const isBrokerMode = auth.isBroker === true;
+
+  const roomCountValues = useMemo<Record<RoomCountField, number>>(
+    () => ({
+      rooms: Math.max(0, Math.trunc(Number(rooms) || 0)),
+      livingRooms: Math.max(0, Math.trunc(Number(livingRooms) || 0)),
+      bathrooms: Math.max(0, Math.trunc(Number(bathrooms) || 0)),
+      kitchens: Math.max(0, Math.trunc(Number(kitchens) || 0)),
+    }),
+    [bathrooms, kitchens, livingRooms, rooms],
+  );
+
+  const technicalSpecsByType = useMemo(() => {
+    const grouped: Record<string, TechnicalSpecEntry[]> = {};
+    for (const entry of technicalSpecEntries) {
+      if (!grouped[entry.type]) grouped[entry.type] = [];
+      grouped[entry.type].push(entry);
+    }
+    return grouped;
+  }, [technicalSpecEntries]);
+
+  const technicalSpecificationsPayload = useMemo<TechnicalSpecificationPayload[]>(
+    () =>
+      technicalSpecEntries
+        .filter((entry) => Number.isFinite(entry.sqft) && entry.sqft > 0)
+        .map((entry) => ({
+          type: entry.type,
+          index: entry.index,
+          sizeSqm: entry.sqft,
+          label: entry.label,
+        })),
+    [technicalSpecEntries],
+  );
+
+  const handleTechnicalSpecInputChange = useCallback(
+    (type: string, rawValue: string) => {
+      const value = digitsOnlyInput(rawValue);
+      setTechnicalSpecInputs((prev) => ({ ...prev, [type]: value }));
+
+      const editingId = technicalSpecEditingIds[type];
+      if (!editingId) return;
+
+      const parsed = Number(value);
+      setTechnicalSpecEntries((prev) =>
+        prev.map((entry) =>
+          entry.id === editingId ? { ...entry, sqft: Number.isFinite(parsed) ? parsed : 0 } : entry,
+        ),
+      );
+    },
+    [technicalSpecEditingIds],
+  );
+
+  const handleCommitTechnicalSpec = useCallback(
+    (config: TechnicalSpecConfig) => {
+      const rawValue = (technicalSpecInputs[config.type] ?? "").trim();
+      const parsed = Number(rawValue);
+      if (!rawValue.length || !Number.isFinite(parsed) || parsed <= 0) return;
+
+      const editingId = technicalSpecEditingIds[config.type];
+
+      if (editingId) {
+        setTechnicalSpecEntries((prev) =>
+          prev.map((entry) => (entry.id === editingId ? { ...entry, sqft: parsed } : entry)),
+        );
+      } else {
+        const nextIndex = technicalSpecEntries.filter((entry) => entry.type === config.type).length + 1;
+        setTechnicalSpecEntries((prev) => [
+          ...prev,
+          {
+            id: `${config.type}-${nextIndex}-${Date.now()}`,
+            type: config.type,
+            label: `${config.label} ${nextIndex}`,
+            sqft: parsed,
+            index: nextIndex,
+          },
+        ]);
+      }
+
+      setTechnicalSpecEditingIds((prev) => ({ ...prev, [config.type]: null }));
+      setTechnicalSpecInputs((prev) => ({ ...prev, [config.type]: "" }));
+    },
+    [technicalSpecEditingIds, technicalSpecEntries, technicalSpecInputs],
+  );
+
+  const handleEditTechnicalSpec = useCallback((entry: TechnicalSpecEntry) => {
+    setTechnicalSpecEditingIds((prev) => ({ ...prev, [entry.type]: entry.id }));
+    setTechnicalSpecInputs((prev) => ({ ...prev, [entry.type]: String(entry.sqft) }));
+  }, []);
+
+  const closeFeedbackModal = useCallback(() => {    const afterClose = formFeedbackModal?.onAcknowledge;
     setFormFeedbackModal(null);
     if (afterClose) afterClose();
   }, [formFeedbackModal]);
@@ -602,10 +803,54 @@ export default function CreateListingScreen() {
             : {};
         setExtraDetailsState(mappedExtraDetails);
 
+        const mappedTechnicalSpecs = Array.isArray(data.technicalSpecifications)
+          ? data.technicalSpecifications
+              .filter(
+                (entry): entry is TechnicalSpecificationPayload =>
+                  !!entry && typeof entry.type === "string" && Number.isFinite(Number(entry.sizeSqm)),
+              )
+              .map((entry, position) => {
+                const config = TECHNICAL_SPEC_ITEMS.find((item) => item.type === entry.type);
+                const index = Number.isFinite(Number(entry.index)) ? Math.trunc(Number(entry.index)) : position + 1;
+                return {
+                  id: `${entry.type}-${index}-${position}`,
+                  type: entry.type,
+                  label: entry.label?.trim() || `${config?.label ?? entry.type} ${index}`,
+                  sqft: Math.trunc(Number(entry.sizeSqm)),
+                  index,
+                } satisfies TechnicalSpecEntry;
+              })
+          : [];
+        setTechnicalSpecEntries(mappedTechnicalSpecs);
+
         const imageList = Array.isArray(data.images)
           ? data.images
           : [data.imageUrl || data.image || ""].filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0);
         setPhotos(imageList.slice(0, PHOTO_SLOTS));
+
+        const privateImageList = Array.isArray(data.brokerPrivatePhotos)
+          ? data.brokerPrivatePhotos.filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0)
+          : [];
+        setBrokerPrivatePhotos(privateImageList.slice(0, BROKER_PRIVATE_PHOTO_SLOTS));
+
+        const mappedDocuments = createEmptyDocumentsState();
+        if (data.documents && typeof data.documents === "object") {
+          for (const category of DOCUMENT_CATEGORIES) {
+            const rawEntries = data.documents[category.key];
+            if (!Array.isArray(rawEntries)) continue;
+
+            mappedDocuments[category.key] = rawEntries
+              .filter((entry) => !!entry && typeof entry.url === "string" && entry.url.trim().length > 0)
+              .map((entry, position) => ({
+                id: typeof entry.id === "string" && entry.id.length > 0 ? entry.id : `${category.key}-${position}`,
+                name: typeof entry.name === "string" && entry.name.trim().length > 0 ? entry.name : `Έγγραφο ${position + 1}`,
+                url: entry.url,
+                size: Number.isFinite(Number(entry.size)) ? Number(entry.size) : 0,
+                uploadedAt: typeof entry.uploadedAt === "string" ? entry.uploadedAt : "",
+              }));
+          }
+        }
+        setDocuments(mappedDocuments);
       } finally {
         if (active) setLoadingEditData(false);
       }
@@ -618,7 +863,10 @@ export default function CreateListingScreen() {
 
   const pickPhoto = useCallback(
     async (source: "camera" | "library") => {
-      if (photos.length >= PHOTO_SLOTS) return;
+      const isPrivateTarget = photoPickerTarget === "brokerPrivate";
+      const slotLimit = isPrivateTarget ? BROKER_PRIVATE_PHOTO_SLOTS : PHOTO_SLOTS;
+      const currentCount = isPrivateTarget ? brokerPrivatePhotos.length : photos.length;
+      if (currentCount >= slotLimit) return;
 
       setPermBlocked(false);
 
@@ -655,7 +903,7 @@ export default function CreateListingScreen() {
           : await ImagePicker.launchImageLibraryAsync({
               mediaTypes: ["images"],
               allowsMultipleSelection: true,
-              selectionLimit: PHOTO_SLOTS - photos.length,
+              selectionLimit: slotLimit - currentCount,
               quality: IMAGE_QUALITY,
             });
 
@@ -670,21 +918,112 @@ export default function CreateListingScreen() {
           return;
         }
 
-        setPhotos((prev) => [...prev, ...pickedUris].slice(0, PHOTO_SLOTS));
+        if (isPrivateTarget) {
+          setBrokerPrivatePhotos((prev) => [...prev, ...pickedUris].slice(0, BROKER_PRIVATE_PHOTO_SLOTS));
+        } else {
+          setPhotos((prev) => [...prev, ...pickedUris].slice(0, PHOTO_SLOTS));
+        }
         setError(null);
       } catch {
         setError(t("createListing.errors.imagePicker"));
       }
     },
-    [photos.length],
+    [brokerPrivatePhotos.length, photoPickerTarget, photos.length],
   );
 
-  const openImagePicker = useCallback(() => {
+  const openImagePicker = useCallback((target: "listing" | "brokerPrivate" = "listing") => {
+    setPhotoPickerTarget(target);
     setPhotoSourceModalVisible(true);
   }, []);
 
   const removePhoto = useCallback((index: number) => {
     setPhotos((prev) => prev.filter((_, photoIndex) => photoIndex !== index));
+  }, []);
+
+  const removeBrokerPrivatePhoto = useCallback((index: number) => {
+    setBrokerPrivatePhotos((prev) => prev.filter((_, photoIndex) => photoIndex !== index));
+  }, []);
+
+  const isDocumentRepositoryReady = useMemo(
+    () => DOCUMENT_CATEGORIES.every((category) => (documents[category.key]?.length ?? 0) > 0),
+    [documents],
+  );
+
+  const handleAttachDocument = useCallback(
+    async (categoryKey: DocumentCategoryKey) => {
+      try {
+        const result = await DocumentPicker.getDocumentAsync({
+          type: "*/*",
+          copyToCacheDirectory: true,
+          multiple: true,
+        });
+
+        if (result.canceled) return;
+
+        const picked = (result.assets ?? [])
+          .filter((asset) => typeof asset.uri === "string" && asset.uri.trim().length > 0)
+          .map((asset, index) => ({
+            mimeType: asset.mimeType,
+            document: {
+              id: `${categoryKey}-${Date.now()}-${index}`,
+              name: asset.name?.trim() || `document-${index + 1}`,
+              url: asset.uri,
+              size: Number.isFinite(Number(asset.size)) ? Number(asset.size) : 0,
+              uploadedAt: new Date().toISOString(),
+            } satisfies ListingDocument,
+          }));
+
+        if (!picked.length) return;
+
+        setDocuments((prev) => ({
+          ...prev,
+          [categoryKey]: [...(prev[categoryKey] ?? []), ...picked.map((item) => item.document)],
+        }));
+        setExpandedDocumentCategory(categoryKey);
+        setError(null);
+
+        // Χωρίς αποθηκευμένη αγγελία δεν υπάρχει storage path· η μεταφόρτωση γίνεται στην υποβολή.
+        if (!isEditMode || !listingId) return;
+
+        setUploadingDocumentCategory(categoryKey);
+
+        const uploaded = await Promise.all(
+          picked.map(async (item) => ({
+            ...item.document,
+            url: await uploadListingDocumentAsync({
+              uri: item.document.url,
+              apartmentId: listingId,
+              categoryKey,
+              fileName: item.document.name,
+              mimeType: item.mimeType,
+            }),
+          })),
+        );
+
+        setDocuments((prev) => ({
+          ...prev,
+          [categoryKey]: (prev[categoryKey] ?? []).map(
+            (entry) => uploaded.find((uploadedEntry) => uploadedEntry.id === entry.id) ?? entry,
+          ),
+        }));
+      } catch {
+        setError("Η μεταφόρτωση του εγγράφου απέτυχε. Δοκιμάστε ξανά.");
+      } finally {
+        setUploadingDocumentCategory(null);
+      }
+    },
+    [isEditMode, listingId],
+  );
+
+  const handleRemoveDocument = useCallback((categoryKey: DocumentCategoryKey, documentId: string) => {
+    setDocuments((prev) => ({
+      ...prev,
+      [categoryKey]: (prev[categoryKey] ?? []).filter((entry) => entry.id !== documentId),
+    }));
+  }, []);
+
+  const handleOpenDocument = useCallback((url: string) => {
+    void Linking.openURL(url).catch(() => setError("Δεν ήταν δυνατό το άνοιγμα του εγγράφου."));
   }, []);
 
   const validateAndSubmit = async () => {
@@ -768,19 +1107,59 @@ export default function CreateListingScreen() {
         amenities: selectedAmenitySlugs,
         extraDetails: Object.keys(extraDetailsState).length > 0 ? extraDetailsState : undefined,
         extraInformation,
+        technicalSpecifications:
+          isBrokerMode && technicalSpecificationsPayload.length > 0 ? technicalSpecificationsPayload : undefined,
         showPhoneNumber,
         hostId,
         ownerId: hostId,
       };
 
-      await upsertListing({
+      const savedApartmentId = await upsertListing({
         apartmentId: isEditMode ? listingId : undefined,
         payload: data,
       });
 
+      if (isBrokerMode) {
+        // Το storage path των ιδιωτικών φωτογραφιών απαιτεί το id της αγγελίας.
+        const uploadedPrivatePhotos = await Promise.all(
+          brokerPrivatePhotos.map((uri, index) => uploadBrokerPrivateImageAsync(uri, savedApartmentId, index)),
+        );
+
+        const uploadedDocumentEntries = await Promise.all(
+          DOCUMENT_CATEGORIES.map(async (category) => {
+            const categoryFiles = documents[category.key] ?? [];
+            const uploadedFiles = await Promise.all(
+              categoryFiles.map(async (file) => ({
+                ...file,
+                url: await uploadListingDocumentAsync({
+                  uri: file.url,
+                  apartmentId: savedApartmentId,
+                  categoryKey: category.key,
+                  fileName: file.name,
+                }),
+              })),
+            );
+            return [category.key, uploadedFiles] as const;
+          }),
+        );
+        const uploadedDocuments = Object.fromEntries(uploadedDocumentEntries) as DocumentsState;
+
+        await upsertListing({
+          apartmentId: savedApartmentId,
+          payload: {
+            brokerPrivatePhotos: uploadedPrivatePhotos,
+            documents: uploadedDocuments,
+          },
+        });
+
+        setBrokerPrivatePhotos(uploadedPrivatePhotos);
+        setDocuments(uploadedDocuments);
+      }
+
       if (uploadedImages.length) {
         setPhotos(uploadedImages);
       }
+
     } catch {
       setError(t("createListing.errors.uploadPhotos"));
       showFeedbackModal(t("createListing.alerts.publishFailedTitle"), t("createListing.alerts.publishFailedMessage"));
@@ -1054,7 +1433,8 @@ export default function CreateListingScreen() {
                 <Text style={[styles.sectionSubtitle, styles.mtSm]}>Δωμάτια</Text>
                 <TextInput
                   value={rooms}
-                  onChangeText={(value) => setRooms(value.replace(/[^0-9]/g, ""))}
+                  onChangeText={(value) => setRooms(digitsOnlyInput(value))}
+                  onBlur={() => setRooms(normalizeIntegerOnBlur(rooms, 1, 99, 1))}
                   placeholder="π.χ. 2"
                   placeholderTextColor={colors.onSurfaceTertiary}
                   keyboardType="number-pad"
@@ -1120,6 +1500,183 @@ export default function CreateListingScreen() {
 
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
           </View>
+
+          {isBrokerMode ? (
+            <View style={styles.card}>
+              <Pressable
+                style={styles.expandHeaderRow}
+                onPress={() => setIsBrokerPrivatePhotosExpanded((prev) => !prev)}
+                testID="create-listing-broker-private-photos-toggle"
+              >
+                <Text style={styles.sectionTitle}>Επιπλέον φωτογραφίες (Μόνο για το γραφείο)</Text>
+                <Ionicons
+                  name={isBrokerPrivatePhotosExpanded ? "chevron-up" : "chevron-down"}
+                  size={20}
+                  color={colors.onSurface}
+                />
+              </Pressable>
+
+              {isBrokerPrivatePhotosExpanded ? (
+                <View style={styles.brokerPrivatePhotosContent}>
+                  <Text style={styles.fieldHint}>
+                    Οι φωτογραφίες αυτές είναι αυστηρά εμπιστευτικές, δεν εμφανίζονται στην αγγελία και είναι
+                    προσβάσιμες μόνο από το γραφείο που τη διαχειρίζεται.
+                  </Text>
+                  <Text style={styles.fieldHint}>
+                    {`${brokerPrivatePhotos.length}/${BROKER_PRIVATE_PHOTO_SLOTS} φωτογραφίες`}
+                  </Text>
+
+                  <View style={styles.photoGrid}>
+                    {Array.from({ length: BROKER_PRIVATE_PHOTO_SLOTS }, (_, index) => index).map((index) => {
+                      const uri = brokerPrivatePhotos[index];
+                      const filled = !!uri;
+                      return (
+                        <Pressable
+                          key={`broker-private-photo-slot-${index}`}
+                          onPress={() => {
+                            if (filled) {
+                              removeBrokerPrivatePhoto(index);
+                              return;
+                            }
+                            openImagePicker("brokerPrivate");
+                          }}
+                          style={[styles.photoTile, filled ? styles.photoTileFilled : styles.photoTileEmpty]}
+                          testID={`create-listing-broker-private-photo-slot-${index}`}
+                        >
+                          {filled ? (
+                            <>
+                              <Image source={{ uri }} style={styles.photoImage} contentFit="cover" />
+                              <View style={styles.photoOverlay}>
+                                <Ionicons name="close-circle" size={20} color={colors.onSurface} />
+                              </View>
+                            </>
+                          ) : (
+                            <>
+                              <Ionicons name="add" size={26} color={colors.onSurfaceTertiary} />
+                              <Text style={[styles.photoTileText, styles.photoTileTextMuted]}>
+                                {t("common.actions.add")}
+                              </Text>
+                            </>
+                          )}
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
+
+          {isBrokerMode ? (
+            <View style={styles.card}>
+              <Pressable
+                style={styles.expandHeaderRow}
+                onPress={() => setIsDocumentsExpanded((prev) => !prev)}
+                testID="create-listing-documents-toggle"
+              >
+                <View style={styles.documentsHeaderTextWrap}>
+                  <Text style={styles.sectionTitle}>Αρχειοθήκη Εγγράφων</Text>
+                  {isDocumentRepositoryReady ? (
+                    <View style={styles.documentsReadyBadge} testID="create-listing-documents-ready-badge">
+                      <Ionicons name="checkmark-circle" size={14} color={colors.success} />
+                      <Text style={styles.documentsReadyBadgeText}>Έτοιμο για μεταβίβαση</Text>
+                    </View>
+                  ) : (
+                    <Text style={styles.fieldHint}>
+                      Συμπληρώστε και τις 8 κατηγορίες για να χαρακτηριστεί έτοιμη προς μεταβίβαση.
+                    </Text>
+                  )}
+                </View>
+                <Ionicons
+                  name={isDocumentsExpanded ? "chevron-up" : "chevron-down"}
+                  size={20}
+                  color={colors.onSurface}
+                />
+              </Pressable>
+
+              {isDocumentsExpanded ? (
+                <View style={styles.documentsContent}>
+                  {DOCUMENT_CATEGORIES.map((category) => {
+                    const files = documents[category.key] ?? [];
+                    const hasFiles = files.length > 0;
+                    const isCategoryExpanded = expandedDocumentCategory === category.key;
+                    const isUploading = uploadingDocumentCategory === category.key;
+
+                    return (
+                      <View key={category.key} style={styles.documentCategoryBlock}>
+                        <Pressable
+                          style={styles.documentCategoryRow}
+                          onPress={() =>
+                            setExpandedDocumentCategory((prev) => (prev === category.key ? null : category.key))
+                          }
+                          testID={`create-listing-document-category-${category.key}`}
+                        >
+                          <Text style={styles.documentCategoryTitle}>{category.title}</Text>
+                          <View style={styles.documentCategoryActions}>
+                            {hasFiles ? (
+                              <Ionicons name="checkmark-circle" size={18} color={colors.success} />
+                            ) : null}
+                            <View style={[styles.documentCountBadge, hasFiles && styles.documentCountBadgeFilled]}>
+                              <Text
+                                style={[styles.documentCountBadgeText, hasFiles && styles.documentCountBadgeTextFilled]}
+                              >
+                                {files.length}
+                              </Text>
+                            </View>
+                            {isUploading ? (
+                              <ActivityIndicator size="small" color={colors.brandSecondary} />
+                            ) : (
+                              <Pressable
+                                onPress={() => void handleAttachDocument(category.key)}
+                                hitSlop={8}
+                                testID={`create-listing-document-attach-${category.key}`}
+                              >
+                                <Ionicons name="attach-outline" size={20} color={colors.brandSecondary} />
+                              </Pressable>
+                            )}
+                          </View>
+                        </Pressable>
+
+                        {isCategoryExpanded ? (
+                          <View style={styles.documentFileList}>
+                            {hasFiles ? (
+                              files.map((file) => (
+                                <View key={file.id} style={styles.documentFileRow}>
+                                  <View style={styles.documentFileTextWrap}>
+                                    <Text style={styles.documentFileName} numberOfLines={1}>
+                                      {file.name}
+                                    </Text>
+                                    <Text style={styles.documentFileMeta}>{formatFileSize(file.size)}</Text>
+                                  </View>
+                                  <Pressable
+                                    onPress={() => handleOpenDocument(file.url)}
+                                    hitSlop={8}
+                                    testID={`create-listing-document-open-${file.id}`}
+                                  >
+                                    <Ionicons name="download-outline" size={18} color={colors.onSurface} />
+                                  </Pressable>
+                                  <Pressable
+                                    onPress={() => handleRemoveDocument(category.key, file.id)}
+                                    hitSlop={8}
+                                    testID={`create-listing-document-remove-${file.id}`}
+                                  >
+                                    <Ionicons name="trash-outline" size={18} color={colors.error} />
+                                  </Pressable>
+                                </View>
+                              ))
+                            ) : (
+                              <Text style={styles.fieldHint}>Δεν έχουν επισυναφθεί έγγραφα σε αυτή την κατηγορία.</Text>
+                            )}
+                          </View>
+                        ) : null}
+                      </View>
+                    );
+                  })}
+                </View>
+              ) : null}
+            </View>
+          ) : null}
+
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Στοιχεία Επικοινωνίας</Text>
             <View style={styles.contactToggleRow}>
@@ -1230,7 +1787,8 @@ export default function CreateListingScreen() {
                     <Text style={styles.fieldLabel}>Σαλόνι</Text>
                     <TextInput
                       value={livingRooms}
-                      onChangeText={(value) => setLivingRooms(clampRequiredIntegerInput(value, 1, 9, 1))}
+                      onChangeText={(value) => setLivingRooms(digitsOnlyInput(value))}
+                      onBlur={() => setLivingRooms(normalizeIntegerOnBlur(livingRooms, 1, 9, 1))}
                       keyboardType="number-pad"
                       maxLength={1}
                       placeholder="1"
@@ -1243,7 +1801,8 @@ export default function CreateListingScreen() {
                     <Text style={styles.fieldLabel}>Μπάνιο</Text>
                     <TextInput
                       value={bathrooms}
-                      onChangeText={(value) => setBathrooms(clampRequiredIntegerInput(value, 1, 9, 1))}
+                      onChangeText={(value) => setBathrooms(digitsOnlyInput(value))}
+                      onBlur={() => setBathrooms(normalizeIntegerOnBlur(bathrooms, 1, 9, 1))}
                       keyboardType="number-pad"
                       maxLength={1}
                       placeholder="1"
@@ -1256,7 +1815,8 @@ export default function CreateListingScreen() {
                     <Text style={styles.fieldLabel}>Κουζίνα</Text>
                     <TextInput
                       value={kitchens}
-                      onChangeText={(value) => setKitchens(clampRequiredIntegerInput(value, 1, 9, 1))}
+                      onChangeText={(value) => setKitchens(digitsOnlyInput(value))}
+                      onBlur={() => setKitchens(normalizeIntegerOnBlur(kitchens, 1, 9, 1))}
                       keyboardType="number-pad"
                       maxLength={1}
                       placeholder="1"
@@ -1299,7 +1859,8 @@ export default function CreateListingScreen() {
                     <Text style={styles.fieldLabel}>Επίπεδα</Text>
                     <TextInput
                       value={levels}
-                      onChangeText={(value) => setLevels(clampRequiredIntegerInput(value, 1, 9, 1))}
+                      onChangeText={(value) => setLevels(digitsOnlyInput(value))}
+                      onBlur={() => setLevels(normalizeIntegerOnBlur(levels, 1, 9, 1))}
                       keyboardType="number-pad"
                       maxLength={1}
                       placeholder="1"
@@ -1373,6 +1934,105 @@ export default function CreateListingScreen() {
               </View>
             ) : null}
           </View>
+
+          {isBrokerMode ? (
+            <View style={styles.card}>
+              <Pressable
+                style={styles.expandHeaderRow}
+                onPress={() => setIsTechnicalSpecsExpanded((prev) => !prev)}
+                testID="create-listing-technical-specs-toggle"
+              >
+                <Text style={styles.sectionTitle}>Τεχνικά Χαρακτηριστικά</Text>
+                <Ionicons
+                  name={isTechnicalSpecsExpanded ? "chevron-up" : "chevron-down"}
+                  size={20}
+                  color={colors.onSurface}
+                />
+              </Pressable>
+
+              {isTechnicalSpecsExpanded ? (
+                <View style={styles.technicalSpecsContent}>
+                  {technicalSpecEntries.length > 0 ? (
+                    <View style={styles.technicalSpecSavedList}>
+                      {technicalSpecEntries.map((entry) => (
+                        <View key={entry.id} style={styles.technicalSpecSavedCard}>
+                          <View style={styles.technicalSpecSavedTextWrap}>
+                            <Text style={styles.technicalSpecSavedLabel}>{entry.label}</Text>
+                            <Text style={styles.technicalSpecSavedValue}>{`${entry.sqft} τ.μ.`}</Text>
+                          </View>
+                          <Pressable
+                            style={styles.technicalSpecEditButton}
+                            onPress={() => handleEditTechnicalSpec(entry)}
+                            hitSlop={6}
+                            testID={`create-listing-technical-spec-edit-${entry.type}-${entry.index}`}
+                          >
+                            <Ionicons name="pencil-outline" size={16} color={colors.onSurface} />
+                          </Pressable>
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
+
+                  {TECHNICAL_SPEC_ITEMS.map((config) => {
+                    const entriesForType = technicalSpecsByType[config.type] ?? [];
+                    const editingId = technicalSpecEditingIds[config.type] ?? null;
+                    const editingEntry = editingId
+                      ? entriesForType.find((entry) => entry.id === editingId) ?? null
+                      : null;
+                    const activeIndex = editingEntry ? editingEntry.index : entriesForType.length + 1;
+                    const inputValue = technicalSpecInputs[config.type] ?? "";
+                    const declaredCount = config.countField ? roomCountValues[config.countField] : null;
+                    const exceedsDeclaredCount = declaredCount !== null && activeIndex > declaredCount;
+                    const showAddButton = inputValue.trim().length > 0;
+
+                    return (
+                      <View key={config.type} style={styles.technicalSpecItemBlock}>
+                        <Text style={styles.fieldLabel}>{`${config.label} ${activeIndex}`}</Text>
+                        <View style={styles.technicalSpecInputRow}>
+                          <TextInput
+                            value={inputValue}
+                            onChangeText={(value) => handleTechnicalSpecInputChange(config.type, value)}
+                            placeholder="τ.μ."
+                            placeholderTextColor={colors.onSurfaceTertiary}
+                            keyboardType="number-pad"
+                            maxLength={4}
+                            style={[styles.input, styles.technicalSpecInput]}
+                            testID={`create-listing-technical-spec-input-${config.type}`}
+                          />
+                          {showAddButton ? (
+                            <Pressable
+                              style={[
+                                styles.technicalSpecAddButton,
+                                exceedsDeclaredCount && styles.technicalSpecAddButtonDisabled,
+                              ]}
+                              onPress={() => handleCommitTechnicalSpec(config)}
+                              disabled={exceedsDeclaredCount}
+                              hitSlop={6}
+                              testID={`create-listing-technical-spec-add-${config.type}`}
+                            >
+                              <Ionicons
+                                name="add"
+                                size={20}
+                                color={exceedsDeclaredCount ? colors.onSurfaceTertiary : colors.onBrand}
+                              />
+                            </Pressable>
+                          ) : null}
+                        </View>
+                        {exceedsDeclaredCount && config.countField ? (
+                          <Text
+                            style={styles.technicalSpecWarningText}
+                            testID={`create-listing-technical-spec-warning-${config.type}`}
+                          >
+                            {`Έχουν δηλωθεί λιγότερα ${ROOM_COUNT_FIELD_NOUNS[config.countField]} στα βασικά χαρακτηριστικά. Ενημερώστε πρώτα το αντίστοιχο πεδίο.`}
+                          </Text>
+                        ) : null}
+                      </View>
+                    );
+                  })}
+                </View>
+              ) : null}
+            </View>
+          ) : null}
         </ScrollView>
 
         <View style={[styles.footer, { paddingBottom: spacing.lg + insets.bottom }]}>
@@ -1550,6 +2210,76 @@ function createStyles(colors: ThemeColors) {
     },
     extraInformationContent: {
       gap: spacing.md,
+    },
+    technicalSpecsContent: {
+      gap: spacing.md,
+    },
+    technicalSpecSavedList: {
+      gap: spacing.sm,
+    },
+    technicalSpecSavedCard: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: spacing.sm,
+      borderWidth: 1,
+      borderColor: colors.brandSecondary,
+      borderRadius: radius.md,
+      backgroundColor: colors.brandTertiary,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+    },
+    technicalSpecSavedTextWrap: {
+      flexShrink: 1,
+      gap: 2,
+    },
+    technicalSpecSavedLabel: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.base,
+      color: colors.onBrandTertiary,
+    },
+    technicalSpecSavedValue: {
+      fontFamily: fonts.regular,
+      fontSize: fontSize.sm,
+      color: colors.onBrandTertiary,
+    },
+    technicalSpecEditButton: {
+      width: 32,
+      height: 32,
+      borderRadius: radius.pill,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    technicalSpecItemBlock: {
+      gap: spacing.xs,
+    },
+    technicalSpecInputRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+    },
+    technicalSpecInput: {
+      flex: 1,
+      minWidth: 0,
+    },
+    technicalSpecAddButton: {
+      width: 40,
+      height: 40,
+      borderRadius: radius.pill,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.brand,
+    },
+    technicalSpecAddButtonDisabled: {
+      backgroundColor: colors.surfaceTertiary,
+    },
+    technicalSpecWarningText: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.sm,
+      color: colors.error,
     },
     formRow: {
       flexDirection: "row",
@@ -1756,6 +2486,107 @@ function createStyles(colors: ThemeColors) {
       flexDirection: "row",
       flexWrap: "wrap",
       gap: spacing.sm,
+    },
+    brokerPrivatePhotosContent: {
+      gap: spacing.xs,
+    },
+    documentsHeaderTextWrap: {
+      flexShrink: 1,
+      gap: 2,
+    },
+    documentsReadyBadge: {
+      flexDirection: "row",
+      alignItems: "center",
+      alignSelf: "flex-start",
+      gap: spacing.xs,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 2,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      borderColor: colors.success,
+      backgroundColor: colors.surface,
+    },
+    documentsReadyBadgeText: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.sm,
+      color: colors.success,
+    },
+    documentsContent: {
+      gap: spacing.sm,
+    },
+    documentCategoryBlock: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.md,
+      backgroundColor: colors.surface,
+      overflow: "hidden",
+    },
+    documentCategoryRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: spacing.sm,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+    },
+    documentCategoryTitle: {
+      flex: 1,
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.sm,
+      color: colors.onSurface,
+    },
+    documentCategoryActions: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      flexShrink: 0,
+    },
+    documentCountBadge: {
+      minWidth: 24,
+      height: 24,
+      paddingHorizontal: spacing.xs,
+      borderRadius: radius.pill,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.surfaceTertiary,
+    },
+    documentCountBadgeFilled: {
+      backgroundColor: colors.brand,
+    },
+    documentCountBadgeText: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.sm,
+      color: colors.onSurfaceTertiary,
+    },
+    documentCountBadgeTextFilled: {
+      color: colors.onBrand,
+    },
+    documentFileList: {
+      gap: spacing.xs,
+      paddingHorizontal: spacing.md,
+      paddingBottom: spacing.sm,
+    },
+    documentFileRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      borderTopWidth: 1,
+      borderTopColor: colors.divider,
+      paddingTop: spacing.sm,
+    },
+    documentFileTextWrap: {
+      flex: 1,
+      minWidth: 0,
+    },
+    documentFileName: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.sm,
+      color: colors.onSurface,
+    },
+    documentFileMeta: {
+      fontFamily: fonts.regular,
+      fontSize: fontSize.sm,
+      color: colors.onSurfaceTertiary,
     },
     photoTile: {
       width: "31%",
