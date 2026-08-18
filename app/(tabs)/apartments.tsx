@@ -1263,7 +1263,15 @@ export default function ApartmentsScreen() {
           </View>
         )}
         {showFilters && (
-          <View style={styles.filterPanel} testID="apartments-filter-panel">
+          <ScrollView
+            style={styles.filterPanel}
+            contentContainerStyle={styles.filterPanelContent}
+            showsVerticalScrollIndicator={true}
+            keyboardShouldPersistTaps="handled"
+            bounces={true}
+            nestedScrollEnabled={true}
+            testID="apartments-filter-panel"
+          >
             <Text style={styles.sortTitle}>Ταξινόμηση</Text>
             <Pressable
               style={styles.sortSelectionBar}
@@ -1400,7 +1408,7 @@ export default function ApartmentsScreen() {
               <Text style={styles.switchText}>{t("apartments.nearMetro")}</Text>
               <Switch value={nearMetro} onValueChange={setNearMetro} trackColor={{ true: colors.brand, false: colors.border }} />
             </View>
-          </View>
+          </ScrollView>
         )}
       </View>
       <View {...contentPanResponder.panHandlers} style={styles.flexOne}>
@@ -1982,12 +1990,17 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   filterPanel: {
     marginTop: spacing.sm,
+    maxHeight: 380,
     backgroundColor: colors.surfaceSecondary,
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
+    overflow: "hidden",
+  },
+  filterPanelContent: {
     padding: spacing.md,
     gap: spacing.sm,
+    paddingBottom: spacing.lg,
   },
   sortTitle: {
     fontFamily: fonts.bold,
