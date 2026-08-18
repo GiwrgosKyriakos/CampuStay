@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { Text, View, StyleSheet, Pressable, useWindowDimensions, Modal, ScrollView, ActivityIndicator, FlatList } from "react-native";
+import { Text, View, StyleSheet, Pressable, useWindowDimensions, Modal, ScrollView, ActivityIndicator, FlatList, DimensionValue } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useRouter } from "expo-router";
@@ -358,7 +358,10 @@ function CalendarView({
     () => calculateGridLayout(selectedDayNotes, isSelectedDayToday, currentTimeStr),
     [currentTimeStr, isSelectedDayToday, selectedDayNotes],
   );
-  const dayCardWidth = useMemo(() => `${100 / dayLayout.columnCount}%`, [dayLayout.columnCount]);
+  const dayCardWidth = useMemo<DimensionValue>(
+    () => `${100 / dayLayout.columnCount}%` as DimensionValue,
+    [dayLayout.columnCount],
+  );
   const brandPrimaryColor = useMemo(() => {
     const withLegacyKey = colors as unknown as { brandPrimary?: string; brand?: string };
     return withLegacyKey.brandPrimary ?? withLegacyKey.brand ?? "#E07A2F";

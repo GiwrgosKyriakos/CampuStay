@@ -13,7 +13,10 @@ interface LocaleContextValue {
 const LocaleContext = createContext<LocaleContextValue | null>(null);
 
 export function LocaleProvider({ children }: { children: React.ReactNode }) {
-  const [locale, setLocaleState] = useState<AppLocale>(getCurrentLocale());
+  const [locale, setLocaleState] = useState<AppLocale>(() => {
+    const current = getCurrentLocale();
+    return isSupportedLocale(current) ? current : "en";
+  });
 
   useEffect(() => {
     setI18nLocale(locale);

@@ -13,6 +13,22 @@ interface FirestoreQuizDocument {
   updatedAt?: ReturnType<typeof serverTimestamp>;
 }
 
+function toIsoString(value: unknown): string | null {
+  if (!value) return null;
+  if (value instanceof Date) return value.toISOString();
+
+  const candidate = value as { toDate?: () => Date; toMillis?: () => number };
+  if (typeof candidate.toDate === "function") return candidate.toDate().toISOString();
+  if (typeof candidate.toMillis === "function") return new Date(candidate.toMillis()).toISOString();
+
+  if (typeof value === "string" || typeof value === "number") {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  }
+
+  return null;
+}
+
 export async function getRoomieProfile(userId: string): Promise<RoomieProfileResponse> {
   try {
     const ref = doc(db, "quiz_answers", userId);
@@ -30,7 +46,7 @@ export async function getRoomieProfile(userId: string): Promise<RoomieProfileRes
     return {
       user_id: userId,
       answers: data.answers ?? {},
-      updated_at: data.updatedAt ? new Date(data.updatedAt).toISOString() : null,
+      updated_at: toIsoString(data.updatedAt),
     };
   } catch (err) {
     console.error("[API] getRoomieProfile failed:", err);

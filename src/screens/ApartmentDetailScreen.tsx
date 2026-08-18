@@ -13,7 +13,7 @@ import {
   View,
 } from "react-native";
 import { Image } from "expo-image";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -2021,11 +2021,11 @@ export default function ApartmentDetailScreen() {
             }}
             testID="apartment-detail-close-deal-fab"
           >
-            <Ionicons
-              name={apartmentStatus === "closed_deal" ? "eye-outline" : "handshake-outline"}
-              size={22}
-              color={apartmentStatus === "closed_deal" ? colors.onSurfaceTertiary : colors.onBrand}
-            />
+            {apartmentStatus === "closed_deal" ? (
+              <Ionicons name="eye-outline" size={22} color={colors.onSurfaceTertiary} />
+            ) : (
+              <MaterialCommunityIcons name="handshake-outline" size={22} color={colors.onBrand} />
+            )}
           </Pressable>
 
           <Pressable
