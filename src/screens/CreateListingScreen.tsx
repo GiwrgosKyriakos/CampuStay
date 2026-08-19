@@ -64,8 +64,16 @@ const ORIENTATION_OPTIONS = [
   "Νοτιοδυτικός",
 ];
 
+export const OWNER_MOTIVATION_OPTIONS = [
+  "Επείγουσα ανάγκη",
+  "Κληρονομιά",
+  "Επένδυση",
+  "Άλλο",
+] as const;
+
 export type PriceHistoryEntry = {
   price: number;
+  expectedPrice?: number | null;
   timestamp: number;
   dateLabel: string;
   brokerName?: string;
@@ -115,6 +123,9 @@ interface FirestoreApartmentDoc {
   ownerDetails?: {
     name?: string;
     motivation?: string;
+    motivationType?: string | null;
+    customMotivation?: string;
+    priceExpectation?: number | null;
   };
   hostId?: string;
   ownerId?: string;
@@ -428,7 +439,11 @@ function PriceHistoryChart({ history, selectedHistoryNode, onSelectNode, colors,
   const plotBottom = 42;
   const plotWidth = Math.max(1, chartWidth - plotLeft - plotRight);
   const plotHeight = chartHeight - plotTop - plotBottom;
-  const prices = sortedHistory.map((entry) => entry.price);
+  const prices = sortedHistory.flatMap((entry) =>
+    entry.expectedPrice !== null && entry.expectedPrice !== undefined
+      ? [entry.price, entry.expectedPrice]
+      : [entry.price],
+  );
   const lowestPrice = prices.length ? Math.min(...prices) : 0;
   const highestPrice = prices.length ? Math.max(...prices) : 1;
   const pricePadding = Math.max((highestPrice - lowestPrice) * 0.12, 1);
@@ -441,6 +456,14 @@ function PriceHistoryChart({ history, selectedHistoryNode, onSelectNode, colors,
       : plotLeft + (plotWidth * index) / (sortedHistory.length - 1);
     const y = plotTop + plotHeight - ((entry.price - minPrice) / priceRange) * plotHeight;
     return { x, y };
+  };
+  const getExpectedPointPosition = (entry: PriceHistoryEntry, index: number) => {
+    const position = getPointPosition(entry, index);
+    if (entry.expectedPrice === null || entry.expectedPrice === undefined) return position;
+    return {
+      ...position,
+      y: plotTop + plotHeight - ((entry.expectedPrice - minPrice) / priceRange) * plotHeight,
+    };
   };
   const selectedIndex = selectedHistoryNode
     ? sortedHistory.findIndex((entry) => entry.timestamp === selectedHistoryNode.timestamp)
@@ -493,6 +516,35 @@ function PriceHistoryChart({ history, selectedHistoryNode, onSelectNode, colors,
             );
           })}
 
+          {sortedHistory
+            .map((entry, index) => ({ entry, index }))
+            .filter(({ entry }) => entry.expectedPrice !== null && entry.expectedPrice !== undefined)
+            .slice(1)
+            .map(({ entry, index }, expectationIndex) => {
+              const previous = sortedHistory
+                .map((candidate, candidateIndex) => ({ candidate, candidateIndex }))
+                .filter(({ candidate }) => candidate.expectedPrice !== null && candidate.expectedPrice !== undefined)[expectationIndex];
+              if (!previous) return null;
+              const start = getExpectedPointPosition(previous.candidate, previous.candidateIndex);
+              const end = getExpectedPointPosition(entry, index);
+              const length = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2);
+              const angle = `${Math.atan2(end.y - start.y, end.x - start.x)}rad`;
+              return (
+                <View
+                  key={`history-expectation-line-${entry.timestamp}`}
+                  style={[
+                    styles.priceHistoryExpectationLine,
+                    {
+                      left: (start.x + end.x - length) / 2,
+                      top: (start.y + end.y) / 2 - 1,
+                      width: length,
+                      transform: [{ rotate: angle }],
+                    },
+                  ]}
+                />
+              );
+            })}
+
           {sortedHistory.map((entry, index) => {
             const position = getPointPosition(entry, index);
             const isSelected = selectedHistoryNode?.timestamp === entry.timestamp;
@@ -506,6 +558,19 @@ function PriceHistoryChart({ history, selectedHistoryNode, onSelectNode, colors,
                 ]}
                 onPress={() => onSelectNode(entry)}
                 testID={`create-listing-history-node-${index}`}
+                hitSlop={6}
+              />
+            );
+          })}
+
+          {sortedHistory.map((entry, index) => {
+            if (entry.expectedPrice === null || entry.expectedPrice === undefined) return null;
+            const position = getExpectedPointPosition(entry, index);
+            return (
+              <Pressable
+                key={`history-expectation-node-${entry.timestamp}`}
+                style={[styles.priceHistoryExpectationNode, { left: position.x - 5, top: position.y - 5 }]}
+                onPress={() => onSelectNode(entry)}
                 hitSlop={6}
               />
             );
@@ -528,12 +593,25 @@ function PriceHistoryChart({ history, selectedHistoryNode, onSelectNode, colors,
 
           {selectedHistoryNode && selectedPosition ? (
             <View style={[styles.priceHistoryTooltip, { left: tooltipLeft, top: tooltipTop, width: tooltipWidth }]}>
-              <Text style={styles.priceHistoryTooltipText}>{`Τιμή: €${selectedHistoryNode.price}`}</Text>
-              <Text style={styles.priceHistoryTooltipText}>{`Ημερομηνία τροποποίησης: ${selectedHistoryNode.dateLabel}`}</Text>
+              <Text style={styles.priceHistoryTooltipText}>{`Τιμή Αγγελίας: €${selectedHistoryNode.price}`}</Text>
+              {selectedHistoryNode.expectedPrice !== null && selectedHistoryNode.expectedPrice !== undefined ? (
+                <Text style={styles.priceHistoryTooltipText}>{`Προσδοκία Ιδιοκτήτη: €${selectedHistoryNode.expectedPrice}`}</Text>
+              ) : null}
+              <Text style={styles.priceHistoryTooltipText}>{`Ημερομηνία: ${selectedHistoryNode.dateLabel}`}</Text>
               <Text style={styles.priceHistoryTooltipText}>{`Μεσίτης: ${selectedHistoryNode.brokerName || "Μεσίτης"}`}</Text>
               <View style={styles.priceHistoryTooltipPointer} />
             </View>
           ) : null}
+          <View style={styles.priceHistoryLegend}>
+            <View style={styles.priceHistoryLegendItem}>
+              <View style={styles.priceHistoryLegendBrandIndicator} />
+              <Text style={styles.priceHistoryLegendText}>Ιστορικό τιμών αγγελίας</Text>
+            </View>
+            <View style={styles.priceHistoryLegendItem}>
+              <View style={styles.priceHistoryLegendExpectationIndicator} />
+              <Text style={styles.priceHistoryLegendText}>Ιστορικό τιμών προσδοκιών ιδιοκτήτη</Text>
+            </View>
+          </View>
         </>
       ) : null}
     </View>
@@ -555,11 +633,14 @@ export default function CreateListingScreen() {
   const [closedDealPrice, setClosedDealPrice] = useState("");
   const [isOwnerDetailsExpanded, setIsOwnerDetailsExpanded] = useState(false);
   const [ownerName, setOwnerName] = useState("");
-  const [ownerMotivation, setOwnerMotivation] = useState("");
+  const [ownerMotivationType, setOwnerMotivationType] = useState<string | null>(null);
+  const [customOwnerMotivation, setCustomOwnerMotivation] = useState("");
+  const [ownerPriceExpectation, setOwnerPriceExpectation] = useState("");
   const [priceHistory, setPriceHistory] = useState<PriceHistoryEntry[]>([]);
   const [selectedHistoryNode, setSelectedHistoryNode] = useState<PriceHistoryEntry | null>(null);
   const [isHistoryExpanded, setIsHistoryExpanded] = useState(false);
   const [originalLoadedRent, setOriginalLoadedRent] = useState<number | null>(null);
+  const [originalLoadedPriceExpectation, setOriginalLoadedPriceExpectation] = useState<number | null>(null);
   const [technicalSpecEntries, setTechnicalSpecEntries] = useState<TechnicalSpecEntry[]>([]);
   const [technicalSpecInputs, setTechnicalSpecInputs] = useState<Record<string, string>>({});
   const [technicalSpecEditingIds, setTechnicalSpecEditingIds] = useState<Record<string, string | null>>({});
@@ -632,13 +713,14 @@ export default function CreateListingScreen() {
     return [
       {
         price: currentPrice,
+        expectedPrice: ownerPriceExpectation.trim().length > 0 ? Number(ownerPriceExpectation) : null,
         timestamp: Date.now(),
         dateLabel: formatPriceHistoryDate(new Date()),
         brokerId: auth.userId || "",
         brokerName: auth.user?.name || "Μεσίτης",
       },
     ];
-  }, [auth.user?.name, auth.userId, monthlyRent, priceHistory]);
+  }, [auth.user?.name, auth.userId, monthlyRent, ownerPriceExpectation, priceHistory]);
   const cityOptions = t("createListing.options.cities") as unknown as string[];
   const propertyCategoryOptions = ["Κατοικία", "Επαγγελματική στέγη", "Γη", "Λοιπά ακίνητα"];
   const propertyTypeOptions = [
@@ -1021,7 +1103,28 @@ export default function CreateListingScreen() {
             : "",
         );
         setOwnerName(data.ownerDetails?.name ?? "");
-        setOwnerMotivation(data.ownerDetails?.motivation ?? "");
+        const savedMotivation = data.ownerDetails?.motivation ?? "";
+        const savedMotivationType = data.ownerDetails?.motivationType;
+        if (OWNER_MOTIVATION_OPTIONS.includes(savedMotivationType as (typeof OWNER_MOTIVATION_OPTIONS)[number])) {
+          setOwnerMotivationType(savedMotivationType ?? null);
+          setCustomOwnerMotivation(data.ownerDetails?.customMotivation ?? "");
+        } else if (OWNER_MOTIVATION_OPTIONS.includes(savedMotivation as (typeof OWNER_MOTIVATION_OPTIONS)[number])) {
+          setOwnerMotivationType(savedMotivation as (typeof OWNER_MOTIVATION_OPTIONS)[number]);
+          setCustomOwnerMotivation("");
+        } else {
+          setOwnerMotivationType(savedMotivation ? "Άλλο" : null);
+          setCustomOwnerMotivation(savedMotivation);
+        }
+        setOwnerPriceExpectation(
+          typeof data.ownerDetails?.priceExpectation === "number" && Number.isFinite(data.ownerDetails.priceExpectation)
+            ? String(data.ownerDetails.priceExpectation)
+            : "",
+        );
+        setOriginalLoadedPriceExpectation(
+          typeof data.ownerDetails?.priceExpectation === "number" && Number.isFinite(data.ownerDetails.priceExpectation)
+            ? data.ownerDetails.priceExpectation
+            : null,
+        );
         const mappedPriceHistory = Array.isArray(data.priceHistory)
           ? data.priceHistory
               .filter(
@@ -1342,6 +1445,7 @@ export default function CreateListingScreen() {
       const currentPrice = Number(monthlyRent);
       const currentPriceHistoryEntry: PriceHistoryEntry = {
         price: currentPrice,
+        expectedPrice: ownerPriceExpectation.trim().length > 0 ? Number(ownerPriceExpectation) : null,
         timestamp: Date.now(),
         dateLabel: formatPriceHistoryDate(new Date()),
         brokerId: auth.userId || "",
@@ -1352,7 +1456,10 @@ export default function CreateListingScreen() {
       );
       if (!isEditMode || nextPriceHistory.length === 0) {
         nextPriceHistory = [currentPriceHistoryEntry];
-      } else if (originalLoadedRent !== null && currentPrice !== originalLoadedRent) {
+      } else if (
+        (originalLoadedRent !== null && currentPrice !== originalLoadedRent) ||
+        (ownerPriceExpectation.trim().length > 0 ? Number(ownerPriceExpectation) : null) !== originalLoadedPriceExpectation
+      ) {
         nextPriceHistory = [...nextPriceHistory, currentPriceHistoryEntry];
       }
 
@@ -1393,7 +1500,10 @@ export default function CreateListingScreen() {
         ownerDetails: isBrokerMode
           ? {
               name: ownerName.trim(),
-              motivation: ownerMotivation.trim(),
+              motivationType: ownerMotivationType,
+              customMotivation: ownerMotivationType === "Άλλο" ? customOwnerMotivation.trim() : undefined,
+              motivation: ownerMotivationType === "Άλλο" ? customOwnerMotivation.trim() : (ownerMotivationType ?? ""),
+              priceExpectation: ownerPriceExpectation.trim().length > 0 ? Number(ownerPriceExpectation) : null,
             }
           : undefined,
         priceHistory: isBrokerMode ? nextPriceHistory : undefined,
@@ -1410,6 +1520,9 @@ export default function CreateListingScreen() {
         setPriceHistory(nextPriceHistory);
         setSelectedHistoryNode(null);
         setOriginalLoadedRent(currentPrice);
+        setOriginalLoadedPriceExpectation(
+          ownerPriceExpectation.trim().length > 0 ? Number(ownerPriceExpectation) : null,
+        );
       }
 
       if (isBrokerMode) {
@@ -2454,15 +2567,34 @@ export default function CreateListingScreen() {
                   </View>
                   <View>
                     <Text style={styles.fieldLabel}>Κίνητρο ιδιοκτήτη</Text>
+                    <Dropdown
+                      onSelect={setOwnerMotivationType}
+                      options={[...OWNER_MOTIVATION_OPTIONS]}
+                      placeholder="Επιλέξτε κίνητρο"
+                      value={ownerMotivationType}
+                      testID="create-listing-owner-motivation-dropdown"
+                    />
+                  </View>
+                  {ownerMotivationType === "Άλλο" ? (
                     <TextInput
-                      value={ownerMotivation}
-                      onChangeText={setOwnerMotivation}
-                      placeholder="π.χ. Επείγουσα μετεγκατάσταση, ανάγκη για άμεση ρευστότητα..."
+                      onChangeText={setCustomOwnerMotivation}
+                      placeholder="Προσδιορίστε το κίνητρο του ιδιοκτήτη..."
                       placeholderTextColor={colors.onSurfaceTertiary}
-                      style={[styles.input, styles.ownerMotivationInput]}
-                      multiline
-                      textAlignVertical="top"
-                      testID="create-listing-owner-motivation-input"
+                      style={[styles.input, styles.mtSm]}
+                      testID="create-listing-owner-custom-motivation-input"
+                      value={customOwnerMotivation}
+                    />
+                  ) : null}
+                  <View>
+                    <Text style={[styles.fieldLabel, styles.mtSm]}>Προσδοκία ιδιοκτήτη για την τιμή (€)</Text>
+                    <TextInput
+                      onChangeText={(value) => setOwnerPriceExpectation(digitsOnlyInput(value))}
+                      value={ownerPriceExpectation}
+                      placeholder="π.χ. 550"
+                      placeholderTextColor={colors.onSurfaceTertiary}
+                      keyboardType="number-pad"
+                      style={styles.input}
+                      testID="create-listing-owner-price-expectation-input"
                     />
                   </View>
                 </View>
@@ -2734,7 +2866,7 @@ function createStyles(colors: ThemeColors) {
       minHeight: 80,
     },
     priceHistoryChart: {
-      height: 220,
+      height: 292,
       width: "100%",
       position: "relative",
       overflow: "hidden",
@@ -2757,6 +2889,11 @@ function createStyles(colors: ThemeColors) {
       height: 2,
       backgroundColor: colors.brand,
     },
+    priceHistoryExpectationLine: {
+      position: "absolute",
+      height: 2,
+      backgroundColor: colors.onSurfaceTertiary,
+    },
     priceHistoryNode: {
       position: "absolute",
       width: 14,
@@ -2770,6 +2907,15 @@ function createStyles(colors: ThemeColors) {
       backgroundColor: colors.brandSecondary,
       borderColor: colors.onBrand,
       transform: [{ scale: 1.2 }],
+    },
+    priceHistoryExpectationNode: {
+      position: "absolute",
+      width: 10,
+      height: 10,
+      borderRadius: 5,
+      backgroundColor: colors.onSurfaceTertiary,
+      borderWidth: 2,
+      borderColor: colors.surfaceSecondary,
     },
     priceHistoryDateLabel: {
       position: "absolute",
@@ -2810,6 +2956,33 @@ function createStyles(colors: ThemeColors) {
       borderBottomWidth: 1,
       borderColor: colors.border,
       transform: [{ rotate: "45deg" }],
+    },
+    priceHistoryLegend: {
+      position: "absolute",
+      left: 52,
+      right: 16,
+      top: 238,
+      gap: spacing.xs,
+    },
+    priceHistoryLegendItem: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+    },
+    priceHistoryLegendBrandIndicator: {
+      width: 10,
+      height: 10,
+      backgroundColor: colors.brand,
+    },
+    priceHistoryLegendExpectationIndicator: {
+      width: 10,
+      height: 10,
+      backgroundColor: colors.onSurfaceTertiary,
+    },
+    priceHistoryLegendText: {
+      fontFamily: fonts.regular,
+      fontSize: fontSize.xs,
+      color: colors.onSurfaceTertiary,
     },
     technicalSpecSavedList: {
       gap: spacing.sm,

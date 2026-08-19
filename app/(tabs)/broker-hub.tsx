@@ -23,13 +23,21 @@ export interface BrokerApartment {
   image: string;
   tags: string[];
   hostId?: string;
-  ownerDetails?: { name?: string; motivation?: string };
+  ownerDetails?: { name?: string; motivation?: string; priceExpectation?: number | null };
+  documents?: Record<string, BrokerDocument[]>;
   [key: string]: unknown;
+}
+
+export interface BrokerDocument {
+  id: string;
+  name: string;
+  url: string;
+  size: number;
+  uploadedAt: string;
 }
 
 export interface BrokerOwnerItem {
   name: string;
-  motivation: string;
   apartments: BrokerApartment[];
 }
 
@@ -101,9 +109,8 @@ export default function BrokerHubScreen() {
           const details = apartment.ownerDetails;
           const name = details?.name?.trim();
           if (!name) return;
-          const current = ownerMap.get(name) ?? { name, motivation: details?.motivation?.trim() || "", apartments: [] };
+          const current = ownerMap.get(name) ?? { name, apartments: [] };
           current.apartments.push(apartment);
-          if (!current.motivation && details?.motivation?.trim()) current.motivation = details.motivation.trim();
           ownerMap.set(name, current);
         });
         const clientItems = await Promise.all(chatsSnap.docs.map(async (chat) => {
@@ -170,8 +177,8 @@ export default function BrokerHubScreen() {
               {item.sharedFilterSet ? <View style={styles.filterBadge}><Ionicons name="options-outline" size={16} color={colors.brand} /></View> : null}<Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />
             </Pressable>
           )} /> : <FlatList data={owners} testID="broker-owners-list" keyExtractor={(item) => item.name} ListEmptyComponent={<Text style={styles.emptyStateSubtitle}>Δεν υπάρχουν ιδιοκτήτες ακόμα.</Text>} renderItem={({ item, index }) => (
-            <Pressable style={styles.ownerRowCard} testID={`broker-owner-row-${index}`} onPress={() => router.push({ pathname: "/broker-owner-detail", params: { ownerName: item.name, ownerMotivation: item.motivation, apartmentIds: JSON.stringify(item.apartments.map((apartment) => apartment.id)) } })}>
-              <View style={styles.rowMain}><Text style={styles.rowTitle}>{item.name}</Text>{item.motivation ? <Text style={styles.motivationBadge}>{item.motivation}</Text> : null}<Text style={styles.countPill}>{item.apartments.length} ακίνητα</Text></View><Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />
+            <Pressable style={styles.ownerRowCard} testID={`broker-owner-row-${index}`} onPress={() => router.push({ pathname: "/broker-owner-detail", params: { ownerName: item.name, apartmentIds: JSON.stringify(item.apartments.map((apartment) => apartment.id)) } })}>
+              <View style={styles.rowMain}><Text style={styles.rowTitle}>{item.name}</Text><Text style={styles.countPill}>{item.apartments.length} ακίνητα</Text></View><Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />
             </Pressable>
           )} />}
         </Animated.View>
