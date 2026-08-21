@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { useTheme } from "@/src/context/ThemeContext";
 import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Modal, Animated, PanResponder } from "react-native";
 import { Image } from "expo-image";
@@ -17,6 +17,7 @@ import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import { t } from "@/src/locales";
 import { getBlockRelationshipState } from "@/src/api/chat";
 import { HostInboxContent } from "../host-inbox";
+import FilterSetVersionModal, { type SharedFilterSetRecord } from "@/src/components/FilterSetVersionModal";
 
 const TAB_BAR_SPACE = 100;
 
@@ -180,6 +181,10 @@ export default function MatchesScreen() {
   const [loading, setLoading] = useState(true);
   const [selectedChatType, setSelectedChatType] = useState<"roommate" | "host">("roommate");
   const [isBrokersView, setIsBrokersView] = useState(false);
+  const [showGlobalFilterHistoryModal, setShowGlobalFilterHistoryModal] = useState(false);
+  const [globalFilterSets, setGlobalFilterSets] = useState<SharedFilterSetRecord[]>([]);
+  const [selectedGlobalFilterSet, setSelectedGlobalFilterSet] = useState<SharedFilterSetRecord | null>(null);
+  const [loadingGlobalFilterSets, setLoadingGlobalFilterSets] = useState(false);
   const [lastMessageByChat, setLastMessageByChat] = useState<Record<string, LastMessageMeta>>({});
   const [acceptingChatId, setAcceptingChatId] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string>("");
@@ -191,6 +196,26 @@ export default function MatchesScreen() {
   const messageUnsubsRef = React.useRef<Record<string, () => void>>({});
   const isBroker = !!auth.isBroker;
   const notLookingForRoommate = auth.notLookingForRoommate === true;
+
+  useEffect(() => {
+    if (!showGlobalFilterHistoryModal || !auth.userId) return;
+    let active = true;
+    setLoadingGlobalFilterSets(true);
+    void (async () => {
+      try {
+        const snapshot = await getDocs(collection(db, "users", auth.userId!, "sharedFilterSets"));
+        if (active) {
+          setGlobalFilterSets(snapshot.docs.map((filterDoc) => ({ id: filterDoc.id, ...(filterDoc.data() as Omit<SharedFilterSetRecord, "id">) })).sort((a, b) => b.updatedAt - a.updatedAt));
+        }
+      } catch (error) {
+        console.error("[Matches] Error loading shared filter sets:", error);
+        if (active) setGlobalFilterSets([]);
+      } finally {
+        if (active) setLoadingGlobalFilterSets(false);
+      }
+    })();
+    return () => { active = false; };
+  }, [auth.userId, showGlobalFilterHistoryModal]);
 
   const deleteChatForCurrentUser = React.useCallback(
     async (profile: ChatListItem) => {
@@ -640,14 +665,17 @@ export default function MatchesScreen() {
       <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}> 
         <View style={styles.headerTitleRow}>
           <Text style={styles.title}>{t("matches.title")}</Text>
-          <Pressable
-            style={[styles.brokersToggleBtn, isBrokersView && styles.brokersToggleBtnActive]}
-            onPress={() => setIsBrokersView((previous) => !previous)}
-            testID="matches-brokers-view-toggle"
-          >
-            <Ionicons name="briefcase-outline" size={16} color={isBrokersView ? colors.onBrand : colors.onSurface} />
-            <Text style={[styles.brokersToggleBtnText, isBrokersView && styles.brokersToggleBtnTextActive]}>Brokers</Text>
-          </Pressable>
+          <View style={styles.brokersHeaderActions}>
+            {isBrokersView ? <Pressable style={styles.circularHistoryBtn} onPress={() => setShowGlobalFilterHistoryModal(true)} testID="matches-global-filter-history-btn" hitSlop={8}><Ionicons name="time-outline" size={20} color={colors.onSurface} /></Pressable> : null}
+            <Pressable
+              style={[styles.brokersToggleBtn, isBrokersView && styles.brokersToggleBtnActive]}
+              onPress={() => setIsBrokersView((previous) => !previous)}
+              testID="matches-brokers-view-toggle"
+            >
+              <Ionicons name="briefcase-outline" size={16} color={isBrokersView ? colors.onBrand : colors.onSurface} />
+              <Text style={[styles.brokersToggleBtnText, isBrokersView && styles.brokersToggleBtnTextActive]}>Brokers</Text>
+            </Pressable>
+          </View>
         </View>
         <Text style={styles.subtitle}>
           {isBrokersView
@@ -885,6 +913,32 @@ export default function MatchesScreen() {
       </Animated.View>
 
       <Modal
+        visible={showGlobalFilterHistoryModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowGlobalFilterHistoryModal(false)}
+      >
+        <View style={styles.filterHistoryBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowGlobalFilterHistoryModal(false)} />
+          <View style={styles.filterHistoryCard} testID="matches-global-filter-history-modal">
+            <View style={styles.filterHistoryHeader}>
+              <Text style={styles.filterHistoryTitle}>Ιστορικό Set Φίλτρων</Text>
+              <Pressable onPress={() => setShowGlobalFilterHistoryModal(false)} hitSlop={8} testID="matches-global-filter-history-close"><Ionicons name="close-outline" size={22} color={colors.onSurface} /></Pressable>
+            </View>
+            {loadingGlobalFilterSets ? <View style={styles.filterHistoryState}><ActivityIndicator color={colors.brand} /></View> : globalFilterSets.length === 0 ? <View style={styles.filterHistoryState}><Text style={styles.filterHistoryMutedText}>Δεν υπάρχουν κοινοποιημένα set φίλτρων.</Text></View> : <ScrollView style={styles.filterHistoryList} contentContainerStyle={styles.filterHistoryListContent}>
+              {globalFilterSets.map((filterSet) => <Pressable key={filterSet.id} style={styles.filterSetHistoryRow} onPress={() => { setSelectedGlobalFilterSet(filterSet); setShowGlobalFilterHistoryModal(false); }} testID={`matches-global-filter-history-row-${filterSet.id}`}>
+                <View style={styles.filterSetHistoryTextColumn}><Text style={styles.filterSetHistoryTitle} numberOfLines={1}>{filterSet.title || "Set Φίλτρων"}</Text><Text style={styles.filterSetHistorySummary} numberOfLines={1}>{filterSet.sharedBrokers.length} μεσίτες</Text></View>
+                <View style={styles.sharedBrokerAvatars}>{filterSet.sharedBrokers.map((broker) => broker.brokerAvatar ? <Image key={broker.brokerId} source={{ uri: broker.brokerAvatar }} style={styles.sharedBrokerAvatar} /> : <View key={broker.brokerId} style={styles.sharedBrokerAvatarFallback}><Ionicons name="person-outline" size={14} color={colors.onSurfaceTertiary} /></View>)}</View>
+                <Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />
+              </Pressable>)}
+            </ScrollView>}
+          </View>
+        </View>
+      </Modal>
+
+      <FilterSetVersionModal visible={!!selectedGlobalFilterSet} filterSet={selectedGlobalFilterSet} onClose={() => setSelectedGlobalFilterSet(null)} onUpdated={setSelectedGlobalFilterSet} />
+
+      <Modal
         transparent
         animationType="fade"
         visible={!!chatToDelete}
@@ -959,6 +1013,23 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   brokersToggleBtnActive: { borderColor: colors.brand, backgroundColor: colors.brand },
   brokersToggleBtnText: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface },
   brokersToggleBtnTextActive: { color: colors.onBrand },
+  brokersHeaderActions: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
+  circularHistoryBtn: { width: 36, height: 36, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceSecondary },
+  filterHistoryBackdrop: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.lg, backgroundColor: "rgba(0,0,0,0.48)" },
+  filterHistoryCard: { width: "100%", maxHeight: "82%", borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, padding: spacing.lg, gap: spacing.md },
+  filterHistoryHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
+  filterHistoryTitle: { flex: 1, fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface },
+  filterHistoryList: { flexGrow: 0 },
+  filterHistoryListContent: { gap: spacing.sm },
+  filterHistoryState: { minHeight: 90, alignItems: "center", justifyContent: "center" },
+  filterHistoryMutedText: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary, textAlign: "center" },
+  filterSetHistoryRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surfaceSecondary, padding: spacing.md },
+  filterSetHistoryTextColumn: { flex: 1, gap: 3 },
+  filterSetHistoryTitle: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface },
+  filterSetHistorySummary: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
+  sharedBrokerAvatars: { flexDirection: "row", alignItems: "center" },
+  sharedBrokerAvatar: { width: 28, height: 28, borderRadius: radius.pill, borderWidth: 2, borderColor: colors.surface, marginLeft: -6 },
+  sharedBrokerAvatarFallback: { width: 28, height: 28, borderRadius: radius.pill, borderWidth: 2, borderColor: colors.surface, marginLeft: -6, backgroundColor: colors.surfaceTertiary, alignItems: "center", justifyContent: "center" },
   list: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
   row: {
     position: "relative",

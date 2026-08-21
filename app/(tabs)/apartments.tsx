@@ -22,6 +22,7 @@ import { getExcludedUserIds } from "@/src/api/blocking";
 import { getUserApartmentNotes, updateNotesOrder, type Apartment as ApartmentNoteData } from "@/src/api/apartmentNotes";
 import { storage } from "@/src/utils/storage";
 import { calculatePricePerSqm } from "@/src/utils/pricing";
+import type { FilterSetVersionData, SharedFilterSetRecord } from "@/src/components/FilterSetVersionModal";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 100;
@@ -777,11 +778,41 @@ export default function ApartmentsScreen() {
         summary,
         sharedAt: Date.now(),
       });
+      const broker = availableBrokers.find((item) => item.id === brokerId);
+      const filterSetRef = doc(collection(db, "users", auth.userId, "sharedFilterSets"));
+      const version: FilterSetVersionData = {
+        version: 1,
+        title: title || "",
+        rentMin: rentMin || undefined,
+        rentMax: rentMax || undefined,
+        minSqmPrice: minSqmPrice || undefined,
+        maxSqmPrice: maxSqmPrice || undefined,
+        cityQuery: cityQuery || undefined,
+        sizeMin: sizeMin || undefined,
+        sizeMax: sizeMax || undefined,
+        petFriendly: Boolean(petFriendly),
+        nearMetro: Boolean(nearMetro),
+        sortBy,
+        summary,
+        updatedAt: Date.now(),
+      };
+      const sharedBroker = { brokerId, brokerName: broker?.name || "Μεσίτης", ...(broker?.avatar ? { brokerAvatar: broker.avatar } : {}), sharedAt: version.updatedAt };
+      const sharedFilterSet: Omit<SharedFilterSetRecord, "id"> = {
+        userId: auth.userId,
+        title: title || "",
+        currentVersion: 1,
+        versions: [version],
+        sharedBrokers: [sharedBroker],
+        createdAt: version.updatedAt,
+        updatedAt: version.updatedAt,
+      };
+      await setDoc(filterSetRef, sharedFilterSet);
       await addDoc(collection(db, "chats", chatRoomId, "messages"), {
         senderId: auth.userId,
         type: "filter_set_share",
         text: messageText,
         filterSetData,
+        filterSetId: filterSetRef.id,
         createdAt: serverTimestamp(),
         isRead: false,
       });

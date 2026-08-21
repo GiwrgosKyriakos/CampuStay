@@ -40,6 +40,7 @@ import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp,
 import { markIncomingMessagesAsRead } from "@/src/api/chat";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import CenteredActionModal, { type CenteredModalAction } from "@/src/components/CenteredActionModal";
+import FilterSetVersionModal, { type SharedFilterSetRecord, type FilterSetVersionData } from "@/src/components/FilterSetVersionModal";
 import { getUserSettings, saveUserNotifications, saveUserPrivacy, type NotificationPreferences } from "@/src/api/accountSettings";
 import { submitReportedUserEntry } from "@/src/services/reportedUsers";
 import { subscribeUserLikedApartmentIds } from "@/src/api/apartmentLikes";
@@ -77,6 +78,7 @@ interface Message {
   apartmentId?: string;
   apartmentData?: SharedApartmentData;
   filterSetData?: FilterSetMessageData;
+  filterSetId?: string;
 }
 
 interface FilterSetMessageData {
@@ -124,6 +126,7 @@ interface FirestoreMessageDoc {
   apartmentId?: string;
   apartmentData?: SharedApartmentData;
   filterSetData?: FilterSetMessageData;
+  filterSetId?: string;
 }
 
 interface FirestoreChatDoc {
@@ -705,6 +708,8 @@ export default function ChatScreen() {
   const [showGlobalUnmuteModal, setShowGlobalUnmuteModal] = useState(false);
   const [messageActionTarget, setMessageActionTarget] = useState<Message | null>(null);
   const [selectedFilterSetMessage, setSelectedFilterSetMessage] = useState<Message | null>(null);
+  const [selectedFilterSetRecord, setSelectedFilterSetRecord] = useState<SharedFilterSetRecord | null>(null);
+  const [isFilterHistoryActive, setIsFilterHistoryActive] = useState(false);
   const [isDeletingMessage, setIsDeletingMessage] = useState(false);
   const [expandReport, setExpandReport] = useState(false);
   const [reportReason, setReportReason] = useState("");
@@ -859,6 +864,7 @@ export default function ChatScreen() {
             apartmentId: typeof data.apartmentId === "string" ? data.apartmentId : undefined,
             apartmentData,
             filterSetData: data.filterSetData,
+            filterSetId: typeof data.filterSetId === "string" ? data.filterSetId : undefined,
           };
         });
 
@@ -1375,6 +1381,50 @@ export default function ChatScreen() {
 
   // 🎯 ΑΣΦΑΛΕΙΑ: Αν υπάρχει οποιοδήποτε block, κλειδώνουμε το input bar
   const inputBlocked = chatStatus === "pending" || chatStatus === "rejected" || deletedCounterpart || apartmentLocked || hasBlockedByMe || blockedByOtherUser;
+
+  const filterHistoryRecords = useMemo<SharedFilterSetRecord[]>(() => {
+    const records = new Map<string, SharedFilterSetRecord>();
+    messages.forEach((message) => {
+      if (message.type !== "filter_set_share" || !message.filterSetData) return;
+      const data = message.filterSetData;
+      const updatedAt = data.sharedAt ?? (createdAtToMillis(message.createdAt) || Date.now());
+      const version: FilterSetVersionData = {
+        version: 1,
+        title: data.title ?? "",
+        rentMin: data.rentMin,
+        rentMax: data.rentMax,
+        minSqmPrice: data.minSqmPrice,
+        maxSqmPrice: data.maxSqmPrice,
+        cityQuery: data.cityQuery,
+        sizeMin: data.sizeMin,
+        sizeMax: data.sizeMax,
+        petFriendly: data.petFriendly === true,
+        nearMetro: data.nearMetro === true,
+        sortBy: data.sortBy as FilterSetVersionData["sortBy"],
+        summary: data.summary ?? "",
+        updatedAt,
+      };
+      const id = message.filterSetId ?? message.id;
+      const existing = records.get(id);
+      const broker = counterpartId && counterpartDetails ? {
+        brokerId: counterpartId,
+        brokerName: counterpartDetails.name?.trim() || displayName,
+        brokerAvatar: counterpartDetails.photoUrl || counterpartDetails.photos?.[0],
+        sharedAt: updatedAt,
+      } : undefined;
+      records.set(id, existing ? { ...existing, currentVersion: version.version, versions: [version], updatedAt } : {
+        id,
+        userId: message.senderId,
+        title: version.title,
+        currentVersion: 1,
+        versions: [version],
+        sharedBrokers: broker ? [broker] : [],
+        createdAt: updatedAt,
+        updatedAt,
+      });
+    });
+    return [...records.values()].sort((a, b) => b.updatedAt - a.updatedAt);
+  }, [counterpartDetails, counterpartId, createdAtToMillis, displayName, messages]);
 
   // Κρύβουμε τα social links σε περίπτωση block
   const shouldShowSocialLinks = !maskedAsDeleted && !hasBlockedByMe && !blockedByOtherUser && !!counterpartDetails?.looking_for_apartment;
@@ -2203,6 +2253,17 @@ export default function ChatScreen() {
           >
             <Ionicons name="ellipsis-vertical" size={20} color={colors.onSurface} />
           </Pressable>
+          <Pressable
+            style={[styles.iconBtn, isFilterHistoryActive && styles.iconBtnActive]}
+            onPress={() => {
+              setShowContextMenu(false);
+              setIsFilterHistoryActive((previous) => !previous);
+            }}
+            testID="chat-filter-history-toggle"
+            hitSlop={8}
+          >
+            <Ionicons name="time-outline" size={22} color={isFilterHistoryActive ? colors.brand : colors.onSurface} />
+          </Pressable>
           {isRoommateChat ? (
             <Pressable
               style={[styles.iconBtn, showMutualLikes && styles.iconBtnActive]}
@@ -2333,7 +2394,19 @@ export default function ChatScreen() {
         </View>
       ) : null}
 
-      {showMutualLikes ? (
+      {isFilterHistoryActive ? (
+        <ScrollView style={styles.flex} contentContainerStyle={styles.filterHistoryList} showsVerticalScrollIndicator={false}>
+          {filterHistoryRecords.length === 0 ? (
+            <View style={styles.mutualEmptyCard}><Ionicons name="time-outline" size={34} color={colors.onSurfaceTertiary} /><Text style={styles.mutualEmptyTitle}>Δεν υπάρχουν κοινοποιημένα set φίλτρων</Text></View>
+          ) : filterHistoryRecords.map((record) => (
+            <Pressable key={record.id} style={styles.filterHistoryCard} onPress={() => setSelectedFilterSetRecord(record)} testID={`chat-filter-history-${record.id}`}>
+              <View style={styles.filterHistoryCardHeader}><Text style={styles.filterHistoryCardTitle} numberOfLines={1}>{record.title || "Set Φίλτρων"}</Text><Text style={styles.filterHistoryVersion}>Έκδοση {record.currentVersion}</Text></View>
+              <Text style={styles.filterHistoryDate}>{new Date(record.updatedAt).toLocaleDateString("el-GR")}</Text>
+              <Text style={styles.filterHistorySummary} numberOfLines={2}>{record.versions[record.versions.length - 1]?.summary || "Όλα τα διαμερίσματα"}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      ) : showMutualLikes ? (
         <View style={styles.flex}>
           <ScrollView contentContainerStyle={styles.mutualLikesScroll} showsVerticalScrollIndicator={false}>
             {mutualLikesLoading ? (
@@ -2496,7 +2569,7 @@ export default function ChatScreen() {
                       isMine ? styles.filterSetShareBubbleMine : styles.filterSetShareBubbleTheirs,
                       itemMarginStyle,
                     ]}
-                    onPress={() => setSelectedFilterSetMessage(m)}
+                    onPress={() => setSelectedFilterSetRecord(filterHistoryRecords.find((record) => record.id === (m.filterSetId ?? m.id)) ?? null)}
                     onLongPress={
                       canDeleteForEveryone
                         ? () => {
@@ -2787,6 +2860,13 @@ export default function ChatScreen() {
           </View>
         </View>
       </Modal>
+
+      <FilterSetVersionModal
+        visible={!!selectedFilterSetRecord}
+        filterSet={selectedFilterSetRecord}
+        onClose={() => setSelectedFilterSetRecord(null)}
+        onUpdated={setSelectedFilterSetRecord}
+      />
 
       <Modal
         transparent
@@ -3988,6 +4068,13 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   filterSetShareSubtitleMine: {
     color: "rgba(255,255,255,0.82)",
   },
+  filterHistoryList: { padding: spacing.lg, gap: spacing.sm },
+  filterHistoryCard: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surfaceSecondary, padding: spacing.md, gap: spacing.xs },
+  filterHistoryCardHeader: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  filterHistoryCardTitle: { flex: 1, fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface },
+  filterHistoryVersion: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.brand },
+  filterHistoryDate: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
+  filterHistorySummary: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurface },
   filterSetModalBackdrop: {
     flex: 1,
     alignItems: "center",
