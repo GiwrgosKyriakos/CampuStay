@@ -6,9 +6,12 @@ import {
   StyleSheet,
   Switch,
   ActivityIndicator,
+  Pressable,
+  TextInput,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 
 import { useAuth } from "@/src/context/auth";
 import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
@@ -16,6 +19,9 @@ import { getUserSettings, saveUserNotifications, type NotificationPreferences } 
 import { GuestModeStickyFooter, GuestModeTopBanner } from "@/src/components/GuestModeLayout";
 import ScreenHeader from "@/src/components/ScreenHeader";
 import { t } from "@/src/locales";
+import { db } from "@/src/config/firebase";
+import { DEFAULT_BROKER_STAGNATION_SETTINGS, type BrokerStagnationSettings } from "@/src/constants/pipeline";
+import { scheduleBrokerDealStagnationAlertsAsync } from "@/src/utils/notificationService";
 
 const NOTIFICATION_ROWS = [
   {
@@ -60,6 +66,7 @@ export default function NotificationsScreen() {
     unmuted_chat_overrides: [],
   });
   const [error, setError] = useState<string | null>(null);
+  const [brokerStagnationSettings, setBrokerStagnationSettings] = useState<BrokerStagnationSettings>(DEFAULT_BROKER_STAGNATION_SETTINGS);
 
   useEffect(() => {
     let active = true;
@@ -73,6 +80,11 @@ export default function NotificationsScreen() {
         const settings = await getUserSettings(auth.userId ?? "");
         if (!active) return;
         setPreferences(settings.notifications);
+        if (auth.isBroker) {
+          const userSnapshot = await getDoc(doc(db, "users", auth.userId ?? ""));
+          const stored = userSnapshot.exists() ? userSnapshot.data().brokerStagnationSettings as Partial<BrokerStagnationSettings> | undefined : undefined;
+          setBrokerStagnationSettings({ ...DEFAULT_BROKER_STAGNATION_SETTINGS, ...stored });
+        }
       } catch {
         if (!active) return;
         setError(t("notifications.errors.load"));
@@ -103,6 +115,24 @@ export default function NotificationsScreen() {
     },
     [auth.userId, preferences],
   );
+
+  const updateBrokerStagnationSettings = useCallback(async (patch: Partial<BrokerStagnationSettings>) => {
+    if (!auth.userId) return;
+    const next = { ...brokerStagnationSettings, ...patch };
+    setBrokerStagnationSettings(next);
+    setSaving(true);
+    setError(null);
+    try {
+      await setDoc(doc(db, "users", auth.userId), { brokerStagnationSettings: next }, { merge: true });
+      await setDoc(doc(db, "settings", auth.userId), { brokerStagnationSettings: next }, { merge: true });
+      void scheduleBrokerDealStagnationAlertsAsync(auth.userId);
+    } catch (saveError) {
+      console.error("[Notifications] Error saving broker stagnation settings:", saveError);
+      setError(t("notifications.errors.save"));
+    } finally {
+      setSaving(false);
+    }
+  }, [auth.userId, brokerStagnationSettings]);
 
   if (auth.isLoading || loading) {
     return (
@@ -178,6 +208,7 @@ export default function NotificationsScreen() {
               </View>
             )
           ))}
+          {auth.isBroker ? <View style={styles.brokerSettingsSection} testID="broker-stagnation-settings"><Text style={styles.sectionTitle}>Προειδοποιήσεις Καθυστέρησης (Deal Stagnation)</Text><View style={styles.settingRow}><View style={styles.rowText}><Text style={styles.settingTitle}>Ενεργοποίηση ειδοποιήσεων καθυστέρησης</Text></View><Switch value={brokerStagnationSettings.stagnationAlertsEnabled} onValueChange={(value) => void updateBrokerStagnationSettings({ stagnationAlertsEnabled: value })} disabled={isGuest} /></View>{brokerStagnationSettings.stagnationAlertsEnabled ? <><View style={styles.inputRow}><Text style={styles.inputLabel}>Ώρα πρώτης ειδοποίησης</Text><TextInput value={brokerStagnationSettings.stagnationAlertStartTime} onChangeText={(value) => void updateBrokerStagnationSettings({ stagnationAlertStartTime: value.replace(/[^0-9:]/g, "").slice(0, 5) })} placeholder="11:00" placeholderTextColor={colors.onSurfaceTertiary} style={styles.timeInput} keyboardType="numbers-and-punctuation" testID="broker-stagnation-start-time" /></View><Text style={styles.inputLabel}>Συχνότητα αποστολής μεταξύ πελατών</Text><View style={styles.intervalOptions}>{[0, 5, 10, 15, 30].map((minutes) => <Pressable key={minutes} style={[styles.intervalOption, brokerStagnationSettings.stagnationAlertIntervalMinutes === minutes && { backgroundColor: colors.brand }]} onPress={() => void updateBrokerStagnationSettings({ stagnationAlertIntervalMinutes: minutes })} testID={`broker-stagnation-interval-${minutes}`}><Text style={[styles.intervalText, brokerStagnationSettings.stagnationAlertIntervalMinutes === minutes && { color: colors.onBrand }]}>{minutes === 0 ? "Κατευθείαν όλες μαζί (0 λεπτά)" : `Κάθε ${minutes} λεπτά${minutes === 10 ? " (Προτεινόμενο)" : ""}`}</Text></Pressable>)}</View></> : null}</View> : null}
         </View>
       </View>
 
@@ -261,4 +292,12 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   guestBannerSpacing: { marginBottom: spacing.lg },
   disabledControl: { opacity: 0.6 },
+  brokerSettingsSection: { marginTop: spacing.lg, gap: spacing.sm },
+  sectionTitle: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface, marginBottom: spacing.xs },
+  inputRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border },
+  inputLabel: { fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onSurface },
+  timeInput: { minWidth: 82, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, color: colors.onSurface, fontFamily: fonts.semibold, textAlign: "center" },
+  intervalOptions: { gap: spacing.xs },
+  intervalOption: { padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border },
+  intervalText: { fontFamily: fonts.semibold, color: colors.onSurface },
 });

@@ -3,7 +3,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Text, View, StyleSheet, Pressable, useWindowDimensions, Modal, ScrollView, ActivityIndicator, FlatList, DimensionValue } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { collection, doc, getDoc, getDocs, query, updateDoc, where } from "firebase/firestore";
 import Animated, {
   runOnJS,
@@ -25,8 +25,9 @@ import { db } from "@/src/config/firebase";
 import { useAuth } from "@/src/context/auth";
 import { fontSize, fonts, radius, spacing, type ThemeColors } from "@/src/theme";
 import { useTheme } from "@/src/context/ThemeContext";
+import { getPipelineStageConfig, type PipelineStageKey } from "@/src/constants/pipeline";
 
-type BrokerMode = "calendar" | "clients";
+type BrokerMode = "calendar" | "pipeline";
 type CalendarViewMode = "month" | "week" | "day";
 
 const SWIPE_THRESHOLD_RATIO = 0.25;
@@ -84,6 +85,7 @@ type FirestoreApartmentDoc = {
 
 type FirestoreChatDoc = {
   users?: unknown;
+  type?: unknown;
   apartmentId?: unknown;
   apartmentTitle?: unknown;
   status?: unknown;
@@ -95,6 +97,11 @@ type FirestoreChatDoc = {
 
 type FirestoreChatMessageDoc = {
   type?: unknown;
+};
+
+type FirestoreClientProfileDoc = {
+  pipelineStage?: PipelineStageKey;
+  dealCommission?: number;
 };
 
 interface ClientLeadItem {
@@ -110,7 +117,10 @@ interface ClientLeadItem {
   isVisitCompleted: boolean;
   isDealClosed: boolean;
   progressScore: number;
-};
+  pipelineStage: PipelineStageKey;
+  dealCommission?: number;
+  weightedShare: number;
+}
 
 function clamp(value: number, min: number, max: number): number {
   "worklet";
@@ -122,7 +132,7 @@ function modeToProgress(mode: BrokerMode): number {
 }
 
 function toMode(progress: number): BrokerMode {
-  return progress >= 0.5 ? "clients" : "calendar";
+  return progress >= 0.5 ? "pipeline" : "calendar";
 }
 
 function shiftDateByMode(baseDate: Date, mode: BrokerMode, direction: -1 | 1): Date {
@@ -137,7 +147,7 @@ function shiftDateByMode(baseDate: Date, mode: BrokerMode, direction: -1 | 1): D
     return monthBase;
   }
 
-  if (mode === "clients") {
+  if (mode === "pipeline") {
     next.setDate(next.getDate() + 7 * direction);
     return next;
   }
@@ -580,7 +590,7 @@ function CalendarView({
   );
 }
 
-function ClientsView({
+function PipelineView({
   colors,
   leads,
   isLoading,
@@ -598,19 +608,26 @@ function ClientsView({
     return withLegacyKey.brandPrimary ?? withLegacyKey.brand ?? "#E07A2F";
   }, [colors]);
 
-  const renderItem = ({ item }: { item: ClientLeadItem }) => (
+  const totalForecast = leads.reduce((total, item) => total + item.weightedShare, 0);
+  const renderItem = ({ item }: { item: ClientLeadItem }) => {
+    const stage = getPipelineStageConfig(item.pipelineStage);
+    return (
     <Pressable
       style={[styles.clientCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
       onPress={() => onOpenChat(item)}
+      testID={`broker-pipeline-client-card-${item.clientUserId}`}
     >
       <Text style={[styles.clientCardName, { color: colors.onSurface }]} numberOfLines={1}>
         {item.clientName || "Πελάτης"}
       </Text>
 
       <Text style={[styles.clientCardMeta, { color: colors.onSurfaceTertiary }]} numberOfLines={1}>
+
         {item.apartmentTitle || "Χωρίς διαμέρισμα"}
         {typeof item.apartmentPrice === "number" ? ` · ${item.apartmentPrice.toLocaleString("el-GR")} EUR` : ""}
       </Text>
+
+      <View style={styles.pipelineBadgeRow}><Text style={[styles.pipelineBadge, { backgroundColor: colors.surfaceTertiary, color: colors.onSurface }]}>{stage.shortLabel}</Text><Text style={[styles.pipelineBadge, { backgroundColor: colors.surfaceTertiary, color: colors.onSurface }]}>{Math.round(stage.probability * 100)}%</Text><Text style={[styles.weightedBadge, { backgroundColor: colors.brandTertiary, color: colors.brand }]}>Αναμενόμενο: €{Math.round(item.weightedShare).toLocaleString("el-GR")}</Text></View>
 
       <View style={styles.clientStatusBar}>
         {item.hasMessage ? (
@@ -649,10 +666,12 @@ function ClientsView({
         ) : null}
       </View>
     </Pressable>
-  );
+    );
+  };
 
   return (
     <View style={styles.clientsPanelWrap}>
+            <View style={[styles.forecastCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]} testID="broker-pipeline-forecast-card"><Text style={[styles.forecastSubtitle, { color: colors.onSurfaceTertiary }]}>Πρόβλεψη Εσόδων Ταμείου</Text><Text style={[styles.forecastMetric, { color: colors.brand }]}>€{Math.round(totalForecast).toLocaleString("el-GR")}</Text><Text style={[styles.forecastExplanation, { color: colors.onSurfaceTertiary }]}>Σταθμισμένα αναμενόμενα έσοδα βάσει πιθανότητας κλεισίματος (Win Rate).</Text></View>
       {isLoading ? (
         <View style={[styles.pageCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}> 
           <ActivityIndicator size="small" color={colors.brand} />
@@ -665,7 +684,7 @@ function ClientsView({
           contentContainerStyle={styles.clientListContent}
           ListEmptyComponent={
             <View style={[styles.pageCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}> 
-              <Text style={[styles.pageTitle, { color: colors.onSurface }]}>Πελάτες Μεσίτη</Text>
+              <Text style={[styles.pageTitle, { color: colors.onSurface }]}>Pipeline Πελατών</Text>
               <Text style={[styles.pageSubtitle, { color: colors.onSurfaceTertiary }]}>Δεν υπάρχουν ενεργοί πελάτες αυτή τη στιγμή.</Text>
             </View>
           }
@@ -685,7 +704,6 @@ export default function BrokerTabScreen({ onOpenSettings }: { onOpenSettings?: (
   const [calendarViewMode, setCalendarViewMode] = useState<CalendarViewMode>("month");
   const [currentDate, setCurrentDate] = useState(new Date());
   const [isPickerVisible, setIsPickerVisible] = useState(false);
-  const [toggleWidth, setToggleWidth] = useState(0);
   const [selectedYear, setSelectedYear] = useState(currentDate.getFullYear());
   const [visibleNotes, setVisibleNotes] = useState<BrokerNote[]>([]);
   const [isVisibleNotesLoading, setIsVisibleNotesLoading] = useState(false);
@@ -721,6 +739,12 @@ export default function BrokerTabScreen({ onOpenSettings }: { onOpenSettings?: (
       return (a.clientName || "").localeCompare(b.clientName || "", "el", { sensitivity: "base" });
     });
   }, [clientLeads]);
+
+  useFocusEffect(
+    useCallback(() => {
+      setNotesRefreshToken((previous) => previous + 1);
+    }, []),
+  );
 
   useEffect(() => {
     animateToMode(activeMode, width, translateX);
@@ -797,12 +821,13 @@ export default function BrokerTabScreen({ onOpenSettings }: { onOpenSettings?: (
           } satisfies BrokerListingItem;
         });
 
-        const [hostChatsSnapshot, brokerChatsSnapshot] = await Promise.all([
-          getDocs(query(collection(db, "chats"), where("hostId", "==", brokerId))),
-          getDocs(query(collection(db, "chats"), where("brokerId", "==", brokerId))),
-        ]);
-
-        const chatDocs = [...hostChatsSnapshot.docs, ...brokerChatsSnapshot.docs];
+        const chatsSnapshot = await getDocs(
+          query(collection(db, "chats"), where("users", "array-contains", brokerId)),
+        );
+        const chatDocs = chatsSnapshot.docs.filter((docSnap) => {
+          const data = docSnap.data() as FirestoreChatDoc;
+          return data.type === "host";
+        });
         const clientsMap = new Map<string, BrokerClientItem>();
 
         for (const chatDoc of chatDocs) {
@@ -880,18 +905,18 @@ export default function BrokerTabScreen({ onOpenSettings }: { onOpenSettings?: (
       try {
         setIsClientLeadsLoading(true);
 
-        const [hostChatsSnapshot, brokerChatsSnapshot] = await Promise.all([
-          getDocs(query(collection(db, "chats"), where("hostId", "==", brokerId))),
-          getDocs(query(collection(db, "chats"), where("brokerId", "==", brokerId))),
-        ]);
-
-        const chatsById = new Map<string, (typeof hostChatsSnapshot.docs)[number]>();
-        [...hostChatsSnapshot.docs, ...brokerChatsSnapshot.docs].forEach((chatDoc) => {
-          chatsById.set(chatDoc.id, chatDoc);
+        const chatsSnapshot = await getDocs(
+          query(collection(db, "chats"), where("users", "array-contains", brokerId)),
+        );
+        const chatDocs = chatsSnapshot.docs.filter((docSnap) => {
+          const data = docSnap.data() as FirestoreChatDoc;
+          const isHostType = data.type === "host";
+          const isActive = (typeof data.status === "string" ? data.status : "active") === "active";
+          return isHostType && isActive;
         });
 
         const leads = await Promise.all(
-          Array.from(chatsById.values()).map(async (chatDoc) => {
+          chatDocs.map(async (chatDoc) => {
             const chatData = chatDoc.data() as FirestoreChatDoc;
             const status = typeof chatData.status === "string" ? chatData.status : "active";
             if (status !== "active") return null;
@@ -938,6 +963,18 @@ export default function BrokerTabScreen({ onOpenSettings }: { onOpenSettings?: (
             }
 
             const isVisitCompleted = chatData.visitCompleted === true;
+            let profile: FirestoreClientProfileDoc = {};
+            try {
+              const profileSnap = await getDoc(doc(db, "brokerClientProfiles", `${brokerId}_${clientUserId}`));
+              if (profileSnap.exists()) {
+                profile = profileSnap.data() as FirestoreClientProfileDoc;
+              }
+            } catch (error) {
+              console.warn(`[Broker] Could not sync brokerClientProfiles for ${clientUserId}; using default pipeline stage.`, error);
+            }
+            const pipelineStage = getPipelineStageConfig(profile.pipelineStage).key;
+            const commissionBase = typeof profile.dealCommission === "number" ? profile.dealCommission : apartmentPrice ?? 1000;
+            const weightedShare = commissionBase * getPipelineStageConfig(pipelineStage).probability;
 
             const lead: ClientLeadItem = {
               chatRoomId: chatDoc.id,
@@ -958,6 +995,9 @@ export default function BrokerTabScreen({ onOpenSettings }: { onOpenSettings?: (
                 hasPriceProposal,
                 hasMessage,
               }),
+              pipelineStage,
+              dealCommission: typeof profile.dealCommission === "number" ? profile.dealCommission : undefined,
+              weightedShare,
             };
 
             return lead;
@@ -1055,9 +1095,10 @@ export default function BrokerTabScreen({ onOpenSettings }: { onOpenSettings?: (
   const openLeadChat = useCallback(
     (lead: ClientLeadItem) => {
       router.push({
-        pathname: "/chat/[id]",
+        pathname: "/broker-client-detail",
         params: {
-          id: lead.clientUserId,
+          clientUserId: lead.clientUserId,
+          clientName: lead.clientName,
           chatRoomId: lead.chatRoomId,
         },
       });
@@ -1123,17 +1164,17 @@ export default function BrokerTabScreen({ onOpenSettings }: { onOpenSettings?: (
 
           let nextMode: BrokerMode;
           if (event.velocityX <= -SWIPE_VELOCITY_THRESHOLD) {
-            nextMode = "clients";
+            nextMode = "pipeline";
           } else if (event.velocityX >= SWIPE_VELOCITY_THRESHOLD) {
             nextMode = "calendar";
           } else if (absTranslation > threshold) {
             if (event.translationX < 0) {
-              nextMode = "clients";
+              nextMode = "pipeline";
             } else {
               nextMode = "calendar";
             }
           } else {
-            nextMode = fromClients ? "clients" : "calendar";
+              nextMode = fromClients ? "pipeline" : "calendar";
           }
 
           const target = nextMode === "calendar" ? 0 : -width;
@@ -1147,20 +1188,8 @@ export default function BrokerTabScreen({ onOpenSettings }: { onOpenSettings?: (
     transform: [{ translateX: translateX.value }],
   }));
 
-  const indicatorStyle = useAnimatedStyle(() => {
-    if (toggleWidth <= 0 || width <= 0) {
-      return { transform: [{ translateX: 0 }] };
-    }
-
-    const progress = clamp(-translateX.value / width, 0, 1);
-    const indicatorTravel = toggleWidth / 2;
-    return {
-      transform: [{ translateX: progress * indicatorTravel }],
-    };
-  }, [toggleWidth, width]);
-
   const calendarActive = activeMode === "calendar";
-  const clientsActive = activeMode === "clients";
+  const pipelineActive = activeMode === "pipeline";
 
   return (
     <View style={[styles.container, { backgroundColor: colors.surface, paddingTop: insets.top + spacing.md }]}> 
@@ -1176,36 +1205,23 @@ export default function BrokerTabScreen({ onOpenSettings }: { onOpenSettings?: (
           </Pressable>
         </View>
       ) : null}
-      <View
-        style={[styles.toggleContainer, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
-        onLayout={(event) => {
-          setToggleWidth(event.nativeEvent.layout.width);
-        }}
-      >
-        <Animated.View
-          style={[
-            styles.toggleIndicator,
-            {
-              width: toggleWidth > 0 ? toggleWidth / 2 : 0,
-              backgroundColor: colors.surface,
-              borderColor: colors.border,
-            },
-            indicatorStyle,
-          ]}
-        />
-
-        <Pressable style={styles.segmentButton} onPress={() => setMode("calendar")}>
-          <Ionicons name="calendar-outline" size={18} color={calendarActive ? colors.onSurface : colors.onSurfaceTertiary} />
-          <Text style={[styles.segmentText, { color: calendarActive ? colors.onSurface : colors.onSurfaceTertiary }]}>Calendar</Text>
+      <View style={[styles.toggleShell, { backgroundColor: colors.surfaceSecondary }]}>
+        <Pressable style={[styles.toggleOption, calendarActive && [styles.toggleOptionActive, { backgroundColor: colors.brand }]]} onPress={() => setMode("calendar")} testID="broker-tab-toggle-calendar">
+          <View style={styles.toggleOptionContent}>
+            <Ionicons name="calendar-outline" size={18} color={calendarActive ? colors.onBrand : colors.onSurface} />
+            <Text style={[styles.toggleText, { color: colors.onSurface }, calendarActive && { color: colors.onBrand }]}>Calendar</Text>
+          </View>
         </Pressable>
 
-        <Pressable style={styles.segmentButton} onPress={() => setMode("clients")}>
-          <Ionicons name="people-outline" size={18} color={clientsActive ? colors.onSurface : colors.onSurfaceTertiary} />
-          <Text style={[styles.segmentText, { color: clientsActive ? colors.onSurface : colors.onSurfaceTertiary }]}>Clients</Text>
+        <Pressable style={[styles.toggleOption, pipelineActive && [styles.toggleOptionActive, { backgroundColor: colors.brand }]]} onPress={() => setMode("pipeline")} testID="broker-tab-toggle-pipeline">
+          <View style={styles.toggleOptionContent}>
+            <Ionicons name="cash-outline" size={18} color={pipelineActive ? colors.onBrand : colors.onSurface} />
+            <Text style={[styles.toggleText, { color: colors.onSurface }, pipelineActive && { color: colors.onBrand }]}>Pipeline</Text>
+          </View>
         </Pressable>
       </View>
 
-      <View style={[styles.calendarHeader, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}> 
+      {calendarActive ? <View style={[styles.calendarHeader, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}> 
         <Pressable style={styles.headerArrowButton} onPress={goToPrevious}>
           <Ionicons name="chevron-back" size={22} color={colors.onSurface} />
         </Pressable>
@@ -1217,7 +1233,7 @@ export default function BrokerTabScreen({ onOpenSettings }: { onOpenSettings?: (
         <Pressable style={styles.headerArrowButton} onPress={goToNext}>
           <Ionicons name="chevron-forward" size={22} color={colors.onSurface} />
         </Pressable>
-      </View>
+      </View> : null}
 
       <GestureDetector gesture={pagerGesture}>
         <View style={styles.pagerViewport}>
@@ -1237,7 +1253,7 @@ export default function BrokerTabScreen({ onOpenSettings }: { onOpenSettings?: (
               />
             </View>
             <View style={[styles.page, { width }]}>
-              <ClientsView
+              <PipelineView
                 colors={colors}
                 leads={sortedClients}
                 isLoading={isClientLeadsLoading}
@@ -1333,36 +1349,29 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: spacing.lg,
   },
-  toggleContainer: {
-    height: 54,
-    borderRadius: radius.pill,
-    borderWidth: StyleSheet.hairlineWidth,
+  toggleShell: {
     flexDirection: "row",
-    alignItems: "center",
+    borderRadius: radius.pill,
     padding: 4,
-    marginBottom: spacing.lg,
-    position: "relative",
-    overflow: "hidden",
+    marginBottom: spacing.md,
+    gap: 4,
   },
-  toggleIndicator: {
-    position: "absolute",
-    top: 4,
-    bottom: 4,
-    left: 4,
-    borderRadius: radius.pill,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  segmentButton: {
+  toggleOption: {
     flex: 1,
-    height: "100%",
-    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: spacing.sm,
-    zIndex: 2,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.pill,
   },
-  segmentText: {
-    fontFamily: fonts.semibold,
+  toggleOptionActive: {
+  },
+  toggleOptionContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  toggleText: {
+    fontFamily: fonts.bold,
     fontSize: fontSize.base,
   },
   calendarHeader: {
@@ -1431,6 +1440,13 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     marginTop: spacing.sm,
   },
+  forecastCard: { padding: spacing.md, marginBottom: spacing.sm, borderRadius: radius.lg, borderWidth: StyleSheet.hairlineWidth },
+  forecastSubtitle: { fontFamily: fonts.semibold, fontSize: fontSize.sm },
+  forecastMetric: { marginTop: spacing.xs, fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"] },
+  forecastExplanation: { marginTop: spacing.xs, fontFamily: fonts.regular, fontSize: fontSize.sm },
+  pipelineBadgeRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: spacing.xs, marginTop: spacing.sm },
+  pipelineBadge: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.pill, fontFamily: fonts.bold },
+  weightedBadge: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.pill, fontFamily: fonts.bold },
   statusBadge: {
     minHeight: 30,
     minWidth: 30,
