@@ -92,6 +92,8 @@ interface BrokerDirectoryItem {
   avatar: string;
 }
 
+type ShowOnlyModalType = "agency" | "broker" | "list" | null;
+
 const SORT_OPTION_LABELS: Record<SortOption, string> = {
   newest: "Πιο πρόσφατα",
   oldest: "Πιο παλιά",
@@ -497,6 +499,10 @@ export default function ApartmentsScreen() {
   const [nearMetro, setNearMetro] = useState(false);
   const [sortBy, setSortBy] = useState<SortOption>("newest");
   const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false);
+  const [showOnlyModalType, setShowOnlyModalType] = useState<ShowOnlyModalType>(null);
+  const [selectedBrokerFilter, setSelectedBrokerFilter] = useState<BrokerDirectoryItem | null>(null);
+  const [brokerDirectory, setBrokerDirectory] = useState<BrokerDirectoryItem[]>([]);
+  const [loadingBrokerDirectory, setLoadingBrokerDirectory] = useState(false);
   const [showOwnListingsInFeed, setShowOwnListingsInFeed] = useState(false);
   const [filterSetTitle, setFilterSetTitle] = useState("");
   const [activeSavedSetId, setActiveSavedSetId] = useState<string | null>(null);
@@ -683,6 +689,53 @@ export default function ApartmentsScreen() {
       active = false;
     };
   }, [auth.userId, brokerShareModalVisible]);
+
+  useEffect(() => {
+    if (showOnlyModalType !== "broker") return;
+
+    let active = true;
+    setLoadingBrokerDirectory(true);
+    void (async () => {
+      try {
+        const snapshot = await getDocs(
+          query(collection(db, "users"), where("is_broker", "==", true)),
+        );
+        if (!active) return;
+        const brokers: BrokerDirectoryItem[] = [];
+
+        snapshot.docs.forEach((brokerDoc) => {
+          const data = brokerDoc.data() as {
+            name?: string;
+            photoUrl?: string;
+            avatar?: string;
+            photos?: string[];
+            is_visible?: boolean;
+            isVisible?: boolean;
+          };
+          const isVisible = data.is_visible !== false && data.isVisible !== false;
+
+          if (isVisible) {
+            brokers.push({
+              id: brokerDoc.id,
+              name: data.name?.trim() || "Μεσίτης",
+              avatar: data.photoUrl || data.avatar || data.photos?.[0] || "",
+            });
+          }
+        });
+
+        setBrokerDirectory(brokers);
+      } catch (error) {
+        console.error("[Apartments] Error loading broker directory:", error);
+        if (active) setBrokerDirectory([]);
+      } finally {
+        if (active) setLoadingBrokerDirectory(false);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [showOnlyModalType]);
 
   const sendFilterSetToBroker = useCallback(async (brokerId: string) => {
     if (!auth.userId || sendingBrokerId) return;
@@ -1321,6 +1374,12 @@ export default function ApartmentsScreen() {
         }
       }
 
+      if (selectedBrokerFilter !== null) {
+        const isOwner = apt.hostId === selectedBrokerFilter.id || apt.ownerId === selectedBrokerFilter.id;
+        const isAssigned = Array.isArray(apt.assignedBrokerIds) && apt.assignedBrokerIds.includes(selectedBrokerFilter.id);
+        if (!isOwner && !isAssigned) return false;
+      }
+
       const cityMatch =
         locationQuery.length === 0 ||
         apt.city.toLowerCase().includes(locationQuery) ||
@@ -1381,6 +1440,7 @@ export default function ApartmentsScreen() {
     rentMax,
     rentMin,
     searchQuery,
+    selectedBrokerFilter,
     showOwnListingsInFeed,
     sizeMax,
     sizeMin,
@@ -1636,6 +1696,48 @@ export default function ApartmentsScreen() {
                 })}
               </View>
             ) : null}
+
+            <Text style={[styles.sortTitle, { marginTop: spacing.md }]}>Show only</Text>
+            <View style={styles.showOnlyRow}>
+              <Pressable
+                style={styles.showOnlyCard}
+                onPress={() => setShowOnlyModalType("agency")}
+                testID="apartments-show-only-agency"
+              >
+                <Ionicons name="business-outline" size={20} color={colors.onSurface} />
+                <Text style={styles.showOnlyLabel} numberOfLines={1}>Μεσιτικό γραφείο</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.showOnlyCard, selectedBrokerFilter && styles.showOnlyCardActive]}
+                onPress={() => setShowOnlyModalType("broker")}
+                testID="apartments-show-only-broker"
+              >
+                <Ionicons name="person-outline" size={20} color={selectedBrokerFilter ? colors.onBrand : colors.onSurface} />
+                <Text style={[styles.showOnlyLabel, selectedBrokerFilter && styles.showOnlyLabelActive]} numberOfLines={1}>
+                  {selectedBrokerFilter ? selectedBrokerFilter.name : "Μεσίτης"}
+                </Text>
+                {selectedBrokerFilter ? (
+                  <Pressable
+                    onPress={(event) => {
+                      event.stopPropagation();
+                      setSelectedBrokerFilter(null);
+                    }}
+                    hitSlop={8}
+                    testID="apartments-clear-broker-filter"
+                  >
+                    <Ionicons name="close-circle" size={16} color={colors.onBrand} />
+                  </Pressable>
+                ) : null}
+              </Pressable>
+              <Pressable
+                style={styles.showOnlyCard}
+                onPress={() => setShowOnlyModalType("list")}
+                testID="apartments-show-only-list"
+              >
+                <Ionicons name="list-outline" size={20} color={colors.onSurface} />
+                <Text style={styles.showOnlyLabel} numberOfLines={1}>Λίστα</Text>
+              </Pressable>
+            </View>
 
             {isHostUser && !isViewingMyListings ? (
               <View style={styles.hostFeedToggleRow} testID="apartments-own-listings-toggle-row">
@@ -1932,6 +2034,75 @@ export default function ApartmentsScreen() {
         ]}
         testID="apartments-filter-share-confirmation"
       />
+
+      <Modal
+        visible={showOnlyModalType !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowOnlyModalType(null)}
+      >
+        <View style={styles.filterHistoryBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowOnlyModalType(null)} />
+          <View style={styles.filterHistoryCard} testID="apartments-show-only-modal">
+            <View style={styles.filterHistoryHeader}>
+              <Text style={styles.filterHistoryTitle}>
+                {showOnlyModalType === "agency" ? "Μεσιτικό γραφείο" : showOnlyModalType === "list" ? "Λίστα" : "Επιλογή Μεσίτη"}
+              </Text>
+              <Pressable
+                style={styles.filterHistoryCloseButton}
+                onPress={() => setShowOnlyModalType(null)}
+                testID="apartments-show-only-close"
+              >
+                <Ionicons name="close-outline" size={22} color={colors.onSurface} />
+              </Pressable>
+            </View>
+            {showOnlyModalType === "agency" || showOnlyModalType === "list" ? (
+              <View style={styles.showOnlyPlaceholderWrap}>
+                <Ionicons name="construct-outline" size={36} color={colors.brand} />
+                <Text style={styles.showOnlyPlaceholderText}>Δουλεύουμε σε αυτό</Text>
+              </View>
+            ) : null}
+            {showOnlyModalType === "broker" ? (
+              loadingBrokerDirectory ? (
+                <View style={styles.filterHistoryState}>
+                  <ActivityIndicator size="small" color={colors.brand} />
+                </View>
+              ) : brokerDirectory.length === 0 ? (
+                <View style={styles.filterHistoryState}>
+                  <Text style={styles.filterHistoryMutedText}>Δεν βρέθηκαν διαθέσιμοι μεσίτες.</Text>
+                </View>
+              ) : (
+                <ScrollView style={styles.filterHistoryList} contentContainerStyle={styles.filterHistoryListContent}>
+                  {brokerDirectory.map((broker) => {
+                    const isSelected = selectedBrokerFilter?.id === broker.id;
+                    return (
+                      <Pressable
+                        key={broker.id}
+                        style={[styles.brokerShareRow, isSelected && styles.brokerRowSelected]}
+                        onPress={() => {
+                          setSelectedBrokerFilter(broker);
+                          setShowOnlyModalType(null);
+                        }}
+                        testID={`apartments-select-broker-${broker.id}`}
+                      >
+                        {broker.avatar ? (
+                          <Image source={{ uri: broker.avatar }} style={styles.brokerShareAvatar} contentFit="cover" />
+                        ) : (
+                          <View style={styles.brokerShareAvatarFallback}>
+                            <Ionicons name="person-outline" size={20} color={colors.onSurfaceTertiary} />
+                          </View>
+                        )}
+                        <Text style={styles.brokerShareName} numberOfLines={1}>{broker.name}</Text>
+                        <Ionicons name={isSelected ? "checkmark-circle" : "chevron-forward"} size={20} color={isSelected ? colors.brand : colors.onSurfaceTertiary} />
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              )
+            ) : null}
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         visible={brokerShareModalVisible}
@@ -2814,6 +2985,52 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   sortOptionTextActive: {
     color: colors.brand,
+  },
+  showOnlyRow: {
+    flexDirection: "row",
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+  },
+  showOnlyCard: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.xs,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.sm,
+  },
+  showOnlyCardActive: {
+    backgroundColor: colors.brand,
+    borderColor: colors.brand,
+  },
+  showOnlyLabel: {
+    flexShrink: 1,
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.xs,
+    color: colors.onSurface,
+  },
+  showOnlyLabelActive: {
+    color: colors.onBrand,
+  },
+  showOnlyPlaceholderWrap: {
+    paddingVertical: spacing.xl,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+  },
+  showOnlyPlaceholderText: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.base,
+    color: colors.onSurface,
+  },
+  brokerRowSelected: {
+    borderColor: colors.brand,
+    backgroundColor: colors.brandTertiary,
   },
   hostFeedToggleRow: {
     flexDirection: "row",
