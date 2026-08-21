@@ -12,6 +12,7 @@ import { db } from "@/src/config/firebase";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import { t } from "@/src/locales";
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
+import type { LeadReadinessKey } from "../broker-client-detail";
 
 export interface BrokerApartment {
   id: string;
@@ -62,6 +63,7 @@ export interface BrokerClientLead {
   clientAvatar: string;
   chatRoomId: string;
   sharedFilterSet?: FilterSetPayload & { sharedAt?: number };
+  leadReadiness?: LeadReadinessKey | null;
 }
 
 type BrokerHubSegment = "clients" | "owners";
@@ -116,15 +118,19 @@ export default function BrokerHubScreen() {
           current.apartments.push(apartment);
           ownerMap.set(name, current);
         });
-        const clientItems = await Promise.all(chatsSnap.docs.map(async (chat) => {
+        const clientItems: (BrokerClientLead | null)[] = await Promise.all(chatsSnap.docs.map(async (chat): Promise<BrokerClientLead | null> => {
           const data = chat.data() as { users?: string[]; brokerChatRole?: string };
           if (data.brokerChatRole === "owner") return null;
           const clientUserId = data.users?.find((userId) => userId !== auth.userId);
           if (!clientUserId) return null;
-          const userSnap = await getDoc(doc(db, "users", clientUserId));
+          const [userSnap, profileSnap, messagesSnapshot] = await Promise.all([
+            getDoc(doc(db, "users", clientUserId)),
+            getDoc(doc(db, "brokerClientProfiles", `${auth.userId}_${clientUserId}`)),
+            getDocs(collection(db, "chats", chat.id, "messages")),
+          ]);
           const user = userSnap.exists() ? userSnap.data() : {};
-          const messages = await getDocs(collection(db, "chats", chat.id, "messages"));
-          const shared = messages.docs
+          const profileData = profileSnap.exists() ? profileSnap.data() as { leadReadiness?: LeadReadinessKey | null } : {};
+          const shared = messagesSnapshot.docs
             .map((message) => message.data() as { type?: string; filterSetData?: BrokerClientLead["sharedFilterSet"] })
             .filter((message) => message.type === "filter_set_share" && message.filterSetData)
             .at(-1)?.filterSetData;
@@ -133,6 +139,7 @@ export default function BrokerHubScreen() {
             clientName: typeof user.name === "string" ? user.name : "Πελάτης",
             clientAvatar: typeof user.photoUrl === "string" ? user.photoUrl : typeof user.avatar === "string" ? user.avatar : Array.isArray(user.photos) ? String(user.photos[0] ?? "") : "",
             chatRoomId: chat.id,
+            leadReadiness: profileData.leadReadiness ?? null,
             ...(shared ? { sharedFilterSet: shared } : {}),
           } satisfies BrokerClientLead;
         }));
@@ -177,8 +184,9 @@ export default function BrokerHubScreen() {
           {clientsActive ? <FlatList data={clients} testID="broker-clients-list" keyExtractor={(item) => item.clientUserId} ListEmptyComponent={<Text style={styles.emptyStateSubtitle}>Δεν υπάρχουν πελάτες ακόμα.</Text>} renderItem={({ item }) => (
             <Pressable style={styles.clientRowCard} testID={`broker-client-row-${item.clientUserId}`} onPress={() => router.push({ pathname: "/broker-client-detail", params: { clientUserId: item.clientUserId, clientName: item.clientName, clientAvatar: item.clientAvatar, chatRoomId: item.chatRoomId, sharedFilterSet: item.sharedFilterSet ? JSON.stringify(item.sharedFilterSet) : "" } })}>
               {item.clientAvatar ? <Image source={{ uri: item.clientAvatar }} style={styles.clientAvatar} /> : <DefaultProfileAvatar size={48} />}
-              <Text style={styles.rowTitle} numberOfLines={1}>{item.clientName}</Text>
-              {item.sharedFilterSet ? <View style={styles.filterBadge}><Ionicons name="options-outline" size={16} color={colors.brand} /></View> : null}<Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />
+              <View style={styles.clientNameRow}><Text style={styles.rowTitle} numberOfLines={1}>{item.clientName}</Text>{item.leadReadiness === "hot" ? <Ionicons name="flame" size={18} color="#EF4444" style={styles.readinessIcon} /> : item.leadReadiness === "warm" ? <Ionicons name="sunny" size={18} color="#F59E0B" style={styles.readinessIcon} /> : item.leadReadiness === "cold" ? <Ionicons name="snow" size={18} color="#38BDF8" style={styles.readinessIcon} /> : null}</View>
+                {item.sharedFilterSet ? <View style={styles.filterBadge}><Ionicons name="options-outline" size={16} color={colors.brand} /></View> : null}
+                <Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />
             </Pressable>
           )} /> : <FlatList data={owners} testID="broker-owners-list" keyExtractor={(item) => item.name} ListEmptyComponent={<Text style={styles.emptyStateSubtitle}>Δεν υπάρχουν ιδιοκτήτες ακόμα.</Text>} renderItem={({ item, index }) => (
             <Pressable style={styles.ownerRowCard} testID={`broker-owner-row-${index}`} onPress={() => router.push({ pathname: "/broker-owner-detail", params: { ownerName: item.name, apartmentIds: JSON.stringify(item.apartments.map((apartment) => apartment.id)) } })}>
@@ -193,4 +201,5 @@ export default function BrokerHubScreen() {
 
 const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface }, header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.sm }, brand: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface }, brandAccent: { color: colors.brand }, toggleShell: { flexDirection: "row", backgroundColor: colors.surfaceSecondary, borderRadius: radius.pill, padding: 4, marginHorizontal: spacing.lg, marginBottom: spacing.md, gap: 4 }, toggleOption: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: spacing.sm, borderRadius: radius.pill }, toggleOptionActive: { backgroundColor: colors.brand }, toggleText: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface }, toggleTextActive: { color: colors.onBrand }, contentArea: { flex: 1, paddingHorizontal: spacing.lg }, ownerRowCard: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: spacing.md, marginBottom: spacing.sm, borderRadius: radius.lg, backgroundColor: colors.surfaceSecondary, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }, clientRowCard: { flexDirection: "row", alignItems: "center", gap: spacing.sm, padding: spacing.md, marginBottom: spacing.sm, borderRadius: radius.lg, backgroundColor: colors.surfaceSecondary, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }, rowMain: { flex: 1, gap: spacing.xs }, rowTitle: { flex: 1, fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onSurface }, motivationBadge: { alignSelf: "flex-start", color: colors.onSurfaceTertiary, backgroundColor: colors.surfaceTertiary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 3, fontSize: fontSize.sm }, countPill: { alignSelf: "flex-start", color: colors.brand, fontFamily: fonts.semibold, fontSize: fontSize.sm }, clientAvatar: { width: 48, height: 48, borderRadius: radius.pill }, filterBadge: { padding: spacing.xs, borderRadius: radius.pill, backgroundColor: colors.surfaceTertiary }, emptyStateSubtitle: { textAlign: "center", color: colors.onSurfaceTertiary, fontFamily: fonts.regular, padding: spacing.xl },
+  clientNameRow: { flex: 1, flexDirection: "row", alignItems: "center" }, readinessIcon: { marginLeft: spacing.xs },
 });

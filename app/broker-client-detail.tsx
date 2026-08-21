@@ -14,6 +14,21 @@ import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import { getPipelineStageConfig, PIPELINE_STAGES, type LossReasonKey, type PipelineStageKey } from "@/src/constants/pipeline";
 import type { BrokerApartment, FilterSetPayload } from "./(tabs)/broker-hub";
 
+export type LeadReadinessKey = "hot" | "warm" | "cold";
+
+export interface LeadReadinessOption {
+  key: LeadReadinessKey;
+  label: string;
+  iconName: keyof typeof Ionicons.glyphMap;
+  iconColor: string;
+}
+
+export const LEAD_READINESS_OPTIONS: LeadReadinessOption[] = [
+  { key: "hot", label: "Hot Leads: Έτοιμοι, διαθέσιμα κεφάλαια με ενοικίαση εντός μήνα", iconName: "flame", iconColor: "#EF4444" },
+  { key: "warm", label: "Warm Leads: Ενεργοί που ψάχνουν τους τελευταίους 2-3 μήνες αλλά δεν βιάζονται", iconName: "sunny", iconColor: "#F59E0B" },
+  { key: "cold", label: "Cold / Passive Leads: Άτομα που απλά «βολιδοσκοπούν» την αγορά ή θέλουν να αγοράσουν μετά από 6+ μήνες", iconName: "snow", iconColor: "#38BDF8" },
+];
+
 function numberValue(value?: string) { const parsed = Number(value); return Number.isFinite(parsed) && value !== "" ? parsed : null; }
 function matchesFilter(apartment: BrokerApartment, filters: FilterSetPayload) {
   const rent = numberValue(filters.rentMin); const rentMax = numberValue(filters.rentMax); const size = numberValue(filters.sizeMin); const sizeMax = numberValue(filters.sizeMax); const sqmMin = numberValue(filters.minSqmPrice); const sqmMax = numberValue(filters.maxSqmPrice); const sqm = apartment.size > 0 ? apartment.rent / apartment.size : 0;
@@ -43,6 +58,7 @@ export interface ClientPurchasingPowerData {
   clientUserId?: string;
   clientName?: string;
   chatRoomId?: string;
+  leadReadiness?: LeadReadinessKey | null;
 }
 
 export default function BrokerClientDetailScreen() {
@@ -59,6 +75,8 @@ export default function BrokerClientDetailScreen() {
   const [stageUpdatedAt, setStageUpdatedAt] = useState(Date.now());
   const [dealCommission, setDealCommission] = useState<number | undefined>();
   const [isStageModalVisible, setIsStageModalVisible] = useState(false);
+  const [leadReadiness, setLeadReadiness] = useState<LeadReadinessKey | null>(null);
+  const [isReadinessModalVisible, setIsReadinessModalVisible] = useState(false);
   const [isLossModalVisible, setIsLossModalVisible] = useState(false);
   const [lossReason, setLossReason] = useState<LossReasonKey>("high_price");
   const [lossCustomReason, setLossCustomReason] = useState("");
@@ -79,6 +97,7 @@ export default function BrokerClientDetailScreen() {
         setMoveInDeadline(data.moveInDeadline || "");
         setPurchasePurpose(data.purchasePurpose || "");
         setPipelineStage(getPipelineStageConfig(data.pipelineStage).key);
+        setLeadReadiness(data.leadReadiness ?? null);
         setStageUpdatedAt(typeof data.stageUpdatedAt === "number" ? data.stageUpdatedAt : Date.now());
         setDealCommission(typeof data.dealCommission === "number" ? data.dealCommission : undefined);
         setLossReason(data.lossReason ?? "high_price");
@@ -103,6 +122,7 @@ export default function BrokerClientDetailScreen() {
   }, [params.chatRoomId]);
 
   const currentStageConfig = getPipelineStageConfig(pipelineStage);
+  const selectedReadinessOption = LEAD_READINESS_OPTIONS.find((option) => option.key === leadReadiness);
   const elapsedDays = Math.max(0, Math.floor((Date.now() - stageUpdatedAt) / (1000 * 60 * 60 * 24)));
   const isStagnant = currentStageConfig.probability >= 0.5 && currentStageConfig.probability < 1 && elapsedDays >= 5;
   const stagnationColor = elapsedDays >= 10 ? "#EF4444" : elapsedDays >= 7 ? "#F97316" : "#EAB308";
@@ -129,6 +149,20 @@ export default function BrokerClientDetailScreen() {
       if (selectedStageKey === "closed_lost") setIsLossModalVisible(true);
     } catch (error) {
       console.error("[BrokerClientDetail] Error saving pipeline stage to brokerClientProfiles (permission or network issue):", error);
+    }
+  };
+
+  const handleSelectReadiness = async (key: LeadReadinessKey) => {
+    if (!auth.userId || !params.clientUserId) return;
+    setLeadReadiness(key);
+    setIsReadinessModalVisible(false);
+    try {
+      await setDoc(doc(db, "brokerClientProfiles", `${auth.userId}_${params.clientUserId}`), {
+        leadReadiness: key,
+        updatedAt: Date.now(),
+      }, { merge: true });
+    } catch (error) {
+      console.error("[BrokerClientDetail] Error saving lead readiness:", error);
     }
   };
 
@@ -173,6 +207,7 @@ export default function BrokerClientDetailScreen() {
     <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <View style={styles.profileCard}>{params.clientAvatar ? <Image source={{ uri: params.clientAvatar }} style={styles.avatar} /> : <DefaultProfileAvatar size={64} />}<Text style={styles.clientName}>{params.clientName || "Πελάτης"}</Text><Pressable style={styles.chatButton} onPress={() => router.push({ pathname: "/chat/[id]", params: { id: params.clientUserId || "", chatRoomId: params.chatRoomId || "" } })} testID="broker-client-chat-cta"><Ionicons name="chatbubbles-outline" size={20} color={colors.onBrand} /><Text style={styles.chatButtonText}>Μετάβαση στη Συνομιλία</Text></Pressable></View>
       <Pressable style={styles.stageCard} onPress={() => setIsStageModalVisible(true)} testID="broker-client-stage-card"><View style={styles.stageTitleWrap}><Ionicons name="trending-up-outline" size={21} color={colors.brand} /><Text style={styles.stageTitle}>Στάδιο Συμφωνίας (Pipeline)</Text></View><View style={styles.stageValueRow}><Text style={styles.stageValue}>{getPipelineStageConfig(pipelineStage).label} ({Math.round(getPipelineStageConfig(pipelineStage).probability * 100)}%)</Text><Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} /></View></Pressable>
+      <Pressable style={styles.readinessCard} onPress={() => setIsReadinessModalVisible(true)} testID="broker-client-readiness-card"><View style={styles.readinessTitleWrap}><Ionicons name={selectedReadinessOption?.iconName ?? "speedometer-outline"} size={20} color={selectedReadinessOption?.iconColor ?? colors.brand} /><Text style={styles.readinessTitle}>Κατηγοριοποίηση/ αξιολόγηση/ προτεραιότητα βάση ετοιμότητας:</Text></View><View style={styles.readinessValueRow}><Text style={[styles.readinessValueText, selectedReadinessOption ? { color: selectedReadinessOption.iconColor } : null]}>{selectedReadinessOption?.label ?? "Δεν έχει οριστεί προτεραιότητα"}</Text><Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} /></View></Pressable>
         {isStagnant ? <View style={[styles.stagnationBanner, { backgroundColor: `${stagnationColor}22`, borderColor: stagnationColor }]} testID="broker-deal-stagnation-banner"><View style={styles.stagnationHeaderRow}><Ionicons name={stagnationIcon} size={22} color={stagnationColor} /><Text style={[styles.stagnationTitle, { color: stagnationColor }]}>Προσοχή: Κίνδυνος να χαθεί το deal</Text></View><Text style={[styles.stagnationBody, { color: colors.onSurface }]}>Ο πελάτης έχει μείνει {elapsedDays} μέρες στο στάδιο «{currentStageConfig.label}».</Text></View> : null}
       <View style={styles.purchasingPowerCard}>
         <Pressable style={styles.purchasingPowerHeader} onPress={() => setIsPurchasingPowerExpanded((previous) => !previous)} testID="broker-client-purchasing-power-toggle"><View style={styles.purchasingPowerTitleWrap}><Ionicons name="wallet-outline" size={21} color={colors.brand} /><Text style={styles.purchasingPowerTitle}>Πραγματική αγοραστική δύναμη</Text></View><Ionicons name={isPurchasingPowerExpanded ? "chevron-up" : "chevron-down"} size={20} color={colors.onSurfaceTertiary} /></Pressable>
@@ -180,6 +215,7 @@ export default function BrokerClientDetailScreen() {
       </View>
       <Text style={styles.sectionTitle}>Κριτήρια Αναζήτησης Πελάτη</Text>{filters ? <View style={styles.criteriaCard}><Text style={styles.criteriaTitle}>{filters.title || "Κριτήρια Αναζήτησης Πελάτη"}</Text><View style={styles.chipsRow}>{[`${filters.rentMin || "0"} - ${filters.rentMax || "∞"} €`, `${filters.sizeMin || "0"} - ${filters.sizeMax || "∞"} m²`, `${filters.minSqmPrice || "0"} - ${filters.maxSqmPrice || "∞"} €/m²`, filters.cityQuery || "Όλες οι περιοχές", `Κατοικίδια: ${filters.petFriendly ? "Ναι" : "Όχι"}`, `Μετρό: ${filters.nearMetro ? "Ναι" : "Όχι"}`].map((chip) => <Text key={chip} style={styles.criteriaChip}>{chip}</Text>)}</View>{filters.summary ? <Text style={styles.body}>{filters.summary}</Text> : null}</View> : <Text style={styles.emptyHint}>Ο πελάτης δεν έχει διαμοιραστεί σετ φίλτρων ακόμα.</Text>}<Text style={styles.sectionTitle}>Προτεινόμενα Ακίνητα από το Χαρτοφυλάκιο</Text>{loading ? <ActivityIndicator color={colors.brand} /> : apartments.map((apartment) => <Pressable key={apartment.id} style={styles.apartmentRow} testID={`broker-matched-apartment-${apartment.id}`} onPress={() => router.push({ pathname: "/apartment-detail", params: { data: JSON.stringify(apartment) } } as never)}><Text style={styles.cardTitle}>{apartment.title}</Text><Text style={styles.body}>{apartment.city}{apartment.area ? ` · ${apartment.area}` : ""}</Text><Text style={styles.price}>{apartment.rent} € · {apartment.size} m²</Text></Pressable>)}{!loading && apartments.length === 0 ? <Text style={styles.emptyHint}>Δεν βρέθηκαν διαθέσιμα ακίνητα στο χαρτοφυλάκιό σας που να πληρούν όλα τα κριτήρια.</Text> : null}</ScrollView>
     <Modal visible={isStageModalVisible} transparent animationType="fade" onRequestClose={() => setIsStageModalVisible(false)}><Pressable style={styles.modalBackdrop} onPress={() => setIsStageModalVisible(false)}><Pressable style={styles.stageModal} onPress={(event) => event.stopPropagation()}><Text style={styles.modalTitle}>Επιλογή Σταδίου</Text>{PIPELINE_STAGES.map((stage) => <Pressable key={stage.key} style={styles.stageOption} onPress={() => void handleStageSelection(stage.key)} testID={`broker-stage-option-${stage.key}`}><Text style={styles.stageOptionLabel}>{stage.label}</Text><Text style={styles.probabilityBadge}>{Math.round(stage.probability * 100)}%</Text><Ionicons name={stage.key === pipelineStage ? "checkmark-circle" : "ellipse-outline"} size={21} color={stage.key === pipelineStage ? colors.brand : colors.onSurfaceTertiary} /></Pressable>)}</Pressable></Pressable></Modal>
+    <Modal visible={isReadinessModalVisible} transparent animationType="fade" onRequestClose={() => setIsReadinessModalVisible(false)}><Pressable style={styles.modalBackdrop} onPress={() => setIsReadinessModalVisible(false)}><Pressable style={styles.stageModal} onPress={(event) => event.stopPropagation()}><Text style={styles.modalTitle}>Κατηγοριοποίηση/ αξιολόγηση/ προτεραιότητα βάση ετοιμότητας:</Text>{LEAD_READINESS_OPTIONS.map((option) => <Pressable key={option.key} style={styles.stageOption} onPress={() => void handleSelectReadiness(option.key)} testID={`broker-readiness-option-${option.key}`}><Ionicons name={option.iconName} size={22} color={option.iconColor} /><Text style={styles.stageOptionLabel}>{option.label}</Text><Ionicons name={leadReadiness === option.key ? "checkmark-circle" : "ellipse-outline"} size={20} color={leadReadiness === option.key ? colors.brand : colors.onSurfaceTertiary} /></Pressable>)}</Pressable></Pressable></Modal>
     <Modal visible={isLossModalVisible} transparent animationType="fade" onRequestClose={() => setIsLossModalVisible(false)}><Pressable style={styles.modalBackdrop} onPress={() => setIsLossModalVisible(false)}><Pressable style={styles.stageModal} onPress={(event) => event.stopPropagation()}><Text style={styles.modalTitle}>Γιατί χάθηκε η συμφωνία;</Text>{([{ key: "high_price", label: "Υψηλή τιμή" }, { key: "loan_rejected", label: "Απόρριψη δανείου από τράπεζα" }, { key: "chose_another_property", label: "Προτίμησε άλλο ακίνητο" }, { key: "owner_withdrew", label: "Υπαναχώρηση ιδιοκτήτη" }, { key: "other", label: "Άλλο" }] as const).map((reason) => <Pressable key={reason.key} style={styles.stageOption} onPress={() => setLossReason(reason.key)} testID={`broker-loss-reason-${reason.key}`}><Text style={styles.stageOptionLabel}>{reason.label}</Text><Ionicons name={lossReason === reason.key ? "checkmark-circle" : "ellipse-outline"} size={21} color={lossReason === reason.key ? colors.brand : colors.onSurfaceTertiary} /></Pressable>)}{lossReason === "other" ? <TextInput value={lossCustomReason} onChangeText={setLossCustomReason} placeholder="Περιγράψτε τον λόγο" placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} testID="broker-loss-custom-reason" /> : null}<Pressable style={styles.purchasingPowerSaveButton} onPress={() => void handleSaveLossReport()} testID="broker-loss-confirm"><Text style={styles.purchasingPowerSaveText}>Αποθήκευση λόγου</Text></Pressable></Pressable></Pressable></Modal>
   </View>;
 }
@@ -197,6 +233,11 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   stageTitle: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface },
   stageValueRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm, marginTop: spacing.sm },
   stageValue: { flex: 1, fontFamily: fonts.semibold, color: colors.brand },
+  readinessCard: { marginTop: spacing.md, padding: spacing.md, borderRadius: radius.lg, backgroundColor: colors.surfaceSecondary, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+  readinessTitleWrap: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
+  readinessTitle: { flex: 1, fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface },
+  readinessValueRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm, marginTop: spacing.sm },
+  readinessValueText: { flex: 1, fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.brand },
   modalBackdrop: { flex: 1, justifyContent: "center", padding: spacing.lg, backgroundColor: "rgba(0,0,0,0.45)" },
   stageModal: { padding: spacing.md, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
   modalTitle: { marginBottom: spacing.sm, fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface },
