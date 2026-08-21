@@ -810,9 +810,13 @@ export default function BrokerTabScreen({ onOpenSettings }: { onOpenSettings?: (
       }
 
       try {
-        const listingsQuery = query(collection(db, "apartments"), where("hostId", "==", brokerId));
-        const listingsSnapshot = await getDocs(listingsQuery);
-        const listings = listingsSnapshot.docs.map((docSnap) => {
+        const [ownedListingsSnapshot, assignedListingsSnapshot] = await Promise.all([
+          getDocs(query(collection(db, "apartments"), where("hostId", "==", brokerId))),
+          getDocs(query(collection(db, "apartments"), where("assignedBrokerIds", "array-contains", brokerId))),
+        ]);
+        const listingDocs = new Map(ownedListingsSnapshot.docs.map((docSnap) => [docSnap.id, docSnap]));
+        assignedListingsSnapshot.docs.forEach((docSnap) => listingDocs.set(docSnap.id, docSnap));
+        const listings = Array.from(listingDocs.values()).map((docSnap) => {
           const data = docSnap.data() as FirestoreApartmentDoc;
           return {
             id: docSnap.id,

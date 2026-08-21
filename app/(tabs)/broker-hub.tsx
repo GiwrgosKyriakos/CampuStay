@@ -99,12 +99,15 @@ export default function BrokerHubScreen() {
       if (!auth.userId) return;
       setIsLoading(true);
       try {
-        const [apartmentsSnap, chatsSnap] = await Promise.all([
+        const [ownedApartmentsSnap, assignedApartmentsSnap, chatsSnap] = await Promise.all([
           getDocs(query(collection(db, "apartments"), where("hostId", "==", auth.userId))),
+          getDocs(query(collection(db, "apartments"), where("assignedBrokerIds", "array-contains", auth.userId))),
           getDocs(query(collection(db, "chats"), where("users", "array-contains", auth.userId), where("type", "==", "host"))),
         ]);
         const ownerMap = new Map<string, BrokerOwnerItem>();
-        apartmentsSnap.docs.forEach((listing) => {
+        const apartmentDocs = new Map(ownedApartmentsSnap.docs.map((listing) => [listing.id, listing]));
+        assignedApartmentsSnap.docs.forEach((listing) => apartmentDocs.set(listing.id, listing));
+        apartmentDocs.forEach((listing) => {
           const apartment = mapApartment(listing.id, listing.data() as Record<string, unknown>);
           const details = apartment.ownerDetails;
           const name = details?.name?.trim();
@@ -114,7 +117,8 @@ export default function BrokerHubScreen() {
           ownerMap.set(name, current);
         });
         const clientItems = await Promise.all(chatsSnap.docs.map(async (chat) => {
-          const data = chat.data() as { users?: string[] };
+          const data = chat.data() as { users?: string[]; brokerChatRole?: string };
+          if (data.brokerChatRole === "owner") return null;
           const clientUserId = data.users?.find((userId) => userId !== auth.userId);
           if (!clientUserId) return null;
           const userSnap = await getDoc(doc(db, "users", clientUserId));

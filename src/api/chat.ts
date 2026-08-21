@@ -186,6 +186,9 @@ export async function getOrCreateHostChat(params: {
 }): Promise<string> {
   const { currentUserId, hostId, apartmentId, apartmentTitle } = params;
   const blockState = await getBlockRelationshipState(currentUserId, hostId);
+  const hostSnapshot = await getDoc(doc(db, "users", hostId));
+  const hostData = hostSnapshot.exists() ? hostSnapshot.data() as { is_broker?: boolean } : null;
+  const brokerChatRole = hostData?.is_broker === true ? "client" : undefined;
   const blockedByUsers = {
     [currentUserId]: blockState.isBlocker,
     [hostId]: blockState.isBlocked,
@@ -197,6 +200,7 @@ export async function getOrCreateHostChat(params: {
       {
         users: [currentUserId, hostId],
         type: "host",
+        ...(brokerChatRole ? { brokerChatRole } : {}),
         apartmentId,
         apartmentTitle: apartmentTitle ?? "",
         blockedByUsers,
@@ -219,6 +223,7 @@ export async function getOrCreateHostChat(params: {
         status: "active",
         initiatedBy: currentUserId,
         type: "host",
+        ...(brokerChatRole ? { brokerChatRole } : {}),
         apartmentId,
         apartmentTitle: apartmentTitle ?? "",
         blockedByUsers,
@@ -234,6 +239,7 @@ export async function getOrCreateHostChat(params: {
     chatRef,
     {
       type: "host",
+      ...(brokerChatRole ? { brokerChatRole } : {}),
       apartmentId,
       apartmentTitle: apartmentTitle ?? "",
       blockedByUsers,

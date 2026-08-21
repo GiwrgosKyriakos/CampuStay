@@ -10,6 +10,7 @@ import { doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
 import { db } from "@/src/config/firebase";
 import { uploadListingDocumentAsync } from "@/src/api/imageUpload";
 import { useTheme } from "@/src/context/ThemeContext";
+import { useAuth } from "@/src/context/auth";
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
 import type { BrokerApartment, BrokerDocument } from "./(tabs)/broker-hub";
 
@@ -41,6 +42,7 @@ export default function BrokerOwnerDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ ownerName?: string; apartmentIds?: string }>();
   const { colors } = useTheme();
+  const auth = useAuth();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [apartments, setApartments] = useState<BrokerApartment[]>([]);
   const [expandedApartmentIds, setExpandedApartmentIds] = useState<Set<string>>(new Set());
@@ -57,6 +59,8 @@ export default function BrokerOwnerDetailScreen() {
       const snapshot = await getDoc(doc(db, "apartments", id));
       if (!snapshot.exists()) return null;
       const data = snapshot.data() as Record<string, unknown>;
+      const assignedBrokerIds = Array.isArray(data.assignedBrokerIds) ? data.assignedBrokerIds : [];
+      if (auth.userId && data.hostId !== auth.userId && !assignedBrokerIds.includes(auth.userId)) return null;
       return { ...data, id, title: String(data.title ?? "Ακίνητο"), rent: Number(data.rent ?? data.price ?? 0), area: String(data.area ?? ""), city: String(data.city ?? ""), size: Number(data.size ?? data.sqft ?? 0), image: String(data.image ?? data.imageUrl ?? (Array.isArray(data.images) ? data.images[0] ?? "" : "")), tags: Array.isArray(data.tags) ? data.tags.map(String) : [], documents: mapDocuments(data.documents) } as BrokerApartment;
     })).then((items) => {
       if (!active) return;
@@ -65,7 +69,7 @@ export default function BrokerOwnerDetailScreen() {
       setEditedPriceExpectations(Object.fromEntries(loaded.map((apartment) => [apartment.id, String(apartment.ownerDetails?.priceExpectation ?? apartment.rent)])));
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [apartmentIds]);
+  }, [apartmentIds, auth.userId]);
 
   const toggleApartment = (apartmentId: string) => setExpandedApartmentIds((previous) => {
     const next = new Set(previous);

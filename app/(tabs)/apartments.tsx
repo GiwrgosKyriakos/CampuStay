@@ -223,6 +223,7 @@ interface Apartment {
   amenities: string[];
   hostId?: string;
   ownerId?: string;
+  assignedBrokerIds?: string[];
   status?: "active" | "closed_deal";
   rentedToUserId?: string | null;
   rentedAtMillis?: number | null;
@@ -254,6 +255,7 @@ interface FirestoreApartmentDoc {
   amenities?: string[];
   hostId?: string;
   ownerId?: string;
+  assignedBrokerIds?: string[];
   status?: "active" | "closed_deal";
   rentedToUserId?: string | null;
   rentedAt?: unknown;
@@ -696,6 +698,7 @@ export default function ApartmentsScreen() {
         sanitizeFirestorePayload({
           users: [auth.userId, brokerId],
           type: "host",
+          brokerChatRole: "client",
           status: "active",
           apartmentId: null,
           apartmentTitle: null,
@@ -1026,6 +1029,7 @@ export default function ApartmentsScreen() {
                   amenities,
                   hostId: data.hostId,
                   ownerId: data.ownerId || data.hostId,
+                  assignedBrokerIds: Array.isArray(data.assignedBrokerIds) ? data.assignedBrokerIds : [],
                   status: data.status === "closed_deal" ? "closed_deal" : "active",
                   rentedToUserId: typeof data.rentedToUserId === "string" ? data.rentedToUserId : data.rentedToUserId === null ? null : null,
                   rentedAtMillis: parseTimestampToMillis(data.rentedAt) || null,
@@ -1280,7 +1284,9 @@ export default function ApartmentsScreen() {
     const currentUid = auth.userId;
 
     const baseFiltered = apartments.filter((apt) => {
-      const isOwnListing = !!currentUid && (apt.ownerId === currentUid || apt.hostId === currentUid);
+      const isDirectOwner = !!currentUid && (apt.ownerId === currentUid || apt.hostId === currentUid);
+      const isAssignedBroker = !!currentUid && auth.isBroker === true && Array.isArray(apt.assignedBrokerIds) && apt.assignedBrokerIds.includes(currentUid);
+      const isOwnListing = isDirectOwner || isAssignedBroker;
       const isClosedDeal = apt.status === "closed_deal";
       const likedAtMillis = likedApartmentTimestampById[apt.id] ?? 0;
       const closedAtMillis = typeof apt.rentedAtMillis === "number" ? apt.rentedAtMillis : 0;
@@ -1780,7 +1786,9 @@ export default function ApartmentsScreen() {
         {sortedApartments.map((apt) => {
           const isLiked = likedApartmentIds.has(apt.id);
           const isMyListingsView = isViewingMyListings;
-          const isOwnListing = !!auth.userId && (apt.ownerId === auth.userId || apt.hostId === auth.userId);
+          const isDirectOwner = !!auth.userId && (apt.ownerId === auth.userId || apt.hostId === auth.userId);
+          const isAssignedBroker = !!auth.userId && auth.isBroker === true && Array.isArray(apt.assignedBrokerIds) && apt.assignedBrokerIds.includes(auth.userId);
+          const isOwnListing = isDirectOwner || isAssignedBroker;
           const chatMeta = hostChatByApartmentId[apt.id];
           const canShowQuickChat =
             !!chatMeta &&

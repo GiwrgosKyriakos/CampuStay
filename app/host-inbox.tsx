@@ -20,6 +20,7 @@ interface FirestoreUserDoc {
   photoUrl?: string;
   photos?: string[];
   deleted?: boolean;
+  is_broker?: boolean;
 }
 
 interface FirestoreHostChatDoc {
@@ -28,6 +29,8 @@ interface FirestoreHostChatDoc {
   clearedAt?: Record<string, unknown>;
   apartmentTitle?: string;
   apartmentId?: string;
+  apartmentImage?: string;
+  brokerChatRole?: "client" | "owner" | string;
   status?: "pending" | "active" | "rejected";
   initiatedBy?: string | null;
   lastMessageTimestamp?: { toMillis?: () => number } | number | null;
@@ -41,12 +44,15 @@ interface HostInboxItem {
   customerName: string;
   customerAvatar: string;
   apartmentTitle: string;
+  apartmentId?: string;
   chatRoomId: string;
   status: "pending" | "active" | "rejected";
   initiatedBy: string | null;
   isUnread: boolean;
   lastMessageText: string;
   sortKey: number;
+  brokerChatRole?: "client" | "owner";
+  apartmentImage: string;
   // 🎯 ΠΡΟΣΘΗΚΗ: Flags για το blocking
   isBlocker?: boolean;
   isBlocked?: boolean;
@@ -190,6 +196,11 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
                   }
 
                   const apartmentTitle = chatData.apartmentTitle?.trim() || "Apartment";
+                  const brokerChatRole = chatData.brokerChatRole === "client" || chatData.brokerChatRole === "owner"
+                    ? chatData.brokerChatRole
+                    : customerData?.is_broker === true
+                      ? "client"
+                      : undefined;
                   const customerName = customerData?.name?.trim() || DELETED_ACCOUNT_LABEL;
                   const photos = Array.isArray(customerData?.photos) ? customerData.photos : [];
                   const customerAvatar = customerData?.photoUrl || photos[0] || "";
@@ -206,12 +217,15 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
                     customerName,
                     customerAvatar,
                     apartmentTitle,
+                    apartmentId: chatData.apartmentId,
                     chatRoomId: chatDoc.id,
                     status: chatData.status ?? "active",
                     initiatedBy: chatData.initiatedBy ?? null,
                     isUnread,
                     lastMessageText,
                     sortKey: toMillis(chatData.lastMessageTimestamp) || toMillis(chatData.updatedAt) || toMillis(chatData.createdAt), 
+                    brokerChatRole,
+                    apartmentImage: chatData.apartmentImage?.trim() || "",
                     isBlocker,
                     isBlocked,
                   } as HostInboxItem;
@@ -462,9 +476,17 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
                 )}
 
                 <View style={styles.rowText}>
+                  {item.brokerChatRole === "owner" && item.apartmentId ? (
+                    <View style={styles.assignedApartmentBanner}>
+                      {item.apartmentImage ? <Image source={{ uri: item.apartmentImage }} style={styles.assignedApartmentImage} contentFit="cover" /> : <View style={[styles.assignedApartmentImage, styles.assignedApartmentPlaceholder]}><Ionicons name="home-outline" size={18} color={colors.brand} /></View>}
+                      <Text style={styles.assignedApartmentLabel} numberOfLines={1}>Ανατεθειμένο Ακίνητο: {item.apartmentTitle}</Text>
+                    </View>
+                  ) : null}
                   <View style={styles.rowNameHeader}>
                     <Text style={styles.rowName} numberOfLines={1}>{customerName}</Text>
                     <Text style={styles.apartmentTitle} numberOfLines={1}>{item.apartmentTitle}</Text>
+                    {item.brokerChatRole === "client" ? <Text style={styles.clientBadge}>Client</Text> : null}
+                    {item.brokerChatRole === "owner" ? <Text style={styles.ownerBadge}>Ιδιοκτήτης</Text> : null}
                     {isBlockedChat ? (
                       <View style={styles.blockedBadge}>
                         <Text style={styles.blockedBadgeText}>{t("host-inbox.blockedBadge")}</Text>
@@ -661,6 +683,12 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   rowNameHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
   rowName: { flex: 1, fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface },
   apartmentTitle: { flexShrink: 1, fontFamily: fonts.semibold, fontSize: 13, color: colors.brand, textAlign: "right" },
+  clientBadge: { fontFamily: fonts.bold, fontSize: 11, color: colors.brand, backgroundColor: colors.brandTertiary, borderRadius: radius.pill, paddingHorizontal: spacing.xs, paddingVertical: 3 },
+  ownerBadge: { fontFamily: fonts.bold, fontSize: 11, color: colors.onSurface, backgroundColor: colors.surfaceTertiary, borderRadius: radius.pill, paddingHorizontal: spacing.xs, paddingVertical: 3 },
+  assignedApartmentBanner: { flexDirection: "row", alignItems: "center", gap: spacing.xs, marginBottom: spacing.xs, padding: spacing.xs, borderRadius: radius.md, backgroundColor: colors.surfaceTertiary },
+  assignedApartmentImage: { width: 40, height: 40, borderRadius: radius.md, backgroundColor: colors.surface },
+  assignedApartmentPlaceholder: { alignItems: "center", justifyContent: "center" },
+  assignedApartmentLabel: { flex: 1, fontFamily: fonts.semibold, fontSize: 12, color: colors.onSurface },
   blockedBadge: {
     borderRadius: radius.pill,
     borderWidth: 1,

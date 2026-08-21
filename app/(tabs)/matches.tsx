@@ -34,6 +34,7 @@ interface ChatListItem extends RoommateProfile {
   // 🎯 ΠΡΟΣΘΗΚΗ: Flags για την κατάσταση blocking
   isBlocker?: boolean;
   isBlocked?: boolean;
+  brokerChatRole?: "client" | "owner";
 }
 
 interface FirestoreUserDoc {
@@ -50,11 +51,13 @@ interface FirestoreUserDoc {
   photoUrl?: string;
   photos?: string[];
   deleted?: boolean;
+  is_broker?: boolean;
 }
 
 interface FirestoreChatDoc {
   users?: string[];
   type?: "roommate" | "host" | string;
+  brokerChatRole?: "client" | "owner" | string;
   status?: "pending" | "active" | "rejected";
   initiatedBy?: string | null;
   rejectedBy?: string | null;
@@ -176,6 +179,7 @@ export default function MatchesScreen() {
   const [matches, setMatches] = useState<ChatListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedChatType, setSelectedChatType] = useState<"roommate" | "host">("roommate");
+  const [isBrokersView, setIsBrokersView] = useState(false);
   const [lastMessageByChat, setLastMessageByChat] = useState<Record<string, LastMessageMeta>>({});
   const [acceptingChatId, setAcceptingChatId] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string>("");
@@ -391,7 +395,9 @@ export default function MatchesScreen() {
             const chatType = chatData.type ?? "roommate";
             // 🚨 ΔΙΑΧΩΡΙΣΜΟΣ ΡΟΛΩΝ:
             // Αν είμαστε στο Tab "Hosts", δείχνουμε ΜΟΝΟ τα chats που ξεκινήσαμε ΕΜΕΙΣ (ως guests).
-            const isVisibleForTab = (notLookingForRoommate || selectedChatType === "host")
+            const isVisibleForTab = isBrokersView
+              ? chatType === "host"
+              : (notLookingForRoommate || selectedChatType === "host")
               ? (chatType === "host" && chatData.initiatedBy === uid)
               : (chatType !== "host");
             if (!isVisibleForTab) {
@@ -469,6 +475,7 @@ export default function MatchesScreen() {
 
                   const userSnap = await getDoc(doc(db, "users", counterpartUid));
                   const userData = userSnap.exists() ? (userSnap.data() as FirestoreUserDoc) : null;
+                  if (isBrokersView && userData?.is_broker !== true && !chatData.brokerChatRole) return null;
                   const chat_status = chatData.status ?? "active";
                   const chat_initiated_by = chatData.initiatedBy ?? null;
                   const chat_rejected_by = typeof chatData.rejectedBy === "string" ? chatData.rejectedBy : null;
@@ -497,13 +504,14 @@ export default function MatchesScreen() {
                       // Περνάμε τα flags στο αντικείμενο
                       isBlocker,
                       isBlocked,
+                      brokerChatRole: chatData.brokerChatRole === "client" || chatData.brokerChatRole === "owner" ? chatData.brokerChatRole : undefined,
                     },
                   };
                 })
               );
 
               let fallbackRows: Array<{ sortKey: number; item: ChatListItem }> = [];
-              if (!notLookingForRoommate && selectedChatType !== "host") {
+              if (!isBrokersView && !notLookingForRoommate && selectedChatType !== "host") {
                 const existingChatIds = new Set(snapshot.docs.map((docSnap) => docSnap.id));
 
                 const likesSnap = await getDocs(query(collection(db, "swipes"), where("fromUid", "==", uid)));
@@ -562,7 +570,7 @@ export default function MatchesScreen() {
       Object.values(messageUnsubsRef.current).forEach((off) => off());
       messageUnsubsRef.current = {};
     };
-  }, [auth.isGuest, auth.userId, ensureRoommateChatsFromLikes, notLookingForRoommate, selectedChatType]);
+  }, [auth.isGuest, auth.userId, ensureRoommateChatsFromLikes, isBrokersView, notLookingForRoommate, selectedChatType]);
 
   const handleAcceptChat = async (profile: ChatListItem) => {
     if (!currentUserId || !profile.chatRoomId) return;
@@ -630,9 +638,21 @@ export default function MatchesScreen() {
   return (
     <View style={styles.container} testID="matches-screen">
       <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}> 
-        <Text style={styles.title}>{t("matches.title")}</Text>
+        <View style={styles.headerTitleRow}>
+          <Text style={styles.title}>{t("matches.title")}</Text>
+          <Pressable
+            style={[styles.brokersToggleBtn, isBrokersView && styles.brokersToggleBtnActive]}
+            onPress={() => setIsBrokersView((previous) => !previous)}
+            testID="matches-brokers-view-toggle"
+          >
+            <Ionicons name="briefcase-outline" size={16} color={isBrokersView ? colors.onBrand : colors.onSurface} />
+            <Text style={[styles.brokersToggleBtnText, isBrokersView && styles.brokersToggleBtnTextActive]}>Brokers</Text>
+          </Pressable>
+        </View>
         <Text style={styles.subtitle}>
-          {auth.isGuest
+          {isBrokersView
+            ? "Συνομιλίες με Μεσίτες"
+            : auth.isGuest
             ? t("matches.subtitleGuest")
             : matches.length > 0 && selectedChatType === "roommate"
             ? t("matches.subtitleCount", {
@@ -645,7 +665,7 @@ export default function MatchesScreen() {
             
         </Text>
       </View>
-      {!notLookingForRoommate && (
+      {!isBrokersView && !notLookingForRoommate && (
         <View style={[styles.toggleShell, { marginHorizontal: spacing.lg }]}> 
           <Pressable
             style={[styles.toggleOption, selectedChatType === "roommate" && styles.toggleOptionActive]}
@@ -932,8 +952,13 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     color: colors.onBrand,
   },
   header: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.md, gap: spacing.xs },
+  headerTitleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md },
   title: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface },
   subtitle: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary },
+  brokersToggleBtn: { flexDirection: "row", alignItems: "center", gap: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, backgroundColor: colors.surfaceSecondary },
+  brokersToggleBtnActive: { borderColor: colors.brand, backgroundColor: colors.brand },
+  brokersToggleBtnText: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface },
+  brokersToggleBtnTextActive: { color: colors.onBrand },
   list: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
   row: {
     position: "relative",

@@ -110,6 +110,7 @@ interface Apartment {
   extraInformation?: ListingExtraInformation;
   hostId?: string;
   ownerId?: string;
+  assignedBrokerIds?: string[];
   status?: "active" | "closed_deal";
   rentedToUserId?: string | null;
   rentedAt?: number | null;
@@ -140,6 +141,7 @@ interface FirestoreApartmentDoc {
   orientation?: string;
   showPhoneNumber?: boolean;
   hostId?: string;
+  assignedBrokerIds?: string[];
   ownerId?: string;
   status?: "active" | "closed_deal";
   rentedToUserId?: string | null;
@@ -488,8 +490,10 @@ export default function ApartmentDetailScreen() {
 
   const isListingOwner = useMemo(() => {
     if (!apt || !auth.userId) return false;
-    return (!!apt.ownerId && apt.ownerId === auth.userId) || (!!apt.hostId && apt.hostId === auth.userId);
-  }, [apt, auth.userId]);
+    const isDirectOwner = (!!apt.ownerId && apt.ownerId === auth.userId) || (!!apt.hostId && apt.hostId === auth.userId);
+    const isAssigned = Array.isArray(apt.assignedBrokerIds) && apt.assignedBrokerIds.includes(auth.userId);
+    return isDirectOwner || (auth.isBroker && isAssigned);
+  }, [apt, auth.isBroker, auth.userId]);
   const isStrictHostOwner = !!apt?.hostId && !!auth.userId && auth.userId === apt.hostId;
   const canViewLikedUsers = !isListingOwner && !auth.isBroker;
 

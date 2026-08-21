@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -15,7 +16,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { doc, getDoc } from "firebase/firestore";
+import { addDoc, arrayUnion, collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { Image } from "expo-image";
@@ -129,6 +130,7 @@ interface FirestoreApartmentDoc {
   };
   hostId?: string;
   ownerId?: string;
+  assignedBrokerIds?: string[];
   showPhoneNumber?: boolean;
   publishedAt?: unknown;
   updatedAt?: unknown;
@@ -706,6 +708,14 @@ export default function CreateListingScreen() {
     onAcknowledge?: () => void;
   } | null>(null);
   const [loadingEditData, setLoadingEditData] = useState(false);
+  const [brokerShareModalVisible, setBrokerShareModalVisible] = useState(false);
+  const [availableBrokers, setAvailableBrokers] = useState<{ id: string; avatar: string; name: string }[]>([]);
+  const [loadingBrokers, setLoadingBrokers] = useState(false);
+  const [assigningBrokerId, setAssigningBrokerId] = useState<string | null>(null);
+  const [userHasListings, setUserHasListings] = useState(false);
+  const [isAssignedBrokerListing, setIsAssignedBrokerListing] = useState(false);
+  const [listingOwnerId, setListingOwnerId] = useState<string | null>(null);
+  const [existingAssignedBrokerIds, setExistingAssignedBrokerIds] = useState<string[]>([]);
   const currentPriceHistory = useMemo(() => {
     if (priceHistory.length > 0) return priceHistory;
     const currentPrice = Number(monthlyRent);
@@ -721,6 +731,43 @@ export default function CreateListingScreen() {
       },
     ];
   }, [auth.user?.name, auth.userId, monthlyRent, ownerPriceExpectation, priceHistory]);
+  const isBrokerMode = auth.isBroker === true;
+
+  useEffect(() => {
+    if (isBrokerMode || !auth.userId) {
+      setUserHasListings(false);
+      return;
+    }
+
+    let active = true;
+    void getDocs(query(collection(db, "apartments"), where("hostId", "==", auth.userId))).then((snapshot) => {
+      if (active) setUserHasListings(!snapshot.empty);
+    }).catch(() => {
+      if (active) setUserHasListings(false);
+    });
+    return () => { active = false; };
+  }, [auth.userId, isBrokerMode]);
+
+  useEffect(() => {
+    if (!brokerShareModalVisible || !auth.userId) return;
+
+    let active = true;
+    setLoadingBrokers(true);
+    void getDocs(query(collection(db, "users"), where("is_broker", "==", true))).then((snapshot) => {
+      if (!active) return;
+      setAvailableBrokers(snapshot.docs.flatMap((brokerDoc) => {
+        if (brokerDoc.id === auth.userId) return [];
+        const data = brokerDoc.data() as { name?: string; photoUrl?: string; avatar?: string; photos?: string[]; is_visible?: boolean; isVisible?: boolean };
+        if (data.is_visible === false || data.isVisible === false) return [];
+        return [{ id: brokerDoc.id, name: data.name?.trim() || "Μεσίτης", avatar: data.photoUrl || data.avatar || data.photos?.[0] || "" }];
+      }));
+    }).catch(() => {
+      if (active) setAvailableBrokers([]);
+    }).finally(() => {
+      if (active) setLoadingBrokers(false);
+    });
+    return () => { active = false; };
+  }, [auth.userId, brokerShareModalVisible]);
   const cityOptions = t("createListing.options.cities") as unknown as string[];
   const propertyCategoryOptions = ["Κατοικία", "Επαγγελματική στέγη", "Γη", "Λοιπά ακίνητα"];
   const propertyTypeOptions = [
@@ -878,8 +925,6 @@ export default function CreateListingScreen() {
     });
   }, []);
 
-  const isBrokerMode = auth.isBroker === true;
-
   const roomCountValues = useMemo<Record<RoomCountField, number>>(
     () => ({
       rooms: Math.max(0, Math.trunc(Number(rooms) || 0)),
@@ -990,16 +1035,22 @@ export default function CreateListingScreen() {
         const snapshot = await getDoc(doc(db, "apartments", listingId));
         if (!snapshot.exists() || !active) return;
 
-        const data = snapshot.data() as FirestoreApartmentDoc;
+        const data = snapshot.data() as FirestoreApartmentDoc & { assignedBrokerIds?: string[] };
         const ownerId = data.ownerId || data.hostId;
-        if (auth.userId && ownerId && ownerId !== auth.userId) {
+        const assignedBrokers = Array.isArray(data.assignedBrokerIds) ? data.assignedBrokerIds : [];
+        setListingOwnerId(ownerId ?? null);
+        const hasAccess = Boolean(auth.userId && (ownerId === auth.userId || (isBrokerMode && assignedBrokers.includes(auth.userId))));
+        if (!hasAccess) {
           showFeedbackModal(
             t("createListing.alerts.publishFailedTitle"),
-            t("createListing.alerts.publishFailedMessage"),
+            "Δεν έχετε δικαίωμα επεξεργασίας αυτής της αγγελίας.",
             () => router.back(),
           );
           return;
         }
+        const assignedToCurrentBroker = Boolean(isBrokerMode && ownerId !== auth.userId && assignedBrokers.includes(auth.userId ?? ""));
+        setIsAssignedBrokerListing(assignedToCurrentBroker);
+        setExistingAssignedBrokerIds(assignedBrokers);
 
         const mappedRent = typeof data.rent === "number" ? data.rent : typeof data.price === "number" ? data.price : 0;
         setOriginalLoadedRent(mappedRent > 0 ? mappedRent : null);
@@ -1219,7 +1270,53 @@ export default function CreateListingScreen() {
     return () => {
       active = false;
     };
-  }, [auth.userId, isEditMode, listingId, router, showFeedbackModal]);
+  }, [auth.userId, isBrokerMode, isEditMode, listingId, router, showFeedbackModal]);
+
+  const assignListingToBroker = async (selectedBrokerId: string) => {
+    if (!auth.userId || !listingId || assigningBrokerId) return;
+
+    setAssigningBrokerId(selectedBrokerId);
+    try {
+      const apartmentRef = doc(db, "apartments", listingId);
+      const finalTitle = title.trim() || "Ακίνητο";
+      const firstImage = photos[0] || "";
+      const finalOwnerName = ownerName.trim() || auth.user?.name || "Ιδιοκτήτης";
+      const chatRoomId = [auth.userId, selectedBrokerId].sort().join("_");
+      const messageText = `[Ανάθεση Ακινήτου: ${finalTitle}]`;
+
+      await updateDoc(apartmentRef, {
+        assignedBrokerIds: arrayUnion(selectedBrokerId),
+        "ownerDetails.name": finalOwnerName,
+        updatedAt: serverTimestamp(),
+      });
+      await setDoc(doc(db, "chats", chatRoomId), {
+        users: [auth.userId, selectedBrokerId],
+        type: "host",
+        brokerChatRole: "owner",
+        status: "active",
+        apartmentId: listingId,
+        apartmentTitle: finalTitle,
+        apartmentImage: firstImage,
+        lastMessageText: messageText,
+        lastMessageTimestamp: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+      await addDoc(collection(db, "chats", chatRoomId, "messages"), {
+        senderId: auth.userId,
+        type: "listing_assignment",
+        text: messageText,
+        apartmentId: listingId,
+        createdAt: serverTimestamp(),
+        isRead: false,
+      });
+      setBrokerShareModalVisible(false);
+      showFeedbackModal("Η αγγελία ανατέθηκε επιτυχώς στον μεσίτη!", "");
+    } catch {
+      showFeedbackModal("Η ανάθεση απέτυχε", "Δεν ήταν δυνατή η ανάθεση της αγγελίας. Δοκιμάστε ξανά.");
+    } finally {
+      setAssigningBrokerId(null);
+    }
+  };
 
   const pickPhoto = useCallback(
     async (source: "camera" | "library") => {
@@ -1403,8 +1500,9 @@ export default function CreateListingScreen() {
       return;
     }
 
-    const hostId = auth.userId;
-    if (!hostId || auth.isGuest) {
+    const currentUserId = auth.userId;
+    const hostId = isEditMode && listingOwnerId ? listingOwnerId : currentUserId;
+    if (!currentUserId || !hostId || auth.isGuest) {
       showFeedbackModal(
         t("createListing.alerts.signInRequiredTitle"),
         t("createListing.alerts.signInRequiredMessage"),
@@ -1510,6 +1608,7 @@ export default function CreateListingScreen() {
         showPhoneNumber,
         hostId,
         ownerId: hostId,
+        assignedBrokerIds: existingAssignedBrokerIds,
       };
 
       const savedApartmentId = await upsertListing({
@@ -2559,11 +2658,15 @@ export default function CreateListingScreen() {
                     <TextInput
                       value={ownerName}
                       onChangeText={setOwnerName}
+                      editable={!isAssignedBrokerListing}
                       placeholder="π.χ. Γιώργος Παπαδόπουλος"
                       placeholderTextColor={colors.onSurfaceTertiary}
-                      style={styles.input}
+                      style={[styles.input, isAssignedBrokerListing && styles.readOnlyInput]}
                       testID="create-listing-owner-name-input"
                     />
+                    {isAssignedBrokerListing ? (
+                      <Text style={styles.readOnlyHelper}>Το όνομα του ιδιοκτήτη έχει οριστεί από τον δημιουργό της αγγελίας και είναι κλειδωμένο.</Text>
+                    ) : null}
                   </View>
                   <View>
                     <Text style={styles.fieldLabel}>Κίνητρο ιδιοκτήτη</Text>
@@ -2636,6 +2739,22 @@ export default function CreateListingScreen() {
         </ScrollView>
 
         <View style={[styles.footer, { paddingBottom: spacing.lg + insets.bottom }]}>
+          {!isBrokerMode && (isEditMode || userHasListings) ? (
+            <Pressable
+              style={styles.assignBrokerButton}
+              onPress={() => {
+                if (!listingId) {
+                  showFeedbackModal("Αποθηκεύστε πρώτα την αγγελία", "Η ανάθεση σε μεσίτη είναι διαθέσιμη αφού αποθηκεύσετε την αγγελία.");
+                  return;
+                }
+                setBrokerShareModalVisible(true);
+              }}
+              testID="create-listing-assign-broker-btn"
+            >
+              <Ionicons name="business-outline" size={20} color={colors.onBrand} />
+              <Text style={styles.assignBrokerButtonText}>Αποστολή σε μεσίτη</Text>
+            </Pressable>
+          ) : null}
           <Pressable
             style={[styles.publishButton, submitting && styles.publishButtonDisabled]}
             onPress={validateAndSubmit}
@@ -2669,6 +2788,45 @@ export default function CreateListingScreen() {
         ]}
         testID="create-listing-feedback-modal"
       />
+
+      <Modal
+        visible={brokerShareModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setBrokerShareModalVisible(false)}
+      >
+        <View style={styles.brokerModalBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setBrokerShareModalVisible(false)} />
+          <View style={styles.brokerModalCard} testID="create-listing-broker-share-modal">
+            <View style={styles.brokerModalHeader}>
+              <Text style={styles.brokerModalTitle}>Αποστολή σε μεσίτη</Text>
+              <Pressable onPress={() => setBrokerShareModalVisible(false)} hitSlop={8} testID="create-listing-broker-share-close">
+                <Ionicons name="close-outline" size={24} color={colors.onSurface} />
+              </Pressable>
+            </View>
+            {loadingBrokers ? <View style={styles.brokerModalState}><ActivityIndicator color={colors.brand} /></View> : availableBrokers.length === 0 ? (
+              <View style={styles.brokerModalState}><Text style={styles.brokerModalMuted}>Δεν βρέθηκαν διαθέσιμοι μεσίτες.</Text></View>
+            ) : (
+              <ScrollView contentContainerStyle={styles.brokerModalList}>
+                {availableBrokers.map((broker) => (
+                  <View key={broker.id} style={styles.brokerRow}>
+                    {broker.avatar ? <Image source={{ uri: broker.avatar }} style={styles.brokerAvatar} contentFit="cover" /> : <View style={styles.brokerAvatarFallback}><Ionicons name="person-outline" size={20} color={colors.onSurfaceTertiary} /></View>}
+                    <Text style={styles.brokerName} numberOfLines={1}>{broker.name}</Text>
+                    <Pressable
+                      style={styles.brokerSendButton}
+                      onPress={() => void assignListingToBroker(broker.id)}
+                      disabled={assigningBrokerId !== null}
+                      testID={`create-listing-send-to-broker-${broker.id}`}
+                    >
+                      {assigningBrokerId === broker.id ? <ActivityIndicator size="small" color={colors.onBrand} /> : <Ionicons name="paper-plane-outline" size={18} color={colors.onBrand} />}
+                    </Pressable>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
 
       <CenteredActionModal
         visible={photoSourceModalVisible}
@@ -3442,6 +3600,100 @@ function createStyles(colors: ThemeColors) {
       backgroundColor: colors.surface,
       borderTopWidth: 1,
       borderTopColor: colors.divider,
+    },
+    assignBrokerButton: {
+      minHeight: 48,
+      marginBottom: spacing.sm,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: spacing.sm,
+      borderRadius: radius.pill,
+      backgroundColor: colors.onSurface,
+    },
+    assignBrokerButtonText: {
+      fontFamily: fonts.bold,
+      fontSize: fontSize.base,
+      color: colors.onBrand,
+    },
+    readOnlyInput: {
+      backgroundColor: colors.surfaceTertiary,
+      color: colors.onSurfaceTertiary,
+    },
+    readOnlyHelper: {
+      marginTop: spacing.xs,
+      fontFamily: fonts.regular,
+      fontSize: fontSize.sm,
+      color: colors.onSurfaceTertiary,
+    },
+    brokerModalBackdrop: {
+      flex: 1,
+      justifyContent: "center",
+      padding: spacing.lg,
+      backgroundColor: "rgba(0, 0, 0, 0.45)",
+    },
+    brokerModalCard: {
+      maxHeight: "75%",
+      borderRadius: radius.lg,
+      backgroundColor: colors.surface,
+      padding: spacing.lg,
+    },
+    brokerModalHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: spacing.md,
+    },
+    brokerModalTitle: {
+      fontFamily: fonts.bold,
+      fontSize: fontSize.lg,
+      color: colors.onSurface,
+    },
+    brokerModalState: {
+      minHeight: 100,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    brokerModalMuted: {
+      fontFamily: fonts.regular,
+      fontSize: fontSize.base,
+      color: colors.onSurfaceTertiary,
+    },
+    brokerModalList: {
+      gap: spacing.sm,
+    },
+    brokerRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      paddingVertical: spacing.xs,
+    },
+    brokerAvatar: {
+      width: 40,
+      height: 40,
+      borderRadius: radius.pill,
+    },
+    brokerAvatarFallback: {
+      width: 40,
+      height: 40,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: radius.pill,
+      backgroundColor: colors.surfaceTertiary,
+    },
+    brokerName: {
+      flex: 1,
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.base,
+      color: colors.onSurface,
+    },
+    brokerSendButton: {
+      width: 40,
+      height: 40,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: radius.pill,
+      backgroundColor: colors.brand,
     },
     publishButton: {
       backgroundColor: colors.brand,
