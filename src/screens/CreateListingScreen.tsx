@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -16,7 +16,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { addDoc, arrayUnion, collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
+import { addDoc, arrayUnion, collection, doc, getDoc, getDocs, limit, orderBy, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { Image } from "expo-image";
@@ -33,6 +33,7 @@ import { useTheme } from "@/src/context/ThemeContext";
 import { uploadBrokerPrivateImageAsync, uploadListingDocumentAsync, uploadListingImageAsync } from "@/src/api/imageUpload";
 import { upsertListing } from "@/src/api/listings";
 import { t } from "@/src/locales";
+import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 
 type AmenityKey = "petFriendly" | "nearMetro" | "furnished" | "balcony" | "parking";
 type AmenitySlug = "pet_friendly" | "near_metro" | "furnished" | "balcony" | "parking";
@@ -88,6 +89,91 @@ type Amenity = {
   icon: keyof typeof Ionicons.glyphMap;
 };
 
+type MatchedClient = {
+  chatRoomId: string;
+  clientAvatar?: string;
+  clientName: string;
+  clientUserId: string;
+  matchScore: number;
+};
+type FilterSetPayload = ClientFilterVersion;
+type BrokerClientWithFilters = {
+  clientUserId: string;
+  clientName: string;
+  clientAvatar?: string;
+  chatRoomId: string;
+  filterSet: FilterSetPayload | null;
+};
+
+type ClientFilterVersion = {
+  rentMin?: string;
+  rentMax?: string;
+  minSqmPrice?: string;
+  maxSqmPrice?: string;
+  cityQuery?: string;
+  sizeMin?: string;
+  sizeMax?: string;
+  petFriendly?: boolean;
+  nearMetro?: boolean;
+  version?: number;
+  updatedAt?: number;
+};
+
+function latestClientFilter(data: Record<string, unknown>): ClientFilterVersion | null {
+  const versions = Array.isArray(data.versions) ? data.versions.filter((entry): entry is ClientFilterVersion => !!entry && typeof entry === "object") : [];
+  if (versions.length) {
+    const currentVersion = Number(data.currentVersion);
+    return versions.find((version) => version.version === currentVersion) ?? versions[versions.length - 1];
+  }
+  return data as ClientFilterVersion;
+}
+
+function filterMatchesListing(filter: ClientFilterVersion, rent: number, size: number, city: string, area: string, amenities: Record<AmenityKey, boolean>) {
+  const minRent = filter.rentMin?.trim() ? Number(filter.rentMin) : null;
+  const maxRent = filter.rentMax?.trim() ? Number(filter.rentMax) : null;
+  const minSize = filter.sizeMin?.trim() ? Number(filter.sizeMin) : null;
+  const maxSize = filter.sizeMax?.trim() ? Number(filter.sizeMax) : null;
+  const minSqmPrice = filter.minSqmPrice?.trim() ? Number(filter.minSqmPrice) : null;
+  const maxSqmPrice = filter.maxSqmPrice?.trim() ? Number(filter.maxSqmPrice) : null;
+  const currentSqmPrice = size > 0 && rent > 0 ? rent / size : 0;
+  const cityQuery = filter.cityQuery?.trim().toLocaleLowerCase() ?? "";
+  const normalizedCity = city.trim().toLocaleLowerCase();
+  const normalizedArea = area.trim().toLocaleLowerCase();
+  const hasLocation = normalizedCity.length > 0 || normalizedArea.length > 0;
+  const matchesLocation = Boolean(cityQuery && hasLocation && (
+    normalizedCity.includes(cityQuery) || cityQuery.includes(normalizedCity) ||
+    normalizedArea.includes(cityQuery) || cityQuery.includes(normalizedArea)
+  ));
+  let matchedCriteriaCount = 0;
+  let hasConflict = false;
+
+  if (rent > 0 && (minRent !== null || maxRent !== null)) {
+    hasConflict = (minRent !== null && Number.isFinite(minRent) && rent < minRent) ||
+      (maxRent !== null && Number.isFinite(maxRent) && rent > maxRent);
+    if (!hasConflict) matchedCriteriaCount++;
+  }
+  if (size > 0 && (minSize !== null || maxSize !== null)) {
+    const sizeConflict = (minSize !== null && Number.isFinite(minSize) && size < minSize) ||
+      (maxSize !== null && Number.isFinite(maxSize) && size > maxSize);
+    hasConflict ||= sizeConflict;
+    if (!sizeConflict) matchedCriteriaCount++;
+  }
+  if (currentSqmPrice > 0 && (minSqmPrice !== null || maxSqmPrice !== null)) {
+    const sqmConflict = (minSqmPrice !== null && Number.isFinite(minSqmPrice) && currentSqmPrice < minSqmPrice) ||
+      (maxSqmPrice !== null && Number.isFinite(maxSqmPrice) && currentSqmPrice > maxSqmPrice);
+    hasConflict ||= sqmConflict;
+    if (!sqmConflict) matchedCriteriaCount++;
+  }
+  if (cityQuery && hasLocation) {
+    if (matchesLocation) matchedCriteriaCount++;
+    else hasConflict = true;
+  }
+  if (filter.petFriendly === true && amenities.petFriendly) matchedCriteriaCount++;
+  if (filter.nearMetro === true && amenities.nearMetro) matchedCriteriaCount++;
+
+  return !hasConflict && matchedCriteriaCount >= 1;
+}
+
 interface FirestoreApartmentDoc {
   title?: string;
   description?: string; // 🟢 Νέο πεδίο
@@ -135,6 +221,9 @@ interface FirestoreApartmentDoc {
   publishedAt?: unknown;
   updatedAt?: unknown;
   createdAt?: unknown;
+  isOffMarket?: boolean;
+  visibility?: "client_only" | "public";
+  offMarketAccessUserIds?: string[];
 }
 
 const AMENITIES: Amenity[] = [
@@ -716,6 +805,14 @@ export default function CreateListingScreen() {
   const [isAssignedBrokerListing, setIsAssignedBrokerListing] = useState(false);
   const [listingOwnerId, setListingOwnerId] = useState<string | null>(null);
   const [existingAssignedBrokerIds, setExistingAssignedBrokerIds] = useState<string[]>([]);
+  const [currentListingId, setCurrentListingId] = useState(listingId);
+  const [isOffMarket, setIsOffMarket] = useState(false);
+  const [offMarketAccessUserIds, setOffMarketAccessUserIds] = useState<string[]>([]);
+  const [sendingOffMarketClientId, setSendingOffMarketClientId] = useState<string | null>(null);
+  const scrollViewRef = useRef<ScrollView>(null);
+  const matchingSectionY = useRef(0);
+  const [clientPool, setClientPool] = useState<BrokerClientWithFilters[]>([]);
+  const [loadingClientPool, setLoadingClientPool] = useState(false);
   const currentPriceHistory = useMemo(() => {
     if (priceHistory.length > 0) return priceHistory;
     const currentPrice = Number(monthlyRent);
@@ -732,6 +829,76 @@ export default function CreateListingScreen() {
     ];
   }, [auth.user?.name, auth.userId, monthlyRent, ownerPriceExpectation, priceHistory]);
   const isBrokerMode = auth.isBroker === true;
+
+  useEffect(() => {
+    if (!isBrokerMode || !auth.userId) {
+      setClientPool([]);
+      setLoadingClientPool(false);
+      return;
+    }
+
+    let active = true;
+    setLoadingClientPool(true);
+    void (async () => {
+      try {
+        const chatsSnap = await getDocs(query(collection(db, "chats"), where("users", "array-contains", auth.userId)));
+        const loaded = await Promise.all(chatsSnap.docs.map(async (chatDoc): Promise<BrokerClientWithFilters | null> => {
+          const chatData = chatDoc.data() as {
+            users?: unknown;
+            brokerChatRole?: string;
+            status?: string;
+            participantDisplayNames?: Record<string, string>;
+            participantAvatars?: Record<string, string>;
+          };
+          if (chatData.brokerChatRole && chatData.brokerChatRole !== "client") return null;
+          if (chatData.status === "closed") return null;
+          const users = Array.isArray(chatData.users) ? chatData.users.filter((uid): uid is string => typeof uid === "string") : [];
+          const clientUserId = users.find((uid) => uid !== auth.userId);
+          if (!clientUserId) return null;
+
+          const profileSnap = await getDoc(doc(db, "users", clientUserId));
+          const profile = profileSnap.exists() ? profileSnap.data() as { name?: string; photoUrl?: string; avatar?: string; photos?: string[] } : {};
+          const clientName = chatData.participantDisplayNames?.[clientUserId] || profile.name?.trim() || "Πελάτης";
+          const clientAvatar = chatData.participantAvatars?.[clientUserId] || profile.photoUrl || profile.avatar || profile.photos?.[0] || "";
+          let filterSet: FilterSetPayload | null = null;
+
+          try {
+            const messagesSnap = await getDocs(query(
+              collection(db, "chats", chatDoc.id, "messages"),
+              where("type", "==", "filter_set_share"),
+              orderBy("createdAt", "desc"),
+              limit(1),
+            ));
+            if (!messagesSnap.empty) {
+              const sharedData = messagesSnap.docs[0].data().filterSetData;
+              if (sharedData && typeof sharedData === "object") filterSet = latestClientFilter(sharedData as Record<string, unknown>);
+            }
+          } catch {
+            // The saved-filter fallback also handles missing composite indexes.
+          }
+
+          if (!filterSet) {
+            try {
+              const savedSnap = await getDocs(query(collection(db, "users", clientUserId, "savedFilterSets"), orderBy("updatedAt", "desc"), limit(1)));
+              if (!savedSnap.empty) filterSet = latestClientFilter(savedSnap.docs[0].data());
+            } catch {
+              // A client may not have a saved-filter collection or permission for it.
+            }
+          }
+
+          return { clientUserId, clientName, clientAvatar, chatRoomId: chatDoc.id, filterSet };
+        }));
+        if (active) setClientPool(loaded.filter((client): client is BrokerClientWithFilters => client !== null));
+      } catch (error) {
+        console.warn("[CreateListing] Error loading client pool:", error);
+        if (active) setClientPool([]);
+      } finally {
+        if (active) setLoadingClientPool(false);
+      }
+    })();
+
+    return () => { active = false; };
+  }, [auth.userId, isBrokerMode]);
 
   useEffect(() => {
     if (isBrokerMode || !auth.userId) {
@@ -841,6 +1008,14 @@ export default function CreateListingScreen() {
   const numericSize = useMemo(() => Number(sizeSqm), [sizeSqm]);
   const numericRooms = useMemo(() => Number(rooms), [rooms]);
   const cityValue = city?.trim() ?? "";
+
+  const hasAnyListingData = numericRent > 0 || numericSize > 0 || cityValue.length > 0 || area.trim().length > 0 || amenities.petFriendly || amenities.nearMetro;
+  const matchedClients = useMemo<MatchedClient[]>(() => {
+    if (!hasAnyListingData) return [];
+    return clientPool
+      .filter((client) => client.filterSet !== null && filterMatchesListing(client.filterSet, numericRent, numericSize, cityValue, area, amenities))
+      .map((client) => ({ ...client, matchScore: 85 }));
+  }, [amenities, area, cityValue, clientPool, hasAnyListingData, numericRent, numericSize]);
 
   const isLocationSectionComplete = useMemo(
     () => cityValue.length > 0 && area.trim().length > 0,
@@ -1036,6 +1211,9 @@ export default function CreateListingScreen() {
         if (!snapshot.exists() || !active) return;
 
         const data = snapshot.data() as FirestoreApartmentDoc & { assignedBrokerIds?: string[] };
+        setCurrentListingId(listingId);
+        setIsOffMarket(data.isOffMarket === true);
+        setOffMarketAccessUserIds(Array.isArray(data.offMarketAccessUserIds) ? data.offMarketAccessUserIds : []);
         const ownerId = data.ownerId || data.hostId;
         const assignedBrokers = Array.isArray(data.assignedBrokerIds) ? data.assignedBrokerIds : [];
         setListingOwnerId(ownerId ?? null);
@@ -1483,6 +1661,146 @@ export default function CreateListingScreen() {
     void Linking.openURL(url).catch(() => setError("Δεν ήταν δυνατό το άνοιγμα του εγγράφου."));
   }, []);
 
+  const buildCurrentListingPayload = useCallback((options?: {
+    imageList?: string[];
+    isOffMarket?: boolean;
+    visibility?: "client_only" | "public";
+    offMarketAccessUserIds?: string[];
+  }): Record<string, unknown> => {
+    const parsedMaxDiscount = maxDiscountPercent.trim().length > 0 ? Number(maxDiscountPercent) : null;
+    const normalizedRooms = Number.isFinite(Number(rooms)) && Number(rooms) > 0 ? Math.trunc(Number(rooms)) : 1;
+    const imageList = options?.imageList ?? photos;
+    const hostId = listingOwnerId || auth.userId || "";
+    return {
+      title: title.trim() || "Αποκλειστικό Ακίνητο (Off-Market)",
+      description: description.trim(),
+      about: description.trim(),
+      propertyCategory: propertyCategory ?? undefined,
+      propertyType: propertyType ?? undefined,
+      floor: floor ?? undefined,
+      orientation: orientation ?? undefined,
+      area: area.trim(),
+      city,
+      address: address.trim() || undefined,
+      latitude: hasExactLocation ? addressLatitude : undefined,
+      longitude: hasExactLocation ? addressLongitude : undefined,
+      hasExactLocation,
+      rent: Number(monthlyRent) || 0,
+      price: Number(monthlyRent) || 0,
+      maxDiscountPercent: parsedMaxDiscount,
+      rooms: normalizedRooms,
+      size: Number(sizeSqm) || 0,
+      sqft: Number(sizeSqm) || 0,
+      image: imageList[0] || "",
+      imageUrl: imageList[0] || "",
+      images: imageList,
+      tags: selectedAmenitySlugs.length ? selectedAmenitySlugs : ["new_listing"],
+      amenities: selectedAmenitySlugs,
+      extraDetails: Object.keys(extraDetailsState).length > 0 ? extraDetailsState : undefined,
+      extraInformation: {
+        livingRooms: Number(livingRooms),
+        bathrooms: Number(bathrooms),
+        kitchens: Number(kitchens),
+        levels: Number(levels),
+        isImmediatelyAvailable,
+        buildYear: buildYear.trim() ? Number(buildYear) : undefined,
+        renovationYear: renovationYear.trim() ? Number(renovationYear) : undefined,
+        commonExpenses: commonExpenses.trim() ? Number(commonExpenses) : undefined,
+        heatingSystem: heatingSystem ?? undefined,
+        energyClass: energyClass ?? undefined,
+        windowFrames: windowFrames.trim() || undefined,
+        availableFromDate: availableFromDate ?? undefined,
+      },
+      technicalSpecifications: technicalSpecificationsPayload.length ? technicalSpecificationsPayload : undefined,
+      propertyStatus,
+      closedDealPrice: propertyStatus === "sold_rented" && closedDealPrice.trim() ? Number(closedDealPrice) : null,
+      ownerDetails: {
+        name: ownerName.trim(),
+        motivationType: ownerMotivationType,
+        customMotivation: ownerMotivationType === "Άλλο" ? customOwnerMotivation.trim() : undefined,
+        motivation: ownerMotivationType === "Άλλο" ? customOwnerMotivation.trim() : (ownerMotivationType ?? ""),
+        priceExpectation: ownerPriceExpectation.trim() ? Number(ownerPriceExpectation) : null,
+      },
+      priceHistory: currentPriceHistory,
+      showPhoneNumber,
+      hostId,
+      ownerId: hostId,
+      assignedBrokerIds: existingAssignedBrokerIds,
+      isOffMarket: options?.isOffMarket ?? isOffMarket,
+      visibility: options?.visibility ?? (isOffMarket ? "client_only" : "public"),
+      offMarketAccessUserIds: options?.offMarketAccessUserIds ?? offMarketAccessUserIds,
+    };
+  }, [address, addressLatitude, addressLongitude, area, availableFromDate, buildYear, city, closedDealPrice, commonExpenses, currentPriceHistory, customOwnerMotivation, description, energyClass, existingAssignedBrokerIds, extraDetailsState, floor, hasExactLocation, heatingSystem, isImmediatelyAvailable, isOffMarket, kitchens, levels, livingRooms, listingOwnerId, maxDiscountPercent, monthlyRent, offMarketAccessUserIds, orientation, ownerMotivationType, ownerName, ownerPriceExpectation, photos, propertyCategory, propertyStatus, propertyType, rooms, selectedAmenitySlugs, showPhoneNumber, sizeSqm, technicalSpecificationsPayload, title, windowFrames, renovationYear, bathrooms, auth.userId]);
+
+  const handleSendOffMarketListing = useCallback(async (client: MatchedClient) => {
+    if (!auth.userId || auth.isGuest || sendingOffMarketClientId) return;
+    if (!monthlyRent || !city || !area.trim() || !sizeSqm) {
+      showFeedbackModal("Συμπληρώστε τα βασικά στοιχεία", "Το ενοίκιο, η πόλη, η περιοχή και το εμβαδόν είναι απαραίτητα για την κοινοποίηση.");
+      return;
+    }
+
+    setSendingOffMarketClientId(client.clientUserId);
+    try {
+      const nextAccessUserIds = Array.from(new Set([...offMarketAccessUserIds, client.clientUserId]));
+      const existingId = currentListingId || (isEditMode ? listingId : "");
+      const payload = buildCurrentListingPayload({
+        isOffMarket: true,
+        visibility: "client_only",
+        offMarketAccessUserIds: nextAccessUserIds,
+      });
+      const finalListingId = existingId || await upsertListing({
+        payload: {
+          ...payload,
+          hostId: auth.userId,
+          ownerId: auth.userId,
+          status: "active",
+          offMarketAccessUserIds: nextAccessUserIds,
+        },
+      });
+      if (existingId) {
+        await updateDoc(doc(db, "apartments", finalListingId), {
+          isOffMarket: true,
+          visibility: "client_only",
+          offMarketAccessUserIds: arrayUnion(client.clientUserId),
+          updatedAt: serverTimestamp(),
+        });
+      }
+      const finalTitle = title.trim() || "Αποκλειστικό Ακίνητο (Off-Market)";
+      await addDoc(collection(db, "chats", client.chatRoomId, "messages"), {
+        senderId: auth.userId,
+        type: "off_market_listing",
+        apartmentId: finalListingId,
+        apartmentTitle: finalTitle,
+        apartmentPrice: Number(monthlyRent) || 0,
+        apartmentImage: photos[0] || "",
+        text: `[Αποκλειστική Πρόταση Ακινήτου (Off-market): ${finalTitle}]`,
+        createdAt: serverTimestamp(),
+        isRead: false,
+      });
+      setCurrentListingId(finalListingId);
+      setIsOffMarket(true);
+      setOffMarketAccessUserIds(nextAccessUserIds);
+      showFeedbackModal("Το ακίνητο κοινοποιήθηκε αποκλειστικά στον πελάτη!", "");
+    } catch {
+      showFeedbackModal("Η κοινοποίηση απέτυχε", "Δεν ήταν δυνατή η αποστολή της αποκλειστικής πρότασης. Δοκιμάστε ξανά.");
+    } finally {
+      setSendingOffMarketClientId(null);
+    }
+  }, [area, auth.isGuest, auth.userId, buildCurrentListingPayload, city, currentListingId, isEditMode, listingId, monthlyRent, offMarketAccessUserIds, photos, sendingOffMarketClientId, showFeedbackModal, sizeSqm, title]);
+
+  useEffect(() => {
+    if (!isOffMarket || !currentListingId || !auth.isBroker) return;
+    const timer = setTimeout(() => {
+      void upsertListing({
+        apartmentId: currentListingId,
+        payload: buildCurrentListingPayload({ isOffMarket: true, visibility: "client_only" }),
+      }).catch((saveError) => {
+        console.warn("[CreateListing] Auto-save failed:", saveError);
+      });
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [address, amenities, area, auth.isBroker, buildCurrentListingPayload, city, currentListingId, description, floor, isOffMarket, monthlyRent, photos, rooms, sizeSqm, title]);
+
   const validateAndSubmit = async () => {
         const parsedMaxDiscount = maxDiscountPercent.trim().length > 0 ? Number(maxDiscountPercent) : null;
         if (parsedMaxDiscount !== null && (!Number.isInteger(parsedMaxDiscount) || parsedMaxDiscount < 0 || parsedMaxDiscount > 100)) {
@@ -1508,6 +1826,34 @@ export default function CreateListingScreen() {
         t("createListing.alerts.signInRequiredMessage"),
         () => router.push("/auth-landing"),
       );
+      return;
+    }
+
+    if (isOffMarket && currentListingId) {
+      if (!title.trim() || !monthlyRent || !city || !area.trim() || !photos.some((photo) => photo.trim().length > 0)) {
+        showFeedbackModal("Συμπληρώστε τα στοιχεία δημοσίευσης", "Ο τίτλος, η τιμή, η τοποθεσία και τουλάχιστον μία φωτογραφία είναι απαραίτητα.");
+        return;
+      }
+
+      setSubmitting(true);
+      try {
+        await updateDoc(doc(db, "apartments", currentListingId), {
+          isOffMarket: false,
+          visibility: "public",
+          publishedAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+        setIsOffMarket(false);
+        showFeedbackModal(
+          "Η αγγελία δημοσιεύτηκε επίσημα και είναι πλέον ορατή σε όλους!",
+          "",
+          () => router.replace("/apartments"),
+        );
+      } catch {
+        showFeedbackModal("Η δημοσίευση απέτυχε", "Δεν ήταν δυνατή η επίσημη δημοσίευση της αγγελίας. Δοκιμάστε ξανά.");
+      } finally {
+        setSubmitting(false);
+      }
       return;
     }
 
@@ -1609,12 +1955,17 @@ export default function CreateListingScreen() {
         hostId,
         ownerId: hostId,
         assignedBrokerIds: existingAssignedBrokerIds,
+        isOffMarket: false,
+        visibility: "public",
+        offMarketAccessUserIds,
       };
 
       const savedApartmentId = await upsertListing({
-        apartmentId: isEditMode ? listingId : undefined,
+        apartmentId: currentListingId || (isEditMode ? listingId : undefined),
         payload: data,
       });
+      setCurrentListingId(savedApartmentId);
+      setIsOffMarket(false);
       if (isBrokerMode) {
         setPriceHistory(nextPriceHistory);
         setSelectedHistoryNode(null);
@@ -1688,6 +2039,7 @@ export default function CreateListingScreen() {
 
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.flexOne}>
         <ScrollView
+          ref={scrollViewRef}
           contentContainerStyle={[styles.content, { paddingBottom: spacing["2xl"] + insets.bottom }]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
@@ -2078,6 +2430,71 @@ export default function CreateListingScreen() {
                   </View>
                 </View>
               ) : null}
+            </View>
+          ) : null}
+
+          {isBrokerMode ? (
+            <View
+              style={styles.card}
+              onLayout={(event) => {
+                matchingSectionY.current = event.nativeEvent.layout.y;
+              }}
+              testID="create-listing-client-matching"
+            >
+              <View style={styles.sectionHeaderRow}>
+                <View style={styles.matchingHeaderTextWrap}>
+                  <Text style={styles.sectionTitle}>Ταίριασμα με Υπάρχοντες Πελάτες (Off-market Exclusive)</Text>
+                  <Text style={styles.fieldHint}>Προτείνετε το ακίνητο σε συμβατούς πελάτες πριν την επίσημη δημοσίευση.</Text>
+                </View>
+                {loadingClientPool ? <ActivityIndicator size="small" color={colors.brandSecondary} /> : null}
+              </View>
+
+              {!loadingClientPool && !hasAnyListingData ? (
+                <Text style={styles.fieldHint}>Συμπληρώστε τουλάχιστον ένα στοιχείο του ακινήτου για να δείτε συμβατούς πελάτες.</Text>
+              ) : !loadingClientPool && matchedClients.length === 0 ? (
+                <Text style={styles.fieldHint}>Δεν βρέθηκαν πελάτες των οποίων τα φίλτρα να ταιριάζουν με τα τρέχοντα στοιχεία.</Text>
+              ) : (
+                <View style={styles.matchedClientList}>
+                  {matchedClients.map((client) => (
+                    <View key={client.chatRoomId} style={styles.matchedClientRow}>
+                      {client.clientAvatar ? (
+                        <Image source={{ uri: client.clientAvatar }} style={styles.matchedClientAvatar} contentFit="cover" />
+                      ) : (
+                        <DefaultProfileAvatar size={42} iconSize={19} />
+                      )}
+                      <View style={styles.matchedClientInfo}>
+                        <Text style={styles.matchedClientName} numberOfLines={1}>{client.clientName}</Text>
+                        <View style={styles.compatibilityBadge}>
+                          <Text style={styles.compatibilityBadgeText}>{`${client.matchScore}% Match`}</Text>
+                        </View>
+                      </View>
+                      <View style={styles.matchedClientActions}>
+                        <Pressable
+                          style={styles.matchedClientSendButton}
+                          onPress={() => void handleSendOffMarketListing(client)}
+                          disabled={sendingOffMarketClientId !== null}
+                          accessibilityLabel={`Αποστολή μηνύματος στον ${client.clientName}`}
+                          testID={`create-listing-match-send-${client.clientUserId}`}
+                        >
+                          {sendingOffMarketClientId === client.clientUserId ? (
+                            <ActivityIndicator size="small" color={colors.onBrand} />
+                          ) : (
+                            <Ionicons name="paper-plane-outline" size={18} color={colors.onBrand} />
+                          )}
+                        </Pressable>
+                        <Pressable
+                          style={styles.matchedClientAddButton}
+                          onPress={() => undefined}
+                          accessibilityLabel={`Προσθήκη ${client.clientName}`}
+                          testID={`create-listing-match-add-${client.clientUserId}`}
+                        >
+                          <Ionicons name="add-outline" size={18} color={colors.onSurfaceTertiary} />
+                        </Pressable>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              )}
             </View>
           ) : null}
 
@@ -2738,7 +3155,23 @@ export default function CreateListingScreen() {
           ) : null}
         </ScrollView>
 
-        <View style={[styles.footer, { paddingBottom: spacing.lg + insets.bottom }]}>
+        {isBrokerMode ? (
+          <Pressable
+            style={[styles.floatingMatchingButton, { top: spacing.md + insets.top }]}
+            onPress={() => scrollViewRef.current?.scrollTo({ y: matchingSectionY.current, animated: true })}
+            accessibilityLabel="Αναζήτηση συμβατών πελατών"
+            testID="create-listing-matching-scroll-button"
+          >
+            <Ionicons name="search-outline" size={20} color={colors.onSurface} />
+          </Pressable>
+        ) : null}
+
+        <View style={[styles.footer, isOffMarket && styles.offMarketFooter, { paddingBottom: spacing.lg + insets.bottom }]}>
+          {isOffMarket ? (
+            <Pressable style={styles.offMarketBackButton} onPress={() => router.back()} testID="create-listing-off-market-back">
+              <Text style={styles.offMarketBackButtonText}>Πίσω</Text>
+            </Pressable>
+          ) : null}
           {!isBrokerMode && (isEditMode || userHasListings) ? (
             <Pressable
               style={styles.assignBrokerButton}
@@ -2756,7 +3189,7 @@ export default function CreateListingScreen() {
             </Pressable>
           ) : null}
           <Pressable
-            style={[styles.publishButton, submitting && styles.publishButtonDisabled]}
+            style={[styles.publishButton, isOffMarket && styles.offMarketPublishButton, submitting && styles.publishButtonDisabled]}
             onPress={validateAndSubmit}
             disabled={submitting}
             testID="create-listing-publish-button"
@@ -2767,7 +3200,7 @@ export default function CreateListingScreen() {
                 <Text style={styles.publishButtonText}>{t("createListing.uploading")}</Text>
               </View>
             ) : (
-              <Text style={styles.publishButtonText}>{isEditMode ? t("createListing.saveChanges") : t("common.cta.publishListing")}</Text>
+              <Text style={styles.publishButtonText}>{isOffMarket ? "Δημοσίευση αγγελίας" : isEditMode ? t("createListing.saveChanges") : t("common.cta.publishListing")}</Text>
             )}
           </Pressable>
         </View>
@@ -2938,6 +3371,85 @@ function createStyles(colors: ThemeColors) {
       alignItems: "center",
       gap: spacing.sm,
       flexShrink: 1,
+    },
+    matchingHeaderTextWrap: {
+      flex: 1,
+      gap: spacing.xs,
+    },
+    matchedClientList: {
+      gap: spacing.sm,
+    },
+    matchedClientRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      paddingVertical: spacing.xs,
+    },
+    matchedClientAvatar: {
+      width: 42,
+      height: 42,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    matchedClientInfo: {
+      flex: 1,
+      minWidth: 0,
+      gap: spacing.xs,
+    },
+    matchedClientName: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.base,
+      color: colors.onSurface,
+    },
+    compatibilityBadge: {
+      alignSelf: "flex-start",
+      borderRadius: radius.pill,
+      backgroundColor: colors.brandTertiary,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 2,
+    },
+    compatibilityBadgeText: {
+      fontFamily: fonts.bold,
+      fontSize: fontSize.sm,
+      color: colors.brand,
+    },
+    matchedClientActions: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+    },
+    matchedClientSendButton: {
+      width: 36,
+      height: 36,
+      borderRadius: radius.pill,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.brand,
+    },
+    matchedClientAddButton: {
+      width: 36,
+      height: 36,
+      borderRadius: radius.pill,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.surfaceSecondary,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    floatingMatchingButton: {
+      position: "absolute",
+      right: spacing.lg,
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.surfaceSecondary,
+      borderWidth: 1,
+      borderColor: colors.border,
+      zIndex: 2,
+      elevation: 3,
     },
     sectionCompleteBadge: {
       width: 22,
@@ -3601,6 +4113,26 @@ function createStyles(colors: ThemeColors) {
       borderTopWidth: 1,
       borderTopColor: colors.divider,
     },
+    offMarketFooter: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+    },
+    offMarketBackButton: {
+      flex: 1,
+      minHeight: 56,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceSecondary,
+    },
+    offMarketBackButtonText: {
+      fontFamily: fonts.bold,
+      fontSize: fontSize.lg,
+      color: colors.onSurface,
+    },
     assignBrokerButton: {
       minHeight: 48,
       marginBottom: spacing.sm,
@@ -3706,6 +4238,9 @@ function createStyles(colors: ThemeColors) {
       shadowRadius: 8,
       shadowOffset: { width: 0, height: 4 },
       elevation: 6,
+    },
+    offMarketPublishButton: {
+      flex: 3,
     },
     publishButtonDisabled: {
       opacity: 0.88,

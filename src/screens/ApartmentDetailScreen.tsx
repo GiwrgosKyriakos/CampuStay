@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Dimensions,
   Linking,
   Modal,
@@ -114,6 +115,8 @@ interface Apartment {
   status?: "active" | "closed_deal";
   rentedToUserId?: string | null;
   rentedAt?: number | null;
+  isOffMarket?: boolean;
+  offMarketAccessUserIds?: string[];
 }
 
 interface FirestoreApartmentDoc {
@@ -153,6 +156,8 @@ interface FirestoreApartmentDoc {
   publishedAt?: unknown;
   updatedAt?: unknown;
   createdAt?: unknown;
+  isOffMarket?: boolean;
+  offMarketAccessUserIds?: string[];
 }
 
 interface FirestoreInquiryChatDoc {
@@ -481,6 +486,9 @@ export default function ApartmentDetailScreen() {
   const [hostPhoneNumber, setHostPhoneNumber] = useState("");
   const [resolvedHostId, setResolvedHostId] = useState<string | null>(apt?.hostId || apt?.ownerId || null);
   const [approvedClientPrice, setApprovedClientPrice] = useState<number | null>(null);
+  const [isOffMarketListing, setIsOffMarketListing] = useState(apt?.isOffMarket === true);
+  const [offMarketAccessUserIds, setOffMarketAccessUserIds] = useState<string[]>(apt?.offMarketAccessUserIds || []);
+  const offMarketGuardShown = useRef(false);
 
   const [inquiries, setInquiries] = useState<InquiryItem[]>([]);
   const [loadingInquiries, setLoadingInquiries] = useState(false);
@@ -498,6 +506,26 @@ export default function ApartmentDetailScreen() {
   const canViewLikedUsers = !isListingOwner && !auth.isBroker;
 
   const cityCoordinates = useLocationCoordinates(apt?.city, apt?.area);
+
+  useEffect(() => {
+    if (auth.isLoading || !apt || !isOffMarketListing || offMarketGuardShown.current) return;
+    const currentUid = auth.userId;
+    const isBrokerOwner = !!currentUid && (
+      apt.hostId === currentUid ||
+      apt.ownerId === currentUid ||
+      (Array.isArray(apt.assignedBrokerIds) && apt.assignedBrokerIds.includes(currentUid))
+    );
+    const isPrivilegedClient = !!currentUid && offMarketAccessUserIds.includes(currentUid);
+    if (isBrokerOwner || isPrivilegedClient) return;
+
+    offMarketGuardShown.current = true;
+    Alert.alert(
+      "Η προεπισκόπηση δεν είναι διαθέσιμη",
+      "Αυτό το ακίνητο είναι αποκλειστικά διαθέσιμο σε εξουσιοδοτημένους πελάτες.",
+      [{ text: "OK", onPress: () => router.back() }],
+      { cancelable: false },
+    );
+  }, [apt, auth.isLoading, auth.userId, isOffMarketListing, offMarketAccessUserIds, router]);
 
   useEffect(() => {
     if (auth.isGuest || !auth.userId || !apt?.id) {
@@ -526,6 +554,8 @@ export default function ApartmentDetailScreen() {
         }
 
         const docData = docSnap.data() as FirestoreApartmentDoc;
+        setIsOffMarketListing(docData.isOffMarket === true);
+        setOffMarketAccessUserIds(Array.isArray(docData.offMarketAccessUserIds) ? docData.offMarketAccessUserIds : []);
         const imgs = Array.isArray(docData.images)
           ? docData.images.filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0)
           : [docData.image || docData.imageUrl].filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0);
@@ -1476,6 +1506,12 @@ export default function ApartmentDetailScreen() {
         contentContainerStyle={{ paddingBottom: 100 + insets.bottom }}
         showsVerticalScrollIndicator={false}
       >
+        {isOffMarketListing ? (
+          <View style={styles.clientOnlyBanner} testID="apartment-detail-client-only-banner">
+            <Ionicons name="lock-closed-outline" size={16} color={colors.onBrand} />
+            <Text style={styles.clientOnlyBannerText}>Αποκλειστική Προεπισκόπηση (Client-only view)</Text>
+          </View>
+        ) : null}
         <View style={[styles.carouselWrap, images.length === 0 && styles.carouselWrapPlaceholder]}>
           {images.length > 0 ? (
             <>
@@ -2338,6 +2374,21 @@ function createStyles(colors: ThemeColors) {
     container: { flex: 1, backgroundColor: colors.surface },
     center: { alignItems: "center", justifyContent: "center", gap: spacing.md },
     scroll: { flex: 1 },
+    clientOnlyBanner: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: spacing.xs,
+      backgroundColor: colors.brand,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.sm,
+    },
+    clientOnlyBannerText: {
+      fontFamily: fonts.bold,
+      fontSize: fontSize.sm,
+      color: colors.onBrand,
+      textAlign: "center",
+    },
 
     backOverlay: {
       position: "absolute",

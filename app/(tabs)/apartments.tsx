@@ -227,6 +227,8 @@ interface Apartment {
   hostId?: string;
   ownerId?: string;
   assignedBrokerIds?: string[];
+  isOffMarket?: boolean;
+  offMarketAccessUserIds?: string[];
   status?: "active" | "closed_deal";
   rentedToUserId?: string | null;
   rentedAtMillis?: number | null;
@@ -259,6 +261,8 @@ interface FirestoreApartmentDoc {
   hostId?: string;
   ownerId?: string;
   assignedBrokerIds?: string[];
+  isOffMarket?: boolean;
+  offMarketAccessUserIds?: string[];
   status?: "active" | "closed_deal";
   rentedToUserId?: string | null;
   rentedAt?: unknown;
@@ -367,7 +371,7 @@ function ApartmentGridCard({
   return (
     <View style={styles.cardWrap}>
       <Pressable
-        style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+        style={({ pressed }) => [styles.card, apt.isOffMarket && styles.offMarketCard, pressed && styles.cardPressed]}
         onPress={onOpen}
         testID={`apartment-card-${apt.id}`}
       >
@@ -379,6 +383,13 @@ function ApartmentGridCard({
             <Text style={styles.cardPlaceholderText}>CampuStay</Text>
           </View>
         )}
+
+        {apt.isOffMarket ? (
+          <View style={styles.clientOnlyBadge}>
+            <Ionicons name="lock-closed-outline" size={12} color={colors.onBrand} />
+            <Text style={styles.clientOnlyBadgeText}>client-only view</Text>
+          </View>
+        ) : null}
 
         {cardImages.length > 1 && activeImageIndex > 0 && (
           <Pressable
@@ -1114,6 +1125,8 @@ export default function ApartmentsScreen() {
                   hostId: data.hostId,
                   ownerId: data.ownerId || data.hostId,
                   assignedBrokerIds: Array.isArray(data.assignedBrokerIds) ? data.assignedBrokerIds : [],
+                  isOffMarket: data.isOffMarket === true,
+                  offMarketAccessUserIds: Array.isArray(data.offMarketAccessUserIds) ? data.offMarketAccessUserIds : [],
                   status: data.status === "closed_deal" ? "closed_deal" : "active",
                   rentedToUserId: typeof data.rentedToUserId === "string" ? data.rentedToUserId : data.rentedToUserId === null ? null : null,
                   rentedAtMillis: parseTimestampToMillis(data.rentedAt) || null,
@@ -1371,6 +1384,8 @@ export default function ApartmentsScreen() {
       const isDirectOwner = !!currentUid && (apt.ownerId === currentUid || apt.hostId === currentUid);
       const isAssignedBroker = !!currentUid && auth.isBroker === true && Array.isArray(apt.assignedBrokerIds) && apt.assignedBrokerIds.includes(currentUid);
       const isOwnListing = isDirectOwner || isAssignedBroker;
+      const isPrivilegedClient = !!currentUid && Array.isArray(apt.offMarketAccessUserIds) && apt.offMarketAccessUserIds.includes(currentUid);
+      if (apt.isOffMarket && !isOwnListing && !isPrivilegedClient) return false;
       const isClosedDeal = apt.status === "closed_deal";
       const likedAtMillis = likedApartmentTimestampById[apt.id] ?? 0;
       const closedAtMillis = typeof apt.rentedAtMillis === "number" ? apt.rentedAtMillis : 0;
@@ -3230,6 +3245,28 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderRadius: radius.lg,
     overflow: "hidden",
     backgroundColor: colors.surfaceTertiary,
+  },
+  offMarketCard: {
+    borderTopWidth: 3,
+    borderTopColor: colors.brand,
+  },
+  clientOnlyBadge: {
+    position: "absolute",
+    top: spacing.md,
+    left: spacing.md,
+    zIndex: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    borderRadius: radius.pill,
+    backgroundColor: colors.brand,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  clientOnlyBadgeText: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.xs,
+    color: colors.onBrand,
   },
   carouselArrowButton: {
     position: "absolute",
