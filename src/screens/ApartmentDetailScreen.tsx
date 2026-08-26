@@ -89,6 +89,42 @@ type InquiryItem = {
   sortKey: number;
 };
 
+interface PropertyInteractionLogData {
+  callsCount: number;
+  showingsCount: number;
+  commentsCount: number;
+  emailsCount: number;
+  recentCalls: string[];
+  recentShowings: string[];
+  clientFeedback: string[];
+  recentEmails: string[];
+}
+
+const MOCK_PROPERTY_INTERACTIONS: PropertyInteractionLogData = {
+  callsCount: 14,
+  showingsCount: 6,
+  commentsCount: 8,
+  emailsCount: 11,
+  recentCalls: [
+    "24/08 - Γιώργος Π. (Ερώτηση για διαθεσιμότητα & κοινόχρηστα)",
+    "22/08 - Ελένη Κ. (Ενδιαφέρον για άμεση επίσκεψη)",
+    "19/08 - Νίκος Μ. (Διαπραγμάτευση τιμής)",
+  ],
+  recentShowings: [
+    "25/08 - Ολοκληρωμένη υπόδειξη (Θετικές εντυπώσεις)",
+    "21/08 - Υπόδειξη με υποψήφιο φοιτητή & γονείς",
+  ],
+  clientFeedback: [
+    "Εξαιρετικός φυσικός φωτισμός και ευρύχωρο μπαλκόνι",
+    "Θετική εντύπωση για την εγγύτητα στο Μετρό",
+    "Παρατήρηση για την ανάγκη βαψίματος στο υπνοδωμάτιο",
+  ],
+  recentEmails: [
+    "23/08 - Αίτημα αποστολής αναλυτικής κάτοψης & λογαριασμών",
+    "20/08 - Ερώτηση σχετικά με τη δυνατότητα φιλοξενίας κατοικιδίου",
+  ],
+};
+
 interface BrokerClientWithFilters {
   clientUserId: string;
   clientName: string;
@@ -1898,6 +1934,44 @@ export default function ApartmentDetailScreen() {
         ) : null}
 
         {isListingOwner ? (
+          <View style={styles.propertyInteractionCard} testID="apartment-interaction-log">
+            <View style={styles.interactionHeaderRow}>
+              <View style={styles.interactionTitleWrap}>
+                <Ionicons color={colors.brand} name="newspaper-outline" size={20} />
+                <Text style={styles.interactionCardTitle}>Ιστορικό Αλληλεπιδράσεων</Text>
+              </View>
+            </View>
+
+            <View style={styles.metricsSummaryBar}>
+              <View style={styles.metricCounterItem}><Ionicons color="#10B981" name="call-outline" size={15} /><Text style={styles.metricCounterNumber}>{MOCK_PROPERTY_INTERACTIONS.callsCount}</Text><Text style={styles.metricCounterLabel}>Κλήσεις</Text></View>
+              <View style={styles.metricCounterDivider} />
+              <View style={styles.metricCounterItem}><Ionicons color={colors.brand} name="key-outline" size={15} /><Text style={styles.metricCounterNumber}>{MOCK_PROPERTY_INTERACTIONS.showingsCount}</Text><Text style={styles.metricCounterLabel}>Υποδείξεις</Text></View>
+              <View style={styles.metricCounterDivider} />
+              <View style={styles.metricCounterItem}><Ionicons color="#F59E0B" name="chatbubble-ellipses-outline" size={15} /><Text style={styles.metricCounterNumber}>{MOCK_PROPERTY_INTERACTIONS.commentsCount}</Text><Text style={styles.metricCounterLabel}>Σχόλια</Text></View>
+              <View style={styles.metricCounterDivider} />
+              <View style={styles.metricCounterItem}><Ionicons color="#38BDF8" name="mail-outline" size={15} /><Text style={styles.metricCounterNumber}>{MOCK_PROPERTY_INTERACTIONS.emailsCount}</Text><Text style={styles.metricCounterLabel}>Emails</Text></View>
+            </View>
+
+            <View style={styles.categorySection}>
+              <View style={styles.categoryHeader}><Ionicons color="#10B981" name="call-outline" size={16} /><Text style={styles.categoryTitleText}>Τηλέφωνο</Text><View style={styles.categoryCountBadge}><Text style={styles.categoryCountText}>{`${MOCK_PROPERTY_INTERACTIONS.callsCount} συνολικά`}</Text></View></View>
+              <View style={styles.itemLogList}>{MOCK_PROPERTY_INTERACTIONS.recentCalls.map((item) => <View key={item} style={styles.logBulletRow}><Text style={styles.logBulletSymbol}>•</Text><Text style={styles.logItemText}>{item}</Text></View>)}</View>
+            </View>
+            <View style={styles.categorySection}>
+              <View style={styles.categoryHeader}><Ionicons color={colors.brand} name="key-outline" size={16} /><Text style={styles.categoryTitleText}>Υποδείξεις</Text><View style={styles.categoryCountBadge}><Text style={styles.categoryCountText}>{`${MOCK_PROPERTY_INTERACTIONS.showingsCount} ραντεβού`}</Text></View></View>
+              <View style={styles.itemLogList}>{MOCK_PROPERTY_INTERACTIONS.recentShowings.map((item) => <View key={item} style={styles.logBulletRow}><Text style={styles.logBulletSymbol}>•</Text><Text style={styles.logItemText}>{item}</Text></View>)}</View>
+            </View>
+            <View style={styles.categorySection}>
+              <View style={styles.categoryHeader}><Ionicons color="#F59E0B" name="chatbubble-ellipses-outline" size={16} /><Text style={styles.categoryTitleText}>Σχόλια από πελάτες</Text><View style={styles.categoryCountBadge}><Text style={styles.categoryCountText}>{`${MOCK_PROPERTY_INTERACTIONS.commentsCount} σχόλια`}</Text></View></View>
+              <View style={styles.itemLogList}>{MOCK_PROPERTY_INTERACTIONS.clientFeedback.map((item) => <View key={item} style={styles.logBulletRow}><Text style={styles.logBulletSymbol}>•</Text><Text style={styles.logItemText}>{item}</Text></View>)}</View>
+            </View>
+            <View style={styles.categorySection}>
+              <View style={styles.categoryHeader}><Ionicons color="#38BDF8" name="mail-outline" size={16} /><Text style={styles.categoryTitleText}>Emails</Text><View style={styles.categoryCountBadge}><Text style={styles.categoryCountText}>{`${MOCK_PROPERTY_INTERACTIONS.emailsCount} μηνύματα`}</Text></View></View>
+              <View style={styles.itemLogList}>{MOCK_PROPERTY_INTERACTIONS.recentEmails.map((item) => <View key={item} style={styles.logBulletRow}><Text style={styles.logBulletSymbol}>•</Text><Text style={styles.logItemText}>{item}</Text></View>)}</View>
+            </View>
+          </View>
+        ) : null}
+
+        {isListingOwner ? (
           <View
             style={styles.section}
             onLayout={(event) => setInquiriesSectionY(event.nativeEvent.layout.y)}
@@ -2822,6 +2896,41 @@ function createStyles(colors: ThemeColors) {
       fontSize: fontSize.lg,
       color: colors.onSurface,
     },
+    propertyInteractionCard: {
+      marginTop: spacing.md,
+      padding: spacing.md,
+      borderRadius: radius.lg,
+      backgroundColor: colors.surfaceSecondary,
+      borderWidth: 1,
+      borderColor: colors.border,
+      gap: spacing.md,
+    },
+    interactionHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+    interactionTitleWrap: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
+    interactionCardTitle: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface },
+    metricsSummaryBar: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-around",
+      backgroundColor: colors.surface,
+      paddingVertical: spacing.sm,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    metricCounterItem: { alignItems: "center", gap: 2 },
+    metricCounterNumber: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface },
+    metricCounterLabel: { fontFamily: fonts.regular, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
+    metricCounterDivider: { width: StyleSheet.hairlineWidth, height: 24, backgroundColor: colors.border },
+    categorySection: { gap: 4 },
+    categoryHeader: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
+    categoryTitleText: { flex: 1, fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface },
+    categoryCountBadge: { paddingHorizontal: spacing.xs, paddingVertical: 2, borderRadius: radius.pill, backgroundColor: colors.surfaceTertiary },
+    categoryCountText: { fontFamily: fonts.bold, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
+    itemLogList: { gap: 3, paddingLeft: spacing.xs, marginTop: 2 },
+    logBulletRow: { flexDirection: "row", alignItems: "flex-start", gap: 6 },
+    logBulletSymbol: { fontSize: fontSize.xs, color: colors.onSurfaceTertiary, lineHeight: 16 },
+    logItemText: { flex: 1, fontFamily: fonts.regular, fontSize: fontSize.xs, color: colors.onSurface, lineHeight: 16 },
     clientsList: { gap: spacing.sm, marginTop: spacing.sm },
     clientMatchesLoading: { marginTop: spacing.sm },
     clientMatchRow: {
