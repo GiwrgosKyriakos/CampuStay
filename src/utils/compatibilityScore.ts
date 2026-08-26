@@ -17,6 +17,12 @@ export interface ListingFormData {
   propertyCategory?: string;
 }
 
+export interface CompatibilityResult {
+  score: number;
+  hardMet: string[];
+  softMet: string[];
+}
+
 function normalizeText(value?: string | number): string {
   return String(value ?? "")
     .trim()
@@ -84,6 +90,20 @@ function rangePoints(value: number | null, minimum?: string, maximum?: string): 
 
 function includesTag(tags: string[], terms: string[]): boolean {
   return tags.some((tag) => terms.some((term) => normalizeText(tag).includes(term)));
+}
+
+function rangeMatches(value: number | null, minimum?: string, maximum?: string): "exact" | "tolerance" | null {
+  if (value === null || value <= 0) return null;
+  const min = parseNumber(minimum);
+  const max = parseNumber(maximum);
+  if (min === null && max === null) return "exact";
+  const lower = min ?? 0;
+  const upper = max ?? Infinity;
+  if (value >= lower && value <= upper) return "exact";
+  const boundary = value < lower ? lower : upper;
+  if (!Number.isFinite(boundary) || boundary <= 0) return null;
+  const deviation = (Math.abs(value - boundary) / boundary) * 100;
+  return deviation >= 1 && deviation <= 10 ? "tolerance" : null;
 }
 
 export function calculateTenantCompatibilityScore(
@@ -154,4 +174,68 @@ export function calculateTenantCompatibilityScore(
 
   score += softChecks.length === 0 ? 25 : softChecks.filter(Boolean).length * (25 / softChecks.length);
   return Math.min(100, Math.max(0, Math.round(score)));
+}
+
+export function getCompatibilityDetails(
+  listing: ListingFormData,
+  filters?: FilterSetPayload | null,
+): CompatibilityResult {
+  if (!filters) {
+    return {
+      score: 40,
+      hardMet: ["Χωρίς περιορισμούς στα βασικά κριτήρια"],
+      softMet: ["Χωρίς επιπλέον προτιμήσεις"],
+    };
+  }
+
+  const score = calculateTenantCompatibilityScore(listing, filters);
+  const hardMet: string[] = [];
+  const softMet: string[] = [];
+  const listingLocation = normalizeText(listing.city);
+  const listingArea = normalizeText(listing.area);
+  const filterLocation = normalizeText(filters.cityQuery);
+  const locationExact = !filterLocation ||
+    normalizeCity(listing.city) === normalizeCity(filters.cityQuery) ||
+    textsMatch(listing.city, filters.cityQuery) || textsMatch(listing.area, filters.cityQuery);
+  const locationTolerance = !locationExact &&
+    Number.isFinite(listing.latitude) && Number.isFinite(listing.longitude) &&
+    Number.isFinite(filters.latitude) && Number.isFinite(filters.longitude) &&
+    calculateHaversineDistanceKm(listing.latitude!, listing.longitude!, filters.latitude!, filters.longitude!) <= 0.8;
+  if (locationExact || locationTolerance) {
+    hardMet.push(`Περιοχή / Τοποθεσία (${listing.area || listing.city || "Συμβατή"})`);
+  }
+
+  const rent = parseNumber(listing.rent);
+  const rentMatch = rangeMatches(rent, filters.rentMin, filters.rentMax);
+  if (rentMatch) hardMet.push(`Budget / Ενοίκιο (${rent ?? 0}€ - ${rentMatch === "exact" ? "Εντός ορίων" : "Εντός αποδεκτής ανοχής"})`);
+
+  const size = parseNumber(listing.size);
+  const sizeMatch = rangeMatches(size, filters.sizeMin, filters.sizeMax);
+  if (sizeMatch) hardMet.push(`Εμβαδόν (${size ?? 0} m² - ${sizeMatch === "exact" ? "Εντός ορίων" : "Εντός αποδεκτής ανοχής"})`);
+
+  const listingFloor = parseFloorNumber(listing.floor);
+  const filterFloor = parseFloorNumber(filters.floor);
+  if (listingFloor === null || filterFloor === null || Math.abs(listingFloor - filterFloor) <= 1) {
+    hardMet.push(`Όροφος (${listing.floor ?? "Συμβατός"})`);
+  }
+
+  const tags = [...(listing.tags ?? []), ...(listing.amenities ?? [])];
+  if (filters.petFriendly === true && (listing.petFriendly === true || includesTag(tags, ["pet", "κατοικ"]))) {
+    softMet.push("Κατοικίδια (Pet friendly)");
+  }
+  if (filters.nearMetro === true && (listing.nearMetro === true || includesTag(tags, ["metro", "μετρο"]))) {
+    softMet.push("Πλησίον Μετρό");
+  }
+  const minSqmPrice = parseNumber(filters.minSqmPrice);
+  const maxSqmPrice = parseNumber(filters.maxSqmPrice);
+  if (minSqmPrice !== null || maxSqmPrice !== null) {
+    const sqmPrice = rent !== null && size !== null && size > 0 && rent > 0 ? rent / size : null;
+    if (sqmPrice !== null && (minSqmPrice === null || sqmPrice >= minSqmPrice) && (maxSqmPrice === null || sqmPrice <= maxSqmPrice)) {
+      softMet.push(`Τιμή ανά τ.μ. (${Math.round(sqmPrice)} €/m²)`);
+    }
+  }
+  if (filters.propertyType && textsMatch(listing.propertyType, filters.propertyType)) softMet.push(`Τύπος (${listing.propertyType})`);
+  if (filters.propertyCategory && textsMatch(listing.propertyCategory, filters.propertyCategory)) softMet.push(`Κατηγορία (${listing.propertyCategory})`);
+
+  return { score, hardMet, softMet };
 }
