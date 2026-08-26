@@ -79,6 +79,11 @@ interface Message {
   apartmentData?: SharedApartmentData;
   filterSetData?: FilterSetMessageData;
   filterSetId?: string;
+  listId?: string;
+  listTitle?: string;
+  apartmentIds?: string[];
+  apartmentCount?: number;
+  previewImages?: string[];
 }
 
 interface FilterSetMessageData {
@@ -127,6 +132,11 @@ interface FirestoreMessageDoc {
   apartmentData?: SharedApartmentData;
   filterSetData?: FilterSetMessageData;
   filterSetId?: string;
+  listId?: string;
+  listTitle?: string;
+  apartmentIds?: string[];
+  apartmentCount?: number;
+  previewImages?: string[];
 }
 
 interface FirestoreChatDoc {
@@ -152,6 +162,9 @@ interface FirestoreApartmentDoc {
   title?: string;
   description?: string; 
   about?: string;       
+  propertyType?: string;
+  propertyCategory?: string;
+  floor?: string;
   area?: string;
   city?: string;
   address?: string;
@@ -188,6 +201,12 @@ interface MutualApartment {
   image: string;
   images?: string[];
   tags: string[];
+  amenities?: string[];
+  propertyType?: string;
+  propertyCategory?: string;
+  floor?: string;
+  latitude?: number;
+  longitude?: number;
   hostId?: string;
 }
 
@@ -302,6 +321,12 @@ function mapApartmentDocToMutualApartment(apartmentId: string, data: FirestoreAp
     image: images[0] || "",
     images,
     tags: tags.length ? tags : ["new_listing"],
+    amenities: Array.isArray(data.amenities) ? data.amenities.filter((item): item is string => typeof item === "string") : undefined,
+    propertyType: data.propertyType,
+    propertyCategory: data.propertyCategory,
+    floor: data.floor,
+    latitude: data.latitude,
+    longitude: data.longitude,
     hostId: data.hostId,
   };
 }
@@ -710,6 +735,8 @@ export default function ChatScreen() {
   const [selectedFilterSetMessage, setSelectedFilterSetMessage] = useState<Message | null>(null);
   const [selectedFilterSetRecord, setSelectedFilterSetRecord] = useState<SharedFilterSetRecord | null>(null);
   const [isFilterHistoryActive, setIsFilterHistoryActive] = useState(false);
+  const [activeViewList, setActiveViewList] = useState<{ listTitle: string; apartments: MutualApartment[] } | null>(null);
+  const [loadingListFeed, setLoadingListFeed] = useState(false);
   const [isDeletingMessage, setIsDeletingMessage] = useState(false);
   const [expandReport, setExpandReport] = useState(false);
   const [reportReason, setReportReason] = useState("");
@@ -722,6 +749,29 @@ export default function ChatScreen() {
   } | null>(null);
   const profileCardTranslateY = useRef(new Animated.Value(0)).current;
   const isRoommateChat = chatType === "roommate";
+
+  const handleOpenPropertyList = useCallback(async (message: Message) => {
+    const apartmentIds = message.apartmentIds ?? [];
+    if (apartmentIds.length === 0) {
+      setActiveViewList({ listTitle: message.listTitle || "Λίστα ακινήτων", apartments: [] });
+      return;
+    }
+    setLoadingListFeed(true);
+    try {
+      const apartments = await Promise.all(apartmentIds.map(async (apartmentId) => {
+        const snapshot = await getDoc(doc(db, "apartments", apartmentId));
+        return snapshot.exists() ? mapApartmentDocToMutualApartment(apartmentId, snapshot.data() as FirestoreApartmentDoc) : null;
+      }));
+      setActiveViewList({
+        listTitle: message.listTitle || "Λίστα ακινήτων",
+        apartments: apartments.filter((apartment): apartment is MutualApartment => apartment !== null),
+      });
+    } catch (error) {
+      console.warn("[Chat] Error loading shared property list:", error);
+    } finally {
+      setLoadingListFeed(false);
+    }
+  }, []);
 
   const closeProfileModal = useCallback(() => {
     setProfileModalVisible(false);
@@ -865,6 +915,11 @@ export default function ChatScreen() {
             apartmentData,
             filterSetData: data.filterSetData,
             filterSetId: typeof data.filterSetId === "string" ? data.filterSetId : undefined,
+            listId: typeof data.listId === "string" ? data.listId : undefined,
+            listTitle: typeof data.listTitle === "string" ? data.listTitle : undefined,
+            apartmentIds: Array.isArray(data.apartmentIds) ? data.apartmentIds.filter((item): item is string => typeof item === "string") : undefined,
+            apartmentCount: typeof data.apartmentCount === "number" ? data.apartmentCount : undefined,
+            previewImages: Array.isArray(data.previewImages) ? data.previewImages.filter((item): item is string => typeof item === "string") : undefined,
           };
         });
 
@@ -2394,7 +2449,34 @@ export default function ChatScreen() {
         </View>
       ) : null}
 
-      {isFilterHistoryActive ? (
+      {activeViewList ? (
+        <View style={styles.flex}>
+          <View style={styles.listFeedHeaderBanner}>
+            <Pressable onPress={() => setActiveViewList(null)} hitSlop={8} style={styles.backToMessagesBtn} testID="back-to-chat-messages">
+              <Ionicons color={colors.onSurface} name="arrow-back" size={18} />
+              <Text style={styles.backToMessagesText}>Πίσω στα μηνύματα</Text>
+            </Pressable>
+            <Text numberOfLines={1} style={styles.listFeedBannerTitle}>{activeViewList.listTitle}</Text>
+          </View>
+          {loadingListFeed ? (
+            <View style={styles.mutualLikesLoadingWrap}><ActivityIndicator size="large" color={colors.brand} /></View>
+          ) : (
+            <ScrollView style={styles.flex} contentContainerStyle={styles.mutualLikesScroll} showsVerticalScrollIndicator={false}>
+              {activeViewList.apartments.length === 0 ? (
+                <View style={styles.mutualEmptyCard}><Text style={styles.mutualEmptyTitle}>Δεν βρέθηκαν ακίνητα στη λίστα</Text></View>
+              ) : activeViewList.apartments.map((apartment) => (
+                <MutualApartmentCard
+                  key={apartment.id}
+                  apartment={apartment}
+                  colors={colors}
+                  styles={styles}
+                  onPress={() => router.push({ pathname: "/apartment-detail", params: { data: JSON.stringify(apartment) } } as any)}
+                />
+              ))}
+            </ScrollView>
+          )}
+        </View>
+      ) : isFilterHistoryActive ? (
         <ScrollView style={styles.flex} contentContainerStyle={styles.filterHistoryList} showsVerticalScrollIndicator={false}>
           {filterHistoryRecords.length === 0 ? (
             <View style={styles.mutualEmptyCard}><Ionicons name="time-outline" size={34} color={colors.onSurfaceTertiary} /><Text style={styles.mutualEmptyTitle}>Δεν υπάρχουν κοινοποιημένα set φίλτρων</Text></View>
@@ -2458,6 +2540,7 @@ export default function ChatScreen() {
               const isApartmentShare = m.type === "apartment_share" && !!m.apartmentData;
               const isApartmentNoteShare = m.type === "apartment_note_share" && !!m.apartmentData;
               const isFilterSetShare = m.type === "filter_set_share" && !!m.filterSetData;
+              const isPropertyListShare = m.type === "property_list_share";
               const isPriceProposal = m.type === "price_proposal";
               const isVisitRequest = m.type === "visit_request";
               const isSystemNotice = m.type === "system_notice";
@@ -2593,6 +2676,29 @@ export default function ChatScreen() {
                       <Text style={[styles.filterSetShareSubtitle, isMine && styles.filterSetShareSubtitleMine]}>
                         Πατήστε για προβολή λεπτομερειών
                       </Text>
+                    </View>
+                  </Pressable>
+                );
+              }
+
+              if (isPropertyListShare) {
+                return (
+                  <Pressable
+                    key={m.id}
+                    style={[styles.sharedListMessageCard, itemMarginStyle]}
+                    onPress={() => void handleOpenPropertyList(m)}
+                    onLongPress={canDeleteForEveryone ? () => setMessageActionTarget(m) : undefined}
+                    delayLongPress={300}
+                    testID={`open-shared-list-${m.id}`}
+                  >
+                    <View style={styles.sharedListHeader}>
+                      <Ionicons color={isMine ? colors.onBrand : colors.brand} name="layers-outline" size={18} />
+                      <Text numberOfLines={1} style={[styles.sharedListTitle, isMine && styles.sharedListTitleMine]}>{m.listTitle || "Λίστα ακινήτων"}</Text>
+                    </View>
+                    <Text style={[styles.sharedListCountText, isMine && styles.sharedListCountTextMine]}>{`${m.apartmentCount || m.apartmentIds?.length || 0} προτεινόμενα ακίνητα`}</Text>
+                    <View style={styles.sharedListActionRow}>
+                      <Text style={[styles.sharedListViewBtnText, isMine && styles.sharedListViewBtnTextMine]}>Προβολή Λίστας</Text>
+                      <Ionicons color={isMine ? colors.onBrand : colors.brand} name="chevron-forward" size={16} />
                     </View>
                   </Pressable>
                 );
@@ -4068,6 +4174,28 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   filterSetShareSubtitleMine: {
     color: "rgba(255,255,255,0.82)",
   },
+  sharedListMessageCard: {
+    width: 240,
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: spacing.xs,
+  },
+  sharedListMessageCardMine: { backgroundColor: colors.brand, borderColor: colors.brand },
+  sharedListHeader: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
+  sharedListTitle: { flex: 1, fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onSurface },
+  sharedListTitleMine: { color: colors.onBrand },
+  sharedListCountText: { fontFamily: fonts.regular, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
+  sharedListCountTextMine: { color: "rgba(255,255,255,0.82)" },
+  sharedListActionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: spacing.xs, paddingTop: spacing.xs, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  sharedListViewBtnText: { fontFamily: fonts.bold, fontSize: fontSize.xs, color: colors.brand },
+  sharedListViewBtnTextMine: { color: colors.onBrand },
+  listFeedHeaderBanner: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface },
+  backToMessagesBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingVertical: 4, paddingHorizontal: 8, borderRadius: radius.pill, backgroundColor: colors.surfaceSecondary },
+  backToMessagesText: { fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.onSurface },
+  listFeedBannerTitle: { flex: 1, fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onSurface, textAlign: "right" },
   filterHistoryList: { padding: spacing.lg, gap: spacing.sm },
   filterHistoryCard: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surfaceSecondary, padding: spacing.md, gap: spacing.xs },
   filterHistoryCardHeader: { flexDirection: "row", alignItems: "center", gap: spacing.sm },

@@ -4,7 +4,7 @@ import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { collection, doc, getDoc, getDocs, query, setDoc, where } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, where } from "firebase/firestore";
 
 import { db } from "@/src/config/firebase";
 import { useAuth } from "@/src/context/auth";
@@ -15,6 +15,15 @@ import { getPipelineStageConfig, PIPELINE_STAGES, type LossReasonKey, type Pipel
 import type { BrokerApartment } from "./(tabs)/broker-hub";
 import type { FilterSetPayload } from "@/src/types/filters";
 import { getCompatibilityDetails, type ListingFormData } from "@/src/utils/compatibilityScore";
+
+export interface BrokerPropertyList {
+  id: string;
+  brokerId: string;
+  clientUserId: string;
+  title: string;
+  apartmentIds: string[];
+  createdAt: number;
+}
 
 export type LeadReadinessKey = "hot" | "warm" | "cold";
 
@@ -85,6 +94,12 @@ export default function BrokerClientDetailScreen() {
   const [lossApartmentId, setLossApartmentId] = useState<string | undefined>();
   const [lossApartmentTitle, setLossApartmentTitle] = useState<string | undefined>();
   const [expandedScoreListingId, setExpandedScoreListingId] = useState<string | null>(null);
+  const [isCreatingList, setIsCreatingList] = useState(false);
+  const [selectedApartmentIds, setSelectedApartmentIds] = useState<Set<string>>(new Set());
+  const [savedPropertyLists, setSavedPropertyLists] = useState<BrokerPropertyList[]>([]);
+  const [isNameListModalVisible, setIsNameListModalVisible] = useState(false);
+  const [newListName, setNewListName] = useState("");
+  const [savingList, setSavingList] = useState(false);
   const filters = useMemo<FilterSetPayload | null>(() => { try { return params.sharedFilterSet ? JSON.parse(params.sharedFilterSet) as FilterSetPayload : null; } catch { return null; } }, [params.sharedFilterSet]);
   const rankedPortfolio = useMemo(() => {
     return apartments
@@ -109,6 +124,30 @@ export default function BrokerClientDetailScreen() {
       })
       .sort((first, second) => second.compatibilityScore - first.compatibilityScore);
   }, [apartments, filters]);
+  useEffect(() => {
+    if (!auth.userId || !params.clientUserId) {
+      setSavedPropertyLists([]);
+      return;
+    }
+    let active = true;
+    void getDocs(collection(db, "brokerClientProfiles", `${auth.userId}_${params.clientUserId}`, "propertyLists"))
+      .then((snapshot) => {
+        if (!active) return;
+        setSavedPropertyLists(snapshot.docs.map((item) => {
+          const data = item.data() as Partial<BrokerPropertyList>;
+          return {
+            id: item.id,
+            brokerId: data.brokerId || auth.userId!,
+            clientUserId: data.clientUserId || params.clientUserId!,
+            title: data.title || "Λίστα ακινήτων",
+            apartmentIds: Array.isArray(data.apartmentIds) ? data.apartmentIds.filter((id): id is string => typeof id === "string") : [],
+            createdAt: typeof data.createdAt === "number" ? data.createdAt : 0,
+          };
+        }).sort((first, second) => second.createdAt - first.createdAt));
+      })
+      .catch((error) => console.warn("[BrokerClientDetail] Error loading property lists:", error));
+    return () => { active = false; };
+  }, [auth.userId, params.clientUserId]);
   useEffect(() => { let active = true; if (!auth.userId) return; void Promise.all([getDocs(query(collection(db, "apartments"), where("hostId", "==", auth.userId))), getDocs(query(collection(db, "apartments"), where("assignedBrokerIds", "array-contains", auth.userId)))]).then(([ownedSnapshot, assignedSnapshot]) => { const listingDocs = new Map(ownedSnapshot.docs.map((item) => [item.id, item])); assignedSnapshot.docs.forEach((item) => listingDocs.set(item.id, item)); const mapped = Array.from(listingDocs.values()).map((item) => { const data = item.data() as Record<string, unknown>; return { ...data, id: item.id, title: String(data.title ?? "Ακίνητο"), rent: Number(data.rent ?? data.price ?? 0), city: String(data.city ?? ""), area: String(data.area ?? ""), size: Number(data.size ?? 0), image: String(data.image ?? data.imageUrl ?? ""), tags: Array.isArray(data.tags) ? data.tags.map(String) : [] } as BrokerApartment; }); if (active) setApartments(filters ? mapped.filter((apartment) => matchesFilter(apartment, filters)) : mapped); }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, [auth.userId, filters]);
   useEffect(() => {
     if (!auth.userId || !params.clientUserId) return;
@@ -228,6 +267,52 @@ export default function BrokerClientDetailScreen() {
       setSavingPurchasingPower(false);
     }
   };
+  const handleSavePropertyList = async () => {
+    if (!auth.userId || !params.clientUserId || selectedApartmentIds.size === 0 || savingList) return;
+    setSavingList(true);
+    const title = newListName.trim() || `Προτάσεις (${selectedApartmentIds.size})`;
+    const createdAt = Date.now();
+    try {
+      const listRef = await addDoc(
+        collection(db, "brokerClientProfiles", `${auth.userId}_${params.clientUserId}`, "propertyLists"),
+        { brokerId: auth.userId, clientUserId: params.clientUserId, title, apartmentIds: Array.from(selectedApartmentIds), createdAt },
+      );
+      setSavedPropertyLists((previous) => [{ id: listRef.id, brokerId: auth.userId!, clientUserId: params.clientUserId!, title, apartmentIds: Array.from(selectedApartmentIds), createdAt }, ...previous]);
+      setSelectedApartmentIds(new Set());
+      setIsCreatingList(false);
+      setIsNameListModalVisible(false);
+      setNewListName("");
+    } catch (error) {
+      console.error("[BrokerClientDetail] Error saving property list:", error);
+    } finally {
+      setSavingList(false);
+    }
+  };
+  const handleSendListToChat = async (list: BrokerPropertyList) => {
+    if (!auth.userId || !params.chatRoomId) return;
+    const previewImages = list.apartmentIds
+      .map((id) => rankedPortfolio.find((apartment) => apartment.id === id)?.image)
+      .filter((image): image is string => !!image)
+      .slice(0, 3);
+    try {
+      await addDoc(collection(db, "chats", params.chatRoomId, "messages"), {
+        senderId: auth.userId,
+        type: "property_list_share",
+        listId: list.id,
+        listTitle: list.title,
+        apartmentIds: list.apartmentIds,
+        apartmentCount: list.apartmentIds.length,
+        previewImages,
+        text: `[Κοινοποίηση Λίστας Ακινήτων: ${list.title}]`,
+        createdAt: serverTimestamp(),
+        isRead: false,
+      });
+      setNewListName("Η λίστα κοινοποιήθηκε");
+      setTimeout(() => setNewListName(""), 1800);
+    } catch (error) {
+      console.error("[BrokerClientDetail] Error sharing property list:", error);
+    }
+  };
   return <View style={[styles.container, { paddingTop: insets.top }]} testID="broker-client-detail-screen">
     <View style={styles.header}><Pressable style={styles.iconButton} onPress={() => router.back()} testID="broker-client-back-btn"><Ionicons name="chevron-back" size={24} color={colors.onSurface} /></Pressable><Text style={styles.headerTitle}>Στοιχεία Πελάτη</Text><View style={styles.iconSpacer} /></View>
     <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -239,10 +324,11 @@ export default function BrokerClientDetailScreen() {
         <Pressable style={styles.purchasingPowerHeader} onPress={() => setIsPurchasingPowerExpanded((previous) => !previous)} testID="broker-client-purchasing-power-toggle"><View style={styles.purchasingPowerTitleWrap}><Ionicons name="wallet-outline" size={21} color={colors.brand} /><Text style={styles.purchasingPowerTitle}>Πραγματική αγοραστική δύναμη</Text></View><Ionicons name={isPurchasingPowerExpanded ? "chevron-up" : "chevron-down"} size={20} color={colors.onSurfaceTertiary} /></Pressable>
         {isPurchasingPowerExpanded ? <View style={styles.purchasingPowerContent}><Text style={styles.fieldLabel}>Μετρητά στο χέρι (€)</Text><TextInput value={cashOnHand} onChangeText={(value) => setCashOnHand(value.replace(/[^0-9]/g, ""))} keyboardType="number-pad" placeholder="π.χ. 50000" placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} testID="broker-client-cash-input" /><Text style={styles.fieldLabel}>Εγκεκριμένο στεγαστικό δάνειο (€)</Text><TextInput value={approvedMortgage} onChangeText={(value) => setApprovedMortgage(value.replace(/[^0-9]/g, ""))} keyboardType="number-pad" placeholder="π.χ. 120000" placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} testID="broker-client-mortgage-input" /><Text style={styles.fieldLabel}>Προθεσμία μετακόμισης</Text><TextInput value={moveInDeadline} onChangeText={setMoveInDeadline} placeholder="π.χ. Έως τέλος Σεπτεμβρίου 2026 / Άμεσα" placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} testID="broker-client-deadline-input" /><Text style={styles.fieldLabel}>Σκοπός αγοράς / ενοικίασης</Text><TextInput value={purchasePurpose} onChangeText={setPurchasePurpose} placeholder="π.χ. Ιδιοκατοίκηση, Επενδυτικό (απόδοση), Φοιτητική στέγαση..." placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} testID="broker-client-purpose-input" /><Pressable style={styles.purchasingPowerSaveButton} onPress={() => void handleSavePurchasingPower()} disabled={savingPurchasingPower} testID="broker-client-purchasing-power-save">{savingPurchasingPower ? <ActivityIndicator size="small" color={colors.onBrand} /> : <Ionicons name="bookmark-outline" size={18} color={colors.onBrand} />}<Text style={styles.purchasingPowerSaveText}>Αποθήκευση στοιχείων</Text></Pressable>{purchasingPowerSavedSuccess ? <View style={styles.purchasingPowerSuccess}><Ionicons name="checkmark-circle" size={16} color={colors.success} /><Text style={styles.purchasingPowerSuccessText}>Τα στοιχεία αποθηκεύτηκαν</Text></View> : null}</View> : null}
       </View>
-      <Text style={styles.sectionTitle}>Κριτήρια Αναζήτησης Πελάτη</Text>{filters ? <View style={styles.criteriaCard}><Text style={styles.criteriaTitle}>{filters.title || "Κριτήρια Αναζήτησης Πελάτη"}</Text><View style={styles.chipsRow}>{[`${filters.rentMin || "0"} - ${filters.rentMax || "∞"} €`, `${filters.sizeMin || "0"} - ${filters.sizeMax || "∞"} m²`, `${filters.minSqmPrice || "0"} - ${filters.maxSqmPrice || "∞"} €/m²`, filters.cityQuery || "Όλες οι περιοχές", `Κατοικίδια: ${filters.petFriendly ? "Ναι" : "Όχι"}`, `Μετρό: ${filters.nearMetro ? "Ναι" : "Όχι"}`].map((chip) => <Text key={chip} style={styles.criteriaChip}>{chip}</Text>)}</View>{filters.summary ? <Text style={styles.body}>{filters.summary}</Text> : null}</View> : <Text style={styles.emptyHint}>Ο πελάτης δεν έχει διαμοιραστεί σετ φίλτρων ακόμα.</Text>}<Text style={styles.sectionTitle}>Προτεινόμενα Ακίνητα από το Χαρτοφυλάκιο</Text>{loading ? <ActivityIndicator color={colors.brand} /> : rankedPortfolio.map((apartment) => <View key={apartment.id} style={styles.portfolioItemContainer} testID={`broker-matched-apartment-${apartment.id}`}><Pressable style={styles.portfolioCardMain} onPress={() => router.push({ pathname: "/apartment-detail", params: { data: JSON.stringify(apartment) } } as never)}><View>{apartment.image ? <Image source={{ uri: apartment.image }} contentFit="cover" style={styles.portfolioThumb} /> : <View style={[styles.portfolioThumb, styles.portfolioThumbPlaceholder]}><Ionicons color={colors.onSurfaceTertiary} name="home-outline" size={20} /></View>}</View><View style={styles.portfolioTextColumn}><Text numberOfLines={1} style={styles.portfolioTitle}>{apartment.title}</Text><Text style={styles.portfolioSubtitle}>{apartment.area}, {apartment.city} · {apartment.rent}€ · {apartment.size}m²</Text></View><View style={styles.scoreActionRow}><View style={styles.compatibilityBadge}><Text style={styles.compatibilityBadgeText}>{apartment.compatibilityScore}% Match</Text></View><Pressable onPress={() => setExpandedScoreListingId((previous) => previous === apartment.id ? null : apartment.id)} hitSlop={8} style={styles.infoIconButton} testID={`toggle-score-info-${apartment.id}`}><Ionicons color={expandedScoreListingId === apartment.id ? colors.brand : colors.onSurfaceTertiary} name={expandedScoreListingId === apartment.id ? "information-circle" : "information-circle-outline"} size={20} /></Pressable></View></Pressable>{expandedScoreListingId === apartment.id ? <View style={styles.justificationBox} testID={`score-justification-${apartment.id}`}><Text style={styles.justificationMainTitle}>Αιτιολόγηση Σκορ Συμβατότητας ({apartment.compatibilityScore}%)</Text><View style={styles.criteriaGroup}><View style={styles.groupHeaderRow}><Ionicons color="#EF4444" name="shield-checkmark" size={14} /><Text style={styles.hardGroupTitle}>Πολύ σημαντικό (Βασικά Κριτήρια):</Text></View>{apartment.scoreBreakdown.hardMet.length ? apartment.scoreBreakdown.hardMet.map((item, index) => <View key={`${apartment.id}-hard-${index}`} style={styles.bulletRow}><Text style={styles.bulletDot}>•</Text><Text style={styles.criteriaItemText}>{item}</Text></View>) : <Text style={styles.emptyCriteriaText}>Δεν πληρούνται βασικά κριτήρια.</Text>}</View><View style={styles.criteriaGroup}><View style={styles.groupHeaderRow}><Ionicons color="#10B981" name="checkmark-circle-outline" size={14} /><Text style={styles.softGroupTitle}>Σημαντικό (Επιπλέον Προτιμήσεις):</Text></View>{apartment.scoreBreakdown.softMet.length ? apartment.scoreBreakdown.softMet.map((item, index) => <View key={`${apartment.id}-soft-${index}`} style={styles.bulletRow}><Text style={styles.bulletDot}>•</Text><Text style={styles.criteriaItemText}>{item}</Text></View>) : <Text style={styles.emptyCriteriaText}>Δεν έχουν οριστεί ή δεν πληρούνται επιπλέον προτιμήσεις.</Text>}</View></View> : null}</View>)}{!loading && rankedPortfolio.length === 0 ? <Text style={styles.emptyHint}>Δεν βρέθηκαν διαθέσιμα ακίνητα στο χαρτοφυλάκιό σας που να πληρούν όλα τα κριτήρια.</Text> : null}</ScrollView>
+      <Text style={styles.sectionTitle}>Κριτήρια Αναζήτησης Πελάτη</Text>{filters ? <View style={styles.criteriaCard}><Text style={styles.criteriaTitle}>{filters.title || "Κριτήρια Αναζήτησης Πελάτη"}</Text><View style={styles.chipsRow}>{[`${filters.rentMin || "0"} - ${filters.rentMax || "∞"} €`, `${filters.sizeMin || "0"} - ${filters.sizeMax || "∞"} m²`, `${filters.minSqmPrice || "0"} - ${filters.maxSqmPrice || "∞"} €/m²`, filters.cityQuery || "Όλες οι περιοχές", `Κατοικίδια: ${filters.petFriendly ? "Ναι" : "Όχι"}`, `Μετρό: ${filters.nearMetro ? "Ναι" : "Όχι"}`].map((chip) => <Text key={chip} style={styles.criteriaChip}>{chip}</Text>)}</View>{filters.summary ? <Text style={styles.body}>{filters.summary}</Text> : null}</View> : <Text style={styles.emptyHint}>Ο πελάτης δεν έχει διαμοιραστεί σετ φίλτρων ακόμα.</Text>}<View style={styles.sectionHeaderRow}><Text style={styles.sectionTitle}>Προτεινόμενα Ακίνητα από το Χαρτοφυλάκιο</Text><Pressable onPress={() => { setIsCreatingList((previous) => !previous); setSelectedApartmentIds(new Set()); }} hitSlop={8} style={[styles.addListToggleBtn, isCreatingList && styles.addListToggleBtnActive]} testID="toggle-create-property-list"><Ionicons color={isCreatingList ? colors.onBrand : colors.brand} name={isCreatingList ? "close" : "add"} size={20} /></Pressable></View>{savedPropertyLists.map((list) => <View key={list.id} style={styles.savedListCard}><View style={styles.savedListIconWrap}><Ionicons color={colors.brand} name="list" size={20} /></View><View style={styles.savedListTextCol}><Text numberOfLines={1} style={styles.savedListTitle}>{list.title}</Text><Text style={styles.savedListSub}>{list.apartmentIds.length} ακίνητα</Text></View><Pressable onPress={() => void handleSendListToChat(list)} hitSlop={8} style={styles.sendListChatBtn} testID={`send-list-btn-${list.id}`}><Ionicons color={colors.onBrand} name="paper-plane-outline" size={18} /></Pressable></View>)}{loading ? <ActivityIndicator color={colors.brand} /> : rankedPortfolio.map((apartment) => <View key={apartment.id} style={styles.portfolioItemContainer} testID={`broker-matched-apartment-${apartment.id}`}><Pressable style={styles.portfolioCardMain} onPress={() => router.push({ pathname: "/apartment-detail", params: { data: JSON.stringify(apartment) } } as never)}><View>{apartment.image ? <Image source={{ uri: apartment.image }} contentFit="cover" style={styles.portfolioThumb} /> : <View style={[styles.portfolioThumb, styles.portfolioThumbPlaceholder]}><Ionicons color={colors.onSurfaceTertiary} name="home-outline" size={20} /></View>}</View><View style={styles.portfolioTextColumn}><Text numberOfLines={1} style={styles.portfolioTitle}>{apartment.title}</Text><Text style={styles.portfolioSubtitle}>{apartment.area}, {apartment.city} · {apartment.rent}€ · {apartment.size}m²</Text></View><View style={styles.scoreActionRow}><View style={styles.compatibilityBadge}><Text style={styles.compatibilityBadgeText}>{apartment.compatibilityScore}% Match</Text></View><Pressable onPress={() => setExpandedScoreListingId((previous) => previous === apartment.id ? null : apartment.id)} hitSlop={8} style={styles.infoIconButton} testID={`toggle-score-info-${apartment.id}`}><Ionicons color={expandedScoreListingId === apartment.id ? colors.brand : colors.onSurfaceTertiary} name={expandedScoreListingId === apartment.id ? "information-circle" : "information-circle-outline"} size={20} /></Pressable></View>{isCreatingList && <Pressable onPress={() => setSelectedApartmentIds((previous) => { const next = new Set(previous); if (next.has(apartment.id)) next.delete(apartment.id); else next.add(apartment.id); return next; })} hitSlop={8} style={styles.selectionDotBtn} testID={`select-apartment-${apartment.id}`}><Ionicons color={selectedApartmentIds.has(apartment.id) ? colors.brand : colors.onSurfaceTertiary} name={selectedApartmentIds.has(apartment.id) ? "checkmark-circle" : "ellipse-outline"} size={24} /></Pressable>}</Pressable>{expandedScoreListingId === apartment.id ? <View style={styles.justificationBox} testID={`score-justification-${apartment.id}`}><Text style={styles.justificationMainTitle}>Αιτιολόγηση Σκορ Συμβατότητας ({apartment.compatibilityScore}%)</Text><View style={styles.criteriaGroup}><View style={styles.groupHeaderRow}><Ionicons color="#EF4444" name="shield-checkmark" size={14} /><Text style={styles.hardGroupTitle}>Πολύ σημαντικό (Βασικά Κριτήρια):</Text></View>{apartment.scoreBreakdown.hardMet.length ? apartment.scoreBreakdown.hardMet.map((item, index) => <View key={`${apartment.id}-hard-${index}`} style={styles.bulletRow}><Text style={styles.bulletDot}>•</Text><Text style={styles.criteriaItemText}>{item}</Text></View>) : <Text style={styles.emptyCriteriaText}>Δεν πληρούνται βασικά κριτήρια.</Text>}</View><View style={styles.criteriaGroup}><View style={styles.groupHeaderRow}><Ionicons color="#10B981" name="checkmark-circle-outline" size={14} /><Text style={styles.softGroupTitle}>Σημαντικό (Επιπλέον Προτιμήσεις):</Text></View>{apartment.scoreBreakdown.softMet.length ? apartment.scoreBreakdown.softMet.map((item, index) => <View key={`${apartment.id}-soft-${index}`} style={styles.bulletRow}><Text style={styles.bulletDot}>•</Text><Text style={styles.criteriaItemText}>{item}</Text></View>) : <Text style={styles.emptyCriteriaText}>Δεν έχουν οριστεί ή δεν πληρούνται επιπλέον προτιμήσεις.</Text>}</View></View> : null}</View>)}{isCreatingList && <Pressable disabled={selectedApartmentIds.size === 0} onPress={() => { setNewListName(`Προτάσεις (${selectedApartmentIds.size})`); setIsNameListModalVisible(true); }} style={[styles.createListSubmitBtn, selectedApartmentIds.size === 0 && styles.createListSubmitBtnDisabled]} testID="submit-create-property-list"><Ionicons color={colors.onBrand} name="bookmark-outline" size={18} /><Text style={styles.createListSubmitBtnText}>{`Δημιουργία λίστας (${selectedApartmentIds.size})`}</Text></Pressable>}{!loading && rankedPortfolio.length === 0 ? <Text style={styles.emptyHint}>Δεν βρέθηκαν διαθέσιμα ακίνητα στο χαρτοφυλάκιό σας που να πληρούν όλα τα κριτήρια.</Text> : null}</ScrollView>
     <Modal visible={isStageModalVisible} transparent animationType="fade" onRequestClose={() => setIsStageModalVisible(false)}><Pressable style={styles.modalBackdrop} onPress={() => setIsStageModalVisible(false)}><Pressable style={styles.stageModal} onPress={(event) => event.stopPropagation()}><Text style={styles.modalTitle}>Επιλογή Σταδίου</Text>{PIPELINE_STAGES.map((stage) => <Pressable key={stage.key} style={styles.stageOption} onPress={() => void handleStageSelection(stage.key)} testID={`broker-stage-option-${stage.key}`}><Text style={styles.stageOptionLabel}>{stage.label}</Text><Text style={styles.probabilityBadge}>{Math.round(stage.probability * 100)}%</Text><Ionicons name={stage.key === pipelineStage ? "checkmark-circle" : "ellipse-outline"} size={21} color={stage.key === pipelineStage ? colors.brand : colors.onSurfaceTertiary} /></Pressable>)}</Pressable></Pressable></Modal>
     <Modal visible={isReadinessModalVisible} transparent animationType="fade" onRequestClose={() => setIsReadinessModalVisible(false)}><Pressable style={styles.modalBackdrop} onPress={() => setIsReadinessModalVisible(false)}><Pressable style={styles.stageModal} onPress={(event) => event.stopPropagation()}><Text style={styles.modalTitle}>Κατηγοριοποίηση/ αξιολόγηση/ προτεραιότητα βάση ετοιμότητας:</Text>{LEAD_READINESS_OPTIONS.map((option) => <Pressable key={option.key} style={styles.stageOption} onPress={() => void handleSelectReadiness(option.key)} testID={`broker-readiness-option-${option.key}`}><Ionicons name={option.iconName} size={22} color={option.iconColor} /><Text style={styles.stageOptionLabel}>{option.label}</Text><Ionicons name={leadReadiness === option.key ? "checkmark-circle" : "ellipse-outline"} size={20} color={leadReadiness === option.key ? colors.brand : colors.onSurfaceTertiary} /></Pressable>)}</Pressable></Pressable></Modal>
     <Modal visible={isLossModalVisible} transparent animationType="fade" onRequestClose={() => setIsLossModalVisible(false)}><Pressable style={styles.modalBackdrop} onPress={() => setIsLossModalVisible(false)}><Pressable style={styles.stageModal} onPress={(event) => event.stopPropagation()}><Text style={styles.modalTitle}>Γιατί χάθηκε η συμφωνία;</Text>{([{ key: "high_price", label: "Υψηλή τιμή" }, { key: "loan_rejected", label: "Απόρριψη δανείου από τράπεζα" }, { key: "chose_another_property", label: "Προτίμησε άλλο ακίνητο" }, { key: "owner_withdrew", label: "Υπαναχώρηση ιδιοκτήτη" }, { key: "other", label: "Άλλο" }] as const).map((reason) => <Pressable key={reason.key} style={styles.stageOption} onPress={() => setLossReason(reason.key)} testID={`broker-loss-reason-${reason.key}`}><Text style={styles.stageOptionLabel}>{reason.label}</Text><Ionicons name={lossReason === reason.key ? "checkmark-circle" : "ellipse-outline"} size={21} color={lossReason === reason.key ? colors.brand : colors.onSurfaceTertiary} /></Pressable>)}{lossReason === "other" ? <TextInput value={lossCustomReason} onChangeText={setLossCustomReason} placeholder="Περιγράψτε τον λόγο" placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} testID="broker-loss-custom-reason" /> : null}<Pressable style={styles.purchasingPowerSaveButton} onPress={() => void handleSaveLossReport()} testID="broker-loss-confirm"><Text style={styles.purchasingPowerSaveText}>Αποθήκευση λόγου</Text></Pressable></Pressable></Pressable></Modal>
+    <Modal visible={isNameListModalVisible} transparent animationType="fade" onRequestClose={() => setIsNameListModalVisible(false)}><Pressable style={styles.modalBackdrop} onPress={() => setIsNameListModalVisible(false)}><Pressable style={styles.stageModal} onPress={(event) => event.stopPropagation()}><Text style={styles.modalTitle}>Όνομα λίστας ακινήτων</Text><TextInput value={newListName} onChangeText={setNewListName} autoFocus placeholder="π.χ. Επιλογές για τον πελάτη" placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} testID="property-list-name-input" /><Pressable style={styles.purchasingPowerSaveButton} onPress={() => void handleSavePropertyList()} disabled={savingList} testID="save-property-list"><Ionicons name="save-outline" size={18} color={colors.onBrand} /><Text style={styles.purchasingPowerSaveText}>{savingList ? "Αποθήκευση..." : "Αποθήκευση λίστας"}</Text></Pressable></Pressable></Pressable></Modal>
   </View>;
 }
 
@@ -290,6 +376,19 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   purchasingPowerSuccess: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.xs, paddingTop: spacing.xs },
   purchasingPowerSuccessText: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.success },
   sectionTitle: { marginTop: spacing.xl, marginBottom: spacing.sm, fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface },
+  sectionHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
+  addListToggleBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
+  addListToggleBtnActive: { backgroundColor: colors.brand, borderColor: colors.brand },
+  savedListCard: { flexDirection: "row", alignItems: "center", gap: spacing.sm, padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.xs },
+  savedListIconWrap: { width: 36, height: 36, borderRadius: radius.sm, backgroundColor: colors.brandTertiary, alignItems: "center", justifyContent: "center" },
+  savedListTextCol: { flex: 1, gap: 2 },
+  savedListTitle: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onSurface },
+  savedListSub: { fontFamily: fonts.regular, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
+  sendListChatBtn: { width: 34, height: 34, borderRadius: radius.pill, backgroundColor: colors.brand, alignItems: "center", justifyContent: "center" },
+  createListSubmitBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.xs, marginTop: spacing.sm, paddingVertical: spacing.sm, borderRadius: radius.pill, backgroundColor: colors.brand },
+  createListSubmitBtnDisabled: { opacity: 0.5 },
+  createListSubmitBtnText: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onBrand },
+  selectionDotBtn: { padding: 2, alignItems: "center", justifyContent: "center" },
   criteriaCard: { padding: spacing.md, borderRadius: radius.lg, backgroundColor: colors.surfaceSecondary, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
   criteriaTitle: { fontFamily: fonts.semibold, color: colors.onSurface },
   chipsRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs, marginTop: spacing.sm },
