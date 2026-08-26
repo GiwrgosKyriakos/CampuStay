@@ -53,6 +53,8 @@ import { getExcludedUserIds } from "@/src/api/blocking";
 import { calculateMatchScore } from "@/src/utils/matchAlgorithm";
 import type { CompatibilityQuizAnswers, UserProfile as MatchUserProfile } from "@/src/utils/matchAlgorithm";
 import { calculatePricePerSqm } from "@/src/utils/pricing";
+import { calculateTenantCompatibilityScore } from "@/src/utils/compatibilityScore";
+import type { FilterSetPayload } from "@/src/types/filters";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const CURRENCY = "€";
@@ -86,6 +88,14 @@ type InquiryItem = {
   lastMessageText: string;
   sortKey: number;
 };
+
+interface BrokerClientWithFilters {
+  clientUserId: string;
+  clientName: string;
+  clientAvatar?: string;
+  chatRoomId: string;
+  filterSet: FilterSetPayload | null;
+}
 
 interface Apartment {
   id: string;
@@ -249,6 +259,61 @@ type AmenityDef = {
   icon: keyof typeof Ionicons.glyphMap;
   tagMatch?: string[];
 };
+
+function normalizeGreek(text: string): string {
+  return text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+}
+
+function filterMatchesApartment(filters: FilterSetPayload, apartment: Apartment): boolean {
+  const numRent = Number(apartment.rent) || 0;
+  const numSize = Number(apartment.size) || 0;
+  const sqmPrice = numSize > 0 && numRent > 0 ? numRent / numSize : 0;
+  const normCity = normalizeGreek(apartment.city || "");
+  const normArea = normalizeGreek(apartment.area || "");
+  let matchedCount = 0;
+  let hasConflict = false;
+
+  const filterCity = normalizeGreek(filters.cityQuery || "");
+  if (filterCity && (normCity || normArea)) {
+    const matchesLocation = Boolean(
+      (normCity && (normCity.includes(filterCity) || filterCity.includes(normCity))) ||
+      (normArea && (normArea.includes(filterCity) || filterCity.includes(normArea))),
+    );
+    if (matchesLocation) matchedCount++;
+    else hasConflict = true;
+  }
+
+  const minRent = filters.rentMin ? Number(filters.rentMin) : null;
+  const maxRent = filters.rentMax ? Number(filters.rentMax) : null;
+  if (numRent > 0 && (minRent !== null || maxRent !== null)) {
+    const rentConflict = (minRent !== null && numRent < minRent) || (maxRent !== null && numRent > maxRent);
+    hasConflict ||= rentConflict;
+    if (!rentConflict) matchedCount++;
+  }
+
+  const minSize = filters.sizeMin ? Number(filters.sizeMin) : null;
+  const maxSize = filters.sizeMax ? Number(filters.sizeMax) : null;
+  if (numSize > 0 && (minSize !== null || maxSize !== null)) {
+    const sizeConflict = (minSize !== null && numSize < minSize) || (maxSize !== null && numSize > maxSize);
+    hasConflict ||= sizeConflict;
+    if (!sizeConflict) matchedCount++;
+  }
+
+  const minSqm = filters.minSqmPrice ? Number(filters.minSqmPrice) : null;
+  const maxSqm = filters.maxSqmPrice ? Number(filters.maxSqmPrice) : null;
+  if (sqmPrice > 0 && (minSqm !== null || maxSqm !== null)) {
+    const sqmConflict = (minSqm !== null && sqmPrice < minSqm) || (maxSqm !== null && sqmPrice > maxSqm);
+    hasConflict ||= sqmConflict;
+    if (!sqmConflict) matchedCount++;
+  }
+
+  const petFriendly = apartment.tags.includes("pet_friendly");
+  const nearMetro = apartment.tags.includes("near_metro");
+  if (filters.petFriendly === true && petFriendly) matchedCount++;
+  if (filters.nearMetro === true && nearMetro) matchedCount++;
+
+  return !hasConflict && matchedCount >= 1;
+}
 
 function toMillis(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value)) return value;

@@ -34,6 +34,8 @@ import { uploadBrokerPrivateImageAsync, uploadListingDocumentAsync, uploadListin
 import { upsertListing } from "@/src/api/listings";
 import { t } from "@/src/locales";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
+import { calculateTenantCompatibilityScore } from "@/src/utils/compatibilityScore";
+import type { FilterSetPayload } from "@/src/types/filters";
 
 type AmenityKey = "petFriendly" | "nearMetro" | "furnished" | "balcony" | "parking";
 type AmenitySlug = "pet_friendly" | "near_metro" | "furnished" | "balcony" | "parking";
@@ -94,9 +96,8 @@ type MatchedClient = {
   clientAvatar?: string;
   clientName: string;
   clientUserId: string;
-  matchScore: number;
+  compatibilityScore: number;
 };
-type FilterSetPayload = ClientFilterVersion;
 type BrokerClientWithFilters = {
   clientUserId: string;
   clientName: string;
@@ -105,19 +106,7 @@ type BrokerClientWithFilters = {
   filterSet: FilterSetPayload | null;
 };
 
-type ClientFilterVersion = {
-  rentMin?: string;
-  rentMax?: string;
-  minSqmPrice?: string;
-  maxSqmPrice?: string;
-  cityQuery?: string;
-  sizeMin?: string;
-  sizeMax?: string;
-  petFriendly?: boolean;
-  nearMetro?: boolean;
-  version?: number;
-  updatedAt?: number;
-};
+type ClientFilterVersion = FilterSetPayload;
 
 function latestClientFilter(data: Record<string, unknown>): ClientFilterVersion | null {
   const versions = Array.isArray(data.versions) ? data.versions.filter((entry): entry is ClientFilterVersion => !!entry && typeof entry === "object") : [];
@@ -1012,10 +1001,28 @@ export default function CreateListingScreen() {
   const hasAnyListingData = numericRent > 0 || numericSize > 0 || cityValue.length > 0 || area.trim().length > 0 || amenities.petFriendly || amenities.nearMetro;
   const matchedClients = useMemo<MatchedClient[]>(() => {
     if (!hasAnyListingData) return [];
+    const currentListingFormData = {
+      city: cityValue,
+      area,
+      latitude: addressLatitude ?? undefined,
+      longitude: addressLongitude ?? undefined,
+      rent: monthlyRent,
+      size: sizeSqm,
+      floor: floor ?? undefined,
+      petFriendly: amenities.petFriendly,
+      nearMetro: amenities.nearMetro,
+      tags: selectedAmenitySlugs,
+      amenities: selectedAmenitySlugs,
+      propertyType: propertyType ?? undefined,
+      propertyCategory: propertyCategory ?? undefined,
+    };
     return clientPool
       .filter((client) => client.filterSet !== null && filterMatchesListing(client.filterSet, numericRent, numericSize, cityValue, area, amenities))
-      .map((client) => ({ ...client, matchScore: 85 }));
-  }, [amenities, area, cityValue, clientPool, hasAnyListingData, numericRent, numericSize]);
+      .map((client) => ({
+        ...client,
+        compatibilityScore: calculateTenantCompatibilityScore(currentListingFormData, client.filterSet),
+      }));
+  }, [addressLatitude, addressLongitude, amenities, area, cityValue, clientPool, floor, hasAnyListingData, monthlyRent, numericRent, numericSize, propertyCategory, propertyType, selectedAmenitySlugs, sizeSqm]);
 
   const isLocationSectionComplete = useMemo(
     () => cityValue.length > 0 && area.trim().length > 0,
@@ -2465,7 +2472,7 @@ export default function CreateListingScreen() {
                       <View style={styles.matchedClientInfo}>
                         <Text style={styles.matchedClientName} numberOfLines={1}>{client.clientName}</Text>
                         <View style={styles.compatibilityBadge}>
-                          <Text style={styles.compatibilityBadgeText}>{`${client.matchScore}% Match`}</Text>
+                          <Text style={styles.compatibilityBadgeText}>{`${client.compatibilityScore}% Match`}</Text>
                         </View>
                       </View>
                       <View style={styles.matchedClientActions}>
