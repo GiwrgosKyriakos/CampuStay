@@ -117,6 +117,7 @@ interface Apartment {
   size: number;
   image: string;
   tags: string[];
+  amenities?: string[];
   extraDetails?: Record<string, boolean>;
   extraInformation?: ListingExtraInformation;
   hostId?: string;
@@ -557,6 +558,8 @@ export default function ApartmentDetailScreen() {
 
   const [inquiries, setInquiries] = useState<InquiryItem[]>([]);
   const [loadingInquiries, setLoadingInquiries] = useState(false);
+  const [clientPool, setClientPool] = useState<BrokerClientWithFilters[]>([]);
+  const [loadingClients, setLoadingClients] = useState(false);
   const [inquiryToDelete, setInquiryToDelete] = useState<InquiryItem | null>(null);
   const [deletingInquiryId, setDeletingInquiryId] = useState<string | null>(null);
   const [inquiriesSectionY, setInquiriesSectionY] = useState<number | null>(null);
@@ -569,6 +572,103 @@ export default function ApartmentDetailScreen() {
   }, [apt, auth.isBroker, auth.userId]);
   const isStrictHostOwner = !!apt?.hostId && !!auth.userId && auth.userId === apt.hostId;
   const canViewLikedUsers = !isListingOwner && !auth.isBroker;
+
+  useEffect(() => {
+    if (!auth.userId || !auth.isBroker || !isListingOwner) {
+      setClientPool([]);
+      setLoadingClients(false);
+      return;
+    }
+
+    let mounted = true;
+    setLoadingClients(true);
+    void (async () => {
+      try {
+        const chatsSnap = await getDocs(
+          query(collection(db, "chats"), where("users", "array-contains", auth.userId)),
+        );
+        const clientsMap = new Map<string, BrokerClientWithFilters>();
+
+        for (const chatDoc of chatsSnap.docs) {
+          const chatData = chatDoc.data() as {
+            users?: unknown;
+            brokerChatRole?: string;
+            status?: string;
+            participantDisplayNames?: Record<string, string>;
+            participantAvatars?: Record<string, string>;
+          };
+          if (chatData.brokerChatRole && chatData.brokerChatRole !== "client") continue;
+          if (chatData.status === "closed") continue;
+          const users = Array.isArray(chatData.users)
+            ? chatData.users.filter((uid): uid is string => typeof uid === "string")
+            : [];
+          const clientUserId = users.find((uid) => uid !== auth.userId);
+          if (!clientUserId || clientsMap.has(clientUserId)) continue;
+
+          const profileSnap = await getDoc(doc(db, "users", clientUserId));
+          const profile = profileSnap.exists() ? profileSnap.data() as FirestoreUserDoc : {};
+          let filterSet: FilterSetPayload | null = null;
+          try {
+            const filterSnap = await getDocs(
+              query(
+                collection(db, "users", clientUserId, "savedFilterSets"),
+                orderBy("updatedAt", "desc"),
+                limit(1),
+              ),
+            );
+            if (!filterSnap.empty) filterSet = filterSnap.docs[0].data() as FilterSetPayload;
+          } catch {
+            // A missing collection or index should not prevent other clients from loading.
+          }
+
+          clientsMap.set(clientUserId, {
+            clientUserId,
+            clientName: chatData.participantDisplayNames?.[clientUserId] || profile.name?.trim() || "Πελάτης",
+            clientAvatar: chatData.participantAvatars?.[clientUserId] || profile.photoUrl || profile.avatar || profile.photos?.[0] || "",
+            chatRoomId: chatDoc.id,
+            filterSet,
+          });
+        }
+
+        if (mounted) setClientPool(Array.from(clientsMap.values()));
+      } catch (error) {
+        console.warn("[ApartmentDetail] Error loading client pool:", error);
+        if (mounted) setClientPool([]);
+      } finally {
+        if (mounted) setLoadingClients(false);
+      }
+    })();
+
+    return () => { mounted = false; };
+  }, [auth.isBroker, auth.userId, isListingOwner]);
+
+  const matchedClients = useMemo(() => {
+    if (!apt || clientPool.length === 0) return [];
+
+    const listing = {
+      city: apt.city,
+      area: apt.area,
+      latitude: apt.latitude,
+      longitude: apt.longitude,
+      rent: apt.rent,
+      size: apt.size,
+      floor: apt.floor,
+      petFriendly: apt.tags.includes("pet_friendly"),
+      nearMetro: apt.tags.includes("near_metro"),
+      tags: apt.tags,
+      amenities: apt.amenities,
+      propertyType: apt.propertyType,
+      propertyCategory: apt.propertyCategory,
+    };
+
+    return clientPool
+      .filter((client) => client.filterSet !== null && filterMatchesApartment(client.filterSet, apt))
+      .map((client) => ({
+        ...client,
+        compatibilityScore: calculateTenantCompatibilityScore(listing, client.filterSet),
+      }))
+      .sort((first, second) => second.compatibilityScore - first.compatibilityScore);
+  }, [apt, clientPool]);
 
   const cityCoordinates = useLocationCoordinates(apt?.city, apt?.area);
 
@@ -1768,6 +1868,35 @@ export default function ApartmentDetailScreen() {
           </View>
         ) : null}
 
+        {isListingOwner && auth.isBroker ? (
+          <View style={styles.section} testID="apartment-detail-client-matches-section">
+            <Text style={styles.sectionTitle}>Clients</Text>
+            {loadingClients ? (
+              <ActivityIndicator color={colors.brand} size="small" style={styles.clientMatchesLoading} />
+            ) : matchedClients.length === 0 ? (
+              <Text style={styles.clientMatchesEmptyText}>Δεν βρέθηκαν συμβατοί πελάτες για αυτό το ακίνητο.</Text>
+            ) : (
+              <View style={styles.clientsList}>
+                {matchedClients.map((client) => (
+                  <View key={client.clientUserId} style={styles.clientMatchRow}>
+                    {client.clientAvatar ? (
+                      <Image source={{ uri: client.clientAvatar }} style={styles.clientAvatar} contentFit="cover" />
+                    ) : (
+                      <View style={styles.clientAvatarFallback}>
+                        <Ionicons color={colors.onSurfaceTertiary} name="person" size={20} />
+                      </View>
+                    )}
+                    <Text numberOfLines={1} style={styles.clientName}>{client.clientName}</Text>
+                    <View style={styles.matchBadge}>
+                      <Text style={styles.matchBadgeText}>{`${client.compatibilityScore}% Match`}</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+        ) : null}
+
         {isListingOwner ? (
           <View
             style={styles.section}
@@ -2692,6 +2821,41 @@ function createStyles(colors: ThemeColors) {
       fontFamily: fonts.bold,
       fontSize: fontSize.lg,
       color: colors.onSurface,
+    },
+    clientsList: { gap: spacing.sm, marginTop: spacing.sm },
+    clientMatchesLoading: { marginTop: spacing.sm },
+    clientMatchRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      padding: spacing.sm,
+      borderRadius: radius.md,
+      backgroundColor: colors.surfaceSecondary,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    clientAvatar: { width: 40, height: 40, borderRadius: 20 },
+    clientAvatarFallback: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: colors.surfaceTertiary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    clientName: { flex: 1, fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface },
+    matchBadge: {
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 4,
+      borderRadius: radius.pill,
+      backgroundColor: colors.brandTertiary,
+    },
+    matchBadgeText: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.brand },
+    clientMatchesEmptyText: {
+      fontFamily: fonts.regular,
+      fontSize: fontSize.base,
+      color: colors.onSurfaceTertiary,
+      marginTop: spacing.sm,
     },
 
     inquiriesList: {
