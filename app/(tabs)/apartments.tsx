@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "@/src/context/ThemeContext";
 import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Switch, TouchableOpacity, PanResponder, Modal, ActivityIndicator } from "react-native";
 import { Image } from "expo-image";
@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { addDoc, collection, doc, getDocs, onSnapshot, orderBy, query, serverTimestamp, setDoc, where, limit } from "firebase/firestore";
 import DraggableFlatList, { ScaleDecorator } from "react-native-draggable-flatlist";
+import MapView, { Marker, PROVIDER_DEFAULT, type Region } from "react-native-maps";
 
 import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
 import { getUserProfile } from "@/src/api/userProfile";
@@ -22,6 +23,7 @@ import { getExcludedUserIds } from "@/src/api/blocking";
 import { getUserApartmentNotes, updateNotesOrder, type Apartment as ApartmentNoteData } from "@/src/api/apartmentNotes";
 import { storage } from "@/src/utils/storage";
 import { calculatePricePerSqm } from "@/src/utils/pricing";
+import type { FilterSetPayload as SharedFilterSetPayload } from "@/src/types/filters";
 import type { FilterSetVersionData, SharedFilterSetRecord } from "@/src/components/FilterSetVersionModal";
 
 const CURRENCY = "€";
@@ -30,7 +32,7 @@ const APARTMENTS_SORT_BY_STORAGE_KEY = "apartments.sortBy";
 
 export type SortOption = "newest" | "oldest" | "price_asc" | "price_desc" | "size_asc" | "size_desc" | "price_sqm_asc" | "price_sqm_desc";
 
-export interface FilterSetPayload {
+export interface FilterSetPayload extends SharedFilterSetPayload {
   title?: string;
   rentMin?: string;
   rentMax?: string;
@@ -529,7 +531,9 @@ export default function ApartmentsScreen() {
   const [sendingBrokerId, setSendingBrokerId] = useState<string | null>(null);
   const [shareConfirmationVisible, setShareConfirmationVisible] = useState(false);
   const [activeTab, setActiveTab] = useState<"all" | "liked">("all");
-  const [viewMode, setViewMode] = useState<"grid" | "compact">("grid");
+  const [viewMode, setViewMode] = useState<"list" | "map" | "grid" | "compact">("list");
+  const [selectedMapApartment, setSelectedMapApartment] = useState<Apartment | null>(null);
+  const mapRef = useRef<MapView>(null);
   const [isViewingMyListings, setIsViewingMyListings] = useState(false);
   const [hideCreateFab, setHideCreateFab] = useState(false);
   const [hasPublishedHostApartment, setHasPublishedHostApartment] = useState(false);
@@ -1213,6 +1217,10 @@ export default function ApartmentsScreen() {
   const handleSwipeTabChange = useCallback(
     (direction: "left" | "right") => {
       if (isViewingMyListings) {
+        if (!auth.isBroker) {
+          setViewMode("list");
+          return;
+        }
         if (direction === "left") {
           setViewMode("compact");
           return;
@@ -1227,7 +1235,7 @@ export default function ApartmentsScreen() {
       }
       setActiveTab("all");
     },
-    [isViewingMyListings],
+    [auth.isBroker, isViewingMyListings],
   );
 
   const contentPanResponder = useMemo(
@@ -1475,6 +1483,7 @@ export default function ApartmentsScreen() {
   }, [
     activeTab,
     apartments,
+    auth.isBroker,
     auth.userId,
     cityQuery,
     isViewingMyListings,
@@ -1517,6 +1526,40 @@ export default function ApartmentsScreen() {
     });
   }, [filteredApartments, sortBy]);
 
+  const mapRegion = useMemo<Region>(() => {
+    const locatedApartments = filteredApartments.filter(
+      (apt) => Number.isFinite(apt.latitude) && Number.isFinite(apt.longitude),
+    );
+    if (locatedApartments.length === 0) {
+      return { latitude: 37.9838, longitude: 23.7275, latitudeDelta: 0.08, longitudeDelta: 0.08 };
+    }
+
+    const latitudes = locatedApartments.map((apt) => apt.latitude!);
+    const longitudes = locatedApartments.map((apt) => apt.longitude!);
+    const latitudeDelta = Math.max(0.04, Math.min(1.2, Math.max(...latitudes) - Math.min(...latitudes) + 0.04));
+    const longitudeDelta = Math.max(0.04, Math.min(1.2, Math.max(...longitudes) - Math.min(...longitudes) + 0.04));
+    return {
+      latitude: (Math.min(...latitudes) + Math.max(...latitudes)) / 2,
+      longitude: (Math.min(...longitudes) + Math.max(...longitudes)) / 2,
+      latitudeDelta,
+      longitudeDelta,
+    };
+  }, [filteredApartments]);
+
+  useEffect(() => {
+    if (!auth.isBroker && viewMode !== "list") {
+      setViewMode("list");
+      setSelectedMapApartment(null);
+    }
+  }, [auth.isBroker, viewMode]);
+
+  useEffect(() => {
+    if (auth.isBroker && viewMode === "map") {
+      mapRef.current?.animateToRegion(mapRegion, 350);
+      setSelectedMapApartment(null);
+    }
+  }, [auth.isBroker, mapRegion, viewMode]);
+
   const isCompactActive = isViewingMyListings && viewMode === "compact";
 
   return (
@@ -1552,13 +1595,25 @@ export default function ApartmentsScreen() {
           >
             <Ionicons name="search-outline" size={18} color={colors.onBrandTertiary} />
           </Pressable>
-          <Pressable
-            style={[styles.iconControlButton, showNotesPanel && styles.iconControlButtonActive]}
-            onPress={() => setShowNotesPanel((prev) => !prev)}
-            testID="apartments-notes-toggle"
-          >
-            <Ionicons name="journal-outline" size={18} color={colors.onBrandTertiary} />
-          </Pressable>
+          {auth.isBroker ? (
+            <Pressable
+              style={[styles.iconControlButton, styles.mapToggleButton]}
+              onPress={() => setViewMode((previous) => previous === "map" ? "list" : "map")}
+              hitSlop={8}
+              testID="broker-map-toggle-btn"
+            >
+              <Ionicons name={viewMode === "map" ? "list-outline" : "map-outline"} size={20} color={colors.onSurface} />
+            </Pressable>
+          ) : (
+            <Pressable
+              style={[styles.iconControlButton, showNotesPanel && styles.iconControlButtonActive]}
+              onPress={() => setShowNotesPanel((previous) => !previous)}
+              hitSlop={8}
+              testID="seeker-notes-btn"
+            >
+              <Ionicons name="document-text-outline" size={20} color={colors.onSurface} />
+            </Pressable>
+          )}
           {!isViewingMyListings ? (
             <View style={styles.viewToggle} testID="apartments-view-toggle">
               <Pressable
@@ -1582,7 +1637,7 @@ export default function ApartmentsScreen() {
                 </Text>
               </Pressable>
             </View>
-          ) : (
+          ) : auth.isBroker ? (
             <View style={styles.viewToggle} testID="apartments-view-toggle">
               <Pressable
                 style={[styles.viewToggleOption, viewMode === "grid" && styles.viewToggleOptionActive]}
@@ -1607,7 +1662,7 @@ export default function ApartmentsScreen() {
                 />
               </Pressable>
             </View>
-          )}
+          ) : null}
         </View>
         {showSearch && (
           <View style={styles.searchPanel} testID="apartments-search-panel">
@@ -1909,7 +1964,49 @@ export default function ApartmentsScreen() {
         )}
       </View>
       <View {...contentPanResponder.panHandlers} style={styles.flexOne}>
-      <ScrollView
+      {auth.isBroker && viewMode === "map" ? (
+        <View style={styles.mapContainer}>
+          <MapView
+            ref={mapRef}
+            provider={PROVIDER_DEFAULT}
+            style={styles.map}
+            initialRegion={mapRegion}
+            onPress={() => setSelectedMapApartment(null)}
+          >
+            {filteredApartments.map((apt) => {
+              if (!Number.isFinite(apt.latitude) || !Number.isFinite(apt.longitude)) return null;
+              const pinLabel = `${apt.rent}${CURRENCY}`;
+              const isSelected = selectedMapApartment?.id === apt.id;
+              return (
+                <Marker
+                  key={apt.id}
+                  coordinate={{ latitude: apt.latitude!, longitude: apt.longitude! }}
+                  onPress={() => setSelectedMapApartment(apt)}
+                >
+                  <View style={[styles.markerBubble, isSelected && styles.markerBubbleSelected]}>
+                    <Text style={[styles.markerBubbleText, isSelected && styles.markerBubbleTextSelected]}>{pinLabel}</Text>
+                  </View>
+                </Marker>
+              );
+            })}
+          </MapView>
+          {selectedMapApartment ? (
+            <View style={styles.mapCardPreviewOverlay}>
+              <ApartmentGridCard
+                apt={selectedMapApartment}
+                styles={styles}
+                colors={colors}
+                isLiked={likedApartmentIds.has(selectedMapApartment.id)}
+                isOwnListing={false}
+                isMyListingsView={isViewingMyListings}
+                quickChatMeta={hostChatByApartmentId[selectedMapApartment.id]}
+                onOpen={() => router.push({ pathname: "/apartment-detail", params: { data: JSON.stringify(selectedMapApartment) } } as any)}
+                onToggleLike={() => handleToggleLike(selectedMapApartment.id)}
+              />
+            </View>
+          ) : null}
+        </View>
+      ) : <ScrollView
         contentContainerStyle={[styles.list, isCompactActive && styles.compactList, { paddingBottom: TAB_BAR_SPACE + insets.bottom }]}
         showsVerticalScrollIndicator={false}
       >
@@ -2028,7 +2125,7 @@ export default function ApartmentsScreen() {
             )}
           </View>
         )}
-      </ScrollView>
+      </ScrollView>}
       </View>
       {showCreateFab && (
         <View style={[styles.fabCluster, { bottom: TAB_BAR_SPACE + insets.bottom + spacing.md }]}>
@@ -2498,6 +2595,10 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderColor: "#A8D9FF",
   },
   iconControlButtonActive: { backgroundColor: "#C8E9FF" },
+  mapToggleButton: {
+    backgroundColor: colors.surfaceSecondary,
+    borderColor: colors.border,
+  },
   filterHistoryBackdrop: {
     flex: 1,
     alignItems: "center",
@@ -2943,6 +3044,45 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     padding: spacing.md,
     gap: spacing.sm,
     paddingBottom: spacing.lg,
+  },
+  mapContainer: {
+    flex: 1,
+    position: "relative",
+  },
+  map: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  markerBubble: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 5,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surface,
+    borderWidth: 1.5,
+    borderColor: colors.brand,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 4,
+  },
+  markerBubbleSelected: {
+    backgroundColor: colors.brand,
+    borderColor: colors.onBrand,
+  },
+  markerBubbleText: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.xs,
+    color: colors.onSurface,
+  },
+  markerBubbleTextSelected: {
+    color: colors.onBrand,
+  },
+  mapCardPreviewOverlay: {
+    position: "absolute",
+    bottom: spacing.lg,
+    left: spacing.md,
+    right: spacing.md,
+    zIndex: 10,
   },
   filterActionsRow: {
     flexDirection: "row",
