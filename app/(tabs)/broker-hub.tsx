@@ -13,6 +13,7 @@ import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import { t } from "@/src/locales";
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
 import type { LeadReadinessKey } from "../broker-client-detail";
+import { getPipelineStageConfig, type PipelineStageKey } from "@/src/constants/pipeline";
 
 export interface BrokerApartment {
   id: string;
@@ -64,6 +65,10 @@ export interface BrokerClientLead {
   chatRoomId: string;
   sharedFilterSet?: FilterSetPayload & { sharedAt?: number };
   leadReadiness?: LeadReadinessKey | null;
+  pipelineStage?: PipelineStageKey;
+  pipelinePercentage?: number;
+  pipelineStageLabel?: string;
+  activeApartmentTitle?: string | null;
 }
 
 type BrokerHubSegment = "clients" | "owners";
@@ -129,7 +134,8 @@ export default function BrokerHubScreen() {
             getDocs(collection(db, "chats", chat.id, "messages")),
           ]);
           const user = userSnap.exists() ? userSnap.data() : {};
-          const profileData = profileSnap.exists() ? profileSnap.data() as { leadReadiness?: LeadReadinessKey | null } : {};
+          const profileData = profileSnap.exists() ? profileSnap.data() as { leadReadiness?: LeadReadinessKey | null; pipelineStage?: PipelineStageKey; activeApartmentTitle?: string | null } : {};
+          const stageConfig = getPipelineStageConfig(profileData.pipelineStage);
           const shared = messagesSnapshot.docs
             .map((message) => message.data() as { type?: string; filterSetData?: BrokerClientLead["sharedFilterSet"] })
             .filter((message) => message.type === "filter_set_share" && message.filterSetData)
@@ -140,6 +146,10 @@ export default function BrokerHubScreen() {
             clientAvatar: typeof user.photoUrl === "string" ? user.photoUrl : typeof user.avatar === "string" ? user.avatar : Array.isArray(user.photos) ? String(user.photos[0] ?? "") : "",
             chatRoomId: chat.id,
             leadReadiness: profileData.leadReadiness ?? null,
+            pipelineStage: stageConfig.key,
+            pipelinePercentage: Math.round(stageConfig.probability * 100),
+            pipelineStageLabel: stageConfig.label,
+            activeApartmentTitle: profileData.activeApartmentTitle,
             ...(shared ? { sharedFilterSet: shared } : {}),
           } satisfies BrokerClientLead;
         }));
@@ -184,7 +194,7 @@ export default function BrokerHubScreen() {
           {clientsActive ? <FlatList data={clients} testID="broker-clients-list" keyExtractor={(item) => item.clientUserId} ListEmptyComponent={<Text style={styles.emptyStateSubtitle}>Δεν υπάρχουν πελάτες ακόμα.</Text>} renderItem={({ item }) => (
             <Pressable style={styles.clientRowCard} testID={`broker-client-row-${item.clientUserId}`} onPress={() => router.push({ pathname: "/broker-client-detail", params: { clientUserId: item.clientUserId, clientName: item.clientName, clientAvatar: item.clientAvatar, chatRoomId: item.chatRoomId, sharedFilterSet: item.sharedFilterSet ? JSON.stringify(item.sharedFilterSet) : "" } })}>
               {item.clientAvatar ? <Image source={{ uri: item.clientAvatar }} style={styles.clientAvatar} /> : <DefaultProfileAvatar size={48} />}
-              <View style={styles.clientNameRow}><Text style={styles.rowTitle} numberOfLines={1}>{item.clientName}</Text>{item.leadReadiness === "hot" ? <Ionicons name="flame" size={18} color="#EF4444" style={styles.readinessIcon} /> : item.leadReadiness === "warm" ? <Ionicons name="sunny" size={18} color="#F59E0B" style={styles.readinessIcon} /> : item.leadReadiness === "cold" ? <Ionicons name="snow" size={18} color="#38BDF8" style={styles.readinessIcon} /> : null}</View>
+              <View style={styles.clientInfoCol}><View style={styles.clientNameRow}><Text style={styles.rowTitle} numberOfLines={1}>{item.clientName}</Text>{item.leadReadiness === "hot" ? <Ionicons name="flame" size={18} color="#EF4444" style={styles.readinessIcon} /> : item.leadReadiness === "warm" ? <Ionicons name="sunny" size={18} color="#F59E0B" style={styles.readinessIcon} /> : item.leadReadiness === "cold" ? <Ionicons name="snow" size={18} color="#38BDF8" style={styles.readinessIcon} /> : null}</View><View style={styles.pipelineBadgeRow}><View style={styles.pipelinePercentPill}><Text style={styles.pipelinePercentText}>{`${item.pipelinePercentage ?? 10}% · ${item.pipelineStageLabel ?? "Νέο Lead"}`}</Text></View>{item.activeApartmentTitle ? <Text numberOfLines={1} style={styles.activeApartmentSub}>{item.activeApartmentTitle}</Text> : null}</View></View>
                 {item.sharedFilterSet ? <View style={styles.filterBadge}><Ionicons name="options-outline" size={16} color={colors.brand} /></View> : null}
                 <Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />
             </Pressable>
@@ -201,5 +211,5 @@ export default function BrokerHubScreen() {
 
 const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface }, header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.sm }, brand: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface }, brandAccent: { color: colors.brand }, toggleShell: { flexDirection: "row", backgroundColor: colors.surfaceSecondary, borderRadius: radius.pill, padding: 4, marginHorizontal: spacing.lg, marginBottom: spacing.md, gap: 4 }, toggleOption: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: spacing.sm, borderRadius: radius.pill }, toggleOptionActive: { backgroundColor: colors.brand }, toggleText: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface }, toggleTextActive: { color: colors.onBrand }, contentArea: { flex: 1, paddingHorizontal: spacing.lg }, ownerRowCard: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: spacing.md, marginBottom: spacing.sm, borderRadius: radius.lg, backgroundColor: colors.surfaceSecondary, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }, clientRowCard: { flexDirection: "row", alignItems: "center", gap: spacing.sm, padding: spacing.md, marginBottom: spacing.sm, borderRadius: radius.lg, backgroundColor: colors.surfaceSecondary, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }, rowMain: { flex: 1, gap: spacing.xs }, rowTitle: { flex: 1, fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onSurface }, motivationBadge: { alignSelf: "flex-start", color: colors.onSurfaceTertiary, backgroundColor: colors.surfaceTertiary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 3, fontSize: fontSize.sm }, countPill: { alignSelf: "flex-start", color: colors.brand, fontFamily: fonts.semibold, fontSize: fontSize.sm }, clientAvatar: { width: 48, height: 48, borderRadius: radius.pill }, filterBadge: { padding: spacing.xs, borderRadius: radius.pill, backgroundColor: colors.surfaceTertiary }, emptyStateSubtitle: { textAlign: "center", color: colors.onSurfaceTertiary, fontFamily: fonts.regular, padding: spacing.xl },
-  clientNameRow: { flex: 1, flexDirection: "row", alignItems: "center" }, readinessIcon: { marginLeft: spacing.xs },
+  clientNameRow: { flex: 1, flexDirection: "row", alignItems: "center" }, clientInfoCol: { flex: 1, gap: 2 }, pipelineBadgeRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs, marginTop: 2, flexWrap: "wrap" }, pipelinePercentPill: { backgroundColor: colors.brandTertiary, paddingHorizontal: spacing.xs + 2, paddingVertical: 2, borderRadius: radius.pill }, pipelinePercentText: { fontFamily: fonts.bold, fontSize: fontSize.xs, color: colors.brand }, activeApartmentSub: { flexShrink: 1, fontFamily: fonts.regular, fontSize: fontSize.xs, color: colors.onSurfaceTertiary }, readinessIcon: { marginLeft: spacing.xs },
 });

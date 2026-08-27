@@ -83,6 +83,8 @@ export interface ClientPurchasingPowerData {
   clientName?: string;
   chatRoomId?: string;
   leadReadiness?: LeadReadinessKey | null;
+  activeApartmentId?: string | null;
+  activeApartmentTitle?: string | null;
 }
 
 export default function BrokerClientDetailScreen() {
@@ -100,6 +102,7 @@ export default function BrokerClientDetailScreen() {
   const [dealCommission, setDealCommission] = useState<number | undefined>();
   const [isStageModalVisible, setIsStageModalVisible] = useState(false);
   const [leadReadiness, setLeadReadiness] = useState<LeadReadinessKey | null>(null);
+  const [activeApartmentId, setActiveApartmentId] = useState<string | null>(null);
   const [isReadinessModalVisible, setIsReadinessModalVisible] = useState(false);
   const [isLossModalVisible, setIsLossModalVisible] = useState(false);
   const [lossReason, setLossReason] = useState<LossReasonKey>("high_price");
@@ -176,6 +179,7 @@ export default function BrokerClientDetailScreen() {
         setPurchasePurpose(data.purchasePurpose || "");
         setPipelineStage(getPipelineStageConfig(data.pipelineStage).key);
         setLeadReadiness(data.leadReadiness ?? null);
+        setActiveApartmentId(data.activeApartmentId ?? null);
         setStageUpdatedAt(typeof data.stageUpdatedAt === "number" ? data.stageUpdatedAt : Date.now());
         setDealCommission(typeof data.dealCommission === "number" ? data.dealCommission : undefined);
         setLossReason(data.lossReason ?? "high_price");
@@ -278,6 +282,30 @@ export default function BrokerClientDetailScreen() {
       console.error("[BrokerClientDetail] Error saving purchasing power to brokerClientProfiles (permission or network issue):", error);
     } finally {
       setSavingPurchasingPower(false);
+    }
+  };
+  const handleSetActiveApartment = async (apartment: BrokerApartment) => {
+    if (!auth.userId || !params.clientUserId) return;
+    const isCurrentActive = activeApartmentId === apartment.id;
+    const nextActiveId = isCurrentActive ? null : apartment.id;
+    const nextActiveTitle = isCurrentActive ? null : apartment.title;
+    setActiveApartmentId(nextActiveId);
+    try {
+      await setDoc(doc(db, "brokerClientProfiles", `${auth.userId}_${params.clientUserId}`), {
+        activeApartmentId: nextActiveId,
+        activeApartmentTitle: nextActiveTitle,
+        updatedAt: Date.now(),
+      }, { merge: true });
+      if (params.chatRoomId) {
+        await setDoc(doc(db, "chats", params.chatRoomId), {
+          apartmentId: nextActiveId,
+          apartmentTitle: nextActiveTitle,
+          type: nextActiveId ? "host" : "roommate",
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+      }
+    } catch (error) {
+      console.error("[BrokerClientDetail] Error setting active apartment:", error);
     }
   };
   const handleSavePropertyList = async () => {
@@ -438,6 +466,8 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   criteriaChip: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.pill, backgroundColor: colors.surfaceTertiary, color: colors.onSurface, fontFamily: fonts.semibold, fontSize: fontSize.sm },
   body: { marginTop: spacing.xs, fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
   portfolioItemContainer: { marginBottom: spacing.sm, borderRadius: radius.md, backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border, overflow: "hidden" },
+  activeDealBadge: { position: "absolute", top: 8, right: 8, flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: radius.pill, backgroundColor: colors.brand, zIndex: 10 },
+  activeDealBadgeText: { fontFamily: fonts.bold, fontSize: fontSize.xs, color: colors.onBrand },
   portfolioCardMain: { flexDirection: "row", alignItems: "center", gap: spacing.sm, padding: spacing.sm },
   portfolioThumb: { width: 52, height: 52, borderRadius: radius.sm, backgroundColor: colors.surfaceTertiary },
   portfolioThumbPlaceholder: { alignItems: "center", justifyContent: "center" },

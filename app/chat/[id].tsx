@@ -601,6 +601,9 @@ export default function ChatScreen() {
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const auth = useAuth();
+  const { id, chatRoomId: chatRoomIdParam } = useLocalSearchParams<{ id: string; chatRoomId?: string }>();
   const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
 
   useEffect(() => {
@@ -629,9 +632,6 @@ export default function ChatScreen() {
   }, []);
 
   const safeMenuTop = Math.max(insets.top + 12, (Platform.OS === "android" ? (StatusBar.currentHeight ?? 0) + 12 : 12));
-  const router = useRouter();
-  const auth = useAuth();
-  const { id, chatRoomId: chatRoomIdParam } = useLocalSearchParams<{ id: string; chatRoomId?: string }>();
   const counterpartId = typeof id === "string" ? id : "";
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [profile, setProfile] = useState<RoommateProfile | null>(null);
@@ -1612,6 +1612,12 @@ export default function ChatScreen() {
         createdAt: serverTimestamp(),
       });
 
+      await setDoc(doc(db, "brokerClientProfiles", `${counterpartId}_${currentUserId}`), {
+        pipelineStage: "offer_made",
+        stageUpdatedAt: Date.now(),
+        updatedAt: Date.now(),
+      }, { merge: true });
+
       await setDoc(
         doc(db, "chats", chatRoomId),
         {
@@ -1659,6 +1665,12 @@ export default function ChatScreen() {
         apartmentId: hostApartmentId,
         createdAt: serverTimestamp(),
       });
+
+      await setDoc(doc(db, "brokerClientProfiles", `${counterpartId}_${currentUserId}`), {
+        pipelineStage: "showing_scheduled",
+        stageUpdatedAt: Date.now(),
+        updatedAt: Date.now(),
+      }, { merge: true });
 
       await setDoc(
         doc(db, "chats", chatRoomId),

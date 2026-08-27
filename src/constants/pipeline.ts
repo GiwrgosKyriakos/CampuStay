@@ -1,5 +1,7 @@
 export type PipelineStageKey =
   | "new_lead"
+  | "showing_scheduled"
+  | "offer_made"
   | "showing_planned"
   | "showing_completed"
   | "offer"
@@ -36,6 +38,8 @@ export interface PipelineStageConfig {
 
 export const PIPELINE_STAGES: PipelineStageConfig[] = [
   { key: "new_lead", label: "Νέο Lead / Like", shortLabel: "Lead", probability: 0.1 },
+  { key: "showing_scheduled", label: "Προγραμματισμένη υπόδειξη", shortLabel: "Υπόδειξη (Προγρ.)", probability: 0.4 },
+  { key: "offer_made", label: "Πρόταση τιμής", shortLabel: "Πρόταση τιμής", probability: 0.6 },
   { key: "showing_planned", label: "Υπόδειξη (Showing) Προγραμματισμός", shortLabel: "Υπόδειξη (Προγρ.)", probability: 0.25 },
   { key: "showing_completed", label: "Υπόδειξη (Showing) Πραγματοποίηση", shortLabel: "Υπόδειξη (Ολοκλ.)", probability: 0.4 },
   { key: "offer", label: "Προσφορά (Offer)", shortLabel: "Προσφορά", probability: 0.6 },
