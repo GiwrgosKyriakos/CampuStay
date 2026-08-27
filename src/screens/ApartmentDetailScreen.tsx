@@ -1278,6 +1278,13 @@ export default function ApartmentDetailScreen() {
     };
   }, [apt?.id, auth.isBroker, auth.isGuest, auth.userId, canViewLikedUsers, showLikedUsersSection]);
 
+  const allGalleryPhotos = useMemo(
+    () => [...(dbImages.length > 0 ? dbImages : [apt?.image]), ...files2d3d].filter(
+      (uri) => typeof uri === "string" && uri.trim().length > 0,
+    ),
+    [apt?.image, dbImages, files2d3d],
+  );
+
   if (!apt) {
     return (
       <View style={[styles.container, styles.center]}>
@@ -1337,12 +1344,6 @@ export default function ApartmentDetailScreen() {
     return `Διαθέσιμο από: ${formatIsoDate(displayExtraInformation.availableFromDate)}`;
   })();
 
-  const allGalleryPhotos = useMemo(
-    () => [...(dbImages.length > 0 ? dbImages : [apt.image]), ...files2d3d].filter(
-      (uri) => typeof uri === "string" && uri.trim().length > 0,
-    ),
-    [apt.image, dbImages, files2d3d],
-  );
   const images = allGalleryPhotos;
 
   const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
