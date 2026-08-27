@@ -25,8 +25,10 @@ import { storage } from "@/src/utils/storage";
 import { calculatePricePerSqm } from "@/src/utils/pricing";
 import { isPointInPolygon, type LatLng } from "@/src/utils/geometry";
 import MapPolygonDrawModal from "@/src/components/MapPolygonDrawModal";
+import { WatermarkBadge } from "@/src/components/WatermarkBadge";
 import type { FilterSetPayload as SharedFilterSetPayload } from "@/src/types/filters";
 import type { FilterSetVersionData, SharedFilterSetRecord } from "@/src/components/FilterSetVersionModal";
+import type { WatermarkConfig } from "@/src/types/listing";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 100;
@@ -237,6 +239,7 @@ interface Apartment {
   rentedToUserId?: string | null;
   rentedAtMillis?: number | null;
   available: boolean;
+  watermarkConfig?: WatermarkConfig;
 }
 
 interface FirestoreApartmentDoc {
@@ -273,6 +276,7 @@ interface FirestoreApartmentDoc {
   createdAt?: unknown;
   available?: boolean;
   isAvailable?: boolean;
+  watermarkConfig?: WatermarkConfig;
 }
 
 interface FirestoreLikedApartmentDoc {
@@ -387,6 +391,7 @@ function ApartmentGridCard({
             <Text style={styles.cardPlaceholderText}>CampuStay</Text>
           </View>
         )}
+        <WatermarkBadge config={apt.watermarkConfig} position="top-left" />
 
         {apt.isOffMarket ? (
           <View style={styles.clientOnlyBadge}>
@@ -1142,6 +1147,7 @@ export default function ApartmentsScreen() {
                   rentedToUserId: typeof data.rentedToUserId === "string" ? data.rentedToUserId : data.rentedToUserId === null ? null : null,
                   rentedAtMillis: parseTimestampToMillis(data.rentedAt) || null,
                   available,
+                  watermarkConfig: data.watermarkConfig,
                 };
               })
             );
@@ -3462,6 +3468,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   cardWrap: { position: "relative" },
   card: {
     height: 260,
+    position: "relative",
     borderRadius: radius.lg,
     overflow: "hidden",
     backgroundColor: colors.surfaceTertiary,

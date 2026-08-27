@@ -45,6 +45,7 @@ import { deleteListingPermanently } from "@/src/api/listings";
 import { getUserProfile } from "@/src/api/userProfile";
 import CenteredActionModal from "@/src/components/CenteredActionModal";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
+import { WatermarkBadge } from "@/src/components/WatermarkBadge";
 import ApartmentLocationMap from "@/src/components/ApartmentLocationMap";
 import { t } from "@/src/locales";
 import { db } from "@/src/config/firebase";
@@ -55,6 +56,7 @@ import type { CompatibilityQuizAnswers, UserProfile as MatchUserProfile } from "
 import { calculatePricePerSqm } from "@/src/utils/pricing";
 import { calculateTenantCompatibilityScore } from "@/src/utils/compatibilityScore";
 import type { FilterSetPayload } from "@/src/types/filters";
+import type { WatermarkConfig } from "@/src/types/listing";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const CURRENCY = "€";
@@ -164,6 +166,8 @@ interface Apartment {
   rentedAt?: number | null;
   isOffMarket?: boolean;
   offMarketAccessUserIds?: string[];
+  watermarkConfig?: WatermarkConfig;
+  files2d3d?: string[];
 }
 
 interface FirestoreApartmentDoc {
@@ -205,6 +209,8 @@ interface FirestoreApartmentDoc {
   createdAt?: unknown;
   isOffMarket?: boolean;
   offMarketAccessUserIds?: string[];
+  watermarkConfig?: WatermarkConfig;
+  files2d3d?: string[];
 }
 
 interface FirestoreInquiryChatDoc {
@@ -571,6 +577,8 @@ export default function ApartmentDetailScreen() {
   const [rentedToUserId, setRentedToUserId] = useState<string | null>(null);
 
   const [dbImages, setDbImages] = useState<string[]>([]);
+  const [files2d3d, setFiles2d3d] = useState<string[]>([]);
+  const [selectedFileModal, setSelectedFileModal] = useState<{ title: string; uri: string } | null>(null);
   const [realDescription, setRealDescription] = useState<string | null>(null);
   const [realTags, setRealTags] = useState<string[]>([]);
   const [resolvedExtraDetails, setResolvedExtraDetails] = useState<Record<string, boolean> | null>(null);
@@ -590,6 +598,7 @@ export default function ApartmentDetailScreen() {
   const [approvedClientPrice, setApprovedClientPrice] = useState<number | null>(null);
   const [isOffMarketListing, setIsOffMarketListing] = useState(apt?.isOffMarket === true);
   const [offMarketAccessUserIds, setOffMarketAccessUserIds] = useState<string[]>(apt?.offMarketAccessUserIds || []);
+  const [resolvedWatermarkConfig, setResolvedWatermarkConfig] = useState<WatermarkConfig | undefined>(apt?.watermarkConfig);
   const offMarketGuardShown = useRef(false);
 
   const [inquiries, setInquiries] = useState<InquiryItem[]>([]);
@@ -757,6 +766,8 @@ export default function ApartmentDetailScreen() {
         const docData = docSnap.data() as FirestoreApartmentDoc;
         setIsOffMarketListing(docData.isOffMarket === true);
         setOffMarketAccessUserIds(Array.isArray(docData.offMarketAccessUserIds) ? docData.offMarketAccessUserIds : []);
+        setResolvedWatermarkConfig(docData.watermarkConfig);
+        setFiles2d3d(Array.isArray(docData.files2d3d) ? docData.files2d3d.filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0) : []);
         const imgs = Array.isArray(docData.images)
           ? docData.images.filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0)
           : [docData.image || docData.imageUrl].filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0);
@@ -1326,9 +1337,13 @@ export default function ApartmentDetailScreen() {
     return `Διαθέσιμο από: ${formatIsoDate(displayExtraInformation.availableFromDate)}`;
   })();
 
-  const images = (dbImages.length > 0 ? dbImages : [apt.image]).filter(
-    (uri) => typeof uri === "string" && uri.trim().length > 0,
+  const allGalleryPhotos = useMemo(
+    () => [...(dbImages.length > 0 ? dbImages : [apt.image]), ...files2d3d].filter(
+      (uri) => typeof uri === "string" && uri.trim().length > 0,
+    ),
+    [apt.image, dbImages, files2d3d],
   );
+  const images = allGalleryPhotos;
 
   const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const page = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
@@ -1726,7 +1741,14 @@ export default function ApartmentDetailScreen() {
                 testID="apartment-detail-carousel"
               >
                 {images.map((uri, index) => (
-                  <Image key={`${uri}-${index}`} source={{ uri }} style={styles.carouselImage} contentFit="cover" transition={200} />
+                  <View key={`${uri}-${index}`} style={styles.carouselSlide}>
+                    <Image source={{ uri }} style={styles.carouselImage} contentFit="cover" transition={200} />
+                    <WatermarkBadge
+                      config={resolvedWatermarkConfig ?? apt.watermarkConfig}
+                      position="bottom-left"
+                      style={{ bottom: 16, left: 16 }}
+                    />
+                  </View>
                 ))}
               </ScrollView>
 
@@ -1839,6 +1861,31 @@ export default function ApartmentDetailScreen() {
             ) : null}
           </View>
         </View>
+
+        {files2d3d.length > 0 ? (
+          <View style={styles.section} testID="apartment-detail-2d-3d-files-section">
+            <View style={styles.sectionHeadingRow}>
+              <Ionicons name="cube-outline" size={20} color={colors.onSurface} />
+              <Text style={styles.sectionTitle}>Κατόψεις &amp; Αρχιτεκτονικά αρχεία</Text>
+            </View>
+            <View style={styles.detailFilesList}>
+              {files2d3d.map((uri, index) => (
+                <Pressable
+                  key={`${uri}-${index}`}
+                  style={styles.detailFileBar}
+                  onPress={() => setSelectedFileModal({ title: `Αρχείο ${index + 1}`, uri })}
+                  testID={`apartment-detail-2d-3d-file-${index}`}
+                >
+                  <View style={styles.detailFileLabel}>
+                    <Ionicons name="image-outline" size={18} color={colors.brand} />
+                    <Text style={styles.detailFileText}>{`Αρχείο ${index + 1}`}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        ) : null}
 
         {!isListingOwner && showLikedUsersSection ? (
           <View style={styles.section} testID="apartment-detail-liked-users-section">
@@ -2466,6 +2513,25 @@ export default function ApartmentDetailScreen() {
       <Modal
         transparent
         animationType="fade"
+        visible={!!selectedFileModal}
+        onRequestClose={() => setSelectedFileModal(null)}
+      >
+        <View style={styles.fileViewerBackdrop}>
+          <View style={styles.fileViewerCard}>
+            <View style={styles.fileViewerHeader}>
+              <Text style={styles.fileViewerTitle}>{selectedFileModal?.title}</Text>
+              <Pressable onPress={() => setSelectedFileModal(null)} hitSlop={8}>
+                <Ionicons name="close" size={24} color={colors.onSurface} />
+              </Pressable>
+            </View>
+            {selectedFileModal ? <Image source={{ uri: selectedFileModal.uri }} style={styles.fileViewerImage} contentFit="contain" /> : null}
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        transparent
+        animationType="fade"
         visible={closeDealModalVisible}
         onRequestClose={() => {
           if (!isSubmittingCloseDeal) {
@@ -2642,6 +2708,26 @@ function createStyles(colors: ThemeColors) {
     container: { flex: 1, backgroundColor: colors.surface },
     center: { alignItems: "center", justifyContent: "center", gap: spacing.md },
     scroll: { flex: 1 },
+    sectionHeadingRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs, marginBottom: spacing.sm },
+    detailFilesList: { gap: spacing.xs },
+    detailFileBar: {
+      minHeight: 48,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: spacing.md,
+      borderRadius: radius.sm,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceSecondary,
+    },
+    detailFileLabel: { flexDirection: "row", alignItems: "center", gap: spacing.sm, flex: 1 },
+    detailFileText: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface },
+    fileViewerBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.72)", justifyContent: "center", padding: spacing.lg },
+    fileViewerCard: { backgroundColor: colors.surface, borderRadius: radius.md, overflow: "hidden", maxHeight: "88%" },
+    fileViewerHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: spacing.md },
+    fileViewerTitle: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface },
+    fileViewerImage: { width: "100%", height: 520, backgroundColor: colors.surfaceSecondary },
     clientOnlyBanner: {
       flexDirection: "row",
       alignItems: "center",
@@ -2706,6 +2792,7 @@ function createStyles(colors: ThemeColors) {
       justifyContent: "center",
       alignItems: "center",
     },
+    carouselSlide: { width: SCREEN_WIDTH, height: 280, position: "relative" },
     carouselImage: { width: SCREEN_WIDTH, height: 280 },
     placeholderContainer: {
       alignItems: "center",

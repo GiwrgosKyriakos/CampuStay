@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -25,17 +26,21 @@ import Dropdown from "@/src/components/Dropdown";
 import AddressAutocompleteInput from "@/src/components/AddressAutocompleteInput";
 // import ApartmentLocationMap from "@/src/components/ApartmentLocationMap";
 import CenteredActionModal from "@/src/components/CenteredActionModal";
+import { WatermarkBadge } from "@/src/components/WatermarkBadge";
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
 import { db } from "@/src/config/firebase";
 import { useAuth } from "@/src/context/auth";
 import { useTheme } from "@/src/context/ThemeContext";
 // import { useLocationCoordinates } from "@/src/hooks/useLocationCoordinates";
-import { uploadBrokerPrivateImageAsync, uploadListingDocumentAsync, uploadListingImageAsync } from "@/src/api/imageUpload";
+import { uploadBrokerPrivateImageAsync, uploadImageAsync, uploadListingDocumentAsync, uploadListingImageAsync } from "@/src/api/imageUpload";
 import { upsertListing } from "@/src/api/listings";
+import { getUserProfile } from "@/src/api/userProfile";
 import { t } from "@/src/locales";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import { calculateTenantCompatibilityScore } from "@/src/utils/compatibilityScore";
 import type { FilterSetPayload } from "@/src/types/filters";
+import type { RealEstateAgency } from "@/src/types/agency";
+import type { LogoWatermarkStyle, WatermarkConfig, WatermarkType } from "@/src/types/listing";
 
 type AmenityKey = "petFriendly" | "nearMetro" | "furnished" | "balcony" | "parking";
 type AmenitySlug = "pet_friendly" | "near_metro" | "furnished" | "balcony" | "parking";
@@ -185,6 +190,8 @@ interface FirestoreApartmentDoc {
   image?: string;
   imageUrl?: string;
   images?: string[];
+  files2d3d?: string[];
+  watermarkConfig?: WatermarkConfig;
   brokerPrivatePhotos?: string[];
   documents?: Partial<Record<DocumentCategoryKey, ListingDocument[]>>;
   tags?: string[];
@@ -772,6 +779,12 @@ export default function CreateListingScreen() {
     parking: false,
   });
   const [photos, setPhotos] = useState<string[]>([]);
+  const [files2d3d, setFiles2d3d] = useState<string[]>([]);
+  const [files2d3dLoading, setFiles2d3dLoading] = useState(false);
+  const [watermarkEnabled, setWatermarkEnabled] = useState(false);
+  const [watermarkType, setWatermarkType] = useState<WatermarkType>("default_text");
+  const [logoStyle, setLogoStyle] = useState<LogoWatermarkStyle>("no_bg_transparent");
+  const [agencyData, setAgencyData] = useState<RealEstateAgency | null>(null);
   const [brokerPrivatePhotos, setBrokerPrivatePhotos] = useState<string[]>([]);
   const [isBrokerPrivatePhotosExpanded, setIsBrokerPrivatePhotosExpanded] = useState(false);
   const [isDocumentsExpanded, setIsDocumentsExpanded] = useState(false);
@@ -802,6 +815,38 @@ export default function CreateListingScreen() {
   const matchingSectionY = useRef(0);
   const [clientPool, setClientPool] = useState<BrokerClientWithFilters[]>([]);
   const [loadingClientPool, setLoadingClientPool] = useState(false);
+
+  const handlePick2D3DFiles = useCallback(async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert("Απαιτείται Άδεια", "Χρειάζεται πρόσβαση στη συλλογή φωτογραφιών για την επισύναψη αρχείων 2D/3D.");
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsMultipleSelection: true,
+        quality: 0.85,
+      });
+      if (result.canceled) return;
+
+      const pickedUris = result.assets
+        .filter((asset) => {
+          const mimeType = asset.mimeType?.toLowerCase();
+          return (!mimeType || mimeType === "image/png" || mimeType === "image/jpeg") && /\.(png|jpe?g)$/i.test(asset.uri.split("?")[0]);
+        })
+        .map((asset) => asset.uri);
+      if (pickedUris.length) setFiles2d3d((previous) => [...previous, ...pickedUris]);
+    } catch (pickError) {
+      console.error("[CreateListing] Error picking 2D/3D files:", pickError);
+    }
+  }, []);
+
+  const handleRemove2D3DFile = useCallback((index: number) => {
+    setFiles2d3d((previous) => previous.filter((_, fileIndex) => fileIndex !== index));
+  }, []);
+
   const currentPriceHistory = useMemo(() => {
     if (priceHistory.length > 0) return priceHistory;
     const currentPrice = Number(monthlyRent);
@@ -818,6 +863,33 @@ export default function CreateListingScreen() {
     ];
   }, [auth.user?.name, auth.userId, monthlyRent, ownerPriceExpectation, priceHistory]);
   const isBrokerMode = auth.isBroker === true;
+
+  useEffect(() => {
+    if (auth.isGuest || !auth.userId) {
+      setAgencyData(null);
+      return;
+    }
+
+    let active = true;
+    void getUserProfile(auth.userId)
+      .then(async (profile) => {
+        if (!profile?.agencyId) return null;
+        const agencySnapshot = await getDoc(doc(db, "agencies", profile.agencyId));
+        return agencySnapshot.exists()
+          ? ({ id: agencySnapshot.id, ...agencySnapshot.data() } as RealEstateAgency)
+          : null;
+      })
+      .then((agency) => {
+        if (active) setAgencyData(agency);
+      })
+      .catch(() => {
+        if (active) setAgencyData(null);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [auth.isGuest, auth.userId]);
 
   useEffect(() => {
     if (!isBrokerMode || !auth.userId) {
@@ -1423,6 +1495,15 @@ export default function CreateListingScreen() {
           ? data.images
           : [data.imageUrl || data.image || ""].filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0);
         setPhotos(imageList.slice(0, PHOTO_SLOTS));
+        setFiles2d3d(Array.isArray(data.files2d3d) ? data.files2d3d.filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0) : []);
+        const savedWatermark = data.watermarkConfig;
+        setWatermarkEnabled(savedWatermark?.enabled === true);
+        setWatermarkType(savedWatermark?.type === "agency_logo" ? "agency_logo" : "default_text");
+        setLogoStyle(
+          savedWatermark?.logoStyle === "with_bg" || savedWatermark?.logoStyle === "no_bg"
+            ? savedWatermark.logoStyle
+            : "no_bg_transparent",
+        );
 
         const privateImageList = Array.isArray(data.brokerPrivatePhotos)
           ? data.brokerPrivatePhotos.filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0)
@@ -1678,6 +1759,15 @@ export default function CreateListingScreen() {
     const normalizedRooms = Number.isFinite(Number(rooms)) && Number(rooms) > 0 ? Math.trunc(Number(rooms)) : 1;
     const imageList = options?.imageList ?? photos;
     const hostId = listingOwnerId || auth.userId || "";
+    const watermarkConfig: WatermarkConfig | { enabled: false } = watermarkEnabled
+      ? {
+          enabled: true,
+          type: watermarkType,
+          text: agencyData?.name || "CampuStay",
+          logoUrl: watermarkType === "agency_logo" ? agencyData?.logoUrl : null,
+          logoStyle: watermarkType === "agency_logo" ? logoStyle : undefined,
+        }
+      : { enabled: false };
     return {
       title: title.trim() || "Αποκλειστικό Ακίνητο (Off-Market)",
       description: description.trim(),
@@ -1701,6 +1791,8 @@ export default function CreateListingScreen() {
       image: imageList[0] || "",
       imageUrl: imageList[0] || "",
       images: imageList,
+      files2d3d,
+      watermarkConfig,
       tags: selectedAmenitySlugs.length ? selectedAmenitySlugs : ["new_listing"],
       amenities: selectedAmenitySlugs,
       extraDetails: Object.keys(extraDetailsState).length > 0 ? extraDetailsState : undefined,
@@ -1737,7 +1829,7 @@ export default function CreateListingScreen() {
       visibility: options?.visibility ?? (isOffMarket ? "client_only" : "public"),
       offMarketAccessUserIds: options?.offMarketAccessUserIds ?? offMarketAccessUserIds,
     };
-  }, [address, addressLatitude, addressLongitude, area, availableFromDate, buildYear, city, closedDealPrice, commonExpenses, currentPriceHistory, customOwnerMotivation, description, energyClass, existingAssignedBrokerIds, extraDetailsState, floor, hasExactLocation, heatingSystem, isImmediatelyAvailable, isOffMarket, kitchens, levels, livingRooms, listingOwnerId, maxDiscountPercent, monthlyRent, offMarketAccessUserIds, orientation, ownerMotivationType, ownerName, ownerPriceExpectation, photos, propertyCategory, propertyStatus, propertyType, rooms, selectedAmenitySlugs, showPhoneNumber, sizeSqm, technicalSpecificationsPayload, title, windowFrames, renovationYear, bathrooms, auth.userId]);
+  }, [address, addressLatitude, addressLongitude, agencyData, area, availableFromDate, buildYear, city, closedDealPrice, commonExpenses, currentPriceHistory, customOwnerMotivation, description, energyClass, existingAssignedBrokerIds, extraDetailsState, files2d3d, floor, hasExactLocation, heatingSystem, isImmediatelyAvailable, isOffMarket, kitchens, levels, livingRooms, listingOwnerId, logoStyle, maxDiscountPercent, monthlyRent, offMarketAccessUserIds, orientation, ownerMotivationType, ownerName, ownerPriceExpectation, photos, propertyCategory, propertyStatus, propertyType, rooms, selectedAmenitySlugs, showPhoneNumber, sizeSqm, technicalSpecificationsPayload, title, watermarkEnabled, watermarkType, windowFrames, renovationYear, bathrooms, auth.userId]);
 
   const handleSendOffMarketListing = useCallback(async (client: MatchedClient) => {
     if (!auth.userId || auth.isGuest || sendingOffMarketClientId) return;
@@ -1937,6 +2029,15 @@ export default function CreateListingScreen() {
         image: firstImage,
         imageUrl: firstImage,
         images: uploadedImages,
+        watermarkConfig: watermarkEnabled
+          ? {
+              enabled: true,
+              type: watermarkType,
+              text: agencyData?.name || "CampuStay",
+              logoUrl: watermarkType === "agency_logo" ? agencyData?.logoUrl : null,
+              logoStyle: watermarkType === "agency_logo" ? logoStyle : undefined,
+            }
+          : { enabled: false },
         tags: selectedAmenitySlugs.length ? selectedAmenitySlugs : ["new_listing"],
         amenities: selectedAmenitySlugs,
         extraDetails: Object.keys(extraDetailsState).length > 0 ? extraDetailsState : undefined,
@@ -2019,11 +2120,26 @@ export default function CreateListingScreen() {
         setDocuments(uploadedDocuments);
       }
 
+      setFiles2d3dLoading(true);
+      const existingFiles2d3d = files2d3d.filter((uri) => /^https?:\/\//i.test(uri));
+      const localFiles2d3d = files2d3d.filter((uri) => !/^https?:\/\//i.test(uri));
+      const uploadedFiles2d3d = await Promise.all(
+        localFiles2d3d.map((uri, index) => uploadImageAsync(uri, `apartments/${savedApartmentId}/files2d3d/file_${index}_${Date.now()}.png`)),
+      );
+      const finalFiles2d3d = [...existingFiles2d3d, ...uploadedFiles2d3d];
+      await upsertListing({
+        apartmentId: savedApartmentId,
+        payload: { files2d3d: finalFiles2d3d },
+      });
+      setFiles2d3d(finalFiles2d3d);
+      setFiles2d3dLoading(false);
+
       if (uploadedImages.length) {
         setPhotos(uploadedImages);
       }
 
     } catch {
+      setFiles2d3dLoading(false);
       setError(t("createListing.errors.uploadPhotos"));
       showFeedbackModal(t("createListing.alerts.publishFailedTitle"), t("createListing.alerts.publishFailedMessage"));
       setSubmitting(false);
@@ -2372,6 +2488,128 @@ export default function CreateListingScreen() {
             )}
 
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
+          </View>
+
+          <View style={styles.sectionCard} testID="section-2d-3d-files">
+            <View style={styles.sectionHeaderRow}>
+              <View style={styles.sectionTitleWrap}>
+                <Ionicons color={colors.onSurface} name="cube-outline" size={20} />
+                <Text style={styles.sectionTitle}>Αρχεία 2D / 3D</Text>
+              </View>
+              <Pressable
+                hitSlop={8}
+                onPress={() => void handlePick2D3DFiles()}
+                style={styles.attachIconButton}
+                testID="attach-2d-3d-files-button"
+              >
+                {files2d3dLoading ? <ActivityIndicator size="small" color={colors.brand} /> : <Ionicons color={colors.brand} name="attach" size={22} />}
+              </Pressable>
+            </View>
+            <Text style={styles.attachmentSubtitle}>
+              Επισυνάψτε κατόψεις, σχέδια 2D ή φωτορεαλιστικά 3D σε μορφή εικόνας (PNG, JPG).
+            </Text>
+            {files2d3d.length > 0 ? (
+              <View style={styles.attachedFilesList}>
+                {files2d3d.map((uri, index) => (
+                  <View key={`${uri}-${index}`} style={styles.attachedFileRow}>
+                    <View style={styles.attachedFileLeft}>
+                      <Ionicons color={colors.brand} name="image-outline" size={18} />
+                      <Text numberOfLines={1} style={styles.attachedFileName}>{`Αρχείο ${index + 1}`}</Text>
+                    </View>
+                    <Pressable onPress={() => handleRemove2D3DFile(index)} hitSlop={8} testID={`remove-2d-3d-file-${index}`}>
+                      <Ionicons color={colors.error} name="trash-outline" size={18} />
+                    </Pressable>
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <View style={styles.emptyFilesBox}>
+                <Text style={styles.emptyFilesText}>Δεν έχουν επισυναφθεί αρχεία 2D / 3D.</Text>
+              </View>
+            )}
+          </View>
+
+          <View style={styles.watermarkCard} testID="watermark-controls-section">
+            <View style={styles.watermarkHeaderRow}>
+              <View style={styles.watermarkTitleCol}>
+                <Text style={styles.watermarkTitle}>Προσθήκη default watermark</Text>
+                <Text style={styles.watermarkSubtitle}>
+                  Εμφάνιση ημιδιάφανου υδατογραφήματος κάτω δεξιά στις φωτογραφίες
+                </Text>
+              </View>
+              <Switch
+                value={watermarkEnabled}
+                onValueChange={setWatermarkEnabled}
+                trackColor={{ false: colors.border, true: colors.brandSecondary }}
+                thumbColor={watermarkEnabled ? colors.onBrand : colors.onSurface}
+                testID="watermark-toggle"
+              />
+            </View>
+
+            {watermarkEnabled ? (
+              <View style={styles.watermarkOptionsWrap}>
+                {agencyData?.logoUrl ? (
+                  <View style={styles.segmentedRow}>
+                    <Pressable
+                      style={[styles.segmentBtn, watermarkType === "default_text" && styles.segmentBtnActive]}
+                      onPress={() => setWatermarkType("default_text")}
+                    >
+                      <Text style={[styles.segmentBtnText, watermarkType === "default_text" && styles.segmentBtnTextActive]}>
+                        Κείμενο ({agencyData.name || "CampuStay"})
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      style={[styles.segmentBtn, watermarkType === "agency_logo" && styles.segmentBtnActive]}
+                      onPress={() => setWatermarkType("agency_logo")}
+                    >
+                      <Text style={[styles.segmentBtnText, watermarkType === "agency_logo" && styles.segmentBtnTextActive]}>
+                        Logo Γραφείου
+                      </Text>
+                    </Pressable>
+                  </View>
+                ) : null}
+
+                {watermarkType === "agency_logo" && agencyData?.logoUrl ? (
+                  <View style={styles.logoStyleOptions}>
+                    <Text style={styles.styleOptionLabel}>Στυλ εμφάνισης Logo:</Text>
+                    <View style={styles.radioOptionsList}>
+                      {[
+                        { id: "with_bg", label: "Με φόντο" },
+                        { id: "no_bg", label: "Χωρίς φόντο" },
+                        { id: "no_bg_transparent", label: "Χωρίς φόντο & Ημιδιάφανο" },
+                      ].map((option) => (
+                        <Pressable
+                          key={option.id}
+                          style={[styles.radioRow, logoStyle === option.id && styles.radioRowActive]}
+                          onPress={() => setLogoStyle(option.id as LogoWatermarkStyle)}
+                        >
+                          <View style={[styles.radioDot, logoStyle === option.id && styles.radioDotActive]}>
+                            {logoStyle === option.id ? <View style={styles.radioDotInner} /> : null}
+                          </View>
+                          <Text style={[styles.radioText, logoStyle === option.id && styles.radioTextActive]}>{option.label}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  </View>
+                ) : null}
+
+                <View style={styles.watermarkPreviewBox}>
+                  <Text style={styles.previewLabel}>Προεπισκόπηση Watermark:</Text>
+                  <View style={styles.previewThumbSample}>
+                    <Text style={styles.previewPlaceholderText}>Δείγμα Εικόνας</Text>
+                    <WatermarkBadge
+                      config={{
+                        enabled: true,
+                        type: watermarkType,
+                        text: agencyData?.name || "CampuStay",
+                        logoUrl: agencyData?.logoUrl,
+                        logoStyle,
+                      }}
+                    />
+                  </View>
+                </View>
+              </View>
+            ) : null}
           </View>
 
           {isBrokerMode ? (
@@ -3361,6 +3599,137 @@ function createStyles(colors: ThemeColors) {
       padding: spacing.lg,
       gap: spacing.sm,
     },
+    watermarkCard: {
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: spacing.md,
+      gap: spacing.sm,
+      marginTop: spacing.sm,
+    },
+    sectionCard: {
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: spacing.md,
+      gap: spacing.sm,
+      marginTop: spacing.md,
+    },
+    sectionTitleWrap: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
+    attachmentSubtitle: { fontFamily: fonts.regular, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
+    attachIconButton: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    attachedFilesList: { gap: spacing.xs, marginTop: spacing.xs },
+    attachedFileRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      backgroundColor: colors.surface,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+      borderRadius: radius.sm,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    attachedFileLeft: { flexDirection: "row", alignItems: "center", gap: spacing.sm, flex: 1 },
+    attachedFileName: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface },
+    emptyFilesBox: { paddingVertical: spacing.sm },
+    emptyFilesText: { fontFamily: fonts.regular, fontSize: fontSize.xs, color: colors.onSurfaceTertiary, fontStyle: "italic" },
+    watermarkHeaderRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: spacing.sm,
+    },
+    watermarkTitleCol: { flex: 1 },
+    watermarkTitle: {
+      fontFamily: fonts.bold,
+      fontSize: fontSize.base,
+      color: colors.onSurface,
+    },
+    watermarkSubtitle: {
+      fontFamily: fonts.regular,
+      fontSize: fontSize.xs,
+      color: colors.onSurfaceTertiary,
+      marginTop: 2,
+    },
+    watermarkOptionsWrap: {
+      paddingTop: spacing.sm,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.border,
+      gap: spacing.sm,
+    },
+    segmentedRow: {
+      flexDirection: "row",
+      backgroundColor: colors.surface,
+      borderRadius: radius.pill,
+      padding: 3,
+      gap: 4,
+    },
+    segmentBtn: {
+      flex: 1,
+      paddingVertical: spacing.xs + 2,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: radius.pill,
+    },
+    segmentBtnActive: { backgroundColor: colors.brand },
+    segmentBtnText: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.xs,
+      color: colors.onSurface,
+      textAlign: "center",
+    },
+    segmentBtnTextActive: { color: colors.onBrand },
+    logoStyleOptions: { gap: spacing.xs, marginTop: 4 },
+    styleOptionLabel: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.xs,
+      color: colors.onSurface,
+    },
+    radioOptionsList: { gap: 6 },
+    radioRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      paddingVertical: spacing.xs,
+    },
+    radioRowActive: { backgroundColor: colors.brandTertiary, borderRadius: radius.sm },
+    radioDot: {
+      width: 18,
+      height: 18,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    radioDotActive: { borderColor: colors.brand },
+    radioDotInner: { width: 10, height: 10, borderRadius: radius.pill, backgroundColor: colors.brand },
+    radioText: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurface },
+    radioTextActive: { fontFamily: fonts.semibold, color: colors.onSurface },
+    watermarkPreviewBox: { gap: 4, marginTop: 4 },
+    previewLabel: { fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
+    previewThumbSample: {
+      height: 90,
+      borderRadius: radius.md,
+      backgroundColor: colors.surfaceTertiary,
+      position: "relative",
+      alignItems: "center",
+      justifyContent: "center",
+      overflow: "hidden",
+    },
+    previewPlaceholderText: { fontFamily: fonts.regular, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
     sectionTitle: {
       fontFamily: fonts.bold,
       fontSize: fontSize.lg,

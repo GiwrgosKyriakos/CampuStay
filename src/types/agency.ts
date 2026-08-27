@@ -5,6 +5,7 @@ export interface RealEstateAgency {
   passcode: string;
   ceoId: string;
   ceoEmail: string;
+  logoUrl?: string | null;
   activeBrokerIds: string[];
   pendingBrokerIds: string[];
   createdAt: unknown;

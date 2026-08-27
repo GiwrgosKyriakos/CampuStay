@@ -2,16 +2,19 @@ import React, { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { collection, doc, getDoc, onSnapshot, query, where } from "firebase/firestore";
+import * as ImagePicker from "expo-image-picker";
+import { deleteObject, ref } from "firebase/storage";
+import { collection, doc, getDoc, onSnapshot, query, updateDoc, where } from "firebase/firestore";
 
 import { approveAgencyBroker, rejectAgencyBroker, updateAgencyPasscode } from "@/src/api/agency";
+import { uploadImageAsync } from "@/src/api/imageUpload";
 import { getUserProfile, type UserProfile } from "@/src/api/userProfile";
-import { db } from "@/src/config/firebase";
+import { db, storage } from "@/src/config/firebase";
 import { useAuth } from "@/src/context/auth";
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
 import { useTheme } from "@/src/context/ThemeContext";
 
-type Agency = { name?: string; ceoEmail?: string; passcode?: string };
+type Agency = { name?: string; ceoEmail?: string; passcode?: string; logoUrl?: string | null };
 type Broker = UserProfile & { id: string; email?: string | null; agencyJoinedAt?: unknown; agencyRequestedAt?: unknown };
 
 function formatDate(value: unknown): string {
@@ -34,6 +37,7 @@ export default function AgencyManagementScreen() {
   const [workingId, setWorkingId] = useState<string | null>(null);
   const [newPasscode, setNewPasscode] = useState("");
   const [passcodeSaving, setPasscodeSaving] = useState(false);
+  const [logoSaving, setLogoSaving] = useState(false);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
@@ -100,6 +104,55 @@ export default function AgencyManagementScreen() {
     }
   };
 
+  const manageLogo = async () => {
+    if (!agencyId || logoSaving) return;
+
+    setLogoSaving(true);
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (permission.status !== "granted") return;
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 1,
+      });
+      const asset = result.canceled ? null : result.assets[0];
+      const uri = asset?.uri || "";
+      if (!uri) return;
+      const mimeType = asset?.mimeType?.toLowerCase();
+      const uriIsSupported = /\.(png|jpe?g)$/i.test(uri.split("?")[0]);
+      if ((mimeType && mimeType !== "image/png" && mimeType !== "image/jpeg") || (!mimeType && !uriIsSupported)) {
+        setMessage("Επιλέξτε αρχείο PNG ή JPG.");
+        return;
+      }
+
+      const logoUrl = await uploadImageAsync(uri, `agencies/${agencyId}/logo.png`);
+      await updateDoc(doc(db, "agencies", agencyId), { logoUrl });
+      setAgency((previous) => (previous ? { ...previous, logoUrl } : previous));
+    } catch {
+      setMessage("Η μεταφόρτωση του λογότυπου απέτυχε. Δοκιμάστε ξανά.");
+    } finally {
+      setLogoSaving(false);
+    }
+  };
+
+  const removeLogo = async () => {
+    if (!agencyId || logoSaving) return;
+
+    setLogoSaving(true);
+    try {
+      await deleteObject(ref(storage, `agencies/${agencyId}/logo.png`)).catch(() => undefined);
+      await updateDoc(doc(db, "agencies", agencyId), { logoUrl: null });
+      setAgency((previous) => (previous ? { ...previous, logoUrl: null } : previous));
+    } catch {
+      setMessage("Η αφαίρεση του λογότυπου απέτυχε. Δοκιμάστε ξανά.");
+    } finally {
+      setLogoSaving(false);
+    }
+  };
+
   if (loading || !agencyId) return <View style={[styles.center, styles.container]}><ActivityIndicator size="large" color={colors.brand} /></View>;
 
   const brokerRow = (broker: Broker, isPending: boolean) => (
@@ -110,9 +163,10 @@ export default function AgencyManagementScreen() {
     </View>
   );
 
-  return <View style={styles.container}><ScrollView contentContainerStyle={styles.content}><View style={styles.header}><Pressable onPress={() => router.back()}><Ionicons name="chevron-back" size={28} color={colors.onSurface} /></Pressable><Text style={styles.title}>Διαχείριση γραφείου</Text><View style={{ width: 28 }} /></View><Text style={styles.agencyName}>{agency?.name || "Μεσιτικό γραφείο"}</Text>{message ? <Text style={styles.message}>{message}</Text> : null}<Text style={styles.sectionTitle}>Αιτήματα συνεργατών ({pending.length})</Text>{pending.length ? pending.map((broker) => brokerRow(broker, true)) : <Text style={styles.empty}>Δεν υπάρχουν εκκρεμή αιτήματα.</Text>}<Text style={styles.sectionTitle}>Ενεργοί συνεργάτες ({active.length})</Text>{active.map((broker) => brokerRow(broker, false))}<View style={styles.passcodeCard}><Text style={styles.sectionTitle}>Κωδικός γραφείου</Text><TextInput style={styles.input} value={newPasscode} onChangeText={setNewPasscode} placeholder="Νέος κωδικός" placeholderTextColor={colors.onSurfaceTertiary} secureTextEntry /><Pressable style={styles.primaryButton} disabled={passcodeSaving} onPress={() => void changePasscode()}>{passcodeSaving ? <ActivityIndicator color={colors.onBrand} /> : <Text style={styles.primaryText}>Αλλαγή Κωδικού Γραφείου</Text>}</Pressable></View></ScrollView></View>;
+  return <View style={styles.container}><ScrollView contentContainerStyle={styles.content}><View style={styles.header}><Pressable onPress={() => router.back()}><Ionicons name="chevron-back" size={28} color={colors.onSurface} /></Pressable><Text style={styles.title}>Διαχείριση γραφείου</Text><View style={{ width: 28 }} /></View><Text style={styles.agencyName}>{agency?.name || "Μεσιτικό γραφείο"}</Text>{message ? <Text style={styles.message}>{message}</Text> : null}<View style={styles.logoCard}><Text style={styles.sectionTitle}>Λογότυπο γραφείου</Text>{agency?.logoUrl ? <Image source={{ uri: agency.logoUrl }} style={styles.logoPreview} resizeMode="contain" /> : <View style={styles.logoPlaceholder}><Ionicons name="image-outline" size={28} color={colors.onSurfaceTertiary} /><Text style={styles.empty}>Δεν έχει οριστεί λογότυπο.</Text></View>}<View style={styles.logoActions}><Pressable style={styles.primaryButton} disabled={logoSaving} onPress={() => void manageLogo()}>{logoSaving ? <ActivityIndicator color={colors.onBrand} /> : <Text style={styles.primaryText}>{agency?.logoUrl ? "Αντικατάσταση" : "Προσθήκη λογότυπου"}</Text>}</Pressable>{agency?.logoUrl ? <Pressable style={styles.removeButton} disabled={logoSaving} onPress={() => void removeLogo()}><Ionicons name="trash-outline" size={18} color={colors.error} /><Text style={styles.removeButtonText}>Αφαίρεση</Text></Pressable> : null}</View></View><Text style={styles.sectionTitle}>Αιτήματα συνεργατών ({pending.length})</Text>{pending.length ? pending.map((broker) => brokerRow(broker, true)) : <Text style={styles.empty}>Δεν υπάρχουν εκκρεμή αιτήματα.</Text>}<Text style={styles.sectionTitle}>Ενεργοί συνεργάτες ({active.length})</Text>{active.map((broker) => brokerRow(broker, false))}<View style={styles.passcodeCard}><Text style={styles.sectionTitle}>Κωδικός γραφείου</Text><TextInput style={styles.input} value={newPasscode} onChangeText={setNewPasscode} placeholder="Νέος κωδικός" placeholderTextColor={colors.onSurfaceTertiary} secureTextEntry /><Pressable style={styles.primaryButton} disabled={passcodeSaving} onPress={() => void changePasscode()}>{passcodeSaving ? <ActivityIndicator color={colors.onBrand} /> : <Text style={styles.primaryText}>Αλλαγή Κωδικού Γραφείου</Text>}</Pressable></View></ScrollView></View>;
 }
 
 const createStyles = (colors: ThemeColors) => StyleSheet.create({
+  logoCard: { padding: spacing.lg, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surfaceSecondary }, logoPreview: { width: "100%", height: 120, borderRadius: radius.md, backgroundColor: colors.surface }, logoPlaceholder: { height: 120, alignItems: "center", justifyContent: "center", gap: spacing.xs, backgroundColor: colors.surface, borderRadius: radius.md }, logoActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: spacing.md }, removeButton: { minHeight: 44, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.error, flexDirection: "row", alignItems: "center", gap: spacing.xs }, removeButtonText: { color: colors.error, fontFamily: fonts.bold },
   container: { flex: 1, backgroundColor: colors.surface }, center: { alignItems: "center", justifyContent: "center" }, content: { padding: spacing.lg, paddingBottom: spacing["3xl"] }, header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: spacing.lg }, title: { color: colors.onSurface, fontFamily: fonts.bold, fontSize: fontSize.xl }, agencyName: { color: colors.brand, fontFamily: fonts.display, fontSize: fontSize["2xl"], marginBottom: spacing.lg }, message: { color: colors.success, fontFamily: fonts.semibold, marginBottom: spacing.md }, sectionTitle: { color: colors.onSurface, fontFamily: fonts.bold, fontSize: fontSize.lg, marginTop: spacing.lg, marginBottom: spacing.md }, personRow: { flexDirection: "row", alignItems: "center", padding: spacing.md, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, marginBottom: spacing.sm, backgroundColor: colors.surfaceSecondary }, avatar: { width: 48, height: 48, borderRadius: radius.pill }, avatarFallback: { width: 48, height: 48, borderRadius: radius.pill, backgroundColor: colors.surfaceTertiary, alignItems: "center", justifyContent: "center" }, personInfo: { flex: 1, marginLeft: spacing.md }, personName: { color: colors.onSurface, fontFamily: fonts.semibold }, personEmail: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: fontSize.sm, marginTop: 2 }, personDate: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: fontSize.xs, marginTop: 4 }, actions: { flexDirection: "row", gap: spacing.sm }, approve: { width: 40, height: 40, borderRadius: radius.pill, backgroundColor: colors.brand, alignItems: "center", justifyContent: "center" }, reject: { width: 40, height: 40, borderRadius: radius.pill, backgroundColor: colors.error, alignItems: "center", justifyContent: "center" }, empty: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular }, passcodeCard: { marginTop: spacing.lg, padding: spacing.lg, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surfaceSecondary }, input: { minHeight: 52, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, color: colors.onSurface, paddingHorizontal: spacing.md, fontFamily: fonts.regular }, primaryButton: { minHeight: 52, marginTop: spacing.md, borderRadius: radius.md, backgroundColor: colors.brand, alignItems: "center", justifyContent: "center" }, primaryText: { color: colors.onBrand, fontFamily: fonts.bold },
 });
