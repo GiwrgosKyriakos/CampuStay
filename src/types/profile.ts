@@ -9,6 +9,11 @@ export interface UserProfile {
   has_place: boolean;
   already_have_apartment_to_share: boolean;
   is_broker?: boolean;
+  agencyId?: string | null;
+  agencyRole?: "ceo" | "member" | null;
+  agencyStatus?: "approved" | "pending" | "none";
+  agencyRequestedAt?: unknown;
+  agencyJoinedAt?: unknown;
   looking_for_apartment?: boolean;
   not_looking_for_roommate?: boolean;
   university: string | null;

@@ -70,7 +70,8 @@ function AppContent() {
   const isAuthRoute =
     topSegment === "auth-landing" ||
     topSegment === "auth-email" ||
-    topSegment === "privacy-policy";
+    topSegment === "privacy-policy" ||
+    topSegment === "agency-onboarding";
   const isUnauthenticated = auth.user === null && !auth.isGuest;
   const isAuthenticated = auth.user !== null;
   const [isProfileGateLoading, setIsProfileGateLoading] = useState(false);
@@ -214,7 +215,9 @@ function AppContent() {
     };
   }, [authReady, isAuthenticated, auth.userId, auth.needsProfileSetup]);
 
-  const shouldForceProfileSetup = isAuthenticated && (requiresProfileSetup || auth.needsProfileSetup);
+  const shouldForceProfileSetup =
+    isAuthenticated &&
+    (auth.needsProfileSetup || (requiresProfileSetup && topSegment === "edit-profile"));
 
   useEffect(() => {
     // 🎯 Guard ετοιμότητας: Περιμένουμε να φορτώσει το auth, το profile gate και ο root navigator
@@ -246,7 +249,7 @@ function AppContent() {
     }
 
     // 3. Σενάριο: Αυθεντικοποιημένος χρήστης που βρίσκεται σε Auth σελίδα
-    if (isAuthenticated && isAuthRoute) {
+    if (isAuthenticated && isAuthRoute && topSegment !== "agency-onboarding") {
       setIsTransitioning(true);
       
       setTimeout(() => {

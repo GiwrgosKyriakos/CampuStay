@@ -1,0 +1,12 @@
+export interface RealEstateAgency {
+  id: string;
+  name: string;
+  nameLower: string;
+  passcode: string;
+  ceoId: string;
+  ceoEmail: string;
+  activeBrokerIds: string[];
+  pendingBrokerIds: string[];
+  createdAt: unknown;
+  updatedAt: unknown;
+}

@@ -65,6 +65,10 @@ export default function EditProfileScreen() {
   const [city, setCity] = useState<string | null>(null);
   const [hasPlace, setHasPlace] = useState(false);
   const [isBroker, setIsBroker] = useState(false);
+  const [agencyRole, setAgencyRole] = useState<"ceo" | "member" | null>(null);
+  const [agencyId, setAgencyId] = useState<string | null>(null);
+  const [agencyStatus, setAgencyStatus] = useState<"approved" | "pending" | "none">("none");
+  const [isAgencyAffiliated, setIsAgencyAffiliated] = useState(false);
   const [notLookingForRoommate, setNotLookingForRoommate] = useState(false);
   const [lookingForApartment, setLookingForApartment] = useState(false);
   const [university, setUniversity] = useState<string | null>(null);
@@ -105,6 +109,10 @@ export default function EditProfileScreen() {
       setCity(null);
       setHasPlace(false);
       setIsBroker(false);
+      setAgencyRole(null);
+      setAgencyId(null);
+      setAgencyStatus("none");
+      setIsAgencyAffiliated(false);
       setNotLookingForRoommate(false);
       setLookingForApartment(false);
       setUniversity(null);
@@ -126,6 +134,20 @@ export default function EditProfileScreen() {
         const p = await getUserProfile(id);
         if (mounted) {
           setUserId(id);
+          const authAgencyUser = auth.user as (typeof auth.user & {
+            agencyId?: string | null;
+            agencyRole?: "ceo" | "member" | null;
+          }) | null;
+          const isAgencyUser =
+            !!p?.agencyId ||
+            p?.agencyRole === "ceo" ||
+            p?.agencyRole === "member" ||
+            authAgencyUser?.agencyRole === "ceo" ||
+            authAgencyUser?.agencyRole === "member";
+          setIsAgencyAffiliated(isAgencyUser);
+          setAgencyId(p?.agencyId ?? authAgencyUser?.agencyId ?? null);
+          setAgencyRole(p?.agencyRole ?? authAgencyUser?.agencyRole ?? null);
+          setIsBroker(!!p?.is_broker || isAgencyUser || auth.isBroker);
           if (p) {
             setName(p.name ?? auth.user?.name ?? "");
             setPhotos(p.photos ?? []);
@@ -134,7 +156,7 @@ export default function EditProfileScreen() {
             setGender(p.gender ?? null);
             setCity(p.city ?? null);
             setHasPlace(!!p.has_place);
-            setIsBroker(!!p.is_broker);
+            setAgencyStatus(p.agencyStatus ?? "none");
             setNotLookingForRoommate(p.not_looking_for_roommate === true);
             setLookingForApartment(!!p.looking_for_apartment);
             setUniversity(p.university ?? null);
@@ -157,7 +179,7 @@ export default function EditProfileScreen() {
     return () => {
       mounted = false;
     };
-  }, [auth.user?.name, guestLocked]);
+  }, [auth, guestLocked]);
 
   const addPhotos = useCallback(async () => {
     if (photos.length >= 3) return;
@@ -213,8 +235,15 @@ export default function EditProfileScreen() {
     if (submitting) return;
     const sanitizedCity = city?.trim() ?? "";
     const rawBudget = budget.trim();
+    const authAgencyUser = auth.user as (typeof auth.user & {
+      agencyId?: string | null;
+      agencyRole?: "ceo" | "member" | null;
+    }) | null;
+    const isBrokerUser = isBroker || auth.isBroker || isAgencyAffiliated || agencyRole === "ceo" || agencyRole === "member";
+    const resolvedAgencyId = agencyId ?? authAgencyUser?.agencyId ?? null;
+    const resolvedAgencyRole = agencyRole ?? authAgencyUser?.agencyRole ?? null;
 
-    if (about.length > ABOUT_LIMIT) {
+    if (!isAgencyAffiliated && about.length > ABOUT_LIMIT) {
       setError(t("editProfile.errors.aboutTooLong", { limit: ABOUT_LIMIT }));
       return;
     }
@@ -228,17 +257,21 @@ export default function EditProfileScreen() {
       return;
     }
 
-    const hasOnlyDigits = /^\d+$/.test(rawBudget);
-    const parsedBudget = Number(rawBudget);
-    const isBudgetValid = !(budget === null) || (hasOnlyDigits && !Number.isNaN(parsedBudget) && parsedBudget > 0);
-    if (!isBudgetValid) {
-      setBudgetError("Please enter a valid budget greater than 0");
-      setCityError(false);
-      setError(null);
-      return;
+    let monthlyBudget: number | null = null;
+    if (!isBrokerUser) {
+      const hasOnlyDigits = /^\d+$/.test(rawBudget);
+      const parsedBudget = Number(rawBudget);
+      const isBudgetValid = hasOnlyDigits && !Number.isNaN(parsedBudget) && parsedBudget > 0;
+      if (!isBudgetValid) {
+        setBudgetError("Παρακαλώ εισάγετε ένα έγκυρο budget μεγαλύτερο από 0");
+        setCityError(false);
+        setError(null);
+        return;
+      }
+      monthlyBudget = Math.trunc(parsedBudget);
+    } else if (rawBudget && /^\d+$/.test(rawBudget)) {
+      monthlyBudget = Math.trunc(Number(rawBudget));
     }
-
-    const monthlyBudget = Math.trunc(parsedBudget);
 
     setCityError(false);
     setBudgetError(null);
@@ -252,19 +285,22 @@ export default function EditProfileScreen() {
       const profile: UserProfile = {
         name: name.trim() || auth.user?.name || "",
         photos: uploadedPhotos.filter((p) => p.trim().length > 0),
-        age: age ? parseInt(age, 10) : null,
-        about,
-        gender,
+        age: !isBrokerUser && age ? parseInt(age, 10) : null,
+        about: !isBrokerUser ? about : "",
+        gender: !isBrokerUser ? gender : null,
         city: sanitizedCity,
-        has_place: hasPlace,
-        already_have_apartment_to_share: hasPlace,
-        is_broker: isBroker,
-        looking_for_apartment: lookingForApartment,
-        not_looking_for_roommate: notLookingForRoommate,
-        university,
-        year_of_study: year,
+        has_place: !isBrokerUser ? hasPlace : false,
+        already_have_apartment_to_share: !isBrokerUser ? hasPlace : false,
+        is_broker: isBrokerUser,
+        agencyId: resolvedAgencyId ?? undefined,
+        agencyRole: resolvedAgencyRole ?? undefined,
+        agencyStatus: isBrokerUser ? agencyStatus : undefined,
+        looking_for_apartment: !isBrokerUser ? lookingForApartment : false,
+        not_looking_for_roommate: isBrokerUser ? true : notLookingForRoommate,
+        university: !isBrokerUser ? university : null,
+        year_of_study: !isBrokerUser ? year : null,
         budget: monthlyBudget,
-        move_in: moveIn,
+        move_in: !isBrokerUser ? moveIn : null,
         instagram: instagram.trim(),
         facebook: facebook.trim(),
         linkedin: linkedin.trim(),
@@ -274,9 +310,9 @@ export default function EditProfileScreen() {
       if (userId) {
         console.log(`[EditProfile] → Calling saveUserProfile for user: ${userId.substring(0, 8)}...`);
         await saveUserProfile(userId, profile, { email: auth.user?.email ?? null });
-        auth.updateRoleStates(isBroker, notLookingForRoommate);
+        auth.updateRoleStates(isBrokerUser, isBrokerUser ? true : notLookingForRoommate);
 
-        if (notLookingForRoommate) {
+        if (!isBrokerUser && notLookingForRoommate) {
           const settings = await getUserSettings(userId);
           await saveUserPrivacy(userId, {
             ...settings.privacy,
@@ -288,19 +324,20 @@ export default function EditProfileScreen() {
         console.log("[EditProfile] ✓ Profile saved successfully");
       }
       
-      const targetRoute = isBroker || notLookingForRoommate ? "/apartments" : "/roommates";
+      const targetRoute = isBrokerUser || notLookingForRoommate ? "/apartments" : "/roommates";
 
       // Clear profile setup flag if this was a post-login flow
       if (auth.needsProfileSetup) {
         console.log("[EditProfile] → Clearing profile setup flag");
-        await auth.clearProfileSetup();
-        console.log("[EditProfile] ✓ Profile setup flag cleared");
-        console.log(`[EditProfile] → Navigating to ${targetRoute}...`);
-        router.replace(targetRoute as any);
-      } else {
-        console.log(`[EditProfile] → Redirecting to ${targetRoute}...`);
-        router.replace(targetRoute as any);
+        try {
+          await auth.clearProfileSetup();
+          console.log("[EditProfile] ✓ Profile setup flag cleared");
+        } catch (flagError) {
+          console.warn("[EditProfile] clearProfileSetup warning:", flagError);
+        }
       }
+      console.log(`[EditProfile] ✓ Profile saved successfully. Redirecting to ${targetRoute}`);
+      router.replace(targetRoute as any);
     } catch (err) {
       console.error("[EditProfile] ✗ Error saving profile:", err);
       setError(t("editProfile.errors.saveFailed"));
@@ -331,6 +368,10 @@ export default function EditProfileScreen() {
     router,
     auth,
     cityOffsetY,
+    agencyRole,
+    agencyId,
+    agencyStatus,
+    isAgencyAffiliated,
   ]);
 
   if (loading) {
@@ -442,7 +483,31 @@ export default function EditProfileScreen() {
             testID="name-input"
           />
 
-          {!isBroker && (
+          <Text style={styles.label}>{t("editProfile.city")}</Text>
+          <View
+            collapsable={false}
+            onLayout={(event) => setCityOffsetY(event.nativeEvent.layout.y)}
+            style={guestLocked ? styles.guestReadOnlyControl : undefined}
+          >
+            <Dropdown
+              value={city}
+              options={cities}
+              placeholder={t("editProfile.cityPlaceholder")}
+              onSelect={(nextCity) => {
+                setCity(nextCity);
+                setCityError(false);
+              }}
+              testID="city-dropdown"
+              disabled={guestLocked}
+            />
+            {cityError && !guestLocked && (
+              <Text style={styles.cityErrorText}>Παρακαλώ επιλέξτε την πόλη σας / Please select your city</Text>
+            )}
+          </View>
+
+          {!isAgencyAffiliated && (
+            <>
+              {!isBroker && (
             <>
               <Text style={styles.label}>{t("editProfile.age")}</Text>
               <TextInput
@@ -457,9 +522,9 @@ export default function EditProfileScreen() {
                 testID="age-input"
               />
             </>
-          )}
+              )}
 
-          <Text style={styles.label}>{t("editProfile.about")}</Text>
+              <Text style={styles.label}>{t("editProfile.about")}</Text>
           <TextInput
             style={[styles.input, styles.textArea, guestLocked && styles.guestReadOnlyControl]}
             value={about}
@@ -471,11 +536,11 @@ export default function EditProfileScreen() {
             editable={!guestLocked}
             testID="about-input"
           />
-          <Text style={styles.counter}>
-            {about.length}/{ABOUT_LIMIT}
-          </Text>
+              <Text style={styles.counter}>
+                {about.length}/{ABOUT_LIMIT}
+              </Text>
 
-          {!isBroker && (
+              {!isBroker && (
             <>
               <Text style={styles.label}>{t("editProfile.gender")}</Text>
               <View style={styles.radioRow}>
@@ -500,29 +565,7 @@ export default function EditProfileScreen() {
             </>
           )}
 
-          <Text style={styles.label}>{t("editProfile.city")}</Text>
-          <View
-            collapsable={false}
-            onLayout={(event) => setCityOffsetY(event.nativeEvent.layout.y)}
-            style={guestLocked ? styles.guestReadOnlyControl : undefined}
-          >
-            <Dropdown
-              value={city}
-              options={cities}
-              placeholder={t("editProfile.cityPlaceholder")}
-              onSelect={(nextCity) => {
-                setCity(nextCity);
-                setCityError(false);
-              }}
-              testID="city-dropdown"
-              disabled={guestLocked}
-            />
-            {cityError && !guestLocked && (
-              <Text style={styles.cityErrorText}>Παρακαλώ επιλέξτε την πόλη σας / Please select your city</Text>
-            )}
-          </View>
-
-          <Pressable
+              <Pressable
             style={[styles.checkboxRow, hasPlace && styles.checkboxRowActive, guestLocked && styles.guestReadOnlyControl]}
             onPress={() => selectHousingOption("has_place")}
             testID="has-place-checkbox"
@@ -532,9 +575,9 @@ export default function EditProfileScreen() {
               {hasPlace && <Ionicons name="checkmark" size={16} color={colors.onBrand} />}
             </View>
             <Text style={styles.checkboxText}>{t("editProfile.hasPlace")}</Text>
-          </Pressable>
+              </Pressable>
 
-          <Animated.View
+              <Animated.View
             style={[
               styles.housingPromptWrap,
               {
@@ -565,9 +608,9 @@ export default function EditProfileScreen() {
                 {t("editProfile.housingPrompt")}
               </Text>
             </Pressable>
-          </Animated.View>
+              </Animated.View>
 
-          <Pressable
+              <Pressable
             style={[
               styles.checkboxRow,
               lookingForApartment && styles.checkboxRowActive,
@@ -581,11 +624,13 @@ export default function EditProfileScreen() {
               {lookingForApartment && <Ionicons name="checkmark" size={16} color={colors.onBrand} />}
             </View>
             <Text style={styles.checkboxText}>{t("editProfile.lookingForApartment")}</Text>
-          </Pressable>
+              </Pressable>
+            </>
+          )}
         </View>
 
         {/* SECTION 3: User Experience */}
-        <View style={styles.card}>
+        {!isAgencyAffiliated && <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Ionicons name="settings-outline" size={22} color={colors.onSurface} />
             <Text style={styles.cardTitle}>Εμπειρία Χρήστη</Text>
@@ -618,7 +663,7 @@ export default function EditProfileScreen() {
             </View>
             <Text style={styles.checkboxText}>Δεν ενδιαφέρομαι για συγκάτοικο</Text>
           </Pressable>
-        </View>
+        </View>}
 
         {/* SECTION 4: Education & Living */}
         {!isBroker && (

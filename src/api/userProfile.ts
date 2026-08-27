@@ -12,6 +12,11 @@ export interface UserProfile {
   has_place: boolean;
   already_have_apartment_to_share: boolean;
   is_broker?: boolean;
+  agencyId?: string | null;
+  agencyRole?: "ceo" | "member" | null;
+  agencyStatus?: "approved" | "pending" | "none";
+  agencyRequestedAt?: unknown;
+  agencyJoinedAt?: unknown;
   looking_for_apartment: boolean;
   not_looking_for_roommate?: boolean;
   university: string | null;
@@ -40,6 +45,11 @@ interface FirestoreUserDocument {
   has_place?: boolean;
   already_have_apartment_to_share?: boolean;
   is_broker?: boolean;
+  agencyId?: string | null;
+  agencyRole?: "ceo" | "member" | null;
+  agencyStatus?: "approved" | "pending" | "none";
+  agencyRequestedAt?: unknown;
+  agencyJoinedAt?: unknown;
   looking_for_apartment?: boolean;
   not_looking_for_roommate?: boolean;
   year_of_study?: string | null;
@@ -74,6 +84,11 @@ function normalizeProfile(docData: Partial<FirestoreUserDocument>): UserProfile 
     has_place: !!docData.has_place,
     already_have_apartment_to_share: !!docData.already_have_apartment_to_share,
     is_broker: !!docData.is_broker,
+    agencyId: docData.agencyId ?? null,
+    agencyRole: docData.agencyRole ?? null,
+    agencyStatus: docData.agencyStatus ?? "none",
+    agencyRequestedAt: docData.agencyRequestedAt,
+    agencyJoinedAt: docData.agencyJoinedAt,
     looking_for_apartment: !!docData.looking_for_apartment,
     not_looking_for_roommate: docData.not_looking_for_roommate === true,
     university: docData.university ?? null,
@@ -113,6 +128,15 @@ function buildFirestoreDocument(
     has_place: !!profile.has_place,
     already_have_apartment_to_share: !!profile.already_have_apartment_to_share,
     is_broker: !!profile.is_broker,
+    ...(profile.agencyId && profile.agencyRole
+      ? {
+          agencyId: profile.agencyId,
+          agencyRole: profile.agencyRole,
+          agencyStatus: profile.agencyStatus ?? "none",
+          ...(profile.agencyRequestedAt !== undefined ? { agencyRequestedAt: profile.agencyRequestedAt } : {}),
+          ...(profile.agencyJoinedAt !== undefined ? { agencyJoinedAt: profile.agencyJoinedAt } : {}),
+        }
+      : {}),
     looking_for_apartment: !!profile.looking_for_apartment,
     not_looking_for_roommate: profile.not_looking_for_roommate === true,
     year_of_study: profile.year_of_study ?? null,

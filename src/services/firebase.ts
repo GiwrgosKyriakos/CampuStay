@@ -2,10 +2,13 @@ import {
   collection,
   deleteDoc,
   doc,
+  arrayRemove,
   getDocs,
   query,
   where,
   writeBatch,
+  updateDoc,
+  getDoc,
   type QueryDocumentSnapshot,
   type DocumentData,
 } from "firebase/firestore";
@@ -63,6 +66,19 @@ async function deleteOwnedApartments(uid: string): Promise<void> {
 }
 
 export async function wipeUserFirestoreFootprint(uid: string): Promise<void> {
+  const userSnapshot = await getDoc(doc(db, "users", uid));
+  const userData = userSnapshot.exists() ? userSnapshot.data() : null;
+  if (userData?.agencyId) {
+    const agencyRef = doc(db, "agencies", userData.agencyId as string);
+    await updateDoc(agencyRef, {
+      activeBrokerIds: arrayRemove(uid),
+      pendingBrokerIds: arrayRemove(uid),
+      ...(userData.agencyRole === "ceo" ? { active: false, orphanedAt: new Date() } : {}),
+    });
+    const assignedListings = await getDocs(query(collection(db, "apartments"), where("assignedBrokerIds", "array-contains", uid)));
+    await Promise.all(assignedListings.docs.map((listing) => updateDoc(listing.ref, { assignedBrokerIds: arrayRemove(uid) })));
+  }
+
   // 1) Remove apartments created/owned by this user.
   await deleteOwnedApartments(uid);
 

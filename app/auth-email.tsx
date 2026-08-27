@@ -73,6 +73,8 @@ export default function AuthEmailScreen() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [authNotice, setAuthNotice] = useState<AuthNotice | null>(null);
+  const isCeoTrigger = mode === "register" && name.trim() === "$csb$ceo";
+  const isAgentTrigger = mode === "register" && name.trim() === "$csb$";
   const swipeX = React.useRef(new Animated.Value(0)).current;
   const SWIPE_THRESHOLD = 56;
   const activeFieldIds = mode === "login" ? LOGIN : REGISTER;
@@ -171,6 +173,13 @@ export default function AuthEmailScreen() {
 
     try {
       setLoading(true);
+      if (isCeoTrigger || isAgentTrigger) {
+        router.push({
+          pathname: "/agency-onboarding",
+          params: { role: isCeoTrigger ? "ceo" : "member", email: email.trim(), password },
+        });
+        return;
+      }
       await auth.registerEmail(email.trim(), password, name.trim());
       router.replace("/");
     } catch (err: any) {
@@ -289,6 +298,17 @@ export default function AuthEmailScreen() {
                   testID={REGISTER.nameInput}
                 />
               </View>
+              {isCeoTrigger || isAgentTrigger ? (
+                <Pressable
+                  style={styles.agencyTrigger}
+                  onPress={() => router.push({
+                    pathname: "/agency-onboarding",
+                    params: { role: isCeoTrigger ? "ceo" : "member", email: email.trim(), password },
+                  })}
+                >
+                  <Text style={styles.agencyTriggerText}>Είστε σε μεσιτικό γραφείο; Εγγραφείτε ως μεσιτικό γραφείο εδώ</Text>
+                </Pressable>
+              ) : null}
             </View>
           )}
 
@@ -567,6 +587,18 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     fontFamily: fonts.regular,
     fontSize: fontSize.sm,
     color: colors.onSurfaceTertiary,
+  },
+  agencyTrigger: {
+    backgroundColor: colors.brand,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  agencyTriggerText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+    color: colors.onBrand,
+    textAlign: "center",
   },
   submitButton: {
     paddingVertical: spacing.lg,

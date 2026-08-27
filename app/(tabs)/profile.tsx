@@ -126,6 +126,7 @@ export default function ProfileScreen() {
   const visibleNavSettings = auth.isBroker
     ? NAV_SETTINGS.filter((setting) => setting.route !== "/roomie-profile")
     : NAV_SETTINGS;
+  const canManageAgency = profile?.agencyRole === "ceo" && !!profile.agencyId;
   const modeLabels = {
     system: locale === "el" ? "Σύστημα" : "System",
     light: locale === "el" ? "Φωτεινό" : "Light",
@@ -262,6 +263,13 @@ export default function ProfileScreen() {
         ) : null}
 
         <View style={styles.section}>
+          {canManageAgency ? (
+            <Pressable style={[styles.row, styles.rowBorder]} onPress={() => router.push("/agency-management")} testID="agency-management-link">
+              <View style={styles.rowIcon}><Ionicons name="business-outline" size={20} color={colors.onSurface} /></View>
+              <Text style={styles.rowLabel}>Διαχείριση μεσιτικού γραφείου</Text>
+              <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+            </Pressable>
+          ) : null}
           {visibleNavSettings.map((s, i) => {
             if (s.route === "/roomie-profile" && notLookingForRoommate) {
               return null;
