@@ -9,6 +9,7 @@ import { arrayUnion, collection, doc, getDocs, query, serverTimestamp, setDoc, u
 import { db, firebaseAuth } from "@/src/config/firebase";
 import { notifyCeoOfNewApplicant } from "@/src/api/agency";
 import { useTheme } from "@/src/context/ThemeContext";
+import { t } from "@/src/locales";
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
 
 type AgencyRole = "ceo" | "member";
@@ -38,7 +39,7 @@ export default function AgencyOnboardingScreen() {
     setLoadingAgencies(true);
     getDocs(query(collection(db, "agencies")))
       .then((snapshot) => setAgencies(snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as Agency))))
-      .catch(() => setError("Δεν ήταν δυνατή η φόρτωση των μεσιτικών γραφείων."))
+      .catch(() => setError(t("agency.onboarding.loadFailed")))
       .finally(() => setLoadingAgencies(false));
   }, [role]);
 
@@ -56,11 +57,11 @@ export default function AgencyOnboardingScreen() {
   const submit = async () => {
     setError("");
     if (!email || !password || !displayName.trim() || !agencyName.trim() || !agencyCode.trim()) {
-      setError("Συμπληρώστε όλα τα πεδία.");
+      setError(t("agency.onboarding.requiredFields"));
       return;
     }
     if (role === "member" && (!selectedAgency || selectedAgency.passcode !== agencyCode.trim())) {
-      setError("Ο κωδικός μεσιτικού γραφείου είναι εσφαλμένος.");
+      setError(t("agency.onboarding.invalidPasscode"));
       return;
     }
 
@@ -87,7 +88,7 @@ export default function AgencyOnboardingScreen() {
       }
       router.replace("/edit-profile");
     } catch (submissionError: any) {
-      setError(submissionError?.code === "auth/email-already-in-use" ? "Αυτό το email χρησιμοποιείται ήδη." : "Η εγγραφή απέτυχε. Δοκιμάστε ξανά.");
+      setError(submissionError?.code === "auth/email-already-in-use" ? t("agency.onboarding.emailInUse") : t("agency.onboarding.registrationFailed"));
     } finally {
       setSubmitting(false);
     }
@@ -95,21 +96,21 @@ export default function AgencyOnboardingScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={styles.header}><Pressable onPress={() => router.back()}><Ionicons name="chevron-back" size={28} color={colors.onSurface} /></Pressable><Text style={styles.title}>{role === "ceo" ? "Εγγραφή μεσιτικού γραφείου" : "Εγγραφή συνεργάτη"}</Text><View style={{ width: 28 }} /></View>
+      <View style={styles.header}><Pressable onPress={() => router.back()}><Ionicons name="chevron-back" size={28} color={colors.onSurface} /></Pressable><Text style={styles.title}>{role === "ceo" ? t("agency.onboarding.registerAgencyTitle") : t("agency.onboarding.registerBrokerTitle")}</Text><View style={{ width: 28 }} /></View>
       <FlatList data={[]} renderItem={null} contentContainerStyle={styles.content} ListHeaderComponent={<>
-        <Text style={styles.subtitle}>Ολοκληρώστε τα στοιχεία του μεσιτικού γραφείου σας.</Text>
-        <View style={styles.badges}><Text style={styles.badge}>{email}</Text><Text style={styles.badge}>Password protected</Text></View>
-        <Text style={styles.label}>{role === "ceo" ? "Όνομα μεσιτικού γραφείου" : "Μεσιτικό γραφείο"}</Text>
+        <Text style={styles.subtitle}>{t("agency.onboarding.subtitle")}</Text>
+        <View style={styles.badges}><Text style={styles.badge}>{email}</Text><Text style={styles.badge}>{t("agency.onboarding.passwordProtected")}</Text></View>
+        <Text style={styles.label}>{role === "ceo" ? t("agency.onboarding.agencyNameLabel") : t("agency.onboarding.agencyLabel")}</Text>
         <View style={styles.inputWrapper}><Ionicons name="business-outline" size={20} color={colors.onSurfaceTertiary} /><TextInput style={styles.input} value={agencyName} onChangeText={(value) => { setAgencyName(value); setError(""); }} placeholder="π.χ. RE/MAX Central" placeholderTextColor={colors.onSurfaceTertiary} /><Pressable onPress={() => setModalVisible(true)}><Ionicons name="chevron-down" size={22} color={colors.onSurfaceTertiary} /></Pressable></View>
-        {noMatch ? <Text style={styles.noMatch}>δεν υπάρχει εγγεγραμμένο μεσιτικό γραφείο με αυτό το όνομα</Text> : null}
-        <Text style={styles.label}>{role === "ceo" ? "Κωδικός ένταξης" : "Κωδικός μεσιτικού γραφείου"}</Text>
+        {noMatch ? <Text style={styles.noMatch}>{t("agency.onboarding.agencyNotFound")}</Text> : null}
+        <Text style={styles.label}>{t("agency.onboarding.agencyCodeLabel")}</Text>
         <View style={styles.inputWrapper}><Ionicons name="key-outline" size={20} color={colors.onSurfaceTertiary} /><TextInput style={styles.input} value={agencyCode} onChangeText={setAgencyCode} secureTextEntry={role === "member"} placeholder="Πληκτρολογήστε κωδικό" placeholderTextColor={colors.onSurfaceTertiary} /></View>
-        <Text style={styles.label}>Ονοματεπώνυμο</Text><View style={styles.inputWrapper}><Ionicons name="person-outline" size={20} color={colors.onSurfaceTertiary} /><TextInput style={styles.input} value={displayName} onChangeText={setDisplayName} placeholder="Το ονοματεπώνυμό σας" placeholderTextColor={colors.onSurfaceTertiary} /></View>
+        <Text style={styles.label}>{t("agency.onboarding.displayNameLabel")}</Text><View style={styles.inputWrapper}><Ionicons name="person-outline" size={20} color={colors.onSurfaceTertiary} /><TextInput style={styles.input} value={displayName} onChangeText={setDisplayName} placeholder={t("agency.onboarding.displayNamePlaceholder")} placeholderTextColor={colors.onSurfaceTertiary} /></View>
         {error ? <Text style={styles.error}>{error}</Text> : null}
-        <View style={styles.info}><Ionicons name="information-circle-outline" size={22} color={colors.brand} /><Text style={styles.infoText}>Μετά την ολοκλήρωση της εγγραφής, θα μπορείτε να συνδέεστε κανονικά είτε με το Email & Password σας είτε μέσω Google Sign-In χρησιμοποιώντας το ίδιο email.</Text></View>
-        <Pressable style={styles.submit} onPress={() => void submit()} disabled={submitting}>{submitting ? <ActivityIndicator color={colors.onBrand} /> : <Text style={styles.submitText}>Ολοκλήρωση εγγραφής</Text>}</Pressable>
+        <View style={styles.info}><Ionicons name="information-circle-outline" size={22} color={colors.brand} /><Text style={styles.infoText}>{t("agency.onboarding.googleAuthNotice")}</Text></View>
+        <Pressable style={styles.submit} onPress={() => void submit()} disabled={submitting}>{submitting ? <ActivityIndicator color={colors.onBrand} /> : <Text style={styles.submitText}>{t("agency.onboarding.completeButton")}</Text>}</Pressable>
       </>} />
-      <Modal visible={modalVisible} transparent animationType="slide" onRequestClose={() => setModalVisible(false)}><View style={styles.modalBackdrop}><View style={styles.modal}><Text style={styles.modalTitle}>Επιλέξτε μεσιτικό γραφείο</Text>{loadingAgencies ? <ActivityIndicator color={colors.brand} /> : agencies.map((agency) => <Pressable key={agency.id} style={styles.agencyOption} onPress={() => { setAgencyName(agency.name); setModalVisible(false); }}><Text style={styles.agencyOptionText}>{agency.name}</Text></Pressable>)}<Pressable onPress={() => setModalVisible(false)}><Text style={styles.closeText}>Κλείσιμο</Text></Pressable></View></View></Modal>
+      <Modal visible={modalVisible} transparent animationType="slide" onRequestClose={() => setModalVisible(false)}><View style={styles.modalBackdrop}><View style={styles.modal}><Text style={styles.modalTitle}>{t("agency.onboarding.selectAgency")}</Text>{loadingAgencies ? <ActivityIndicator color={colors.brand} /> : agencies.map((agency) => <Pressable key={agency.id} style={styles.agencyOption} onPress={() => { setAgencyName(agency.name); setModalVisible(false); }}><Text style={styles.agencyOptionText}>{agency.name}</Text></Pressable>)}<Pressable onPress={() => setModalVisible(false)}><Text style={styles.closeText}>{t("common.actions.cancel")}</Text></Pressable></View></View></Modal>
     </View>
   );
 }

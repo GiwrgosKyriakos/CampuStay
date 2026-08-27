@@ -3,6 +3,7 @@ import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-na
 import { Image } from "expo-image";
 
 import { useTheme } from "@/src/context/ThemeContext";
+import { t } from "@/src/locales";
 import { fonts, fontSize, radius } from "@/src/theme";
 import type { WatermarkConfig } from "@/src/types/listing";
 
@@ -42,7 +43,7 @@ export const WatermarkBadge: React.FC<WatermarkBadgeProps> = ({ config, position
       pointerEvents="none"
       style={[styles.baseContainer, styles.textContainer, positionStyle, style]}
     >
-      <Text style={[styles.brandText, { color: colors.brand }]}>{config.text || "CampuStay"}</Text>
+      <Text style={[styles.brandText, { color: colors.brand }]}>{config.text || t("watermark.fallbackText")}</Text>
     </View>
   );
 };

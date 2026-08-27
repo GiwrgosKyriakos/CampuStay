@@ -13,6 +13,7 @@ import { db, storage } from "@/src/config/firebase";
 import { useAuth } from "@/src/context/auth";
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
 import { useTheme } from "@/src/context/ThemeContext";
+import { t } from "@/src/locales";
 
 type Agency = { name?: string; ceoEmail?: string; passcode?: string; logoUrl?: string | null };
 type Broker = UserProfile & { id: string; email?: string | null; agencyJoinedAt?: unknown; agencyRequestedAt?: unknown };
@@ -78,13 +79,13 @@ export default function AgencyManagementScreen() {
     try {
       if (approved) {
         await approveAgencyBroker(agencyId, broker.id);
-        setMessage("Ο μεσίτης προστέθηκε επιτυχώς στο γραφείο!");
+        setMessage(t("agency.management.approveSuccess"));
       } else {
         await rejectAgencyBroker(agencyId, broker.id);
-        setMessage("Το αίτημα απορρίφθηκε.");
+        setMessage(t("agency.management.rejected"));
       }
     } catch {
-      setMessage("Η ενέργεια απέτυχε. Δοκιμάστε ξανά.");
+      setMessage(t("agency.management.actionFailed"));
     } finally {
       setWorkingId(null);
     }
@@ -96,9 +97,9 @@ export default function AgencyManagementScreen() {
     try {
       await updateAgencyPasscode(agencyId, newPasscode.trim(), agency.ceoEmail);
       setNewPasscode("");
-      Alert.alert("Επιτυχία", "Ο κωδικός του μεσιτικού γραφείου άλλαξε επιτυχώς. Στάλθηκε ενημερωτικό email.");
+      Alert.alert(t("agency.management.success"), t("agency.management.passcodeUpdated"));
     } catch {
-      setMessage("Η αλλαγή κωδικού απέτυχε. Δοκιμάστε ξανά.");
+      setMessage(t("agency.management.changeFailed"));
     } finally {
       setPasscodeSaving(false);
     }
@@ -124,7 +125,7 @@ export default function AgencyManagementScreen() {
       const mimeType = asset?.mimeType?.toLowerCase();
       const uriIsSupported = /\.(png|jpe?g)$/i.test(uri.split("?")[0]);
       if ((mimeType && mimeType !== "image/png" && mimeType !== "image/jpeg") || (!mimeType && !uriIsSupported)) {
-        setMessage("Επιλέξτε αρχείο PNG ή JPG.");
+        setMessage(t("agency.management.invalidLogo"));
         return;
       }
 
@@ -132,7 +133,7 @@ export default function AgencyManagementScreen() {
       await updateDoc(doc(db, "agencies", agencyId), { logoUrl });
       setAgency((previous) => (previous ? { ...previous, logoUrl } : previous));
     } catch {
-      setMessage("Η μεταφόρτωση του λογότυπου απέτυχε. Δοκιμάστε ξανά.");
+      setMessage(t("agency.management.uploadFailed"));
     } finally {
       setLogoSaving(false);
     }
@@ -147,7 +148,7 @@ export default function AgencyManagementScreen() {
       await updateDoc(doc(db, "agencies", agencyId), { logoUrl: null });
       setAgency((previous) => (previous ? { ...previous, logoUrl: null } : previous));
     } catch {
-      setMessage("Η αφαίρεση του λογότυπου απέτυχε. Δοκιμάστε ξανά.");
+      setMessage(t("agency.management.removeFailed"));
     } finally {
       setLogoSaving(false);
     }
@@ -158,7 +159,7 @@ export default function AgencyManagementScreen() {
   const brokerRow = (broker: Broker, isPending: boolean) => (
     <View key={broker.id} style={styles.personRow}>
       {broker.photos?.[0] ? <Image source={{ uri: broker.photos[0] }} style={styles.avatar} /> : <View style={styles.avatarFallback}><Ionicons name="person" size={20} color={colors.onSurfaceTertiary} /></View>}
-      <View style={styles.personInfo}><Text style={styles.personName}>{broker.name || "Χωρίς όνομα"}</Text><Text style={styles.personEmail}>{broker.email || ""}</Text><Text style={styles.personDate}>{isPending ? `Αίτημα: ${formatDate(broker.agencyRequestedAt)}` : `Μέλος από: ${formatDate(broker.agencyJoinedAt)}`}</Text></View>
+      <View style={styles.personInfo}><Text style={styles.personName}>{broker.name || t("agency.management.unnamed")}</Text><Text style={styles.personEmail}>{broker.email || ""}</Text><Text style={styles.personDate}>{isPending ? t("agency.management.requestLabel", { date: formatDate(broker.agencyRequestedAt) }) : t("agency.management.memberSince", { date: formatDate(broker.agencyJoinedAt) })}</Text></View>
       {isPending ? <View style={styles.actions}><Pressable style={styles.approve} disabled={workingId === broker.id} onPress={() => void handleApproval(broker, true)}><Ionicons name="checkmark" size={20} color={colors.onBrand} /></Pressable><Pressable style={styles.reject} disabled={workingId === broker.id} onPress={() => void handleApproval(broker, false)}><Ionicons name="close" size={20} color={colors.onError} /></Pressable></View> : null}
     </View>
   );

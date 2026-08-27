@@ -13,6 +13,7 @@ import MapView, { Polygon, Polyline, PROVIDER_DEFAULT, type Region } from "react
 import { Ionicons } from "@expo/vector-icons";
 
 import { useTheme } from "@/src/context/ThemeContext";
+import { t } from "@/src/locales";
 import { calculatePolygonArea, type LatLng } from "@/src/utils/geometry";
 import { fontSize, fonts, radius, spacing } from "@/src/theme";
 
@@ -83,7 +84,7 @@ export default function MapPolygonDrawModal({ visible, initialPolygon = [], onCl
   const handleSave = () => {
     const polygon = coordinates.length >= 3 ? coordinates : currentPathRef.current;
     if (polygon.length < 3 || calculatePolygonArea(polygon) <= 500) {
-      Alert.alert("Μη έγκυρο σχήμα", "Το σχήμα δεν περικλείει έγκυρη επιφάνεια. Παρακαλώ σχεδιάστε ένα κλειστό πολύγωνο.");
+      Alert.alert(t("mapPolygon.invalidShapeTitle"), t("mapPolygon.invalidShapeBody"));
       return;
     }
 
@@ -112,9 +113,9 @@ export default function MapPolygonDrawModal({ visible, initialPolygon = [], onCl
           <Pressable hitSlop={8} onPress={onClose} style={styles.closeBtn}>
             <Ionicons name="close" size={24} color={colors.onSurface} />
           </Pressable>
-          <Text style={styles.title}>Σχεδιασμός Περιοχής</Text>
+          <Text style={styles.title}>{t("mapPolygon.modalTitle")}</Text>
           <Pressable hitSlop={8} onPress={handleClear} style={styles.clearBtn}>
-            <Text style={styles.clearText}>Καθαρισμός</Text>
+            <Text style={styles.clearText}>{t("mapPolygon.clearBtn")}</Text>
           </Pressable>
         </View>
 

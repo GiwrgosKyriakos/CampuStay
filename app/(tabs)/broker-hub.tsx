@@ -186,21 +186,21 @@ export default function BrokerHubScreen() {
         <Text style={styles.brand}>{t("common.brandPrefix")}<Text style={styles.brandAccent}>{t("common.brandSuffix")}</Text></Text>
       </View>
       <View style={styles.toggleShell}>
-        <Pressable style={[styles.toggleOption, clientsActive && styles.toggleOptionActive]} onPress={() => setSelectedSegment("clients")} testID="broker-hub-toggle-clients"><Text style={[styles.toggleText, clientsActive && styles.toggleTextActive]}>Πελάτες</Text></Pressable>
-        <Pressable style={[styles.toggleOption, !clientsActive && styles.toggleOptionActive]} onPress={() => setSelectedSegment("owners")} testID="broker-hub-toggle-owners"><Text style={[styles.toggleText, !clientsActive && styles.toggleTextActive]}>Ιδιοκτήτες</Text></Pressable>
+        <Pressable style={[styles.toggleOption, clientsActive && styles.toggleOptionActive]} onPress={() => setSelectedSegment("clients")} testID="broker-hub-toggle-clients"><Text style={[styles.toggleText, clientsActive && styles.toggleTextActive]}>{t("brokerHub.clients")}</Text></Pressable>
+        <Pressable style={[styles.toggleOption, !clientsActive && styles.toggleOptionActive]} onPress={() => setSelectedSegment("owners")} testID="broker-hub-toggle-owners"><Text style={[styles.toggleText, !clientsActive && styles.toggleTextActive]}>{t("brokerHub.owners")}</Text></Pressable>
       </View>
       {isLoading ? <ActivityIndicator testID="broker-hub-loading" color={colors.brand} /> : (
         <Animated.View style={[styles.contentArea, { transform: [{ translateX: swipeX }] }]} {...contentPanResponder.panHandlers}>
-          {clientsActive ? <FlatList data={clients} testID="broker-clients-list" keyExtractor={(item) => item.clientUserId} ListEmptyComponent={<Text style={styles.emptyStateSubtitle}>Δεν υπάρχουν πελάτες ακόμα.</Text>} renderItem={({ item }) => (
+          {clientsActive ? <FlatList data={clients} testID="broker-clients-list" keyExtractor={(item) => item.clientUserId} ListEmptyComponent={<Text style={styles.emptyStateSubtitle}>{t("brokerHub.noClients")}</Text>} renderItem={({ item }) => (
             <Pressable style={styles.clientRowCard} testID={`broker-client-row-${item.clientUserId}`} onPress={() => router.push({ pathname: "/broker-client-detail", params: { clientUserId: item.clientUserId, clientName: item.clientName, clientAvatar: item.clientAvatar, chatRoomId: item.chatRoomId, sharedFilterSet: item.sharedFilterSet ? JSON.stringify(item.sharedFilterSet) : "" } })}>
               {item.clientAvatar ? <Image source={{ uri: item.clientAvatar }} style={styles.clientAvatar} /> : <DefaultProfileAvatar size={48} />}
               <View style={styles.clientInfoCol}><View style={styles.clientNameRow}><Text style={styles.rowTitle} numberOfLines={1}>{item.clientName}</Text>{item.leadReadiness === "hot" ? <Ionicons name="flame" size={18} color="#EF4444" style={styles.readinessIcon} /> : item.leadReadiness === "warm" ? <Ionicons name="sunny" size={18} color="#F59E0B" style={styles.readinessIcon} /> : item.leadReadiness === "cold" ? <Ionicons name="snow" size={18} color="#38BDF8" style={styles.readinessIcon} /> : null}</View><View style={styles.pipelineBadgeRow}><View style={styles.pipelinePercentPill}><Text style={styles.pipelinePercentText}>{`${item.pipelinePercentage ?? 10}% · ${item.pipelineStageLabel ?? "Νέο Lead"}`}</Text></View>{item.activeApartmentTitle ? <Text numberOfLines={1} style={styles.activeApartmentSub}>{item.activeApartmentTitle}</Text> : null}</View></View>
                 {item.sharedFilterSet ? <View style={styles.filterBadge}><Ionicons name="options-outline" size={16} color={colors.brand} /></View> : null}
                 <Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />
             </Pressable>
-          )} /> : <FlatList data={owners} testID="broker-owners-list" keyExtractor={(item) => item.name} ListEmptyComponent={<Text style={styles.emptyStateSubtitle}>Δεν υπάρχουν ιδιοκτήτες ακόμα.</Text>} renderItem={({ item, index }) => (
+          )} /> : <FlatList data={owners} testID="broker-owners-list" keyExtractor={(item) => item.name} ListEmptyComponent={<Text style={styles.emptyStateSubtitle}>{t("brokerHub.noOwners")}</Text>} renderItem={({ item, index }) => (
             <Pressable style={styles.ownerRowCard} testID={`broker-owner-row-${index}`} onPress={() => router.push({ pathname: "/broker-owner-detail", params: { ownerName: item.name, apartmentIds: JSON.stringify(item.apartments.map((apartment) => apartment.id)) } })}>
-              <View style={styles.rowMain}><Text style={styles.rowTitle}>{item.name}</Text><Text style={styles.countPill}>{item.apartments.length} ακίνητα</Text></View><Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />
+              <View style={styles.rowMain}><Text style={styles.rowTitle}>{item.name}</Text><Text style={styles.countPill}>{t("brokerHub.propertyCount", { count: item.apartments.length })}</Text></View><Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />
             </Pressable>
           )} />}
         </Animated.View>

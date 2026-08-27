@@ -15,6 +15,7 @@ import { getPipelineStageConfig, PIPELINE_STAGES, type LossReasonKey, type Pipel
 import type { BrokerApartment } from "./(tabs)/broker-hub";
 import type { FilterSetPayload } from "@/src/types/filters";
 import { getCompatibilityDetails, type ListingFormData } from "@/src/utils/compatibilityScore";
+import { t } from "@/src/locales";
 
 export interface BrokerPropertyList {
   id: string;
@@ -35,9 +36,9 @@ export interface LeadReadinessOption {
 }
 
 export const LEAD_READINESS_OPTIONS: LeadReadinessOption[] = [
-  { key: "hot", label: "Hot Leads: Έτοιμοι, διαθέσιμα κεφάλαια με ενοικίαση εντός μήνα", iconName: "flame", iconColor: "#EF4444" },
-  { key: "warm", label: "Warm Leads: Ενεργοί που ψάχνουν τους τελευταίους 2-3 μήνες αλλά δεν βιάζονται", iconName: "sunny", iconColor: "#F59E0B" },
-  { key: "cold", label: "Cold / Passive Leads: Άτομα που απλά «βολιδοσκοπούν» την αγορά ή θέλουν να αγοράσουν μετά από 6+ μήνες", iconName: "snow", iconColor: "#38BDF8" },
+  { key: "hot", label: "brokerClient.readiness.hot", iconName: "flame", iconColor: "#EF4444" },
+  { key: "warm", label: "brokerClient.readiness.warm", iconName: "sunny", iconColor: "#F59E0B" },
+  { key: "cold", label: "brokerClient.readiness.cold", iconName: "snow", iconColor: "#38BDF8" },
 ];
 
 const MOCK_INTERACTION_LOG = {
@@ -311,7 +312,7 @@ export default function BrokerClientDetailScreen() {
   const handleSavePropertyList = async () => {
     if (!auth.userId || !params.clientUserId || selectedApartmentIds.size === 0 || savingList) return;
     setSavingList(true);
-    const title = newListName.trim() || `Προτάσεις (${selectedApartmentIds.size})`;
+    const title = newListName.trim() || t("brokerClient.createList", { count: selectedApartmentIds.size });
     const createdAt = Date.now();
     try {
       const listRef = await addDoc(
@@ -348,16 +349,16 @@ export default function BrokerClientDetailScreen() {
         createdAt: serverTimestamp(),
         isRead: false,
       });
-      setNewListName("Η λίστα κοινοποιήθηκε");
+      setNewListName(t("brokerClient.listSharedNotice"));
       setTimeout(() => setNewListName(""), 1800);
     } catch (error) {
       console.error("[BrokerClientDetail] Error sharing property list:", error);
     }
   };
   return <View style={[styles.container, { paddingTop: insets.top }]} testID="broker-client-detail-screen">
-    <View style={styles.header}><Pressable style={styles.iconButton} onPress={() => router.back()} testID="broker-client-back-btn"><Ionicons name="chevron-back" size={24} color={colors.onSurface} /></Pressable><Text style={styles.headerTitle}>Στοιχεία Πελάτη</Text><View style={styles.iconSpacer} /></View>
+    <View style={styles.header}><Pressable style={styles.iconButton} onPress={() => router.back()} testID="broker-client-back-btn"><Ionicons name="chevron-back" size={24} color={colors.onSurface} /></Pressable><Text style={styles.headerTitle}>{t("brokerClient.headerTitle")}</Text><View style={styles.iconSpacer} /></View>
     <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-      <View style={styles.profileCard}>{params.clientAvatar ? <Image source={{ uri: params.clientAvatar }} style={styles.avatar} /> : <DefaultProfileAvatar size={64} />}<Text style={styles.clientName}>{params.clientName || "Πελάτης"}</Text><Pressable style={styles.chatButton} onPress={() => router.push({ pathname: "/chat/[id]", params: { id: params.clientUserId || "", chatRoomId: params.chatRoomId || "" } })} testID="broker-client-chat-cta"><Ionicons name="chatbubbles-outline" size={20} color={colors.onBrand} /><Text style={styles.chatButtonText}>Μετάβαση στη Συνομιλία</Text></Pressable></View>
+      <View style={styles.profileCard}>{params.clientAvatar ? <Image source={{ uri: params.clientAvatar }} style={styles.avatar} /> : <DefaultProfileAvatar size={64} />}<Text style={styles.clientName}>{params.clientName || t("brokerClient.clientFallback")}</Text><Pressable style={styles.chatButton} onPress={() => router.push({ pathname: "/chat/[id]", params: { id: params.clientUserId || "", chatRoomId: params.chatRoomId || "" } })} testID="broker-client-chat-cta"><Ionicons name="chatbubbles-outline" size={20} color={colors.onBrand} /><Text style={styles.chatButtonText}>{t("brokerClient.goToChat")}</Text></Pressable></View>
       <Pressable style={styles.stageCard} onPress={() => setIsStageModalVisible(true)} testID="broker-client-stage-card"><View style={styles.stageTitleWrap}><Ionicons name="trending-up-outline" size={21} color={colors.brand} /><Text style={styles.stageTitle}>Στάδιο Συμφωνίας (Pipeline)</Text></View><View style={styles.stageValueRow}><Text style={styles.stageValue}>{getPipelineStageConfig(pipelineStage).label} ({Math.round(getPipelineStageConfig(pipelineStage).probability * 100)}%)</Text><Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} /></View></Pressable>
       <Pressable style={styles.readinessCard} onPress={() => setIsReadinessModalVisible(true)} testID="broker-client-readiness-card"><View style={styles.readinessTitleWrap}><Ionicons name={selectedReadinessOption?.iconName ?? "speedometer-outline"} size={20} color={selectedReadinessOption?.iconColor ?? colors.brand} /><Text style={styles.readinessTitle}>Κατηγοριοποίηση/ αξιολόγηση/ προτεραιότητα βάση ετοιμότητας:</Text></View><View style={styles.readinessValueRow}><Text style={[styles.readinessValueText, selectedReadinessOption ? { color: selectedReadinessOption.iconColor } : null]}>{selectedReadinessOption?.label ?? "Δεν έχει οριστεί προτεραιότητα"}</Text><Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} /></View></Pressable>
         {isStagnant ? <View style={[styles.stagnationBanner, { backgroundColor: `${stagnationColor}22`, borderColor: stagnationColor }]} testID="broker-deal-stagnation-banner"><View style={styles.stagnationHeaderRow}><Ionicons name={stagnationIcon} size={22} color={stagnationColor} /><Text style={[styles.stagnationTitle, { color: stagnationColor }]}>Προσοχή: Κίνδυνος να χαθεί το deal</Text></View><Text style={[styles.stagnationBody, { color: colors.onSurface }]}>Ο πελάτης έχει μείνει {elapsedDays} μέρες στο στάδιο «{currentStageConfig.label}».</Text></View> : null}
@@ -367,8 +368,8 @@ export default function BrokerClientDetailScreen() {
       </View>
       <View style={styles.interactionLogCard} testID="broker-client-interaction-log">
         <View style={styles.interactionHeaderRow}>
-          <View style={styles.interactionTitleWrap}><Ionicons color={colors.brand} name="analytics-outline" size={20} /><Text style={styles.interactionMainTitle}>Interaction log</Text></View>
-          <View style={styles.leadScoreBadge}><Text style={styles.leadScoreText}>{`Score: ${MOCK_INTERACTION_LOG.leadScore} · ${MOCK_INTERACTION_LOG.leadQuality}`}</Text></View>
+          <View style={styles.interactionTitleWrap}><Ionicons color={colors.brand} name="analytics-outline" size={20} /><Text style={styles.interactionMainTitle}>{t("interactionLog.title")}</Text></View>
+          <View style={styles.leadScoreBadge}><Text style={styles.leadScoreText}>{t("interactionLog.leadScore", { score: MOCK_INTERACTION_LOG.leadScore, quality: MOCK_INTERACTION_LOG.leadQuality })}</Text></View>
         </View>
         <View style={styles.interactionDivider} />
         <View style={styles.interactionCategoryBlock}><View style={styles.categoryHeaderRow}><Ionicons color={colors.brand} name="eye-outline" size={18} /><Text style={styles.categoryTitle}>Ακίνητα που έχει επισκεφτεί</Text></View><View style={styles.chipsContainer}>{MOCK_INTERACTION_LOG.visitedProperties.map((item) => <View key={item} style={styles.interactionChip}><Text style={styles.chipText}>{item}</Text></View>)}</View></View>
