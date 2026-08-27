@@ -12,7 +12,7 @@ import { useTheme } from "@/src/context/ThemeContext";
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import { getPipelineStageConfig, PIPELINE_STAGES, type LossReasonKey, type PipelineStageKey } from "@/src/constants/pipeline";
-import type { BrokerApartment } from "./(tabs)/broker-hub";
+import type { BrokerApartment } from "./(tabs)/broker";
 import type { FilterSetPayload } from "@/src/types/filters";
 import { getCompatibilityDetails, type ListingFormData } from "@/src/utils/compatibilityScore";
 import { t } from "@/src/locales";

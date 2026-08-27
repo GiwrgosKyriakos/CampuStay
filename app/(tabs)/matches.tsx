@@ -87,6 +87,9 @@ interface LastMessageMeta {
   isRead: boolean;
 }
 
+let memoryMatchesCache: Record<string, ChatListItem[]> = {};
+let memoryLastMessagesCache: Record<string, LastMessageMeta> = {};
+
 const getSafeMillis = (timestamp: any): number => {
   if (!timestamp) return 0;
   if (typeof timestamp.toMillis === "function") {
@@ -177,15 +180,15 @@ export default function MatchesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const auth = useAuth();
-  const [matches, setMatches] = useState<ChatListItem[]>([]);
-  const [loading, setLoading] = useState(true);
   const [selectedChatType, setSelectedChatType] = useState<"roommate" | "host">("roommate");
+  const [matches, setMatches] = useState<ChatListItem[]>(() => memoryMatchesCache.roommate ?? []);
+  const [loading, setLoading] = useState(() => !memoryMatchesCache.roommate || memoryMatchesCache.roommate.length === 0);
   const [isBrokersView, setIsBrokersView] = useState(false);
   const [showGlobalFilterHistoryModal, setShowGlobalFilterHistoryModal] = useState(false);
   const [globalFilterSets, setGlobalFilterSets] = useState<SharedFilterSetRecord[]>([]);
   const [selectedGlobalFilterSet, setSelectedGlobalFilterSet] = useState<SharedFilterSetRecord | null>(null);
   const [loadingGlobalFilterSets, setLoadingGlobalFilterSets] = useState(false);
-  const [lastMessageByChat, setLastMessageByChat] = useState<Record<string, LastMessageMeta>>({});
+  const [lastMessageByChat, setLastMessageByChat] = useState<Record<string, LastMessageMeta>>(() => memoryLastMessagesCache);
   const [acceptingChatId, setAcceptingChatId] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string>("");
   const [activeContextChatId, setActiveContextChatId] = useState<string | null>(null);
@@ -196,6 +199,10 @@ export default function MatchesScreen() {
   const messageUnsubsRef = React.useRef<Record<string, () => void>>({});
   const isBroker = !!auth.isBroker;
   const notLookingForRoommate = auth.notLookingForRoommate === true;
+
+  useEffect(() => {
+    memoryLastMessagesCache = lastMessageByChat;
+  }, [lastMessageByChat]);
 
   useEffect(() => {
     if (!showGlobalFilterHistoryModal || !auth.userId) return;
@@ -347,14 +354,13 @@ export default function MatchesScreen() {
   );
 
   React.useEffect(() => {
-    if (auth.isGuest) setMatches([]);
-  }, [auth.isGuest]);
+    const cachedMatches = memoryMatchesCache[selectedChatType];
+    if (cachedMatches) setMatches(cachedMatches);
+  }, [selectedChatType]);
 
   React.useEffect(() => {
     if (auth.isGuest) {
       setCurrentUserId("");
-      setMatches([]);
-      setLastMessageByChat({});
       setLoading(false);
       return;
     }
@@ -362,16 +368,12 @@ export default function MatchesScreen() {
     let mounted = true;
     let unsub: (() => void) | null = null;
 
-    setMatches([]);
-    setLoading(true);
-
     (async () => {
       try {
         const uid = auth.userId;
         if (!uid) {
           if (mounted) {
             setCurrentUserId("");
-            setMatches([]);
             setLoading(false);
           }
           return;
@@ -565,12 +567,12 @@ export default function MatchesScreen() {
               }
 
               if (mounted) {
-                setMatches(
-                  [...rows, ...fallbackRows]
-                    .filter((r): r is { sortKey: number; item: ChatListItem } => !!r)
-                    .sort((a, b) => (Number.isFinite(b.sortKey) ? b.sortKey : 0) - (Number.isFinite(a.sortKey) ? a.sortKey : 0))
-                    .map((row) => row.item),
-                );
+                const finalItems = [...rows, ...fallbackRows]
+                  .filter((r): r is { sortKey: number; item: ChatListItem } => !!r)
+                  .sort((a, b) => (Number.isFinite(b.sortKey) ? b.sortKey : 0) - (Number.isFinite(a.sortKey) ? a.sortKey : 0))
+                  .map((row) => row.item);
+                memoryMatchesCache[selectedChatType] = finalItems;
+                setMatches(finalItems);
               }
             } catch (error) {
               console.error("[Matches] Error mapping users to chat items:", error);
@@ -583,7 +585,6 @@ export default function MatchesScreen() {
       } catch (error) {
         console.error("[Matches] Failed to initialize chats subscription", error);
         if (mounted) {
-          setMatches([]);
           setLoading(false);
         }
       }

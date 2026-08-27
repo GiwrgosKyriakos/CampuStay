@@ -18,8 +18,11 @@ export default function AuthLandingScreen() {
   const router = useRouter();
   const auth = useAuth();
   const [googleLoading, setGoogleLoading] = useState(false);
-  const defaultHomeRoute =
-    auth.isBroker || auth.notLookingForRoommate ? "/apartments" : "/roommates";
+  const defaultHomeRoute = auth.isBroker
+    ? "/calendar"
+    : auth.notLookingForRoommate
+    ? "/apartments"
+    : "/roommates";
 
   React.useEffect(() => {
     if (!auth.isLoading && auth.isLoggedIn) {

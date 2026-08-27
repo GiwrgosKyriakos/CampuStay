@@ -10,36 +10,41 @@ import { useAuth } from "@/src/context/auth";
 
 const ICONS: Record<string, { active: keyof typeof Ionicons.glyphMap; inactive: keyof typeof Ionicons.glyphMap }> = {
   roommates: { active: "flame", inactive: "flame-outline" },
-  broker: { active: "calendar", inactive: "calendar-outline" },
-  "broker-hub": { active: "person", inactive: "person-outline" },
+  calendar: { active: "calendar", inactive: "calendar-outline" },
+  broker: { active: "person", inactive: "person-outline" },
   matches: { active: "heart", inactive: "heart-outline" },
   apartments: { active: "home", inactive: "home-outline" },
   profile: { active: "person", inactive: "person-outline" },
 };
 
-export default function GlassTabBar({ state, navigation }: BottomTabBarProps) {
+export default function GlassTabBar({ state, navigation, descriptors }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const auth = useAuth();
   const isBroker = !!auth.isBroker;
   const notLookingForRoommate = auth.notLookingForRoommate === true;
   const styles = useMemo(() => createStyles(colors), [colors]);
-
+  const focusedRouteName = state.routes[state.index]?.name;
   const visibleRoutes = useMemo(() => {
     return state.routes
       .filter((route) => {
-        if (route.name === "broker") return false;
-        if (route.name === "broker-hub") return isBroker;
-        if (route.name === "roommates") return !isBroker && !notLookingForRoommate;
-        return true;
+        const href = (descriptors[route.key]?.options as { href?: string | null } | undefined)?.href;
+        if (href === null) return false;
+        if (isBroker) return ["calendar", "matches", "apartments", "broker"].includes(route.name);
+        if (route.name === "roommates") return !notLookingForRoommate;
+        return ["matches", "apartments", "profile"].includes(route.name);
       })
       .sort((left, right) => {
         const order = isBroker
-          ? ["broker-hub", "apartments", "matches", "profile"]
+          ? ["calendar", "matches", "apartments", "broker"]
           : ["roommates", "matches", "apartments", "profile"];
         return order.indexOf(left.name) - order.indexOf(right.name);
       });
-  }, [isBroker, notLookingForRoommate, state.routes]);
+  }, [descriptors, isBroker, notLookingForRoommate, state.routes]);
+
+  if (isBroker && focusedRouteName === "profile") {
+    return null;
+  }
 
   return (
     <View style={[styles.wrap, { paddingBottom: Math.max(insets.bottom, spacing.md) }]} testID="bottom-tab-bar">

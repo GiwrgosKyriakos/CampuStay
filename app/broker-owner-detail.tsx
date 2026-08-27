@@ -12,7 +12,7 @@ import { uploadListingDocumentAsync } from "@/src/api/imageUpload";
 import { useTheme } from "@/src/context/ThemeContext";
 import { useAuth } from "@/src/context/auth";
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
-import type { BrokerApartment, BrokerDocument } from "./(tabs)/broker-hub";
+import type { BrokerApartment, BrokerDocument } from "./(tabs)/broker";
 
 type DocumentCategoryKey = "topographicPlans" | "ownershipContracts" | "buildingPermits" | "engineerCertificates" | "unauthorizedConstructionsSettlement" | "energyCertificates" | "signedBrokerageAgreement" | "gdprConsent";
 const DOCUMENT_CATEGORIES: { key: DocumentCategoryKey; title: string }[] = [

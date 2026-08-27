@@ -18,7 +18,6 @@ import { uploadProfileImageAsync } from "@/src/api/imageUpload";
 import { t } from "@/src/locales";
 import { useLocale } from "@/src/context/locale";
 import { useTheme } from "@/src/context/ThemeContext";
-import BrokerTabScreen from "./broker";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 100;
@@ -57,7 +56,6 @@ export default function ProfileScreen() {
   const [updatingPhoto, setUpdatingPhoto] = useState(false);
   const [quizAnsweredCount, setQuizAnsweredCount] = useState(0);
   const [isLoggingOut, setIsLoggingOut] = useState(false); // 🎯 ΠΡΟΣΘΗΚΗ: Κλειδώνει το UI κατά το logout
-  const [showBrokerSettings, setShowBrokerSettings] = useState(false);
 
   React.useEffect(() => {
     if (auth.isGuest) {
@@ -182,28 +180,26 @@ export default function ProfileScreen() {
     }
   }, [auth.isGuest, auth.user?.email, auth.user?.name, profile, router]);
 
-  if (auth.isBroker && !showBrokerSettings) {
-    return <BrokerTabScreen onOpenSettings={() => setShowBrokerSettings(true)} />;
-  }
-
   return (
     <View style={styles.container} testID="profile-screen">
+      {auth.isBroker ? (
+        <View style={[styles.brokerHeaderRow, { paddingTop: insets.top + spacing.sm }]}>
+          <Pressable
+            style={styles.headerIconButton}
+            onPress={() => router.back()}
+            testID="broker-settings-back-btn"
+            accessibilityRole="button"
+            accessibilityLabel="Επιστροφή"
+            hitSlop={8}
+          >
+            <Ionicons name="chevron-back" size={24} color={colors.onSurface} />
+          </Pressable>
+        </View>
+      ) : null}
       <ScrollView
         contentContainerStyle={{ paddingBottom: TAB_BAR_SPACE + insets.bottom }}
         showsVerticalScrollIndicator={false}
       >
-        {auth.isBroker ? (
-          <View style={[styles.brokerHeaderRow, { paddingTop: insets.top + spacing.sm }]}>
-            <Pressable
-              style={styles.headerIconButton}
-              onPress={() => setShowBrokerSettings(false)}
-              testID="broker-settings-back-btn"
-              hitSlop={8}
-            >
-              <Ionicons name="chevron-back" size={24} color={colors.onSurface} />
-            </Pressable>
-          </View>
-        ) : null}
         <View style={[styles.hero, { paddingTop: spacing.xl }]}> 
           <View style={styles.avatarWrap}>
             <Pressable

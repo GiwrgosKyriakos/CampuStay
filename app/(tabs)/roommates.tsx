@@ -24,6 +24,12 @@ import type { CompatibilityQuiz, CompatibilityQuizAnswers, UserProfile as MatchU
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 84;
 
+let memoryCandidatesCache: {
+  userId: string;
+  data: RoommateProfile[];
+  timestamp: number;
+} | null = null;
+
 function normalizeMatchGender(gender: string | null | undefined): MatchUserProfile["gender"] {
   if (gender === "Male" || gender === "Female" || gender === "Prefer Not To Say") return gender;
   return "Prefer Not To Say";
@@ -92,8 +98,13 @@ export default function RoommatesScreen() {
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [sheetVisible, setSheetVisible] = useState(false);
   const [activeAction, setActiveAction] = useState<"left" | "right" | null>(null);
-  const [candidates, setCandidates] = useState<RoommateProfile[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [candidates, setCandidates] = useState<RoommateProfile[]>(() => {
+    if (memoryCandidatesCache && (!auth.userId || memoryCandidatesCache.userId === auth.userId)) {
+      return memoryCandidatesCache.data;
+    }
+    return [];
+  });
+  const [loading, setLoading] = useState(() => !memoryCandidatesCache || memoryCandidatesCache.data.length === 0);
   const [quizAnsweredCount, setQuizAnsweredCount] = useState(0);
   const actionTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -121,17 +132,19 @@ useEffect(() => {
 }, []);
 
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (isSilent = false) => {
     try {
-      setLoading(true);
       if (!auth.isGuest && !auth.userId) {
-        setCandidates([]);
+        setLoading(false);
         return;
       }
       const userId = auth.isGuest ? "guest" : auth.userId;
       if (!userId) {
-        setCandidates([]);
+        setLoading(false);
         return;
+      }
+      if (!isSilent && !memoryCandidatesCache?.data.length) {
+        setLoading(true);
       }
       userIdRef.current = userId;
       console.log("[Roommates] Loading candidates for user", {
@@ -159,9 +172,10 @@ useEffect(() => {
         })
         .sort((left, right) => (right.matchScore ?? 0) - (left.matchScore ?? 0));
 
+      memoryCandidatesCache = { userId, data: scoredCandidates, timestamp: Date.now() };
       setCandidates(scoredCandidates);
     } catch {
-      setCandidates([]);
+      if (!memoryCandidatesCache) setCandidates([]);
     } finally {
       setLoading(false);
     }
@@ -169,7 +183,7 @@ useEffect(() => {
 
   useFocusEffect(
     useCallback(() => {
-      load();
+      void load(true);
       return () => {
         if (actionTimeout.current) clearTimeout(actionTimeout.current);
       };

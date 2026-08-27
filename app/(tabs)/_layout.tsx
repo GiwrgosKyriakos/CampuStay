@@ -1,4 +1,5 @@
 import { Tabs } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 
 import GlassTabBar from "@/src/components/GlassTabBar";
 import { useTheme } from "@/src/context/ThemeContext";
@@ -10,10 +11,11 @@ export default function TabsLayout() {
   const auth = useAuth();
   const isBroker = !!auth.isBroker;
   const notLookingForRoommate = auth.notLookingForRoommate === true;
+  const initialRouteName = isBroker ? "calendar" : notLookingForRoommate ? "apartments" : "roommates";
 
   return (
     <Tabs
-      initialRouteName={isBroker || notLookingForRoommate ? "apartments" : "roommates"}
+      initialRouteName={initialRouteName}
       tabBar={(props) => <GlassTabBar {...props} />}
       screenOptions={{
         headerShown: false,
@@ -25,9 +27,10 @@ export default function TabsLayout() {
       }}
     >
       <Tabs.Screen
-        name="broker-hub"
+        name="calendar"
         options={{
-          title: t("tabs.profile"),
+          title: "Calendar",
+          tabBarIcon: ({ color, size }) => <Ionicons color={color} name="calendar-outline" size={size} />,
           href: isBroker ? undefined : null,
         }}
       />
@@ -36,13 +39,6 @@ export default function TabsLayout() {
         options={{
           title: t("tabs.roommates"),
           href: !isBroker && !notLookingForRoommate ? undefined : null,
-        }}
-      />
-      <Tabs.Screen
-        name="broker"
-        options={{
-          title: "Broker",
-          href: null,
         }}
       />
       <Tabs.Screen
@@ -58,9 +54,18 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="broker"
+        options={{
+          title: "Broker",
+          tabBarIcon: ({ color, size }) => <Ionicons color={color} name="person-outline" size={size} />,
+          href: isBroker ? undefined : null,
+        }}
+      />
+      <Tabs.Screen
         name="profile"
         options={{
           title: t("tabs.profile"),
+          href: isBroker ? null : undefined,
         }}
       />
     </Tabs>

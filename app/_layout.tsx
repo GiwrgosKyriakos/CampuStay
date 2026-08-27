@@ -72,8 +72,11 @@ function AppContent() {
     topSegment === "agency-onboarding";
   const isUnauthenticated = auth.user === null && !auth.isGuest;
   const isAuthenticated = auth.user !== null;
-  const defaultHomeRoute =
-    auth.isBroker || auth.notLookingForRoommate ? "/apartments" : "/roommates";
+  const defaultHomeRoute = auth.isBroker
+    ? "/calendar"
+    : auth.notLookingForRoommate
+    ? "/apartments"
+    : "/roommates";
 
   useEffect(() => {
     let mounted = true;
