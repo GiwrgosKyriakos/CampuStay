@@ -8,6 +8,7 @@ import { arrayUnion, collection, doc, getDocs, query, serverTimestamp, setDoc, u
 
 import { db, firebaseAuth } from "@/src/config/firebase";
 import { notifyCeoOfNewApplicant } from "@/src/api/agency";
+import { useAuth } from "@/src/context/auth";
 import { useTheme } from "@/src/context/ThemeContext";
 import { t } from "@/src/locales";
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
@@ -20,6 +21,7 @@ export default function AgencyOnboardingScreen() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const auth = useAuth();
   const params = useLocalSearchParams<{ role?: string; email?: string; password?: string }>();
   const role: AgencyRole = params.role === "member" ? "member" : "ceo";
   const email = String(params.email ?? "");
@@ -77,15 +79,16 @@ export default function AgencyOnboardingScreen() {
           createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
         });
         await setDoc(doc(db, "users", credential.user.uid), {
-          name: displayName.trim(), is_broker: true, agencyId: agencyRef.id, agencyRole: "ceo", agencyStatus: "approved", agencyJoinedAt: serverTimestamp(), needsProfileSetup: true,
+          name: displayName.trim(), email: email.trim(), is_broker: true, agencyId: agencyRef.id, agencyRole: "ceo", agencyStatus: "approved", agencyJoinedAt: serverTimestamp(), needsProfileSetup: true, updatedAt: serverTimestamp(),
         }, { merge: true });
       } else {
         await setDoc(doc(db, "users", credential.user.uid), {
-          name: displayName.trim(), is_broker: true, agencyId: selectedAgency!.id, agencyRole: "member", agencyStatus: "pending", agencyRequestedAt: serverTimestamp(), needsProfileSetup: true,
+          name: displayName.trim(), email: email.trim(), is_broker: true, agencyId: selectedAgency!.id, agencyRole: "member", agencyStatus: "pending", agencyRequestedAt: serverTimestamp(), needsProfileSetup: true, updatedAt: serverTimestamp(),
         }, { merge: true });
         await updateDoc(doc(db, "agencies", selectedAgency!.id), { pendingBrokerIds: arrayUnion(credential.user.uid), updatedAt: serverTimestamp() });
         await notifyCeoOfNewApplicant(selectedAgency!.id, displayName.trim(), email.trim());
       }
+      auth.updateRoleStates(true, true);
       router.replace("/edit-profile");
     } catch (submissionError: any) {
       setError(submissionError?.code === "auth/email-already-in-use" ? t("agency.onboarding.emailInUse") : t("agency.onboarding.registrationFailed"));

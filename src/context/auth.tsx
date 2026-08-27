@@ -105,6 +105,10 @@ async function syncUserDocument(
     photos: resolvedPhotos,
     authProvider: firebaseUser.providerData?.[0]?.providerId ?? "password",
     needsProfileSetup: resolvedNeedsProfileSetup,
+    ...(existingData?.is_broker !== undefined ? { is_broker: existingData.is_broker } : {}),
+    ...(existingData?.agencyId ? { agencyId: existingData.agencyId } : {}),
+    ...(existingData?.agencyRole ? { agencyRole: existingData.agencyRole } : {}),
+    ...(existingData?.agencyStatus ? { agencyStatus: existingData.agencyStatus } : {}),
     lastLoginAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   };
@@ -200,14 +204,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (firebaseUser) {
         try {
           const idToken = await firebaseUser.getIdToken();
-          await persist(idToken, mapFirebaseUser(firebaseUser));
+          const userRef = doc(db, "users", firebaseUser.uid);
+          const userSnap = await getDoc(userRef);
+          const userData = userSnap.exists() ? userSnap.data() : null;
+          const needsSetup =
+            typeof userData?.needsProfileSetup === "boolean"
+              ? userData.needsProfileSetup
+              : !userSnap.exists();
+
+          setIsBroker(!!userData?.is_broker);
+          setNotLookingForRoommate(userData?.not_looking_for_roommate === true);
+          await persist(idToken, mapFirebaseUser(firebaseUser), needsSetup);
 
           unsubscribeUserDoc?.();
-          unsubscribeUserDoc = onSnapshot(doc(db, "users", firebaseUser.uid), (snapshot) => {
+          unsubscribeUserDoc = onSnapshot(userRef, (snapshot) => {
             if (!mounted) return;
             const data = snapshot.exists() ? snapshot.data() : null;
             setIsBroker(!!data?.is_broker);
             setNotLookingForRoommate(data?.not_looking_for_roommate === true);
+            if (typeof data?.needsProfileSetup === "boolean") {
+              setNeedsProfileSetup(data.needsProfileSetup);
+            }
           });
         } catch (err) {
           console.error("[Auth] Failed to sync Firebase session:", err);

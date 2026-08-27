@@ -11,7 +11,6 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { useFonts } from "expo-font";
 import { StatusBar } from "expo-status-bar";
 import { BlurView } from "expo-blur";
-import { doc, getDoc } from "firebase/firestore";
 
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import type { ThemeColors } from "@/src/theme";
@@ -20,7 +19,6 @@ import { LocaleProvider, useLocale } from "@/src/context/locale";
 import { ThemeProvider, useTheme } from "@/src/context/ThemeContext";
 import { AppLocale } from "@/src/locales";
 import { storage } from "@/src/utils/storage";
-import { db } from "@/src/config/firebase";
 
 const HAS_SELECTED_LANGUAGE_KEY = "has_selected_language";
 const SELECTED_LANGUAGE_KEY = "selected_language";
@@ -74,8 +72,8 @@ function AppContent() {
     topSegment === "agency-onboarding";
   const isUnauthenticated = auth.user === null && !auth.isGuest;
   const isAuthenticated = auth.user !== null;
-  const [isProfileGateLoading, setIsProfileGateLoading] = useState(false);
-  const [requiresProfileSetup, setRequiresProfileSetup] = useState(false);
+  const defaultHomeRoute =
+    auth.isBroker || auth.notLookingForRoommate ? "/apartments" : "/roommates";
 
   useEffect(() => {
     let mounted = true;
@@ -171,57 +169,11 @@ function AppContent() {
     }
   }, [appReady, isDark]);
 
-  useEffect(() => {
-    let mounted = true;
-
-    if (!authReady) {
-      setIsProfileGateLoading(true);
-      return () => {
-        mounted = false;
-      };
-    }
-
-    if (!isAuthenticated || !auth.userId) {
-      setIsProfileGateLoading(false);
-      setRequiresProfileSetup(false);
-      return () => {
-        mounted = false;
-      };
-    }
-
-    setIsProfileGateLoading(true);
-    void (async () => {
-      try {
-        // Προσθέσαμε το ! μετά το auth.userId
-        const userSnap = await getDoc(doc(db, "users", auth.userId!));
-        const data = userSnap.exists() ? (userSnap.data() as { needsProfileSetup?: boolean }) : null;
-        const isIncomplete = !userSnap.exists() || data?.needsProfileSetup === true;
-        if (mounted) {
-          setRequiresProfileSetup(isIncomplete);
-        }
-      } catch {
-        if (mounted) {
-          setRequiresProfileSetup(!!auth.needsProfileSetup);
-        }
-      } finally {
-        if (mounted) {
-          setIsProfileGateLoading(false);
-        }
-      }
-    })();
-
-    return () => {
-      mounted = false;
-    };
-  }, [authReady, isAuthenticated, auth.userId, auth.needsProfileSetup]);
-
-  const shouldForceProfileSetup =
-    isAuthenticated &&
-    (auth.needsProfileSetup || (requiresProfileSetup && topSegment === "edit-profile"));
+  const shouldForceProfileSetup = isAuthenticated && auth.needsProfileSetup;
 
   useEffect(() => {
     // 🎯 Guard ετοιμότητας: Περιμένουμε να φορτώσει το auth, το profile gate και ο root navigator
-    if (!authReady || isProfileGateLoading || !rootNavigationState?.key) return;
+    if (!appReady || !rootNavigationState?.key) return;
 
     let active = true;
 
@@ -253,7 +205,7 @@ function AppContent() {
       setIsTransitioning(true);
       
       setTimeout(() => {
-        if (active) router.replace(shouldForceProfileSetup ? "/edit-profile" : "/roommates");
+        if (active) router.replace(shouldForceProfileSetup ? "/edit-profile" : defaultHomeRoute as any);
       }, 0);
 
       setTimeout(() => {
@@ -266,12 +218,12 @@ function AppContent() {
       active = false;
     };
   }, [
-    authReady, 
-    isProfileGateLoading, 
+    appReady,
     isUnauthenticated, 
     isAuthenticated, 
     isAuthRoute, 
     shouldForceProfileSetup, 
+    defaultHomeRoute,
     topSegment, 
     router, 
     segments, 
@@ -282,7 +234,7 @@ function AppContent() {
     (isUnauthenticated && !isAuthRoute) ||
     (shouldForceProfileSetup && topSegment !== "edit-profile");
   
-  if (!fontsReady || !authReady || !languagePromptResolved || isProfileGateLoading) {
+  if (!fontsReady || !authReady || !languagePromptResolved) {
     console.log("[App] Waiting for app readiness...", { fontsReady, authReady });
     return (
       <View style={styles.bootLoaderWrap}>

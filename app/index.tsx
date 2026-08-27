@@ -2,12 +2,13 @@ import { Redirect } from "expo-router";
 import { useAuth } from "@/src/context/auth";
 
 export default function Index() {
-  const { isLoading, isLoggedIn, isGuestMode, needsProfileSetup } = useAuth();
+  const { isLoading, isLoggedIn, isGuestMode, needsProfileSetup, isBroker, notLookingForRoommate } = useAuth();
 
   if (isLoading) return null;
 
   if (isLoggedIn) {
-    return <Redirect href={needsProfileSetup ? "/edit-profile" : "/roommates"} />;
+    const targetHome = isBroker || notLookingForRoommate ? "/apartments" : "/roommates";
+    return <Redirect href={needsProfileSetup ? "/edit-profile" : targetHome} />;
   }
   if (isGuestMode) {
     return <Redirect href="/roommates" />;

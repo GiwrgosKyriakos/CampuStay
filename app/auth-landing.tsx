@@ -12,25 +12,23 @@ import { useAuth } from "@/src/context/auth";
 import { t } from "@/src/locales";
 
 export default function AuthLandingScreen() {
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const auth = useAuth();
   const [googleLoading, setGoogleLoading] = useState(false);
+  const defaultHomeRoute =
+    auth.isBroker || auth.notLookingForRoommate ? "/apartments" : "/roommates";
 
   React.useEffect(() => {
     if (!auth.isLoading && auth.isLoggedIn) {
-      router.replace(auth.needsProfileSetup ? "/edit-profile" : "/roommates");
+      router.replace(auth.needsProfileSetup ? "/edit-profile" : defaultHomeRoute as any);
     }
-  }, [auth.isLoading, auth.isLoggedIn, auth.needsProfileSetup, router]);
+  }, [auth.isLoading, auth.isLoggedIn, auth.needsProfileSetup, defaultHomeRoute, router]);
 
   if (auth.isLoading || auth.isLoggedIn) {
-    return (
-      <View style={styles.loadingContainer} testID="auth-landing-loading">
-        <ActivityIndicator size="large" color={colors.brand} />
-      </View>
-    );
+    return null;
   }
 
   const handleGoogleLogin = async () => {
