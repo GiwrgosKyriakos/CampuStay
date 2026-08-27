@@ -41,6 +41,7 @@ import { markIncomingMessagesAsRead } from "@/src/api/chat";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import CenteredActionModal, { type CenteredModalAction } from "@/src/components/CenteredActionModal";
 import FilterSetVersionModal, { type SharedFilterSetRecord, type FilterSetVersionData } from "@/src/components/FilterSetVersionModal";
+import ChatMessageItem from "@/src/components/chat/ChatMessageItem";
 import { getUserSettings, saveUserNotifications, saveUserPrivacy, type NotificationPreferences } from "@/src/api/accountSettings";
 import { submitReportedUserEntry } from "@/src/services/reportedUsers";
 import { subscribeUserLikedApartmentIds } from "@/src/api/apartmentLikes";
@@ -2593,6 +2594,33 @@ export default function ChatScreen() {
                 }
               }
 
+              if (m.type !== "__legacy_inline_renderer__") {
+                return (
+                  <ChatMessageItem
+                    key={m.id}
+                    message={m}
+                    styles={styles}
+                    colors={colors}
+                    isMine={isMine}
+                    itemMarginStyle={itemMarginStyle}
+                    borderRadii={borderRadii}
+                    isHostChat={chatType === "host"}
+                    isCurrentUserHost={isCurrentUserHost}
+                    canDeleteForEveryone={canDeleteForEveryone}
+                    apartmentCoverImage={apartmentCoverImage}
+                    statusLabel={getStatusLabel(m.status)}
+                    formatRequestDate={formatRequestDate}
+                    onApartmentPress={() => {
+                      router.push({ pathname: "/apartment-detail", params: { data: JSON.stringify(apartmentData) } });
+                    }}
+                    onFilterSetPress={() => setSelectedFilterSetRecord(filterHistoryRecords.find((record) => record.id === (m.filterSetId ?? m.id)) ?? null)}
+                    onPropertyListPress={() => void handleOpenPropertyList(m)}
+                    onDeletePress={() => setMessageActionTarget(m)}
+                    onApprove={() => void approveHostActionMessage(m)}
+                  />
+                );
+              }
+
               if (isApartmentShare && apartmentData) {
                 return (
                   <Pressable
@@ -4195,6 +4223,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderColor: colors.border,
     gap: spacing.xs,
   },
+  sharedListMessageCardTheirs: { alignSelf: "flex-start" },
   sharedListMessageCardMine: { backgroundColor: colors.brand, borderColor: colors.brand },
   sharedListHeader: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
   sharedListTitle: { flex: 1, fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onSurface },
@@ -4514,7 +4543,14 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     color: colors.onBrand,
   },
   hostActionCardWrap: {
+    alignSelf: "center",
     alignItems: "center",
+  },
+  hostActionCardWrapTheirs: {
+    alignSelf: "flex-start",
+  },
+  hostActionCardWrapMine: {
+    alignSelf: "flex-end",
   },
   hostActionCard: {
     width: "92%",
