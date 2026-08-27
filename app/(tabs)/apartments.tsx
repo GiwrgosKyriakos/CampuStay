@@ -1611,7 +1611,7 @@ export default function ApartmentsScreen() {
               hitSlop={8}
               testID="seeker-notes-btn"
             >
-              <Ionicons name="document-text-outline" size={20} color={colors.onSurface} />
+              <Ionicons name="document-text-outline" size={18} color={colors.onBrandTertiary} />
             </Pressable>
           )}
           {!isViewingMyListings ? (
