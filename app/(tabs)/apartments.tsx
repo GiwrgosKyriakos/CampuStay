@@ -23,6 +23,8 @@ import { getExcludedUserIds } from "@/src/api/blocking";
 import { getUserApartmentNotes, updateNotesOrder, type Apartment as ApartmentNoteData } from "@/src/api/apartmentNotes";
 import { storage } from "@/src/utils/storage";
 import { calculatePricePerSqm } from "@/src/utils/pricing";
+import { isPointInPolygon, type LatLng } from "@/src/utils/geometry";
+import MapPolygonDrawModal from "@/src/components/MapPolygonDrawModal";
 import type { FilterSetPayload as SharedFilterSetPayload } from "@/src/types/filters";
 import type { FilterSetVersionData, SharedFilterSetRecord } from "@/src/components/FilterSetVersionModal";
 
@@ -511,6 +513,8 @@ export default function ApartmentsScreen() {
   const [sizeMax, setSizeMax] = useState("");
   const [petFriendly, setPetFriendly] = useState(false);
   const [nearMetro, setNearMetro] = useState(false);
+  const [polygonCoordinates, setPolygonCoordinates] = useState<LatLng[]>([]);
+  const [isPolygonModalVisible, setIsPolygonModalVisible] = useState(false);
   const [sortBy, setSortBy] = useState<SortOption>("newest");
   const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false);
   const [showOnlyModalType, setShowOnlyModalType] = useState<ShowOnlyModalType>(null);
@@ -581,9 +585,10 @@ export default function ApartmentsScreen() {
       sizeMax: sizeMax || undefined,
       petFriendly,
       nearMetro,
+      polygonCoordinates: polygonCoordinates.length >= 3 ? polygonCoordinates : undefined,
       sortBy,
     }),
-    [cityQuery, filterSetTitle, maxSqmPrice, nearMetro, petFriendly, rentMax, rentMin, sizeMax, sizeMin, sortBy, minSqmPrice],
+    [cityQuery, filterSetTitle, maxSqmPrice, nearMetro, petFriendly, polygonCoordinates, rentMax, rentMin, sizeMax, sizeMin, sortBy, minSqmPrice],
   );
 
   const savedFilterSetsRef = useMemo(() => auth.userId ? collection(db, "users", auth.userId, "savedFilterSets") : null, [auth.userId]);
@@ -645,6 +650,7 @@ export default function ApartmentsScreen() {
     setSizeMax(savedSet.sizeMax ?? "");
     setPetFriendly(savedSet.petFriendly === true);
     setNearMetro(savedSet.nearMetro === true);
+    setPolygonCoordinates(savedSet.polygonCoordinates ?? []);
     setSortBy(savedSet.sortBy && SORT_OPTIONS.includes(savedSet.sortBy) ? savedSet.sortBy : "newest");
     setFilterSetTitle(savedSet.title ?? "");
     setActiveSavedSetId(savedSet.id);
@@ -853,6 +859,7 @@ export default function ApartmentsScreen() {
       setSizeMax(imported.sizeMax || "");
       setPetFriendly(imported.petFriendly === true);
       setNearMetro(imported.nearMetro === true);
+      setPolygonCoordinates(imported.polygonCoordinates ?? []);
       if (imported.sortBy && SORT_OPTIONS.includes(imported.sortBy)) setSortBy(imported.sortBy);
       setFilterSetTitle(imported.title || "");
       setActiveSavedSetId(null);
@@ -1434,6 +1441,11 @@ export default function ApartmentsScreen() {
         if (!isOwner && !isAssigned) return false;
       }
 
+      if (polygonCoordinates.length >= 3) {
+        if (!Number.isFinite(apt.latitude) || !Number.isFinite(apt.longitude)) return false;
+        if (!isPointInPolygon({ latitude: apt.latitude!, longitude: apt.longitude! }, polygonCoordinates)) return false;
+      }
+
       const cityMatch =
         locationQuery.length === 0 ||
         apt.city.toLowerCase().includes(locationQuery) ||
@@ -1500,6 +1512,7 @@ export default function ApartmentsScreen() {
     sizeMax,
     sizeMin,
     likedApartmentTimestampById,
+    polygonCoordinates,
   ]);
 
   const sortedApartments = useMemo(() => {
@@ -1797,6 +1810,38 @@ export default function ApartmentsScreen() {
                 })}
               </View>
             ) : null}
+
+            <View style={styles.polygonFilterSection}>
+              <Text style={styles.filterLabel}>Περιοχή στο Χάρτη</Text>
+              <Pressable
+                style={[styles.polygonTriggerButton, polygonCoordinates.length >= 3 && styles.polygonTriggerButtonActive]}
+                onPress={() => setIsPolygonModalVisible(true)}
+                testID="open-polygon-draw-modal"
+              >
+                <Ionicons
+                  name={polygonCoordinates.length >= 3 ? "map" : "map-outline"}
+                  size={18}
+                  color={polygonCoordinates.length >= 3 ? colors.onBrand : colors.onSurface}
+                />
+                <Text style={[styles.polygonTriggerText, polygonCoordinates.length >= 3 && styles.polygonTriggerTextActive]} numberOfLines={2}>
+                  {polygonCoordinates.length >= 3
+                    ? `Προσαρμοσμένο Πολύγωνο (${polygonCoordinates.length} σημεία)`
+                    : "Σχεδιασμός πολυγώνου στο χάρτη"}
+                </Text>
+                {polygonCoordinates.length >= 3 ? (
+                  <Pressable
+                    onPress={(event) => {
+                      event.stopPropagation();
+                      setPolygonCoordinates([]);
+                    }}
+                    hitSlop={8}
+                    testID="clear-polygon-filter"
+                  >
+                    <Ionicons name="close-circle" size={18} color={colors.onBrand} />
+                  </Pressable>
+                ) : null}
+              </Pressable>
+            </View>
 
             <Text style={[styles.sortTitle, { marginTop: spacing.md }]}>Show only</Text>
             <View style={styles.showOnlyRow}>
@@ -2542,6 +2587,13 @@ export default function ApartmentsScreen() {
           </View>
         </View>
       </Modal>
+
+      <MapPolygonDrawModal
+        visible={isPolygonModalVisible}
+        initialPolygon={polygonCoordinates}
+        onClose={() => setIsPolygonModalVisible(false)}
+        onSave={setPolygonCoordinates}
+      />
     </View>
   );
 }
@@ -3044,6 +3096,34 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     padding: spacing.md,
     gap: spacing.sm,
     paddingBottom: spacing.lg,
+  },
+  polygonFilterSection: {
+    gap: spacing.xs,
+  },
+  polygonTriggerButton: {
+    minHeight: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  polygonTriggerButtonActive: {
+    borderColor: colors.brand,
+    backgroundColor: colors.brand,
+  },
+  polygonTriggerText: {
+    flex: 1,
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+    color: colors.onSurface,
+  },
+  polygonTriggerTextActive: {
+    color: colors.onBrand,
   },
   mapContainer: {
     flex: 1,

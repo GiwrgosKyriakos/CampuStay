@@ -1,3 +1,5 @@
+import type { LatLng } from "@/src/utils/geometry";
+
 export interface FilterSetPayload {
   title?: string;
   rentMin?: string;
@@ -14,6 +16,7 @@ export interface FilterSetPayload {
   nearMetro?: boolean;
   propertyType?: string;
   propertyCategory?: string;
+  polygonCoordinates?: LatLng[];
   sortBy?: string;
   summary?: string;
   version?: number;
