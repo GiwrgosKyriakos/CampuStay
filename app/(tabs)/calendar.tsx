@@ -1,17 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { BackHandler, Text, View, StyleSheet, Pressable, useWindowDimensions, Modal, ScrollView, ActivityIndicator, FlatList, DimensionValue } from "react-native";
+import { Text, View, StyleSheet, Pressable, Modal, ScrollView, ActivityIndicator, DimensionValue } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import { useFocusEffect, useRouter } from "expo-router";
-import { collection, doc, getDoc, getDocs, query, updateDoc, where } from "firebase/firestore";
-import Animated, {
-  runOnJS,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-  type SharedValue,
-} from "react-native-reanimated";
+import { useFocusEffect } from "expo-router";
+import { collection, getDocs, query, where } from "firebase/firestore";
+import { runOnJS } from "react-native-reanimated";
 
 import {
   calculateGridLayout,
@@ -25,14 +19,9 @@ import { db } from "@/src/config/firebase";
 import { useAuth } from "@/src/context/auth";
 import { fontSize, fonts, radius, spacing, type ThemeColors } from "@/src/theme";
 import { useTheme } from "@/src/context/ThemeContext";
-import { getPipelineStageConfig, type PipelineStageKey } from "@/src/constants/pipeline";
 import { t } from "@/src/locales";
 
-type BrokerMode = "calendar" | "pipeline";
 type CalendarViewMode = "month" | "week" | "day";
-
-const SWIPE_THRESHOLD_RATIO = 0.25;
-const SWIPE_VELOCITY_THRESHOLD = 700;
 const WEEKDAY_LABELS = ["Δευ", "Τρι", "Τετ", "Πεμ", "Παρ", "Σαβ", "Κυρ"] as const;
 const GREEK_MONTHS = [
   "Ιανουάριος",
@@ -92,72 +81,9 @@ type FirestoreChatDoc = {
   participantDisplayNames?: unknown;
   brokerId?: unknown;
   hostId?: unknown;
-  visitCompleted?: unknown;
 };
-
-type FirestoreChatMessageDoc = {
-  type?: unknown;
-};
-
-type FirestoreClientProfileDoc = {
-  pipelineStage?: PipelineStageKey;
-  dealCommission?: number;
-};
-
-interface ClientLeadItem {
-  chatRoomId: string;
-  clientUserId: string;
-  clientName: string;
-  apartmentId?: string;
-  apartmentTitle?: string;
-  apartmentPrice?: number;
-  hasMessage: boolean;
-  hasPriceProposal: boolean;
-  hasVisitRequest: boolean;
-  isVisitCompleted: boolean;
-  isDealClosed: boolean;
-  progressScore: number;
-  pipelineStage: PipelineStageKey;
-  dealCommission?: number;
-  weightedShare: number;
-}
 
 let memoryNotesCache: Record<string, BrokerNote[]> = {};
-let memoryLeadsCache: ClientLeadItem[] = [];
-
-function clamp(value: number, min: number, max: number): number {
-  "worklet";
-  return Math.max(min, Math.min(value, max));
-}
-
-function modeToProgress(mode: BrokerMode): number {
-  return mode === "calendar" ? 0 : 1;
-}
-
-function toMode(progress: number): BrokerMode {
-  return progress >= 0.5 ? "pipeline" : "calendar";
-}
-
-function shiftDateByMode(baseDate: Date, mode: BrokerMode, direction: -1 | 1): Date {
-  const next = new Date(baseDate);
-  if (mode === "calendar") {
-    const targetMonth = next.getMonth() + direction;
-    const targetYear = next.getFullYear();
-    const currentDay = next.getDate();
-    const monthBase = new Date(targetYear, targetMonth, 1);
-    const maxDay = new Date(monthBase.getFullYear(), monthBase.getMonth() + 1, 0).getDate();
-    monthBase.setDate(Math.min(currentDay, maxDay));
-    return monthBase;
-  }
-
-  if (mode === "pipeline") {
-    next.setDate(next.getDate() + 7 * direction);
-    return next;
-  }
-
-  next.setDate(next.getDate() + direction);
-  return next;
-}
 
 function shiftDateByCalendarView(baseDate: Date, mode: CalendarViewMode, direction: -1 | 1): Date {
   const next = new Date(baseDate);
@@ -280,27 +206,6 @@ function buildMonthWeeks(date: Date): CalendarWeek[] {
   });
 }
 
-function animateToMode(mode: BrokerMode, width: number, translateX: SharedValue<number>): void {
-  const target = mode === "calendar" ? 0 : -width;
-  translateX.value = withTiming(target, { duration: 240 });
-}
-
-function computeProgressScore(item: {
-  isDealClosed: boolean;
-  isVisitCompleted: boolean;
-  hasVisitRequest: boolean;
-  hasPriceProposal: boolean;
-  hasMessage: boolean;
-}): number {
-  let score = 0;
-  if (item.isDealClosed) score += 50;
-  if (item.isVisitCompleted) score += 40;
-  if (item.hasVisitRequest) score += 30;
-  if (item.hasPriceProposal) score += 20;
-  if (item.hasMessage) score += 10;
-  return score;
-}
-
 function CalendarView({
   colors,
   currentDate,
@@ -329,6 +234,7 @@ function CalendarView({
   const isSelectedDayToday = useMemo(() => selectedDayKey === formatDateKey(today), [selectedDayKey, today]);
   const weeks = useMemo(() => buildMonthWeeks(currentDate), [currentDate]);
   const currentWeekStart = useMemo(() => startOfWeek(currentDate), [currentDate]);
+  const currentMonth = currentDate.getMonth();
   const currentWeekCells = useMemo(
     () =>
       Array.from({ length: 7 }, (_, index) => {
@@ -338,10 +244,10 @@ function CalendarView({
           date: cellDate,
           dateKey: formatDateKey(cellDate),
           dayOfMonth: cellDate.getDate(),
-          inCurrentMonth: cellDate.getMonth() === currentDate.getMonth(),
+          inCurrentMonth: cellDate.getMonth() === currentMonth,
         };
       }),
-    [currentDate.getMonth(), currentWeekStart],
+    [currentMonth, currentWeekStart],
   );
   const notesByDate = useMemo(() => {
     const grouped = new Map<string, BrokerNote[]>();
@@ -605,118 +511,10 @@ function CalendarView({
   );
 }
 
-function PipelineView({
-  colors,
-  leads,
-  isLoading,
-  onOpenChat,
-  onToggleVisitCompleted,
-}: {
-  colors: ThemeColors;
-  leads: ClientLeadItem[];
-  isLoading: boolean;
-  onOpenChat: (lead: ClientLeadItem) => void;
-  onToggleVisitCompleted: (lead: ClientLeadItem) => void;
-}) {
-  const brandPrimaryColor = useMemo(() => {
-    const withLegacyKey = colors as unknown as { brandPrimary?: string; brand?: string };
-    return withLegacyKey.brandPrimary ?? withLegacyKey.brand ?? "#E07A2F";
-  }, [colors]);
-
-  const totalForecast = leads.reduce((total, item) => total + item.weightedShare, 0);
-  const renderItem = ({ item }: { item: ClientLeadItem }) => {
-    const stage = getPipelineStageConfig(item.pipelineStage);
-    return (
-    <Pressable
-      style={[styles.clientCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
-      onPress={() => onOpenChat(item)}
-      testID={`broker-pipeline-client-card-${item.clientUserId}`}
-    >
-      <Text style={[styles.clientCardName, { color: colors.onSurface }]} numberOfLines={1}>
-        {item.clientName || "Πελάτης"}
-      </Text>
-
-      <Text style={[styles.clientCardMeta, { color: colors.onSurfaceTertiary }]} numberOfLines={1}>
-
-        {item.apartmentTitle || "Χωρίς διαμέρισμα"}
-        {typeof item.apartmentPrice === "number" ? ` · ${item.apartmentPrice.toLocaleString("el-GR")} EUR` : ""}
-      </Text>
-
-      <View style={styles.pipelineBadgeRow}><Text style={[styles.pipelineBadge, { backgroundColor: colors.surfaceTertiary, color: colors.onSurface }]}>{stage.shortLabel}</Text><Text style={[styles.pipelineBadge, { backgroundColor: colors.surfaceTertiary, color: colors.onSurface }]}>{Math.round(stage.probability * 100)}%</Text><Text style={[styles.weightedBadge, { backgroundColor: colors.brandTertiary, color: colors.brand }]}>Αναμενόμενο: €{Math.round(item.weightedShare).toLocaleString("el-GR")}</Text></View>
-
-      <View style={styles.clientStatusBar}>
-        {item.hasMessage ? (
-          <View style={[styles.statusBadge, { backgroundColor: colors.surface }]}> 
-            <Text style={styles.statusBadgeText}>📁</Text>
-          </View>
-        ) : null}
-
-        {item.hasPriceProposal ? (
-          <View style={[styles.statusBadge, { backgroundColor: colors.surface }]}> 
-            <Text style={styles.statusBadgeText}>💵</Text>
-          </View>
-        ) : null}
-
-        {item.hasVisitRequest ? (
-          <Pressable
-            style={[
-              styles.statusBadge,
-              {
-                backgroundColor: item.isVisitCompleted ? brandPrimaryColor : colors.surface,
-              },
-            ]}
-            onPress={(event) => {
-              event.stopPropagation();
-              onToggleVisitCompleted(item);
-            }}
-          >
-            <Text style={[styles.statusBadgeText, { color: item.isVisitCompleted ? colors.onBrand : colors.onSurface }]}>🏠</Text>
-          </Pressable>
-        ) : null}
-
-        {item.isDealClosed ? (
-          <View style={[styles.statusBadge, { backgroundColor: colors.surface }]}> 
-            <Text style={styles.statusBadgeText}>✅</Text>
-          </View>
-        ) : null}
-      </View>
-    </Pressable>
-    );
-  };
-
-  return (
-    <View style={styles.clientsPanelWrap}>
-            <View style={[styles.forecastCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]} testID="broker-pipeline-forecast-card"><Text style={[styles.forecastSubtitle, { color: colors.onSurfaceTertiary }]}>Πρόβλεψη Εσόδων Ταμείου</Text><Text style={[styles.forecastMetric, { color: colors.brand }]}>€{Math.round(totalForecast).toLocaleString("el-GR")}</Text><Text style={[styles.forecastExplanation, { color: colors.onSurfaceTertiary }]}>Σταθμισμένα αναμενόμενα έσοδα βάσει πιθανότητας κλεισίματος (Win Rate).</Text></View>
-      {isLoading ? (
-        <View style={[styles.pageCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}> 
-          <ActivityIndicator size="small" color={colors.brand} />
-        </View>
-      ) : (
-        <FlatList
-          data={leads}
-          keyExtractor={(item) => item.chatRoomId}
-          renderItem={renderItem}
-          contentContainerStyle={styles.clientListContent}
-          ListEmptyComponent={
-            <View style={[styles.pageCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}> 
-              <Text style={[styles.pageTitle, { color: colors.onSurface }]}>Pipeline Πελατών</Text>
-              <Text style={[styles.pageSubtitle, { color: colors.onSurfaceTertiary }]}>Δεν υπάρχουν ενεργοί πελάτες αυτή τη στιγμή.</Text>
-            </View>
-          }
-        />
-      )}
-    </View>
-  );
-}
-
 export default function CalendarScreen() {
   const auth = useAuth();
-  const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { width: windowWidth } = useWindowDimensions();
-  const effectivePageWidth = useMemo(() => windowWidth - spacing.lg * 2, [windowWidth]);
   const { colors } = useTheme();
-  const [activeMode, setActiveMode] = useState<BrokerMode>("calendar");
   const [calendarViewMode, setCalendarViewMode] = useState<CalendarViewMode>("month");
   const [currentDate, setCurrentDate] = useState(new Date());
   const visibleRange = useMemo(() => getVisibleRange(currentDate, calendarViewMode), [calendarViewMode, currentDate]);
@@ -729,15 +527,11 @@ export default function CalendarScreen() {
   const [noteModalDate, setNoteModalDate] = useState(() => formatDateKey(new Date()));
   const [selectedNoteToEdit, setSelectedNoteToEdit] = useState<BrokerNote | null>(null);
   const [notesRefreshToken, setNotesRefreshToken] = useState(0);
-  const [clientLeads, setClientLeads] = useState<ClientLeadItem[]>(() => memoryLeadsCache);
-  const [isClientLeadsLoading, setIsClientLeadsLoading] = useState(() => memoryLeadsCache.length === 0);
   const [currentTimeStr, setCurrentTimeStr] = useState(() => {
     const now = new Date();
     return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
   });
 
-  const translateX = useSharedValue(0);
-  const dragStartX = useSharedValue(0);
   const currentMonthIndex = currentDate.getMonth();
   const currentYear = currentDate.getFullYear();
   const brokerId = auth.user?.user_id ?? auth.userId ?? "";
@@ -748,24 +542,11 @@ export default function CalendarScreen() {
   const yearRange = useMemo(() => Array.from({ length: 9 }, (_, index) => currentYear - 4 + index), [currentYear]);
   const [realListings, setRealListings] = useState<BrokerListingItem[]>([]);
   const [realClients, setRealClients] = useState<BrokerClientItem[]>([]);
-  const sortedClients = useMemo(() => {
-    return [...clientLeads].sort((a, b) => {
-      if (b.progressScore !== a.progressScore) {
-        return b.progressScore - a.progressScore;
-      }
-      return (a.clientName || "").localeCompare(b.clientName || "", "el", { sensitivity: "base" });
-    });
-  }, [clientLeads]);
-
   useFocusEffect(
     useCallback(() => {
       setNotesRefreshToken((previous) => previous + 1);
     }, []),
   );
-
-  useEffect(() => {
-    animateToMode(activeMode, effectivePageWidth, translateX);
-  }, [activeMode, effectivePageWidth, translateX]);
 
   useEffect(() => {
     const updateTime = () => {
@@ -911,137 +692,6 @@ export default function CalendarScreen() {
     };
   }, [brokerId, notesRefreshToken]);
 
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadClientLeads = async () => {
-      if (!brokerId) {
-        return;
-      }
-
-      try {
-        if (memoryLeadsCache.length === 0) setIsClientLeadsLoading(true);
-
-        const chatsSnapshot = await getDocs(
-          query(collection(db, "chats"), where("users", "array-contains", brokerId)),
-        );
-        const chatDocs = chatsSnapshot.docs.filter((docSnap) => {
-          const data = docSnap.data() as FirestoreChatDoc;
-          const isHostType = data.type === "host";
-          const isActive = (typeof data.status === "string" ? data.status : "active") === "active";
-          return isHostType && isActive;
-        });
-
-        const leads = await Promise.all(
-          chatDocs.map(async (chatDoc) => {
-            const chatData = chatDoc.data() as FirestoreChatDoc;
-            const status = typeof chatData.status === "string" ? chatData.status : "active";
-            if (status !== "active") return null;
-
-            const users = Array.isArray(chatData.users)
-              ? chatData.users.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-              : [];
-            const clientUserId = users.find((uid) => uid !== brokerId);
-            if (!clientUserId) return null;
-
-            const participantDisplayNames =
-              chatData.participantDisplayNames && typeof chatData.participantDisplayNames === "object"
-                ? (chatData.participantDisplayNames as Record<string, unknown>)
-                : {};
-            const nameValue = participantDisplayNames[clientUserId];
-            const clientName = typeof nameValue === "string" && nameValue.trim().length > 0 ? nameValue : "Πελάτης";
-
-            const messagesSnapshot = await getDocs(collection(db, "chats", chatDoc.id, "messages"));
-            const messageDocs = messagesSnapshot.docs.map((messageDoc) => messageDoc.data() as FirestoreChatMessageDoc);
-            const hasMessage = messageDocs.length > 0;
-            const hasPriceProposal = messageDocs.some((item) => item.type === "price_proposal");
-            const hasVisitRequest = messageDocs.some((item) => item.type === "visit_request");
-
-            const apartmentId = typeof chatData.apartmentId === "string" ? chatData.apartmentId : undefined;
-            let apartmentTitle = typeof chatData.apartmentTitle === "string" ? chatData.apartmentTitle : undefined;
-            let apartmentPrice: number | undefined;
-            let isDealClosed = false;
-
-            if (apartmentId) {
-              const apartmentSnap = await getDoc(doc(db, "apartments", apartmentId));
-              if (apartmentSnap.exists()) {
-                const apartmentData = apartmentSnap.data() as FirestoreApartmentDoc;
-                if (typeof apartmentData.title === "string" && apartmentData.title.trim().length > 0) {
-                  apartmentTitle = apartmentData.title;
-                }
-                apartmentPrice =
-                  typeof apartmentData.price === "number"
-                    ? apartmentData.price
-                    : typeof apartmentData.rent === "number"
-                      ? apartmentData.rent
-                      : undefined;
-                isDealClosed = apartmentData.status === "closed_deal" && apartmentData.rentedToUserId === clientUserId;
-              }
-            }
-
-            const isVisitCompleted = chatData.visitCompleted === true;
-            let profile: FirestoreClientProfileDoc = {};
-            try {
-              const profileSnap = await getDoc(doc(db, "brokerClientProfiles", `${brokerId}_${clientUserId}`));
-              if (profileSnap.exists()) {
-                profile = profileSnap.data() as FirestoreClientProfileDoc;
-              }
-            } catch (error) {
-              console.warn(`[Broker] Could not sync brokerClientProfiles for ${clientUserId}; using default pipeline stage.`, error);
-            }
-            const pipelineStage = getPipelineStageConfig(profile.pipelineStage).key;
-            const commissionBase = typeof profile.dealCommission === "number" ? profile.dealCommission : apartmentPrice ?? 1000;
-            const weightedShare = commissionBase * getPipelineStageConfig(pipelineStage).probability;
-
-            const lead: ClientLeadItem = {
-              chatRoomId: chatDoc.id,
-              clientUserId,
-              clientName,
-              apartmentId,
-              apartmentTitle,
-              apartmentPrice,
-              hasMessage,
-              hasPriceProposal,
-              hasVisitRequest,
-              isVisitCompleted,
-              isDealClosed,
-              progressScore: computeProgressScore({
-                isDealClosed,
-                isVisitCompleted,
-                hasVisitRequest,
-                hasPriceProposal,
-                hasMessage,
-              }),
-              pipelineStage,
-              dealCommission: typeof profile.dealCommission === "number" ? profile.dealCommission : undefined,
-              weightedShare,
-            };
-
-            return lead;
-          }),
-        );
-
-        if (isMounted) {
-          memoryLeadsCache = leads.filter((item): item is ClientLeadItem => item !== null);
-          setClientLeads(memoryLeadsCache);
-        }
-      } catch {
-        if (isMounted) {
-          if (memoryLeadsCache.length === 0) setClientLeads([]);
-        }
-      } finally {
-        if (isMounted) {
-          setIsClientLeadsLoading(false);
-        }
-      }
-    };
-
-    void loadClientLeads();
-    return () => {
-      isMounted = false;
-    };
-  }, [brokerId, notesRefreshToken]);
-
   const openCreateNoteModal = useCallback((selectedDate: string) => {
     setNoteModalDate(selectedDate);
     setSelectedNoteToEdit(null);
@@ -1063,100 +713,6 @@ export default function CalendarScreen() {
     setNotesRefreshToken((prev) => prev + 1);
     setSelectedNoteToEdit(null);
   }, []);
-
-  const handleToggleVisitCompleted = useCallback(async (lead: ClientLeadItem) => {
-    const nextStatus = !lead.isVisitCompleted;
-
-    setClientLeads((prev) =>
-      prev.map((item) =>
-        item.chatRoomId === lead.chatRoomId
-          ? {
-              ...item,
-              isVisitCompleted: nextStatus,
-              progressScore: computeProgressScore({
-                isDealClosed: item.isDealClosed,
-                isVisitCompleted: nextStatus,
-                hasVisitRequest: item.hasVisitRequest,
-                hasPriceProposal: item.hasPriceProposal,
-                hasMessage: item.hasMessage,
-              }),
-            }
-          : item,
-      ),
-    );
-
-    try {
-      await updateDoc(doc(db, "chats", lead.chatRoomId), {
-        visitCompleted: nextStatus,
-      });
-    } catch {
-      setClientLeads((prev) =>
-        prev.map((item) =>
-          item.chatRoomId === lead.chatRoomId
-            ? {
-                ...item,
-                isVisitCompleted: lead.isVisitCompleted,
-                progressScore: computeProgressScore({
-                  isDealClosed: item.isDealClosed,
-                  isVisitCompleted: lead.isVisitCompleted,
-                  hasVisitRequest: item.hasVisitRequest,
-                  hasPriceProposal: item.hasPriceProposal,
-                  hasMessage: item.hasMessage,
-                }),
-              }
-            : item,
-        ),
-      );
-    }
-  }, []);
-
-  const openLeadChat = useCallback(
-    (lead: ClientLeadItem) => {
-      router.push({
-        pathname: "/broker-client-detail",
-        params: {
-          clientUserId: lead.clientUserId,
-          clientName: lead.clientName,
-          chatRoomId: lead.chatRoomId,
-        },
-      });
-    },
-    [router],
-  );
-
-  const setMode = useCallback(
-    (mode: BrokerMode) => {
-      setActiveMode(mode);
-      animateToMode(mode, effectivePageWidth, translateX);
-    },
-    [effectivePageWidth, translateX],
-  );
-
-  useFocusEffect(
-    useCallback(() => {
-      const onBackPress = () => {
-        if (activeMode === "pipeline") {
-          setMode("calendar");
-          return true;
-        }
-
-        if (calendarViewMode === "day") {
-          setCalendarViewMode("week");
-          return true;
-        }
-
-        if (calendarViewMode === "week") {
-          setCalendarViewMode("month");
-          return true;
-        }
-
-        return true;
-      };
-
-      const subscription = BackHandler.addEventListener("hardwareBackPress", onBackPress);
-      return () => subscription.remove();
-    }, [activeMode, calendarViewMode, setMode]),
-  );
 
   const goToPrevious = useCallback(() => {
     setCurrentDate((prev) => shiftDateByCalendarView(prev, calendarViewMode, -1));
@@ -1190,51 +746,6 @@ export default function CalendarScreen() {
     [currentDate, selectedYear],
   );
 
-  const pagerGesture = useMemo(
-    () =>
-      Gesture.Pan()
-        .activeOffsetX([-8, 8])
-        .onBegin(() => {
-          dragStartX.value = translateX.value;
-        })
-        .onUpdate((event) => {
-          const nextValue = clamp(dragStartX.value + event.translationX, -effectivePageWidth, 0);
-          translateX.value = nextValue;
-        })
-        .onEnd((event) => {
-          const absTranslation = Math.abs(event.translationX);
-          const threshold = effectivePageWidth * SWIPE_THRESHOLD_RATIO;
-          const fromClients = dragStartX.value <= -effectivePageWidth / 2;
-
-          let nextMode: BrokerMode;
-          if (event.velocityX <= -SWIPE_VELOCITY_THRESHOLD) {
-            nextMode = "pipeline";
-          } else if (event.velocityX >= SWIPE_VELOCITY_THRESHOLD) {
-            nextMode = "calendar";
-          } else if (absTranslation > threshold) {
-            if (event.translationX < 0) {
-              nextMode = "pipeline";
-            } else {
-              nextMode = "calendar";
-            }
-          } else {
-              nextMode = fromClients ? "pipeline" : "calendar";
-          }
-
-          const target = nextMode === "calendar" ? 0 : -effectivePageWidth;
-          translateX.value = withTiming(target, { duration: 220 });
-          runOnJS(setActiveMode)(nextMode);
-        }),
-    [dragStartX, effectivePageWidth, setActiveMode, translateX],
-  );
-
-  const pagerStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: translateX.value }],
-  }));
-
-  const calendarActive = activeMode === "calendar";
-  const pipelineActive = activeMode === "pipeline";
-
   return (
     <View style={[styles.container, { backgroundColor: colors.surface }]}> 
       <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
@@ -1244,76 +755,31 @@ export default function CalendarScreen() {
           </Text>
         </View>
       </View>
-      <View style={[styles.toggleShell, { backgroundColor: colors.surfaceSecondary }]}>
-        <Pressable style={[styles.toggleOption, calendarActive && [styles.toggleOptionActive, { backgroundColor: colors.brand }]]} onPress={() => setMode("calendar")} testID="broker-tab-toggle-calendar">
-          <View style={styles.toggleOptionContent}>
-            <Ionicons name="calendar-outline" size={18} color={calendarActive ? colors.onBrand : colors.onSurface} />
-            <Text style={[styles.toggleText, { color: colors.onSurface }, calendarActive && { color: colors.onBrand }]}>Calendar</Text>
-          </View>
-        </Pressable>
-
-        <Pressable style={[styles.toggleOption, pipelineActive && [styles.toggleOptionActive, { backgroundColor: colors.brand }]]} onPress={() => setMode("pipeline")} testID="broker-tab-toggle-pipeline">
-          <View style={styles.toggleOptionContent}>
-            <Ionicons name="cash-outline" size={18} color={pipelineActive ? colors.onBrand : colors.onSurface} />
-            <Text style={[styles.toggleText, { color: colors.onSurface }, pipelineActive && { color: colors.onBrand }]}>Pipeline</Text>
-          </View>
-        </Pressable>
-      </View>
-
-      <GestureDetector gesture={pagerGesture}>
-        <View style={styles.pagerViewport}>
-          <Animated.View style={[styles.pagerTrack, { width: effectivePageWidth * 2 }, pagerStyle]}>
-            <View style={[styles.page, { width: effectivePageWidth }]}>
-              <View style={styles.calendarModuleContainer}>
-                {calendarActive ? (
-                  <View
-                    style={[
-                      styles.calendarHeader,
-                      { backgroundColor: colors.surfaceSecondary, borderColor: colors.border },
-                    ]}
-                  >
-                    <Pressable style={styles.headerArrowButton} onPress={goToPrevious} hitSlop={8}>
-                      <Ionicons name="chevron-back" size={22} color={colors.onSurface} />
-                    </Pressable>
-
-                    <Pressable
-                      style={styles.headerTitleButton}
-                      onPress={calendarViewMode === "month" ? openPicker : undefined}
-                    >
-                      <Text style={[styles.headerTitleText, { color: colors.onSurface }]}>{headerTitle}</Text>
-                    </Pressable>
-
-                    <Pressable style={styles.headerArrowButton} onPress={goToNext} hitSlop={8}>
-                      <Ionicons name="chevron-forward" size={22} color={colors.onSurface} />
-                    </Pressable>
-                  </View>
-                ) : null}
-                <CalendarView
-                  colors={colors}
-                  currentDate={currentDate}
-                  calendarViewMode={calendarViewMode}
-                  onCalendarViewModeChange={setCalendarViewMode}
-                  onSelectDate={setCurrentDate}
-                  onAddNotePress={openCreateNoteModal}
-                  onEditNotePress={openEditNoteModal}
-                  visibleNotes={visibleNotes}
-                  isLoading={isVisibleNotesLoading}
-                  currentTimeStr={currentTimeStr}
-                />
-              </View>
-            </View>
-            <View style={[styles.page, { width: effectivePageWidth }]}>
-              <PipelineView
-                colors={colors}
-                leads={sortedClients}
-                isLoading={isClientLeadsLoading}
-                onOpenChat={openLeadChat}
-                onToggleVisitCompleted={handleToggleVisitCompleted}
-              />
-            </View>
-          </Animated.View>
+      <View style={styles.calendarModuleContainer}>
+        <View style={[styles.calendarHeader, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+          <Pressable style={styles.headerArrowButton} onPress={goToPrevious} hitSlop={8}>
+            <Ionicons name="chevron-back" size={22} color={colors.onSurface} />
+          </Pressable>
+          <Pressable style={styles.headerTitleButton} onPress={calendarViewMode === "month" ? openPicker : undefined}>
+            <Text style={[styles.headerTitleText, { color: colors.onSurface }]}>{headerTitle}</Text>
+          </Pressable>
+          <Pressable style={styles.headerArrowButton} onPress={goToNext} hitSlop={8}>
+            <Ionicons name="chevron-forward" size={22} color={colors.onSurface} />
+          </Pressable>
         </View>
-      </GestureDetector>
+        <CalendarView
+          colors={colors}
+          currentDate={currentDate}
+          calendarViewMode={calendarViewMode}
+          onCalendarViewModeChange={setCalendarViewMode}
+          onSelectDate={setCurrentDate}
+          onAddNotePress={openCreateNoteModal}
+          onEditNotePress={openEditNoteModal}
+          visibleNotes={visibleNotes}
+          isLoading={isVisibleNotesLoading}
+          currentTimeStr={currentTimeStr}
+        />
+      </View>
 
       <Modal visible={isPickerVisible} transparent animationType="fade" onRequestClose={closePicker}>
         <Pressable style={styles.modalBackdrop} onPress={closePicker}>
@@ -1398,31 +864,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     paddingHorizontal: spacing.lg,
-  },
-  toggleShell: {
-    flexDirection: "row",
-    borderRadius: radius.pill,
-    padding: 4,
-    marginBottom: spacing.md,
-    gap: 4,
-  },
-  toggleOption: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: spacing.sm,
-    borderRadius: radius.pill,
-  },
-  toggleOptionActive: {
-  },
-  toggleOptionContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.xs,
-  },
-  toggleText: {
-    fontFamily: fonts.bold,
-    fontSize: fontSize.base,
   },
   calendarHeader: {
     minHeight: 48,

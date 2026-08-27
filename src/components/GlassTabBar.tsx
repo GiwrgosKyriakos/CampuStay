@@ -52,7 +52,9 @@ export default function GlassTabBar({ state, navigation, descriptors }: BottomTa
         <View style={styles.row}>
           {visibleRoutes.map((route) => {
             const focused = state.routes[state.index]?.key === route.key;
-            const cfg = ICONS[route.name] ?? ICONS.roommates;
+            const cfg = route.name === "matches" && isBroker
+              ? { active: "mail" as const, inactive: "mail-outline" as const }
+              : ICONS[route.name] ?? ICONS.roommates;
             const onPress = () => {
               const event = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
               if (!focused && !event.defaultPrevented) navigation.navigate(route.name);

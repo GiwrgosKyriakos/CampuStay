@@ -351,15 +351,12 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
     <View style={styles.container} testID="host-inbox-screen">
       <View style={[styles.header, { paddingTop: insets.top + spacing.lg }]}> 
         {showBackButton ? (
-          <Pressable onPress={() => router.back()} style={styles.backBtn}>
+          <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={8}>
             <Ionicons name="chevron-back" size={20} color={colors.onSurface} />
           </Pressable>
-        ) : (
-          <View style={styles.backBtnPlaceholder} />
-        )}
+        ) : null}
         <View style={styles.headerCopy}>
           <Text style={styles.title}>{titleOverride ?? t("host-inbox.title")}</Text>
-          <Text style={styles.subtitle}>{t("host-inbox.subtitle")}</Text>
         </View>
         <Pressable
           onPress={() => {
@@ -371,6 +368,7 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
           }}
           style={styles.searchToggleBtn}
           testID="host-inbox-search-toggle"
+          hitSlop={8}
         >
           <Ionicons name="search-outline" size={20} color={colors.onSurface} />
         </Pressable>
@@ -619,11 +617,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
-  backBtnPlaceholder: {
-    width: 40,
-    height: 40,
-  },
-  headerCopy: { flex: 1, gap: 2 },
+  headerCopy: { flex: 1, justifyContent: "center" },
   searchToggleBtn: {
     width: 40,
     height: 40,
@@ -635,7 +629,6 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderColor: colors.border,
   },
   title: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface },
-  subtitle: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary },
   searchBarWrap: {
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.sm,

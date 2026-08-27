@@ -4,7 +4,7 @@ import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, updateDoc, where } from "firebase/firestore";
 
 import { useTheme } from "@/src/context/ThemeContext";
 import { useAuth } from "@/src/context/auth";
@@ -69,6 +69,16 @@ export interface BrokerClientLead {
   pipelinePercentage?: number;
   pipelineStageLabel?: string;
   activeApartmentTitle?: string | null;
+  apartmentId?: string;
+  apartmentTitle?: string;
+  apartmentPrice?: number;
+  hasMessage: boolean;
+  hasPriceProposal: boolean;
+  hasVisitRequest: boolean;
+  isVisitCompleted: boolean;
+  isDealClosed: boolean;
+  dealCommission: number;
+  weightedShare: number;
 }
 
 type BrokerHubSegment = "clients" | "owners";
@@ -98,6 +108,7 @@ export default function BrokerHubScreen() {
   const [owners, setOwners] = useState<BrokerOwnerItem[]>([]);
   const [clients, setClients] = useState<BrokerClientLead[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isMoneyModeActive, setIsMoneyModeActive] = useState(false);
   const swipeX = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -124,8 +135,9 @@ export default function BrokerHubScreen() {
           ownerMap.set(name, current);
         });
         const clientItems: (BrokerClientLead | null)[] = await Promise.all(chatsSnap.docs.map(async (chat): Promise<BrokerClientLead | null> => {
-          const data = chat.data() as { users?: string[]; brokerChatRole?: string };
+          const data = chat.data() as { users?: string[]; brokerChatRole?: string; apartmentId?: string; apartmentTitle?: string; visitCompleted?: boolean; status?: string };
           if (data.brokerChatRole === "owner") return null;
+          if ((data.status ?? "active") !== "active") return null;
           const clientUserId = data.users?.find((userId) => userId !== auth.userId);
           if (!clientUserId) return null;
           const [userSnap, profileSnap, messagesSnapshot] = await Promise.all([
@@ -134,8 +146,24 @@ export default function BrokerHubScreen() {
             getDocs(collection(db, "chats", chat.id, "messages")),
           ]);
           const user = userSnap.exists() ? userSnap.data() : {};
-          const profileData = profileSnap.exists() ? profileSnap.data() as { leadReadiness?: LeadReadinessKey | null; pipelineStage?: PipelineStageKey; activeApartmentTitle?: string | null } : {};
+          const profileData = profileSnap.exists() ? profileSnap.data() as { leadReadiness?: LeadReadinessKey | null; pipelineStage?: PipelineStageKey; activeApartmentTitle?: string | null; dealCommission?: number } : {};
           const stageConfig = getPipelineStageConfig(profileData.pipelineStage);
+          const messageTypes = messagesSnapshot.docs.map((message) => (message.data() as { type?: unknown }).type);
+          const apartmentId = typeof data.apartmentId === "string" ? data.apartmentId : undefined;
+          let apartmentTitle = typeof data.apartmentTitle === "string" ? data.apartmentTitle : profileData.activeApartmentTitle ?? undefined;
+          let apartmentPrice: number | undefined;
+          let isDealClosed = false;
+          if (apartmentId) {
+            const apartmentSnap = await getDoc(doc(db, "apartments", apartmentId));
+            if (apartmentSnap.exists()) {
+              const apartment = apartmentSnap.data() as { title?: unknown; price?: unknown; rent?: unknown; status?: unknown; rentedToUserId?: unknown };
+              if (typeof apartment.title === "string" && apartment.title.trim()) apartmentTitle = apartment.title;
+              apartmentPrice = typeof apartment.price === "number" ? apartment.price : typeof apartment.rent === "number" ? apartment.rent : undefined;
+              isDealClosed = apartment.status === "closed_deal" && apartment.rentedToUserId === clientUserId;
+            }
+          }
+          const dealCommission = typeof profileData.dealCommission === "number" ? profileData.dealCommission : apartmentPrice ?? 1000;
+          const weightedShare = dealCommission * stageConfig.probability;
           const shared = messagesSnapshot.docs
             .map((message) => message.data() as { type?: string; filterSetData?: BrokerClientLead["sharedFilterSet"] })
             .filter((message) => message.type === "filter_set_share" && message.filterSetData)
@@ -150,6 +178,16 @@ export default function BrokerHubScreen() {
             pipelinePercentage: Math.round(stageConfig.probability * 100),
             pipelineStageLabel: stageConfig.label,
             activeApartmentTitle: profileData.activeApartmentTitle,
+            apartmentId,
+            apartmentTitle,
+            apartmentPrice,
+            hasMessage: messagesSnapshot.size > 0,
+            hasPriceProposal: messageTypes.includes("price_proposal"),
+            hasVisitRequest: messageTypes.includes("visit_request"),
+            isVisitCompleted: data.visitCompleted === true,
+            isDealClosed,
+            dealCommission,
+            weightedShare,
             ...(shared ? { sharedFilterSet: shared } : {}),
           } satisfies BrokerClientLead;
         }));
@@ -179,22 +217,85 @@ export default function BrokerHubScreen() {
     onPanResponderTerminate: () => Animated.spring(swipeX, { toValue: 0, useNativeDriver: true, bounciness: 5 }).start(),
   }), [handleSwipeTabChange, swipeX]);
 
+  const handleToggleVisitCompleted = useCallback(async (client: BrokerClientLead) => {
+    const nextStatus = !client.isVisitCompleted;
+    setClients((current) => current.map((item) => item.chatRoomId === client.chatRoomId ? { ...item, isVisitCompleted: nextStatus } : item));
+    try {
+      await updateDoc(doc(db, "chats", client.chatRoomId), { visitCompleted: nextStatus });
+    } catch {
+      setClients((current) => current.map((item) => item.chatRoomId === client.chatRoomId ? { ...item, isVisitCompleted: client.isVisitCompleted } : item));
+    }
+  }, []);
+
+  const renderClientItem = useCallback(({ item }: { item: BrokerClientLead }) => {
+    const stage = getPipelineStageConfig(item.pipelineStage);
+    return (
+      <Pressable
+        style={[styles.clientCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+        onPress={() => router.push({ pathname: "/broker-client-detail", params: { clientUserId: item.clientUserId, clientName: item.clientName, clientAvatar: item.clientAvatar, chatRoomId: item.chatRoomId, sharedFilterSet: item.sharedFilterSet ? JSON.stringify(item.sharedFilterSet) : "" } })}
+        testID={`broker-client-card-${item.clientUserId}`}
+      >
+        <View style={styles.clientCardHeader}>
+          <View style={styles.clientAvatarWrap}>
+            {item.clientAvatar ? <Image contentFit="cover" source={{ uri: item.clientAvatar }} style={styles.clientAvatar} /> : <DefaultProfileAvatar size={42} />}
+          </View>
+          <View style={styles.clientTextCol}>
+            <View style={styles.clientNameRow}>
+              <Text style={styles.clientCardName} numberOfLines={1}>{item.clientName || "Πελάτης"}</Text>
+              {item.leadReadiness === "hot" ? <Ionicons name="flame" size={18} color="#EF4444" style={styles.readinessIcon} /> : item.leadReadiness === "warm" ? <Ionicons name="sunny" size={18} color="#F59E0B" style={styles.readinessIcon} /> : item.leadReadiness === "cold" ? <Ionicons name="snow" size={18} color="#38BDF8" style={styles.readinessIcon} /> : null}
+            </View>
+            <Text style={styles.clientCardMeta} numberOfLines={1}>{item.apartmentTitle || "Χωρίς διαμέρισμα"}{typeof item.apartmentPrice === "number" ? ` · €${item.apartmentPrice.toLocaleString("el-GR")}` : ""}</Text>
+          </View>
+          {item.sharedFilterSet ? <View style={styles.filterBadge}><Ionicons name="options-outline" size={16} color={colors.brand} /></View> : null}
+          <Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />
+        </View>
+        {isMoneyModeActive ? (
+          <View style={styles.pipelineBadgeRow}>
+            <Text style={[styles.pipelineBadge, { backgroundColor: colors.surfaceTertiary, color: colors.onSurface }]}>{stage.shortLabel}</Text>
+            <Text style={[styles.pipelineBadge, { backgroundColor: colors.surfaceTertiary, color: colors.onSurface }]}>{Math.round(stage.probability * 100)}%</Text>
+            <Text style={[styles.pipelineBadge, { backgroundColor: colors.surfaceTertiary, color: colors.onSurface }]}>Προμήθεια: €{Math.round(item.dealCommission).toLocaleString("el-GR")}</Text>
+            <Text style={[styles.weightedBadge, { backgroundColor: colors.brandTertiary, color: colors.brand }]}>Αναμενόμενο: €{Math.round(item.weightedShare).toLocaleString("el-GR")}</Text>
+          </View>
+        ) : (
+          <View style={styles.clientStatusBar}>
+            {item.hasMessage ? <View style={[styles.statusBadge, { backgroundColor: colors.surface }]}><Text style={styles.statusBadgeText}>📁</Text></View> : null}
+            {item.hasPriceProposal ? <View style={[styles.statusBadge, { backgroundColor: colors.surface }]}><Text style={styles.statusBadgeText}>💵</Text></View> : null}
+            {item.hasVisitRequest ? <Pressable style={[styles.statusBadge, { backgroundColor: item.isVisitCompleted ? colors.brand : colors.surface }]} onPress={(event) => { event.stopPropagation(); void handleToggleVisitCompleted(item); }} hitSlop={6}><Text style={[styles.statusBadgeText, { color: item.isVisitCompleted ? colors.onBrand : colors.onSurface }]}>🏠</Text></Pressable> : null}
+            {item.isDealClosed ? <View style={[styles.statusBadge, { backgroundColor: colors.surface }]}><Text style={styles.statusBadgeText}>✅</Text></View> : null}
+          </View>
+        )}
+      </Pressable>
+    );
+  }, [colors, handleToggleVisitCompleted, isMoneyModeActive, router, styles]);
+
   const clientsActive = selectedSegment === "clients";
   return (
     <View style={[styles.container, { paddingTop: insets.top + spacing.lg }]} testID="broker-hub-screen">
       <View style={styles.header}>
         <View style={styles.headerTopRow}>
           <Text style={styles.brokerTitle}>Broker<Text style={styles.brokerTitleAccent}>Tab</Text></Text>
+          <View style={styles.headerActionsRow}>
           <Pressable
-            style={styles.settingsIconButton}
+            style={[styles.headerIconButton, isMoneyModeActive && { backgroundColor: colors.brand, borderColor: colors.brand }]}
+            onPress={() => setIsMoneyModeActive((previous) => !previous)}
+            testID="broker-money-mode-toggle"
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Εναλλαγή Οικονομικής Προβολής Pipeline"
+          >
+            <Ionicons name="cash-outline" size={20} color={isMoneyModeActive ? colors.onBrand : colors.onSurface} />
+          </Pressable>
+          <Pressable
+            style={styles.headerIconButton}
             onPress={() => router.push("/profile" as any)}
             testID="broker-hub-settings-btn"
             hitSlop={8}
             accessibilityRole="button"
             accessibilityLabel="Ρυθμίσεις Προφίλ"
           >
-            <Ionicons name="settings-outline" size={22} color={colors.onSurface} />
+            <Ionicons name="settings-outline" size={20} color={colors.onSurface} />
           </Pressable>
+          </View>
         </View>
       </View>
       <View style={styles.toggleShell}>
@@ -203,14 +304,7 @@ export default function BrokerHubScreen() {
       </View>
       {isLoading ? <ActivityIndicator testID="broker-hub-loading" color={colors.brand} /> : (
         <Animated.View style={[styles.contentArea, { transform: [{ translateX: swipeX }] }]} {...contentPanResponder.panHandlers}>
-          {clientsActive ? <FlatList data={clients} testID="broker-clients-list" keyExtractor={(item) => item.clientUserId} ListEmptyComponent={<Text style={styles.emptyStateSubtitle}>{t("brokerHub.noClients")}</Text>} renderItem={({ item }) => (
-            <Pressable style={styles.clientRowCard} testID={`broker-client-row-${item.clientUserId}`} onPress={() => router.push({ pathname: "/broker-client-detail", params: { clientUserId: item.clientUserId, clientName: item.clientName, clientAvatar: item.clientAvatar, chatRoomId: item.chatRoomId, sharedFilterSet: item.sharedFilterSet ? JSON.stringify(item.sharedFilterSet) : "" } })}>
-              {item.clientAvatar ? <Image source={{ uri: item.clientAvatar }} style={styles.clientAvatar} /> : <DefaultProfileAvatar size={48} />}
-              <View style={styles.clientInfoCol}><View style={styles.clientNameRow}><Text style={styles.rowTitle} numberOfLines={1}>{item.clientName}</Text>{item.leadReadiness === "hot" ? <Ionicons name="flame" size={18} color="#EF4444" style={styles.readinessIcon} /> : item.leadReadiness === "warm" ? <Ionicons name="sunny" size={18} color="#F59E0B" style={styles.readinessIcon} /> : item.leadReadiness === "cold" ? <Ionicons name="snow" size={18} color="#38BDF8" style={styles.readinessIcon} /> : null}</View><View style={styles.pipelineBadgeRow}><View style={styles.pipelinePercentPill}><Text style={styles.pipelinePercentText}>{`${item.pipelinePercentage ?? 10}% · ${item.pipelineStageLabel ?? "Νέο Lead"}`}</Text></View>{item.activeApartmentTitle ? <Text numberOfLines={1} style={styles.activeApartmentSub}>{item.activeApartmentTitle}</Text> : null}</View></View>
-                {item.sharedFilterSet ? <View style={styles.filterBadge}><Ionicons name="options-outline" size={16} color={colors.brand} /></View> : null}
-                <Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />
-            </Pressable>
-          )} /> : <FlatList data={owners} testID="broker-owners-list" keyExtractor={(item) => item.name} ListEmptyComponent={<Text style={styles.emptyStateSubtitle}>{t("brokerHub.noOwners")}</Text>} renderItem={({ item, index }) => (
+          {clientsActive ? <FlatList data={clients} testID="broker-clients-list" keyExtractor={(item) => item.clientUserId} ListEmptyComponent={<Text style={styles.emptyStateSubtitle}>{t("brokerHub.noClients")}</Text>} renderItem={renderClientItem} /> : <FlatList data={owners} testID="broker-owners-list" keyExtractor={(item) => item.name} ListEmptyComponent={<Text style={styles.emptyStateSubtitle}>{t("brokerHub.noOwners")}</Text>} renderItem={({ item, index }) => (
             <Pressable style={styles.ownerRowCard} testID={`broker-owner-row-${index}`} onPress={() => router.push({ pathname: "/broker-owner-detail", params: { ownerName: item.name, apartmentIds: JSON.stringify(item.apartments.map((apartment) => apartment.id)) } })}>
               <View style={styles.rowMain}><Text style={styles.rowTitle}>{item.name}</Text><Text style={styles.countPill}>{t("brokerHub.propertyCount", { count: item.apartments.length })}</Text></View><Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />
             </Pressable>
@@ -224,5 +318,5 @@ export default function BrokerHubScreen() {
 const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface }, header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.sm }, brand: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface }, brandAccent: { color: colors.brand }, toggleShell: { flexDirection: "row", backgroundColor: colors.surfaceSecondary, borderRadius: radius.pill, padding: 4, marginHorizontal: spacing.lg, marginBottom: spacing.md, gap: 4 }, toggleOption: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: spacing.sm, borderRadius: radius.pill }, toggleOptionActive: { backgroundColor: colors.brand }, toggleText: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface }, toggleTextActive: { color: colors.onBrand }, contentArea: { flex: 1, paddingHorizontal: spacing.lg }, ownerRowCard: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: spacing.md, marginBottom: spacing.sm, borderRadius: radius.lg, backgroundColor: colors.surfaceSecondary, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }, clientRowCard: { flexDirection: "row", alignItems: "center", gap: spacing.sm, padding: spacing.md, marginBottom: spacing.sm, borderRadius: radius.lg, backgroundColor: colors.surfaceSecondary, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }, rowMain: { flex: 1, gap: spacing.xs }, rowTitle: { flex: 1, fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onSurface }, motivationBadge: { alignSelf: "flex-start", color: colors.onSurfaceTertiary, backgroundColor: colors.surfaceTertiary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 3, fontSize: fontSize.sm }, countPill: { alignSelf: "flex-start", color: colors.brand, fontFamily: fonts.semibold, fontSize: fontSize.sm }, clientAvatar: { width: 48, height: 48, borderRadius: radius.pill }, filterBadge: { padding: spacing.xs, borderRadius: radius.pill, backgroundColor: colors.surfaceTertiary }, emptyStateSubtitle: { textAlign: "center", color: colors.onSurfaceTertiary, fontFamily: fonts.regular, padding: spacing.xl },
   clientNameRow: { flex: 1, flexDirection: "row", alignItems: "center" }, clientInfoCol: { flex: 1, gap: 2 }, pipelineBadgeRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs, marginTop: 2, flexWrap: "wrap" }, pipelinePercentPill: { backgroundColor: colors.brandTertiary, paddingHorizontal: spacing.xs + 2, paddingVertical: 2, borderRadius: radius.pill }, pipelinePercentText: { fontFamily: fonts.bold, fontSize: fontSize.xs, color: colors.brand }, activeApartmentSub: { flexShrink: 1, fontFamily: fonts.regular, fontSize: fontSize.xs, color: colors.onSurfaceTertiary }, readinessIcon: { marginLeft: spacing.xs },
-  headerTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 44 }, brokerTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface }, brokerTitleAccent: { color: colors.brand }, settingsIconButton: { width: 40, height: 40, borderRadius: radius.pill, backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
+  headerTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 44 }, headerActionsRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs }, brokerTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface }, brokerTitleAccent: { color: colors.brand }, headerIconButton: { width: 38, height: 38, borderRadius: radius.pill, backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" }, settingsIconButton: { width: 40, height: 40, borderRadius: radius.pill, backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" }, clientCard: { borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, padding: spacing.md, marginBottom: spacing.sm, gap: spacing.sm }, clientCardHeader: { flexDirection: "row", alignItems: "center", gap: spacing.sm }, clientAvatarWrap: { width: 42, height: 42, borderRadius: radius.pill, overflow: "hidden" }, clientTextCol: { flex: 1, minWidth: 0 }, clientCardName: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface }, clientCardMeta: { marginTop: 2, fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary }, clientStatusBar: { flexDirection: "row", alignItems: "center", gap: spacing.xs }, statusBadge: { minHeight: 28, minWidth: 28, borderRadius: radius.pill, alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.xs }, statusBadgeText: { fontSize: 14 }, pipelineBadge: { paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.pill, fontFamily: fonts.bold, fontSize: fontSize.xs }, weightedBadge: { paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.pill, fontFamily: fonts.bold, fontSize: fontSize.xs },
 });

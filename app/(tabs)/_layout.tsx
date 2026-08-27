@@ -45,6 +45,9 @@ export default function TabsLayout() {
         name="matches"
         options={{
           title: t("tabs.matches"),
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons color={color} name={isBroker ? (focused ? "mail" : "mail-outline") : (focused ? "heart" : "heart-outline")} size={size} />
+          ),
         }}
       />
       <Tabs.Screen
