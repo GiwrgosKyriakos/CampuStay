@@ -639,6 +639,7 @@
     "createList": "Create list (%{count})",
     "listNameModalTitle": "Property List Name",
     "listSharedNotice": "List shared in chat",
+    "listShareMessage": "[Property List Shared: %{title}]",
     "activeDealBadge": "Active Deal",
     "clientFallback": "Client",
     "readiness": { "hot": "Hot Leads: Ready with funds and moving within a month", "warm": "Warm Leads: Active searchers for the last 2-3 months who are not in a hurry", "cold": "Cold / Passive Leads: Exploring the market or planning to buy after 6+ months" },
@@ -648,6 +649,15 @@
     "saveLossReason": "Save reason",
     "saveList": "Save list",
     "saving": "Saving..."
+    ,"cashPlaceholder": "e.g. 50000",
+    "mortgagePlaceholder": "e.g. 120000",
+    "deadlinePlaceholder": "e.g. By end of September 2026 / Immediately",
+    "purposePlaceholder": "e.g. Owner-occupied, Investment, Student housing...",
+    "searchCriteria": "Client Search Criteria",
+    "noSharedFilters": "The client has not shared a filter set yet.",
+    "listPropertyCount": "%{count} properties",
+    "stageSelection": "Select Stage",
+    "listNamePlaceholder": "e.g. Options for the client"
   },
   "brokerHub": {
     "clients": "Clients",
@@ -665,6 +675,20 @@
     "callInquiries": "Phone Inquiries",
     "questionsAsked": "Questions & Specific Interests",
     "cancellations": "Cancelled Appointments"
+    ,"callsCount": "Calls",
+    "showingsCount": "Showings",
+    "commentsCount": "Comments",
+    "emailsCount": "Emails",
+    "totalCountSuffix": "%{count} total"
+    ,"mockLeadQuality": "High interest",
+    "mockVisitedOne": "2-bedroom Zografou (45m²)",
+    "mockVisitedTwo": "Kypseli studio (32m²)",
+    "mockCallOne": "Pangrati 3-bedroom (2 calls - 24/08)",
+    "mockCallTwo": "Exarchia loft (1 call)",
+    "mockQuestionOne": "Pet-friendly (small dog)",
+    "mockQuestionTwo": "Estimated monthly shared expenses",
+    "mockQuestionThree": "Furnishing availability",
+    "mockCancellation": "1 cancellation (notified 2 hours before)"
   },
   "watermark": {
     "fallbackText": "CampuStay"

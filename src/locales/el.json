@@ -639,6 +639,7 @@
     "createList": "Δημιουργία λίστας (%{count})",
     "listNameModalTitle": "Όνομα λίστας ακινήτων",
     "listSharedNotice": "Η λίστα κοινοποιήθηκε",
+    "listShareMessage": "[Κοινοποίηση Λίστας Ακινήτων: %{title}]",
     "activeDealBadge": "Ενεργό Deal",
     "clientFallback": "Πελάτης",
     "readiness": { "hot": "Hot Leads: Έτοιμοι, διαθέσιμα κεφάλαια με ενοικίαση εντός μήνα", "warm": "Warm Leads: Ενεργοί που ψάχνουν τους τελευταίους 2-3 μήνες αλλά δεν βιάζονται", "cold": "Cold / Passive Leads: Άτομα που απλά «βολιδοσκοπούν» την αγορά ή θέλουν να αγοράσουν μετά από 6+ μήνες" },
@@ -648,6 +649,15 @@
     "saveLossReason": "Αποθήκευση λόγου",
     "saveList": "Αποθήκευση λίστας",
     "saving": "Αποθήκευση..."
+    ,"cashPlaceholder": "π.χ. 50000",
+    "mortgagePlaceholder": "π.χ. 120000",
+    "deadlinePlaceholder": "π.χ. Έως τέλος Σεπτεμβρίου 2026 / Άμεσα",
+    "purposePlaceholder": "π.χ. Ιδιοκατοίκηση, Επενδυτικό (απόδοση), Φοιτητική στέγαση...",
+    "searchCriteria": "Κριτήρια Αναζήτησης Πελάτη",
+    "noSharedFilters": "Ο πελάτης δεν έχει διαμοιραστεί σετ φίλτρων ακόμα.",
+    "listPropertyCount": "%{count} ακίνητα",
+    "stageSelection": "Επιλογή Σταδίου",
+    "listNamePlaceholder": "π.χ. Επιλογές για τον πελάτη"
   },
   "brokerHub": {
     "clients": "Πελάτες",
@@ -665,6 +675,20 @@
     "callInquiries": "Τηλεφωνικές επικοινωνίες για ακίνητα",
     "questionsAsked": "Ερωτήσεις & Ειδικά Ενδιαφέροντα",
     "cancellations": "Ακυρώσεις ραντεβού"
+    ,"callsCount": "Κλήσεις",
+    "showingsCount": "Υποδείξεις",
+    "commentsCount": "Σχόλια",
+    "emailsCount": "Emails",
+    "totalCountSuffix": "%{count} συνολικά"
+    ,"mockLeadQuality": "Υψηλό ενδιαφέρον",
+    "mockVisitedOne": "2άρι Ζωγράφου (45m²)",
+    "mockVisitedTwo": "Studio Κυψέλη (32m²)",
+    "mockCallOne": "3άρι Παγκράτι (2 κλήσεις - 24/08)",
+    "mockCallTwo": "Loft Εξάρχεια (1 κλήση)",
+    "mockQuestionOne": "Δυνατότητα κατοικίδιου (μικρός σκύλος)",
+    "mockQuestionTwo": "Εκτιμώμενα μηνιαία κοινόχρηστα",
+    "mockQuestionThree": "Διαθεσιμότητα επίπλωσης",
+    "mockCancellation": "1 ακύρωση (ειδοποίηση 2 ώρες πριν)"
   },
   "watermark": {
     "fallbackText": "CampuStay"
