@@ -229,11 +229,12 @@ export default function BrokerNoteModal({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={closeWithReset}>
-      <View style={styles.backdrop}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={closeWithReset} />
-
-        <View style={styles.sheet}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={closeWithReset}>
+      <Pressable style={styles.cyanModalBackdrop} onPress={closeWithReset}>
+        <Pressable
+          style={styles.centeredModalCard}
+          onPress={(event) => event.stopPropagation()}
+        >
           <View style={[styles.previewHeader, { backgroundColor: categoryColor }]}> 
             <Text style={styles.previewTitle}>{isEditMode ? "Επεξεργασία Σημείωσης" : "Νέα Σημείωση"}</Text>
             <Text style={styles.previewDate}>{date}</Text>
@@ -384,31 +385,37 @@ export default function BrokerNoteModal({
               )}
             </Pressable>
           </View>
-        </View>
-      </View>
+        </Pressable>
+      </Pressable>
     </Modal>
   );
 }
 
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
-    backdrop: {
+    cyanModalBackdrop: {
       flex: 1,
-      backgroundColor: "rgba(9, 29, 35, 0.52)",
-      justifyContent: "flex-end",
+      backgroundColor: "rgba(8, 48, 60, 0.72)",
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: spacing.lg,
     },
-    sheet: {
-      borderTopLeftRadius: radius.lg,
-      borderTopRightRadius: radius.lg,
+    centeredModalCard: {
+      width: "100%",
+      maxWidth: 480,
+      maxHeight: "85%",
+      borderRadius: radius.lg,
       backgroundColor: colors.surface,
-      borderWidth: StyleSheet.hairlineWidth,
+      borderWidth: 1,
       borderColor: colors.border,
-      maxHeight: "92%",
       overflow: "hidden",
     },
     previewHeader: {
       paddingHorizontal: spacing.lg,
       paddingVertical: spacing.md,
+      borderTopLeftRadius: radius.lg,
+      borderTopRightRadius: radius.lg,
+      overflow: "hidden",
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: colors.border,
     },

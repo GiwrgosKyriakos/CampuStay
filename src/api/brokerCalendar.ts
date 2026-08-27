@@ -4,11 +4,8 @@ import {
   deleteDoc,
   doc,
   getDocs,
-  orderBy,
-  query,
   serverTimestamp,
   updateDoc,
-  where,
   type FieldValue,
 } from "firebase/firestore";
 
@@ -263,19 +260,11 @@ export async function getBrokerNotesByDateRange(
 
   try {
     const notesRef = collection(db, "users", brokerId, "calendarNotes");
-    const notesQuery = query(
-      notesRef,
-      where("date", ">=", startDate),
-      where("date", "<=", endDate),
-      orderBy("date", "asc"),
-      orderBy("time", "asc"),
-    );
-
-    const snapshot = await getDocs(notesQuery);
+    const snapshot = await getDocs(notesRef);
     const mapped = snapshot.docs.map((docSnap) => {
       const data = docSnap.data() as FirestoreBrokerNoteReadDoc;
       return mapFirestoreDocToBrokerNote(docSnap.id, data, brokerId);
-    });
+    }).filter((note) => note.date >= startDate && note.date <= endDate);
 
     return mapped.sort((a, b) => {
       if (a.date === b.date) {

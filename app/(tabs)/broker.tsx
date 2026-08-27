@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { Text, View, StyleSheet, Pressable, useWindowDimensions, Modal, ScrollView, ActivityIndicator, FlatList, DimensionValue } from "react-native";
+import { BackHandler, Text, View, StyleSheet, Pressable, useWindowDimensions, Modal, ScrollView, ActivityIndicator, FlatList, DimensionValue } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -71,7 +71,6 @@ interface CalendarCell {
 
 interface CalendarWeek {
   index: number;
-  label: string;
   cells: CalendarCell[];
 }
 
@@ -227,13 +226,6 @@ function getVisibleRange(date: Date, mode: CalendarViewMode): { start: string; e
   return { start: dayKey, end: dayKey };
 }
 
-function getCalendarWeekLabel(date: Date): string {
-  const monthWeeks = buildMonthWeeks(date);
-  const dayKey = formatDateKey(date);
-  const week = monthWeeks.find((item) => item.cells.some((cell) => cell.dateKey === dayKey));
-  return week?.label ?? "1η";
-}
-
 function getHeaderTitleForCalendarMode(date: Date, mode: CalendarViewMode): string {
   if (mode === "month") {
     return `${GREEK_MONTHS[date.getMonth()]} ${date.getFullYear()}`;
@@ -279,7 +271,6 @@ function buildMonthWeeks(date: Date): CalendarWeek[] {
 
     return {
       index: weekIndex,
-      label: `${weekIndex + 1}η`,
       cells,
     };
   });
@@ -348,8 +339,6 @@ function CalendarView({
       }),
     [currentDate.getMonth(), currentWeekStart],
   );
-  const currentWeekLabel = useMemo(() => getCalendarWeekLabel(currentDate), [currentDate]);
-
   const notesByDate = useMemo(() => {
     const grouped = new Map<string, BrokerNote[]>();
     for (const note of visibleNotes) {
@@ -396,13 +385,13 @@ function CalendarView({
   const pinchGesture = useMemo(
     () =>
       Gesture.Pinch().onEnd((event) => {
-        if (event.scale < 0.9) {
+        if (event.scale > 1.1) {
           if (calendarViewMode === "month") {
             runOnJS(onCalendarViewModeChange)("week");
           } else if (calendarViewMode === "week") {
             runOnJS(onCalendarViewModeChange)("day");
           }
-        } else if (event.scale > 1.1) {
+        } else if (event.scale < 0.9) {
           if (calendarViewMode === "day") {
             runOnJS(onCalendarViewModeChange)("week");
           } else if (calendarViewMode === "week") {
@@ -491,7 +480,7 @@ function CalendarView({
       <View style={[styles.monthCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}> 
         {(calendarViewMode === "month" || calendarViewMode === "week") ? (
           <View style={styles.calendarHeaderRow}>
-            <View style={styles.weekLabelSpacer} />
+            <View style={styles.weekBarTouchArea} />
             {WEEKDAY_LABELS.map((label) => (
               <View key={label} style={styles.dayHeaderCell}>
                 <Text style={[styles.dayHeaderText, { color: colors.onSurfaceTertiary }]}>{label}</Text>
@@ -502,16 +491,23 @@ function CalendarView({
 
         {calendarViewMode === "month"
           ? weeks.map((week) => {
-              const weekNotes = week.cells.flatMap((cell) => notesByDate.get(cell.dateKey) ?? []);
-              const weekTint = getMostFrequentCategoryColor(weekNotes);
+              const isWeekActive = week.cells.some((cell) => cell.dateKey === selectedDayKey);
 
               return (
                 <View key={`week-${week.index}`} style={styles.weekRow}>
                   <Pressable
-                    style={[styles.weekLabelCell, { backgroundColor: weekTint, borderColor: colors.border }]}
+                    style={styles.weekBarTouchArea}
                     onPress={() => handleWeekSelect(new Date(week.cells[0].date))}
+                    hitSlop={{ top: 4, bottom: 4, left: 6, right: 6 }}
+                    testID={`broker-calendar-week-bar-${week.index}`}
                   >
-                    <Text style={[styles.weekLabelText, { color: colors.onSurface }]}>{week.label}</Text>
+                    <View
+                      style={[
+                        styles.weekVerticalBar,
+                        isWeekActive ? styles.weekVerticalBarActive : styles.weekVerticalBarInactive,
+                        { backgroundColor: isWeekActive ? colors.brand : colors.muted },
+                      ]}
+                    />
                   </Pressable>
 
                   {week.cells.map((cell) => {
@@ -519,6 +515,10 @@ function CalendarView({
                     const dayTint = getMostFrequentCategoryColor(dayNotes);
                     const isPastDay = cell.date < today;
                     const isSelected = cell.dateKey === selectedDayKey;
+                    const hasNotes = dayNotes.length > 0;
+                    const dotColor = hasNotes
+                      ? noteCategoryColorMap[dayNotes[0].category] ?? colors.brand
+                      : "transparent";
 
                     return (
                       <Pressable
@@ -527,8 +527,8 @@ function CalendarView({
                         style={[
                           styles.dayCell,
                           {
-                            backgroundColor: cell.inCurrentMonth ? dayTint : colors.surface,
-                            borderColor: colors.border,
+                            backgroundColor: cell.inCurrentMonth && hasNotes ? dayTint : colors.surface,
+                            borderColor: isSelected ? "#FFFFFF" : colors.border,
                             opacity: isPastDay ? 0.45 : cell.inCurrentMonth ? 1 : 0.55,
                             borderWidth: isSelected ? 2 : StyleSheet.hairlineWidth,
                           },
@@ -537,6 +537,7 @@ function CalendarView({
                         <Text style={[styles.dayNumberText, { color: cell.inCurrentMonth ? colors.onSurface : colors.onSurfaceTertiary }]}>
                           {cell.dayOfMonth}
                         </Text>
+                        {hasNotes ? <View style={[styles.noteIndicatorDot, { backgroundColor: dotColor }]} /> : null}
                       </Pressable>
                     );
                   })}
@@ -547,15 +548,24 @@ function CalendarView({
 
         {calendarViewMode === "week" ? (
           <View style={styles.weekRow}>
-            <View style={[styles.weekLabelCell, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
-              <Text style={[styles.weekLabelText, { color: colors.onSurface }]}>{currentWeekLabel}</Text>
-            </View>
+            <Pressable
+              style={styles.weekBarTouchArea}
+              onPress={() => handleWeekSelect(new Date(currentWeekCells[0].date))}
+              hitSlop={{ top: 4, bottom: 4, left: 6, right: 6 }}
+              testID="broker-calendar-week-bar-current"
+            >
+              <View style={[styles.weekVerticalBar, styles.weekVerticalBarActive, { backgroundColor: colors.brand }]} />
+            </Pressable>
 
             {currentWeekCells.map((cell) => {
               const dayNotes = notesByDate.get(cell.dateKey) ?? [];
               const dayTint = getMostFrequentCategoryColor(dayNotes);
               const isPastDay = cell.date < today;
               const isSelected = cell.dateKey === selectedDayKey;
+              const hasNotes = dayNotes.length > 0;
+              const dotColor = hasNotes
+                ? noteCategoryColorMap[dayNotes[0].category] ?? colors.brand
+                : "transparent";
 
               return (
                 <Pressable
@@ -565,13 +575,14 @@ function CalendarView({
                     styles.dayCell,
                     {
                       backgroundColor: dayTint,
-                      borderColor: colors.border,
+                      borderColor: isSelected ? "#FFFFFF" : colors.border,
                       opacity: isPastDay ? 0.45 : 1,
                       borderWidth: isSelected ? 2 : StyleSheet.hairlineWidth,
                     },
                   ]}
                 >
                   <Text style={[styles.dayNumberText, { color: colors.onSurface }]}>{cell.dayOfMonth}</Text>
+                  {hasNotes ? <View style={[styles.noteIndicatorDot, { backgroundColor: dotColor }]} /> : null}
                 </Pressable>
               );
             })}
@@ -698,7 +709,8 @@ export default function BrokerTabScreen({ onOpenSettings }: { onOpenSettings?: (
   const auth = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
+  const { width: windowWidth } = useWindowDimensions();
+  const effectivePageWidth = useMemo(() => windowWidth - spacing.lg * 2, [windowWidth]);
   const { colors } = useTheme();
   const [activeMode, setActiveMode] = useState<BrokerMode>("calendar");
   const [calendarViewMode, setCalendarViewMode] = useState<CalendarViewMode>("month");
@@ -747,8 +759,8 @@ export default function BrokerTabScreen({ onOpenSettings }: { onOpenSettings?: (
   );
 
   useEffect(() => {
-    animateToMode(activeMode, width, translateX);
-  }, [activeMode, width, translateX]);
+    animateToMode(activeMode, effectivePageWidth, translateX);
+  }, [activeMode, effectivePageWidth, translateX]);
 
   useEffect(() => {
     const updateTime = () => {
@@ -1113,9 +1125,35 @@ export default function BrokerTabScreen({ onOpenSettings }: { onOpenSettings?: (
   const setMode = useCallback(
     (mode: BrokerMode) => {
       setActiveMode(mode);
-      animateToMode(mode, width, translateX);
+      animateToMode(mode, effectivePageWidth, translateX);
     },
-    [translateX, width],
+    [effectivePageWidth, translateX],
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      const onBackPress = () => {
+        if (activeMode === "pipeline") {
+          setMode("calendar");
+          return true;
+        }
+
+        if (calendarViewMode === "day") {
+          setCalendarViewMode("week");
+          return true;
+        }
+
+        if (calendarViewMode === "week") {
+          setCalendarViewMode("month");
+          return true;
+        }
+
+        return true;
+      };
+
+      const subscription = BackHandler.addEventListener("hardwareBackPress", onBackPress);
+      return () => subscription.remove();
+    }, [activeMode, calendarViewMode, setMode]),
   );
 
   const goToPrevious = useCallback(() => {
@@ -1158,13 +1196,13 @@ export default function BrokerTabScreen({ onOpenSettings }: { onOpenSettings?: (
           dragStartX.value = translateX.value;
         })
         .onUpdate((event) => {
-          const nextValue = clamp(dragStartX.value + event.translationX, -width, 0);
+          const nextValue = clamp(dragStartX.value + event.translationX, -effectivePageWidth, 0);
           translateX.value = nextValue;
         })
         .onEnd((event) => {
           const absTranslation = Math.abs(event.translationX);
-          const threshold = width * SWIPE_THRESHOLD_RATIO;
-          const fromClients = dragStartX.value <= -width / 2;
+          const threshold = effectivePageWidth * SWIPE_THRESHOLD_RATIO;
+          const fromClients = dragStartX.value <= -effectivePageWidth / 2;
 
           let nextMode: BrokerMode;
           if (event.velocityX <= -SWIPE_VELOCITY_THRESHOLD) {
@@ -1181,11 +1219,11 @@ export default function BrokerTabScreen({ onOpenSettings }: { onOpenSettings?: (
               nextMode = fromClients ? "pipeline" : "calendar";
           }
 
-          const target = nextMode === "calendar" ? 0 : -width;
+          const target = nextMode === "calendar" ? 0 : -effectivePageWidth;
           translateX.value = withTiming(target, { duration: 220 });
           runOnJS(setActiveMode)(nextMode);
         }),
-    [dragStartX, setActiveMode, translateX, width],
+    [dragStartX, effectivePageWidth, setActiveMode, translateX],
   );
 
   const pagerStyle = useAnimatedStyle(() => ({
@@ -1225,38 +1263,49 @@ export default function BrokerTabScreen({ onOpenSettings }: { onOpenSettings?: (
         </Pressable>
       </View>
 
-      {calendarActive ? <View style={[styles.calendarHeader, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}> 
-        <Pressable style={styles.headerArrowButton} onPress={goToPrevious}>
-          <Ionicons name="chevron-back" size={22} color={colors.onSurface} />
-        </Pressable>
-
-        <Pressable style={styles.headerTitleButton} onPress={calendarViewMode === "month" ? openPicker : undefined}>
-          <Text style={[styles.headerTitleText, { color: colors.onSurface }]}>{headerTitle}</Text>
-        </Pressable>
-
-        <Pressable style={styles.headerArrowButton} onPress={goToNext}>
-          <Ionicons name="chevron-forward" size={22} color={colors.onSurface} />
-        </Pressable>
-      </View> : null}
-
       <GestureDetector gesture={pagerGesture}>
         <View style={styles.pagerViewport}>
-          <Animated.View style={[styles.pagerTrack, { width: width * 2 }, pagerStyle]}>
-            <View style={[styles.page, { width }]}>
-              <CalendarView
-                colors={colors}
-                currentDate={currentDate}
-                calendarViewMode={calendarViewMode}
-                onCalendarViewModeChange={setCalendarViewMode}
-                onSelectDate={setCurrentDate}
-                onAddNotePress={openCreateNoteModal}
-                onEditNotePress={openEditNoteModal}
-                visibleNotes={visibleNotes}
-                isLoading={isVisibleNotesLoading}
-                currentTimeStr={currentTimeStr}
-              />
+          <Animated.View style={[styles.pagerTrack, { width: effectivePageWidth * 2 }, pagerStyle]}>
+            <View style={[styles.page, { width: effectivePageWidth }]}>
+              <View style={styles.calendarModuleContainer}>
+                {calendarActive ? (
+                  <View
+                    style={[
+                      styles.calendarHeader,
+                      { backgroundColor: colors.surfaceSecondary, borderColor: colors.border },
+                    ]}
+                  >
+                    <Pressable style={styles.headerArrowButton} onPress={goToPrevious} hitSlop={8}>
+                      <Ionicons name="chevron-back" size={22} color={colors.onSurface} />
+                    </Pressable>
+
+                    <Pressable
+                      style={styles.headerTitleButton}
+                      onPress={calendarViewMode === "month" ? openPicker : undefined}
+                    >
+                      <Text style={[styles.headerTitleText, { color: colors.onSurface }]}>{headerTitle}</Text>
+                    </Pressable>
+
+                    <Pressable style={styles.headerArrowButton} onPress={goToNext} hitSlop={8}>
+                      <Ionicons name="chevron-forward" size={22} color={colors.onSurface} />
+                    </Pressable>
+                  </View>
+                ) : null}
+                <CalendarView
+                  colors={colors}
+                  currentDate={currentDate}
+                  calendarViewMode={calendarViewMode}
+                  onCalendarViewModeChange={setCalendarViewMode}
+                  onSelectDate={setCurrentDate}
+                  onAddNotePress={openCreateNoteModal}
+                  onEditNotePress={openEditNoteModal}
+                  visibleNotes={visibleNotes}
+                  isLoading={isVisibleNotesLoading}
+                  currentTimeStr={currentTimeStr}
+                />
+              </View>
             </View>
-            <View style={[styles.page, { width }]}>
+            <View style={[styles.page, { width: effectivePageWidth }]}>
               <PipelineView
                 colors={colors}
                 leads={sortedClients}
@@ -1379,14 +1428,13 @@ const styles = StyleSheet.create({
     fontSize: fontSize.base,
   },
   calendarHeader: {
-    minHeight: 54,
+    minHeight: 48,
     borderRadius: radius.md,
     borderWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: spacing.sm,
-    marginBottom: spacing.md,
   },
   headerArrowButton: {
     width: 44,
@@ -1414,10 +1462,19 @@ const styles = StyleSheet.create({
     flexDirection: "row",
   },
   page: {
+    flex: 1,
+    alignItems: "center",
+    paddingTop: spacing.xs,
     paddingBottom: spacing.lg,
+  },
+  calendarModuleContainer: {
+    width: "100%",
+    justifyContent: "center",
+    gap: spacing.sm,
   },
   clientsPanelWrap: {
     flex: 1,
+    width: "100%",
   },
   clientListContent: {
     paddingBottom: spacing.xl,
@@ -1428,6 +1485,7 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
+    width: "100%",
   },
   clientCardName: {
     fontFamily: fonts.bold,
@@ -1467,8 +1525,9 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.sm,
-    minHeight: 340,
+    minHeight: 320,
     position: "relative",
+    width: "100%",
   },
   calendarHeaderRow: {
     flexDirection: "row",
@@ -1486,9 +1545,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  weekLabelSpacer: {
-    width: 38,
-    marginRight: spacing.xs,
+  weekBarTouchArea: {
+    width: 14,
+    height: 42,
+    marginRight: 4,
+    alignItems: "center",
+    justifyContent: "center",
   },
   dayHeaderCell: {
     flex: 1,
@@ -1501,26 +1563,28 @@ const styles = StyleSheet.create({
   },
   weekRow: {
     flexDirection: "row",
-    alignItems: "stretch",
-    marginBottom: spacing.xs,
-  },
-  weekLabelCell: {
-    width: 38,
-    borderRadius: radius.sm,
-    borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
-    justifyContent: "center",
-    marginRight: spacing.xs,
+    height: 44,
+    marginBottom: 4,
   },
-  weekLabelText: {
-    fontFamily: fonts.semibold,
-    fontSize: fontSize.sm,
+  weekVerticalBar: {
+    width: 4,
+    height: 24,
+    borderRadius: radius.pill,
+  },
+  weekVerticalBarActive: {
+    width: 5,
+    height: 30,
+    opacity: 1,
+  },
+  weekVerticalBarInactive: {
+    opacity: 0.35,
   },
   dayCell: {
     flex: 1,
+    height: 42,
     borderRadius: radius.sm,
     borderWidth: StyleSheet.hairlineWidth,
-    minHeight: 42,
     alignItems: "center",
     justifyContent: "center",
     marginHorizontal: 1,
@@ -1564,6 +1628,13 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
     minHeight: 52,
     marginBottom: spacing.xs,
+  },
+  noteIndicatorDot: {
+    position: "absolute",
+    bottom: 4,
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
   },
   notePrimaryText: {
     fontFamily: fonts.semibold,
