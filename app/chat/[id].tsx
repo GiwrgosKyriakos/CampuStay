@@ -38,19 +38,22 @@ import { useAuth } from "@/src/context/auth";
 import { db } from "@/src/config/firebase";
 import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, setDoc, getDoc, getDocs, deleteDoc, limit } from "firebase/firestore";
 import { markIncomingMessagesAsRead } from "@/src/api/chat";
+import { syncBrokerClientProfile } from "@/src/api/brokerClientProfiles";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import CenteredActionModal, { type CenteredModalAction } from "@/src/components/CenteredActionModal";
 import FilterSetVersionModal, { type SharedFilterSetRecord, type FilterSetVersionData } from "@/src/components/FilterSetVersionModal";
 import ChatMessageItem from "@/src/components/chat/ChatMessageItem";
 import { getUserSettings, saveUserNotifications, saveUserPrivacy, type NotificationPreferences } from "@/src/api/accountSettings";
 import { submitReportedUserEntry } from "@/src/services/reportedUsers";
-import { subscribeUserLikedApartmentIds } from "@/src/api/apartmentLikes";
+import { subscribeUserLikedApartmentIds, toggleApartmentLike } from "@/src/api/apartmentLikes";
 import {
   calculateMatchScore,
   type CompatibilityQuizAnswers,
   type UserProfile as MatchUserProfile,
 } from "@/src/utils/matchAlgorithm";
 import { t } from "@/src/locales";
+import { WatermarkBadge } from "@/src/components/WatermarkBadge";
+import type { WatermarkConfig } from "@/src/types/listing";
 
 const CURRENCY = "€";
 const FILTER_SORT_LABELS: Record<string, string> = {
@@ -149,6 +152,7 @@ interface FirestoreChatDoc {
   counterpartPhoneNumber?: string;
   apartmentUnavailable?: boolean;
   status?: "pending" | "active" | "rejected";
+  brokerChatRole?: "client" | "owner";
   initiatedBy?: string | null;
   rejectedBy?: string | null;
   rejections?: string[];
@@ -188,6 +192,8 @@ interface FirestoreApartmentDoc {
   tags?: string[];
   amenities?: string[];
   hostId?: string;
+  isOffMarket?: boolean;
+  watermarkConfig?: WatermarkConfig;
 }
 
 interface MutualApartment {
@@ -209,10 +215,13 @@ interface MutualApartment {
   latitude?: number;
   longitude?: number;
   hostId?: string;
+  isOffMarket?: boolean;
+  watermarkConfig?: WatermarkConfig;
 }
 
 interface FirestoreUserDoc {
   name?: string | null;
+  is_broker?: boolean;
   age?: number | null;
   gender?: string | null;
   city?: string | null;
@@ -329,6 +338,8 @@ function mapApartmentDocToMutualApartment(apartmentId: string, data: FirestoreAp
     latitude: data.latitude,
     longitude: data.longitude,
     hostId: data.hostId,
+    isOffMarket: data.isOffMarket === true,
+    watermarkConfig: data.watermarkConfig,
   };
 }
 
@@ -336,10 +347,12 @@ type MutualApartmentCardProps = {
   apartment: MutualApartment;
   colors: ThemeColors;
   styles: ReturnType<typeof createStyles>;
+  isLiked: boolean;
   onPress: () => void;
+  onToggleLike: () => void;
 };
 
-function MutualApartmentCard({ apartment, colors, styles, onPress }: MutualApartmentCardProps) {
+function MutualApartmentCard({ apartment, colors, styles, isLiked, onPress, onToggleLike }: MutualApartmentCardProps) {
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const imageList = apartment.images && apartment.images.length > 0 ? apartment.images : apartment.image ? [apartment.image] : [];
   const activeImage = imageList[activeImageIndex] || "";
@@ -351,20 +364,32 @@ function MutualApartmentCard({ apartment, colors, styles, onPress }: MutualApart
   }, [activeImageIndex, imageList.length]);
 
   return (
-    <View style={styles.mutualCardWrap}>
-      <Pressable style={({ pressed }) => [styles.mutualCard, pressed && styles.mutualCardPressed]} onPress={onPress}>
+    <View style={styles.cardWrap}>
+      <Pressable
+        style={({ pressed }) => [styles.card, apartment.isOffMarket && styles.offMarketCard, pressed && styles.cardPressed]}
+        onPress={onPress}
+      >
         {activeImage ? (
-          <Image source={{ uri: activeImage }} style={styles.mutualCardPhoto} contentFit="cover" transition={150} />
+          <Image source={{ uri: activeImage }} style={styles.photo} contentFit="cover" transition={150} />
         ) : (
-          <View style={[styles.mutualCardPhoto, styles.mutualCardPlaceholder]}>
+          <View style={[styles.photo, styles.cardPlaceholder]}>
             <Ionicons name="home" size={44} color={colors.brand} />
-            <Text style={styles.mutualCardPlaceholderText}>CampuStay</Text>
+            <Text style={styles.cardPlaceholderText}>CampuStay</Text>
           </View>
         )}
 
+        <WatermarkBadge config={apartment.watermarkConfig} position="top-left" />
+
+        {apartment.isOffMarket ? (
+          <View style={styles.clientOnlyBadge}>
+            <Ionicons name="lock-closed-outline" size={12} color={colors.onBrand} />
+            <Text style={styles.clientOnlyBadgeText}>client-only view</Text>
+          </View>
+        ) : null}
+
         {imageList.length > 1 && activeImageIndex > 0 ? (
           <Pressable
-            style={[styles.mutualCarouselArrow, styles.mutualCarouselArrowLeft]}
+            style={[styles.carouselArrowButton, styles.carouselArrowLeft]}
             onPress={(e) => {
               e.stopPropagation();
               setActiveImageIndex((prev) => Math.max(0, prev - 1));
@@ -377,7 +402,7 @@ function MutualApartmentCard({ apartment, colors, styles, onPress }: MutualApart
 
         {imageList.length > 1 && activeImageIndex < imageList.length - 1 ? (
           <Pressable
-            style={[styles.mutualCarouselArrow, styles.mutualCarouselArrowRight]}
+            style={[styles.carouselArrowButton, styles.carouselArrowRight]}
             onPress={(e) => {
               e.stopPropagation();
               setActiveImageIndex((prev) => Math.min(imageList.length - 1, prev + 1));
@@ -394,29 +419,32 @@ function MutualApartmentCard({ apartment, colors, styles, onPress }: MutualApart
           style={StyleSheet.absoluteFill}
         />
 
-        <View style={styles.mutualRentBadge}>
-          <Text style={styles.mutualRentText}>€{apartment.rent}</Text>
-          <Text style={styles.mutualRentMeta}>{t("apartments.perMonthShort")}</Text>
+        <View style={styles.rentBadge}>
+          <Text style={styles.rentText}>{CURRENCY}{apartment.rent}</Text>
+          <Text style={styles.rentMo}>{t("apartments.perMonthShort")}</Text>
         </View>
 
-        <View style={styles.mutualCardBody}>
-          <View style={styles.mutualLocRow}>
+        <View style={styles.cardBody}>
+          <View style={styles.locRow}>
             <Ionicons name="location-outline" size={14} color="rgba(255,255,255,0.85)" />
-            <Text style={styles.mutualLocText}>{apartment.area}, {apartment.city}</Text>
+            <Text style={styles.loc}>{apartment.area}, {apartment.city}</Text>
           </View>
-          <View style={styles.mutualStatsRow}>
-            <Text style={styles.mutualStatText}>{`${apartment.rooms} ${t("apartments.rooms")}`}</Text>
-            <View style={styles.mutualDot} />
-            <Text style={styles.mutualStatText}>{apartment.size} m²</Text>
+          <View style={styles.statsRow}>
+            <Text style={styles.stat}>{`${apartment.rooms} ${t("apartments.rooms")}`}</Text>
+            <View style={styles.dot} />
+            <Text style={styles.stat}>{apartment.size} m²</Text>
           </View>
-          <View style={styles.mutualTagRow}>
+          <View style={styles.tagRow}>
             {apartment.tags.map((tag) => (
-              <View key={tag} style={styles.mutualTag}>
-                <Text style={styles.mutualTagText}>{translateApartmentTag(tag)}</Text>
+              <View key={tag} style={styles.tag}>
+                <Text style={styles.tagText}>{translateApartmentTag(tag)}</Text>
               </View>
             ))}
           </View>
         </View>
+      </Pressable>
+      <Pressable style={[styles.likeBtn, isLiked && styles.likeBtnActive]} onPress={onToggleLike} testID={`apartment-like-${apartment.id}`}>
+        <Ionicons name={isLiked ? "heart" : "heart-outline"} size={20} color={isLiked ? "#FFFFFF" : colors.onSurface} />
       </Pressable>
     </View>
   );
@@ -634,7 +662,7 @@ export default function ChatScreen() {
 
   const safeMenuTop = Math.max(insets.top + 12, (Platform.OS === "android" ? (StatusBar.currentHeight ?? 0) + 12 : 12));
   const counterpartId = typeof id === "string" ? id : "";
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(auth.userId ?? null);
   const [profile, setProfile] = useState<RoommateProfile | null>(null);
   const [counterpartDetails, setCounterpartDetails] = useState<FirestoreUserDoc | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
@@ -705,6 +733,7 @@ export default function ChatScreen() {
   const [isNoticeDismissedLocally, setIsNoticeDismissedLocally] = useState(false);
   const clearedAtCutoffRef = useRef<number | null>(null);
   const [chatType, setChatType] = useState<"roommate" | "host">("roommate");
+  const [brokerChatRole, setBrokerChatRole] = useState<"client" | "owner" | null>(null);
   const [hostPhoneFromChatMeta, setHostPhoneFromChatMeta] = useState("");
   const [hostApartmentId, setHostApartmentId] = useState<string | null>(null);
   const [hostApartmentTitle, setHostApartmentTitle] = useState<string | null>(null);
@@ -853,6 +882,7 @@ export default function ChatScreen() {
         setIsNoticeDismissedLocally(false);
         clearedAtCutoffRef.current = null;
         setChatType("roommate");
+        setBrokerChatRole(null);
         setHostPhoneFromChatMeta("");
         setHostApartmentId(null);
         setHostApartmentTitle(null);
@@ -874,6 +904,7 @@ export default function ChatScreen() {
       clearedAtCutoffRef.current = clearCutoff > 0 ? clearCutoff : null;
       setIsCrossChatNoticeDismissed(currentUserId ? dismissedCrossChatNoticesMap[currentUserId] === true : false);
       setChatType(data.type === "host" ? "host" : "roommate");
+      setBrokerChatRole(data.brokerChatRole === "client" || data.brokerChatRole === "owner" ? data.brokerChatRole : null);
       const rawHostPhoneFromChat =
         typeof data.hostPhoneNumber === "string"
           ? data.hostPhoneNumber
@@ -948,6 +979,25 @@ export default function ChatScreen() {
   }, [chatRoomId, currentUserId, sortMessages]);
 
   useEffect(() => {
+    if (chatType !== "host" || !currentUserId || !counterpartId || !chatRoomId) return;
+
+    const counterpartIsBroker = counterpartDetails?.is_broker === true;
+    const brokerId = auth.isBroker ? currentUserId : counterpartIsBroker ? counterpartId : null;
+    if (!brokerId) return;
+
+    const clientId = brokerId === currentUserId ? counterpartId : currentUserId;
+    void syncBrokerClientProfile({
+      brokerId,
+      clientId,
+      role: brokerChatRole === "owner" ? "owner" : "client",
+      chatRoomId,
+      apartmentId: hostApartmentId,
+    }).catch((error) => {
+      console.warn("[Chat] Failed to sync broker CRM profile:", error);
+    });
+  }, [auth.isBroker, brokerChatRole, chatRoomId, chatType, counterpartDetails?.is_broker, counterpartId, currentUserId, hostApartmentId]);
+
+  useEffect(() => {
     if (!isRoommateChat && showMutualLikes) {
       setShowMutualLikes(false);
     }
@@ -965,6 +1015,11 @@ export default function ChatScreen() {
 
     return () => unsubscribe();
   }, [currentUserId, isRoommateChat]);
+
+  const handleToggleApartmentLike = useCallback((apartmentId: string) => {
+    if (!currentUserId) return;
+    void toggleApartmentLike(currentUserId, apartmentId);
+  }, [currentUserId]);
 
   useEffect(() => {
     if (!isRoommateChat || !counterpartId) {
@@ -1613,11 +1668,14 @@ export default function ChatScreen() {
         createdAt: serverTimestamp(),
       });
 
-      await setDoc(doc(db, "brokerClientProfiles", `${counterpartId}_${currentUserId}`), {
+      await syncBrokerClientProfile({
+        brokerId: counterpartId,
+        clientId: currentUserId,
+        role: brokerChatRole === "owner" ? "owner" : "client",
+        chatRoomId,
+        apartmentId: hostApartmentId,
         pipelineStage: "offer_made",
-        stageUpdatedAt: Date.now(),
-        updatedAt: Date.now(),
-      }, { merge: true });
+      });
 
       await setDoc(
         doc(db, "chats", chatRoomId),
@@ -1646,7 +1704,7 @@ export default function ChatScreen() {
     } finally {
       setIsSubmittingHostAction(false);
     }
-  }, [chatRoomId, currentUserId, hostApartmentId, isSubmittingHostAction, proposedPriceInput]);
+  }, [brokerChatRole, chatRoomId, counterpartId, currentUserId, hostApartmentId, isSubmittingHostAction, proposedPriceInput]);
 
   const submitVisitRequest = useCallback(async () => {
     if (!currentUserId || !chatRoomId || !hostApartmentId || !selectedVisitDate || isSubmittingHostAction) return;
@@ -1667,11 +1725,14 @@ export default function ChatScreen() {
         createdAt: serverTimestamp(),
       });
 
-      await setDoc(doc(db, "brokerClientProfiles", `${counterpartId}_${currentUserId}`), {
+      await syncBrokerClientProfile({
+        brokerId: counterpartId,
+        clientId: currentUserId,
+        role: brokerChatRole === "owner" ? "owner" : "client",
+        chatRoomId,
+        apartmentId: hostApartmentId,
         pipelineStage: "showing_scheduled",
-        stageUpdatedAt: Date.now(),
-        updatedAt: Date.now(),
-      }, { merge: true });
+      });
 
       await setDoc(
         doc(db, "chats", chatRoomId),
@@ -1700,7 +1761,9 @@ export default function ChatScreen() {
       setIsSubmittingHostAction(false);
     }
   }, [
+    brokerChatRole,
     chatRoomId,
+    counterpartId,
     currentUserId,
     hostApartmentId,
     isHourDisabled,
@@ -2483,6 +2546,8 @@ export default function ChatScreen() {
                   apartment={apartment}
                   colors={colors}
                   styles={styles}
+                  isLiked={currentUserLikedIds.has(apartment.id)}
+                  onToggleLike={() => handleToggleApartmentLike(apartment.id)}
                   onPress={() => router.push({ pathname: "/apartment-detail", params: { data: JSON.stringify(apartment) } } as any)}
                 />
               ))}
@@ -2521,6 +2586,8 @@ export default function ChatScreen() {
                   apartment={apartment}
                   colors={colors}
                   styles={styles}
+                  isLiked={currentUserLikedIds.has(apartment.id)}
+                  onToggleLike={() => handleToggleApartmentLike(apartment.id)}
                   onPress={() =>
                     router.push({
                       pathname: "/apartment-detail",
@@ -2725,7 +2792,7 @@ export default function ChatScreen() {
                 return (
                   <Pressable
                     key={m.id}
-                    style={[styles.sharedListMessageCard, itemMarginStyle]}
+                    style={[styles.sharedListMessageCard, isMine ? styles.sharedListMessageCardMine : styles.sharedListMessageCardTheirs, itemMarginStyle]}
                     onPress={() => void handleOpenPropertyList(m)}
                     onLongPress={canDeleteForEveryone ? () => setMessageActionTarget(m) : undefined}
                     delayLongPress={300}
@@ -3784,126 +3851,140 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     textAlign: "center",
     lineHeight: 22,
   },
-  mutualCardWrap: {
-    borderRadius: radius.lg,
-    overflow: "hidden",
-  },
-  mutualCard: {
-    minHeight: 360,
+  cardWrap: { position: "relative" },
+  card: {
+    height: 260,
+    position: "relative",
     borderRadius: radius.lg,
     overflow: "hidden",
     backgroundColor: colors.surfaceTertiary,
   },
-  mutualCardPressed: {
-    opacity: 0.95,
+  offMarketCard: {
+    borderTopWidth: 3,
+    borderTopColor: colors.brand,
   },
-  mutualCardPhoto: {
-    width: "100%",
-    height: 360,
-    backgroundColor: colors.surfaceTertiary,
-  },
-  mutualCardPlaceholder: {
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing.sm,
-  },
-  mutualCardPlaceholderText: {
-    fontFamily: fonts.bold,
-    fontSize: fontSize.lg,
-    color: colors.onSurface,
-  },
-  mutualCarouselArrow: {
-    position: "absolute",
-    top: "42%",
-    zIndex: 4,
-    width: 38,
-    height: 38,
-    borderRadius: radius.pill,
-    backgroundColor: "rgba(0,0,0,0.45)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  mutualCarouselArrowLeft: {
-    left: spacing.sm,
-  },
-  mutualCarouselArrowRight: {
-    right: spacing.sm,
-  },
-  mutualRentBadge: {
+  clientOnlyBadge: {
     position: "absolute",
     top: spacing.md,
     left: spacing.md,
-    zIndex: 5,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    zIndex: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    borderRadius: radius.pill,
+    backgroundColor: colors.brand,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  clientOnlyBadgeText: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.xs,
+    color: colors.onBrand,
+  },
+  carouselArrowButton: {
+    position: "absolute",
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(0, 0, 0, 0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 3,
+  },
+  carouselArrowLeft: {
+    left: 10,
+    top: "50%",
+    transform: [{ translateY: -18 }],
+  },
+  carouselArrowRight: {
+    right: 10,
+    top: "50%",
+    transform: [{ translateY: -18 }],
+  },
+  cardPressed: { opacity: 0.88 },
+  likeBtn: {
+    position: "absolute",
+    right: spacing.md,
+    bottom: spacing.md,
+    width: 42,
+    height: 42,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.9)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.95)",
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 7,
+  },
+  likeBtnActive: {
+    backgroundColor: "#FF5A66",
+    borderColor: "#FF5A66",
+  },
+  photo: { ...StyleSheet.absoluteFillObject },
+  rentBadge: {
+    position: "absolute",
+    top: spacing.md,
+    right: spacing.md,
+    flexDirection: "row",
+    alignItems: "flex-end",
+    backgroundColor: colors.brand,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
-    borderRadius: radius.md,
+    borderRadius: radius.pill,
   },
-  mutualRentText: {
-    fontFamily: fonts.bold,
-    fontSize: fontSize.xl,
-    color: "#FFFFFF",
-  },
-  mutualRentMeta: {
-    fontFamily: fonts.semibold,
-    fontSize: 11,
-    color: "rgba(255,255,255,0.82)",
-    textTransform: "uppercase",
-  },
-  mutualCardBody: {
+  rentText: { fontFamily: fonts.displayExtra, fontSize: fontSize.xl, color: colors.onBrand },
+  rentMo: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onBrand, paddingBottom: 2 },
+  cardBody: {
     position: "absolute",
     left: 0,
     right: 0,
     bottom: 0,
-    zIndex: 3,
-    gap: spacing.sm,
     padding: spacing.lg,
-  },
-  mutualLocRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-  },
-  mutualLocText: {
-    fontFamily: fonts.semibold,
-    fontSize: fontSize.base,
-    color: "rgba(255,255,255,0.92)",
-    flexShrink: 1,
-  },
-  mutualStatsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-  },
-  mutualStatText: {
-    fontFamily: fonts.regular,
-    fontSize: fontSize.sm,
-    color: "rgba(255,255,255,0.88)",
-  },
-  mutualDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "rgba(255,255,255,0.7)",
-  },
-  mutualTagRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
     gap: spacing.xs,
   },
-  mutualTag: {
-    backgroundColor: "rgba(255,255,255,0.16)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.18)",
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
+  locRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+  loc: { fontFamily: fonts.semibold, fontSize: fontSize.base, color: "rgba(255,255,255,0.85)" },
+  statsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    marginTop: 2,
   },
-  mutualTagText: {
+  stat: { fontFamily: fonts.regular, fontSize: fontSize.base, color: "rgba(255,255,255,0.9)" },
+  dot: { width: 4, height: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.6)" },
+  tagRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  tag: {
+    backgroundColor: "rgba(255,255,255,0.16)",
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+  },
+  tagText: {
     fontFamily: fonts.semibold,
-    fontSize: 11,
-    color: "#FFFFFF",
-    textTransform: "capitalize",
+    fontSize: fontSize.sm,
+    color: colors.onSurfaceInverse,
+  },
+  cardPlaceholder: {
+    backgroundColor: colors.surfaceSecondary,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.xs,
+    transform: [{ translateY: -20 }],
+  },
+  cardPlaceholderText: {
+    fontFamily: fonts.displayExtra,
+    fontSize: fontSize.base,
+    color: colors.brand,
+    letterSpacing: 1,
   },
   crossChatBanner: {
     marginHorizontal: spacing.lg,
@@ -4218,19 +4299,18 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     width: 240,
     padding: spacing.md,
     borderRadius: radius.lg,
-    backgroundColor: colors.surfaceSecondary,
     borderWidth: 1,
-    borderColor: colors.border,
     gap: spacing.xs,
   },
-  sharedListMessageCardTheirs: { alignSelf: "flex-start" },
-  sharedListMessageCardMine: { backgroundColor: colors.brand, borderColor: colors.brand },
+  sharedListMessageCardTheirs: { alignSelf: "flex-start", backgroundColor: colors.surfaceSecondary, borderColor: colors.border },
+  sharedListMessageCardMine: { alignSelf: "flex-end", backgroundColor: colors.brand, borderColor: colors.brand },
   sharedListHeader: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
   sharedListTitle: { flex: 1, fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onSurface },
   sharedListTitleMine: { color: colors.onBrand },
   sharedListCountText: { fontFamily: fonts.regular, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
   sharedListCountTextMine: { color: "rgba(255,255,255,0.82)" },
   sharedListActionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: spacing.xs, paddingTop: spacing.xs, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  sharedListActionRowMine: { borderTopColor: "rgba(255,255,255,0.35)" },
   sharedListViewBtnText: { fontFamily: fonts.bold, fontSize: fontSize.xs, color: colors.brand },
   sharedListViewBtnTextMine: { color: colors.onBrand },
   listFeedHeaderBanner: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface },

@@ -145,8 +145,8 @@ export async function scheduleBrokerDealStagnationAlertsAsync(brokerId: string):
       return Notifications.scheduleNotificationAsync({
         content: {
           title: `Deal Stagnation ${indicator}`,
-          body: `Ο πελάτης ${profile.clientName ?? 'Πελάτης'} έχει μείνει ${elapsedDays} ημέρες στο στάδιο ${stage.label}.`,
-          data: { type: 'broker_deal_stagnation', clientUserId: profile.clientUserId, chatRoomId: profile.chatRoomId, route: '/broker-client-detail' },
+          body: `Ο πελάτης ${profile.clientName ?? 'ο πελάτης'} έχει μείνει ${elapsedDays} ημέρες στο στάδιο ${stage.label}.`,
+          data: { type: 'broker_deal_stagnation', clientUserId: profile.clientUserId ?? profile.clientId, chatRoomId: profile.chatRoomId, route: '/broker-client-detail' },
         },
         trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: scheduledTime },
       });

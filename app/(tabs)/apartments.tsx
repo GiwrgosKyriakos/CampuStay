@@ -20,6 +20,7 @@ import { saveRecentSearch, subscribeRecentSearches } from "@/src/api/recentSearc
 import CenteredActionModal from "@/src/components/CenteredActionModal";
 import { t } from "@/src/locales";
 import { getExcludedUserIds } from "@/src/api/blocking";
+import { syncBrokerClientProfile } from "@/src/api/brokerClientProfiles";
 import { getUserApartmentNotes, updateNotesOrder, type Apartment as ApartmentNoteData } from "@/src/api/apartmentNotes";
 import { storage } from "@/src/utils/storage";
 import { calculatePricePerSqm } from "@/src/utils/pricing";
@@ -789,6 +790,12 @@ export default function ApartmentsScreen() {
         }),
         { merge: true },
       );
+      await syncBrokerClientProfile({
+        brokerId,
+        clientId: auth.userId,
+        role: "client",
+        chatRoomId,
+      });
       const filterSetData = sanitizeFirestorePayload({
         title: title || "",
         rentMin: rentMin || "",
@@ -1230,10 +1237,6 @@ export default function ApartmentsScreen() {
   const handleSwipeTabChange = useCallback(
     (direction: "left" | "right") => {
       if (isViewingMyListings) {
-        if (!auth.isBroker) {
-          setViewMode("list");
-          return;
-        }
         if (direction === "left") {
           setViewMode("compact");
           return;
@@ -1248,8 +1251,20 @@ export default function ApartmentsScreen() {
       }
       setActiveTab("all");
     },
-    [auth.isBroker, isViewingMyListings],
+    [isViewingMyListings],
   );
+
+  const toggleMyListings = useCallback(() => {
+    setIsViewingMyListings((prev) => {
+      const next = !prev;
+      if (next && viewMode !== "compact") {
+        setViewMode("grid");
+      } else if (!next && viewMode === "compact") {
+        setViewMode("list");
+      }
+      return next;
+    });
+  }, [viewMode]);
 
   const contentPanResponder = useMemo(
     () =>
@@ -1566,13 +1581,6 @@ export default function ApartmentsScreen() {
   }, [filteredApartments]);
 
   useEffect(() => {
-    if (!auth.isBroker && viewMode !== "list") {
-      setViewMode("list");
-      setSelectedMapApartment(null);
-    }
-  }, [auth.isBroker, viewMode]);
-
-  useEffect(() => {
     if (auth.isBroker && viewMode === "map") {
       mapRef.current?.animateToRegion(mapRegion, 350);
       setSelectedMapApartment(null);
@@ -1586,42 +1594,58 @@ export default function ApartmentsScreen() {
       <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
         <View style={styles.titleRowTop}>
           <Text style={styles.title}>{t("apartments.title")}</Text>
-          {canManageListings ? (
-            <Pressable
-              style={[styles.myListingsPill, isViewingMyListings && styles.myListingsPillActive]}
-              onPress={() => setIsViewingMyListings((prev) => !prev)}
-              testID="apartments-my-listings-pill"
-            >
-              <Text style={[styles.myListingsPillText, isViewingMyListings && styles.myListingsPillTextActive]}>
-                {t("apartments.myListings")}
-              </Text>
-            </Pressable>
-          ) : null}
+          <View style={styles.topActionsRow}>
+            {!auth.isBroker ? (
+              <Pressable
+                style={[styles.topIconBtn, viewMode === "map" && styles.topIconBtnActive]}
+                onPress={() => setViewMode((previous) => previous === "map" ? "list" : "map")}
+                hitSlop={8}
+                testID="seeker-top-map-toggle-btn"
+                accessibilityRole="button"
+                accessibilityLabel="Εναλλαγή Χάρτη"
+              >
+                <Ionicons name={viewMode === "map" ? "map" : "map-outline"} size={20} color={viewMode === "map" ? colors.brand : colors.onSurface} />
+              </Pressable>
+            ) : null}
+            {canManageListings ? (
+              <Pressable
+                style={[styles.topIconBtn, isViewingMyListings && styles.topIconBtnActive]}
+                onPress={toggleMyListings}
+                hitSlop={8}
+                testID="apartments-my-listings-icon-btn"
+                accessibilityRole="button"
+                accessibilityLabel={t("apartments.myListings")}
+              >
+                <Ionicons name={isViewingMyListings ? "briefcase" : "briefcase-outline"} size={20} color={isViewingMyListings ? colors.brand : colors.onSurface} />
+              </Pressable>
+            ) : null}
+          </View>
         </View>
-        <Text style={styles.subtitle}>{t("apartments.subtitle")}</Text>
         <View style={styles.headerControlsRow}>
           <Pressable
             style={[styles.iconControlButton, showFilters && styles.iconControlButtonActive]}
             onPress={() => setShowFilters((v) => !v)}
             testID="apartments-filter-toggle"
+            accessibilityRole="button"
+            accessibilityLabel="Φίλτρα"
           >
-            <Ionicons name="options-outline" size={18} color={colors.onBrandTertiary} />
+            <Ionicons name="options-outline" size={18} color={showFilters ? "#000000" : colors.brand} />
           </Pressable>
           <Pressable
             style={[styles.iconControlButton, showSearch && styles.iconControlButtonActive]}
             onPress={() => setShowSearch((prev) => !prev)}
             testID="apartments-search-toggle"
           >
-            <Ionicons name="search-outline" size={18} color={colors.onBrandTertiary} />
+            <Ionicons name={showSearch ? "search" : "search-outline"} size={18} color={showSearch ? "#000000" : colors.brand} />
           </Pressable>
           {auth.isBroker ? (
             <Pressable
-              style={[styles.iconControlButton, styles.mapToggleButton]}
+              style={[styles.iconControlButton, viewMode === "map" && styles.iconControlButtonActive]}
               onPress={() => setViewMode((previous) => previous === "map" ? "list" : "map")}
               hitSlop={8}
               testID="broker-map-toggle-btn"
             >
-              <Ionicons name={viewMode === "map" ? "list-outline" : "map-outline"} size={20} color={colors.onSurface} />
+              <Ionicons name={viewMode === "map" ? "list-outline" : "map-outline"} size={19} color={viewMode === "map" ? "#000000" : colors.brand} />
             </Pressable>
           ) : (
             <Pressable
@@ -1630,7 +1654,7 @@ export default function ApartmentsScreen() {
               hitSlop={8}
               testID="seeker-notes-btn"
             >
-              <Ionicons name="document-text-outline" size={18} color={colors.onBrandTertiary} />
+              <Ionicons name={showNotesPanel ? "document-text" : "document-text-outline"} size={18} color={showNotesPanel ? "#000000" : colors.brand} />
             </Pressable>
           )}
           {!isViewingMyListings ? (
@@ -1656,8 +1680,8 @@ export default function ApartmentsScreen() {
                 </Text>
               </Pressable>
             </View>
-          ) : auth.isBroker ? (
-            <View style={styles.viewToggle} testID="apartments-view-toggle">
+          ) : canManageListings ? (
+            <View style={styles.viewToggle} testID="apartments-my-listings-view-toggle">
               <Pressable
                 style={[styles.viewToggleOption, viewMode === "grid" && styles.viewToggleOptionActive]}
                 onPress={() => setViewMode("grid")}
@@ -2015,7 +2039,7 @@ export default function ApartmentsScreen() {
         )}
       </View>
       <View {...contentPanResponder.panHandlers} style={styles.flexOne}>
-      {auth.isBroker && viewMode === "map" ? (
+      {viewMode === "map" ? (
         <View style={styles.mapContainer}>
           <MapView
             ref={mapRef}
@@ -2615,27 +2639,25 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     gap: spacing.sm,
   },
   title: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface },
-  myListingsPill: {
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    borderColor: colors.brandSecondary,
-    backgroundColor: colors.brandTertiary,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
+  topActionsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
   },
-  myListingsPillActive: {
-    backgroundColor: colors.brand,
+  topIconBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  topIconBtnActive: {
+    backgroundColor: colors.brandTertiary,
     borderColor: colors.brand,
   },
-  myListingsPillText: {
-    fontFamily: fonts.bold,
-    fontSize: fontSize.sm,
-    color: colors.onBrandTertiary,
-  },
-  myListingsPillTextActive: {
-    color: colors.onBrand,
-  },
-  subtitle: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary },
   headerControlsRow: {
     marginTop: spacing.sm,
     flexDirection: "row",
@@ -2652,11 +2674,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderWidth: 1,
     borderColor: "#A8D9FF",
   },
-  iconControlButtonActive: { backgroundColor: "#C8E9FF" },
-  mapToggleButton: {
-    backgroundColor: colors.surfaceSecondary,
-    borderColor: colors.border,
-  },
+  iconControlButtonActive: { backgroundColor: colors.brand, borderColor: colors.brand },
   filterHistoryBackdrop: {
     flex: 1,
     alignItems: "center",

@@ -14,6 +14,8 @@ import { DELETED_ACCOUNT_LABEL } from "@/src/api/accountDeletion";
 import { t } from "@/src/locales";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import { getBlockRelationshipState } from "@/src/api/chat";
+import { syncBrokerClientProfile } from "@/src/api/brokerClientProfiles";
+import { isBrokerOrAgencyUser } from "@/src/utils/roles";
 
 interface FirestoreUserDoc {
   name?: string | null;
@@ -21,6 +23,9 @@ interface FirestoreUserDoc {
   photos?: string[];
   deleted?: boolean;
   is_broker?: boolean;
+  agencyId?: string | null;
+  agencyRole?: string | null;
+  is_agency_ceo?: boolean;
 }
 
 interface FirestoreHostChatDoc {
@@ -101,8 +106,10 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
   const [chatToDelete, setChatToDelete] = useState<HostInboxItem | null>(null);
   const [deletingChatId, setDeletingChatId] = useState<string | null>(null);
   const [acceptingChatId, setAcceptingChatId] = useState<string | null>(null);
+  const [infoOpen, setInfoOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const canSeeBrokerRoleMetadata = auth.isBroker === true || isBrokerOrAgencyUser(auth.user as Parameters<typeof isBrokerOrAgencyUser>[0]);
 
   const normalizedQuery = useMemo(() => normalizeText(searchQuery), [searchQuery]);
   const filteredItems = useMemo(() => {
@@ -178,6 +185,9 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
 
                   const customerSnap = await getDoc(doc(db, "users", customerId));
                   const customerData = customerSnap.exists() ? (customerSnap.data() as FirestoreUserDoc) : null;
+                  if (isBrokerOrAgencyUser(customerData) && chatData.brokerChatRole !== "client" && !chatData.apartmentId) {
+                    return null;
+                  }
                   
                   let isUnread = false;
                   let lastMessageText = "";
@@ -198,9 +208,7 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
                   const apartmentTitle = chatData.apartmentTitle?.trim() || "Apartment";
                   const brokerChatRole = chatData.brokerChatRole === "client" || chatData.brokerChatRole === "owner"
                     ? chatData.brokerChatRole
-                    : customerData?.is_broker === true
-                      ? "client"
-                      : undefined;
+                    : undefined;
                   const customerName = customerData?.name?.trim() || DELETED_ACCOUNT_LABEL;
                   const photos = Array.isArray(customerData?.photos) ? customerData.photos : [];
                   const customerAvatar = customerData?.photoUrl || photos[0] || "";
@@ -306,6 +314,13 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
       await updateDoc(doc(db, "chats", item.chatRoomId), {
         status: "active",
       });
+      await syncBrokerClientProfile({
+        brokerId: auth.userId,
+        clientId: item.customerId,
+        role: item.brokerChatRole === "owner" ? "owner" : "client",
+        chatRoomId: item.chatRoomId,
+        apartmentId: item.apartmentId,
+      });
       router.push({ pathname: "/chat/[id]", params: { id: item.customerId, chatRoomId: item.chatRoomId } });
     } catch (err) {
       console.error("Accept chat failed:", err);
@@ -358,20 +373,36 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
         <View style={styles.headerCopy}>
           <Text style={styles.title}>{titleOverride ?? t("host-inbox.title")}</Text>
         </View>
-        <Pressable
-          onPress={() => {
-            setSearchOpen((prev) => {
-              const next = !prev;
-              if (!next) setSearchQuery("");
-              return next;
-            });
-          }}
-          style={styles.searchToggleBtn}
-          testID="host-inbox-search-toggle"
-          hitSlop={8}
-        >
-          <Ionicons name="search-outline" size={20} color={colors.onSurface} />
-        </Pressable>
+        <View style={styles.headerActionGroup}>
+          {canSeeBrokerRoleMetadata ? (
+            <Pressable
+              onPress={() => setInfoOpen((prev) => !prev)}
+              style={[styles.headerActionBtn, infoOpen && styles.headerActionBtnActive]}
+              testID="host-inbox-info-toggle"
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Υπόμνημα ρόλων"
+            >
+              <Ionicons name={infoOpen ? "information-circle" : "information-circle-outline"} size={20} color={infoOpen ? colors.brand : colors.onSurface} />
+            </Pressable>
+          ) : null}
+          <Pressable
+            onPress={() => {
+              setSearchOpen((prev) => {
+                const next = !prev;
+                if (!next) setSearchQuery("");
+                return next;
+              });
+            }}
+            style={[styles.headerActionBtn, searchOpen && styles.headerActionBtnActive]}
+            testID="host-inbox-search-toggle"
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Αναζήτηση"
+          >
+            <Ionicons name={searchOpen ? "search" : "search-outline"} size={20} color={searchOpen ? colors.brand : colors.onSurface} />
+          </Pressable>
+        </View>
       </View>
 
       {searchOpen ? (
@@ -393,6 +424,20 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
                 <Ionicons name="close" size={16} color={colors.onSurfaceTertiary} />
               </Pressable>
             ) : null}
+          </View>
+        </View>
+      ) : null}
+
+      {infoOpen && canSeeBrokerRoleMetadata ? (
+        <View style={styles.legendContainer} testID="host-inbox-role-legend">
+          <View style={styles.legendItem}>
+            <Text style={styles.clientBadge}>C</Text>
+            <Text style={styles.legendText}>Πελάτης / Ενοικιαστής</Text>
+          </View>
+          <View style={styles.legendDivider} />
+          <View style={styles.legendItem}>
+            <Text style={styles.ownerBadge}>O</Text>
+            <Text style={styles.legendText}>Ιδιοκτήτης Ακινήτου</Text>
           </View>
         </View>
       ) : null}
@@ -474,17 +519,11 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
                 )}
 
                 <View style={styles.rowText}>
-                  {item.brokerChatRole === "owner" && item.apartmentId ? (
-                    <View style={styles.assignedApartmentBanner}>
-                      {item.apartmentImage ? <Image source={{ uri: item.apartmentImage }} style={styles.assignedApartmentImage} contentFit="cover" /> : <View style={[styles.assignedApartmentImage, styles.assignedApartmentPlaceholder]}><Ionicons name="home-outline" size={18} color={colors.brand} /></View>}
-                      <Text style={styles.assignedApartmentLabel} numberOfLines={1}>Ανατεθειμένο Ακίνητο: {item.apartmentTitle}</Text>
-                    </View>
-                  ) : null}
                   <View style={styles.rowNameHeader}>
                     <Text style={styles.rowName} numberOfLines={1}>{customerName}</Text>
                     <Text style={styles.apartmentTitle} numberOfLines={1}>{item.apartmentTitle}</Text>
-                    {item.brokerChatRole === "client" ? <Text style={styles.clientBadge}>Client</Text> : null}
-                    {item.brokerChatRole === "owner" ? <Text style={styles.ownerBadge}>Ιδιοκτήτης</Text> : null}
+                    {canSeeBrokerRoleMetadata && item.brokerChatRole === "client" ? <Text style={styles.clientBadge}>C</Text> : null}
+                    {canSeeBrokerRoleMetadata && item.brokerChatRole === "owner" ? <Text style={styles.ownerBadge}>O</Text> : null}
                     {isBlockedChat ? (
                       <View style={styles.blockedBadge}>
                         <Text style={styles.blockedBadgeText}>{t("host-inbox.blockedBadge")}</Text>
@@ -618,7 +657,12 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderColor: colors.border,
   },
   headerCopy: { flex: 1, justifyContent: "center" },
-  searchToggleBtn: {
+  headerActionGroup: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  headerActionBtn: {
     width: 40,
     height: 40,
     borderRadius: radius.pill,
@@ -627,6 +671,10 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     backgroundColor: colors.surfaceSecondary,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  headerActionBtnActive: {
+    backgroundColor: colors.brandTertiary,
+    borderColor: colors.brand,
   },
   title: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface },
   searchBarWrap: {
@@ -676,12 +724,12 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   rowNameHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
   rowName: { flex: 1, fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface },
   apartmentTitle: { flexShrink: 1, fontFamily: fonts.semibold, fontSize: 13, color: colors.brand, textAlign: "right" },
-  clientBadge: { fontFamily: fonts.bold, fontSize: 11, color: colors.brand, backgroundColor: colors.brandTertiary, borderRadius: radius.pill, paddingHorizontal: spacing.xs, paddingVertical: 3 },
-  ownerBadge: { fontFamily: fonts.bold, fontSize: 11, color: colors.onSurface, backgroundColor: colors.surfaceTertiary, borderRadius: radius.pill, paddingHorizontal: spacing.xs, paddingVertical: 3 },
-  assignedApartmentBanner: { flexDirection: "row", alignItems: "center", gap: spacing.xs, marginBottom: spacing.xs, padding: spacing.xs, borderRadius: radius.md, backgroundColor: colors.surfaceTertiary },
-  assignedApartmentImage: { width: 40, height: 40, borderRadius: radius.md, backgroundColor: colors.surface },
-  assignedApartmentPlaceholder: { alignItems: "center", justifyContent: "center" },
-  assignedApartmentLabel: { flex: 1, fontFamily: fonts.semibold, fontSize: 12, color: colors.onSurface },
+  clientBadge: { fontFamily: fonts.bold, fontSize: 11, color: colors.brand, backgroundColor: colors.brandTertiary, borderRadius: radius.pill, paddingHorizontal: 7, paddingVertical: 2, textAlign: "center", minWidth: 20 },
+  ownerBadge: { fontFamily: fonts.bold, fontSize: 11, color: colors.onSurface, backgroundColor: colors.surfaceTertiary, borderRadius: radius.pill, paddingHorizontal: 7, paddingVertical: 2, textAlign: "center", minWidth: 20 },
+  legendContainer: { flexDirection: "row", alignItems: "center", justifyContent: "space-around", marginHorizontal: spacing.lg, marginBottom: spacing.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.md, backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border },
+  legendItem: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
+  legendDivider: { width: 1, height: 16, backgroundColor: colors.border },
+  legendText: { fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
   blockedBadge: {
     borderRadius: radius.pill,
     borderWidth: 1,

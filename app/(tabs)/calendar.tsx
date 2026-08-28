@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { Text, View, StyleSheet, Pressable, Modal, ScrollView, ActivityIndicator, DimensionValue } from "react-native";
+import { BackHandler, Text, View, StyleSheet, Pressable, Modal, ScrollView, ActivityIndicator, DimensionValue } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useFocusEffect } from "expo-router";
@@ -12,9 +12,12 @@ import {
   getBrokerNotesByDateRange,
   getMostFrequentCategoryColor,
   noteCategoryColorMap,
+  updateBrokerNote,
   type BrokerNote,
 } from "@/src/api/brokerCalendar";
 import BrokerNoteModal, { type BrokerClientItem, type BrokerListingItem } from "@/src/components/BrokerNoteModal";
+import CenteredActionModal from "@/src/components/CenteredActionModal";
+import { getBrokerClientProfiles } from "@/src/api/brokerClientProfiles";
 import { db } from "@/src/config/firebase";
 import { useAuth } from "@/src/context/auth";
 import { fontSize, fonts, radius, spacing, type ThemeColors } from "@/src/theme";
@@ -23,6 +26,7 @@ import { t } from "@/src/locales";
 
 type CalendarViewMode = "month" | "week" | "day";
 const WEEKDAY_LABELS = ["Δευ", "Τρι", "Τετ", "Πεμ", "Παρ", "Σαβ", "Κυρ"] as const;
+const FULL_WEEKDAY_LABELS = ["Δευτέρα", "Τρίτη", "Τετάρτη", "Πέμπτη", "Παρασκευή", "Σάββατο", "Κυριακή"] as const;
 const GREEK_MONTHS = [
   "Ιανουάριος",
   "Φεβρουάριος",
@@ -70,17 +74,6 @@ type FirestoreApartmentDoc = {
   price?: number;
   status?: string;
   rentedToUserId?: string;
-};
-
-type FirestoreChatDoc = {
-  users?: unknown;
-  type?: unknown;
-  apartmentId?: unknown;
-  apartmentTitle?: unknown;
-  status?: unknown;
-  participantDisplayNames?: unknown;
-  brokerId?: unknown;
-  hostId?: unknown;
 };
 
 let memoryNotesCache: Record<string, BrokerNote[]> = {};
@@ -214,9 +207,11 @@ function CalendarView({
   onSelectDate,
   onAddNotePress,
   onEditNotePress,
+  onToggleNoteDone,
+  onNavigate,
+  bottomInset,
   visibleNotes,
   isLoading,
-  currentTimeStr,
 }: {
   colors: ThemeColors;
   currentDate: Date;
@@ -225,13 +220,14 @@ function CalendarView({
   onSelectDate: (nextDate: Date) => void;
   onAddNotePress: (selectedDate: string) => void;
   onEditNotePress: (note: BrokerNote) => void;
+  onToggleNoteDone: (note: BrokerNote) => void;
+  onNavigate: (direction: -1 | 1) => void;
+  bottomInset: number;
   visibleNotes: BrokerNote[];
   isLoading: boolean;
-  currentTimeStr: string;
 }) {
   const today = useMemo(() => startOfDay(new Date()), []);
   const selectedDayKey = useMemo(() => formatDateKey(currentDate), [currentDate]);
-  const isSelectedDayToday = useMemo(() => selectedDayKey === formatDateKey(today), [selectedDayKey, today]);
   const weeks = useMemo(() => buildMonthWeeks(currentDate), [currentDate]);
   const currentWeekStart = useMemo(() => startOfWeek(currentDate), [currentDate]);
   const currentMonth = currentDate.getMonth();
@@ -263,13 +259,9 @@ function CalendarView({
   }, [visibleNotes]);
 
   const selectedDayNotes = useMemo(() => notesByDate.get(selectedDayKey) ?? [], [notesByDate, selectedDayKey]);
-  const dayLayout = useMemo(
-    () => calculateGridLayout(selectedDayNotes, isSelectedDayToday, currentTimeStr),
-    [currentTimeStr, isSelectedDayToday, selectedDayNotes],
-  );
-  const dayCardWidth = useMemo<DimensionValue>(
-    () => `${100 / dayLayout.columnCount}%` as DimensionValue,
-    [dayLayout.columnCount],
+  const weekAgendaDays = useMemo(
+    () => currentWeekCells.filter((cell) => (notesByDate.get(cell.dateKey) ?? []).length > 0),
+    [currentWeekCells, notesByDate],
   );
   const brandPrimaryColor = useMemo(() => {
     const withLegacyKey = colors as unknown as { brandPrimary?: string; brand?: string };
@@ -312,81 +304,166 @@ function CalendarView({
     [calendarViewMode, onCalendarViewModeChange],
   );
 
-  const renderDayPlan = () => (
-    <View style={[styles.dayViewCard, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
-      <Text style={[styles.dayViewTitle, { color: colors.onSurface }]}>Ημερήσιο Πλάνο</Text>
-      <Text style={[styles.dayViewSubtitle, { color: colors.onSurfaceTertiary }]}>{selectedDayKey}</Text>
-
-      {dayLayout.notes.length === 0 ? (
-        <View style={styles.emptyStateWrap}>
-          <Text style={[styles.emptyStateText, { color: colors.onSurfaceTertiary }]}>Δεν υπάρχουν ενεργές σημειώσεις για αυτήν την ημέρα.</Text>
-        </View>
-      ) : (
-        <View style={styles.noteGrid}>
-          {dayLayout.notes.map((note) => {
-            const cardBackground = noteCategoryColorMap[note.category] ?? colors.surfaceSecondary;
-            const apartmentOrClient = note.apartmentTitle || note.clientName || "-";
-
-            return (
-              <Pressable
-                key={note.id}
-                onPress={() => onEditNotePress(note)}
-                style={[
-                  styles.noteCard,
-                  {
-                    width: dayCardWidth,
-                    backgroundColor: cardBackground,
-                    borderColor: colors.border,
-                  },
-                ]}
-              >
-                {dayLayout.columnCount === 1 ? (
-                  <>
-                    <Text style={[styles.notePrimaryText, { color: colors.onSurface }]} numberOfLines={1}>
-                      {note.time || "--:--"}
-                    </Text>
-                    <Text style={[styles.noteSecondaryText, { color: colors.onSurface }]} numberOfLines={1}>
-                      {note.apartmentTitle || "-"}
-                    </Text>
-                    <Text style={[styles.noteSecondaryText, { color: colors.onSurface }]} numberOfLines={1}>
-                      {note.clientName || "-"}
-                    </Text>
-                  </>
-                ) : null}
-
-                {dayLayout.columnCount === 2 ? (
-                  <>
-                    <Text style={[styles.notePrimaryText, { color: colors.onSurface }]} numberOfLines={1}>
-                      {note.time || "--:--"}
-                    </Text>
-                    <Text style={[styles.noteSecondaryText, { color: colors.onSurface }]} numberOfLines={1}>
-                      {apartmentOrClient}
-                    </Text>
-                  </>
-                ) : null}
-
-                {dayLayout.columnCount >= 3 ? (
-                  <Text style={[styles.notePrimaryText, { color: colors.onSurface }]} numberOfLines={1}>
-                    {note.time || "--:--"}
-                  </Text>
-                ) : null}
-              </Pressable>
-            );
-          })}
-        </View>
-      )}
-
-      <Pressable
-        style={[styles.addNoteRow, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
-        onPress={() => onAddNotePress(selectedDayKey)}
-      >
-        <Ionicons name="add-circle" size={28} color={brandPrimaryColor} />
-      </Pressable>
-    </View>
+  const swipeGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetX([-24, 24])
+        .failOffsetY([-20, 20])
+        .onEnd((event) => {
+          if (calendarViewMode === "month" && Math.abs(event.translationX) >= 56) {
+            runOnJS(onNavigate)(event.translationX < 0 ? 1 : -1);
+          }
+        }),
+    [calendarViewMode, onNavigate],
   );
 
+  const calendarGesture = useMemo(() => Gesture.Simultaneous(pinchGesture, swipeGesture), [pinchGesture, swipeGesture]);
+
+  const renderDoneButton = (note: BrokerNote, isPast: boolean) => (
+    <Pressable
+      accessibilityLabel={note.done ? "Επισήμανση ως εκκρεμές" : "Επισήμανση ως ολοκληρωμένο"}
+      disabled={isPast}
+      hitSlop={8}
+      onPress={(event) => {
+        event.stopPropagation();
+        onToggleNoteDone(note);
+      }}
+      style={[styles.doneButton, { backgroundColor: note.done ? colors.brand : "transparent", borderColor: note.done ? colors.brand : "#FFFFFF" }]}
+    >
+      <Ionicons name={note.done ? "checkmark" : "checkmark-outline"} size={20} color={note.done ? colors.onBrand : "#FFFFFF"} />
+    </Pressable>
+  );
+
+  const renderExpandedNoteCard = (note: BrokerNote) => {
+    const isPast = note.date < formatDateKey(today);
+    const textColor = note.done ? colors.onBrandTertiary : colors.onSurface;
+
+    return (
+      <Pressable
+        key={note.id}
+        disabled={isPast}
+        onPress={(event) => {
+          event.stopPropagation();
+          onEditNotePress(note);
+        }}
+        style={({ pressed }) => [
+          styles.noteCard,
+          {
+            backgroundColor: note.done ? colors.brandTertiary : noteCategoryColorMap[note.category] ?? colors.surfaceSecondary,
+            borderColor: note.done ? colors.onBrandTertiary : colors.border,
+            opacity: isPast ? 0.6 : pressed ? 0.82 : 1,
+          },
+        ]}
+      >
+        <View style={styles.noteDetails}>
+          <Text style={[styles.notePrimaryText, { color: textColor, textDecorationLine: note.done ? "line-through" : "none" }]}>
+            Ώρα: {note.time || "--:--"}
+          </Text>
+          <Text style={[styles.noteSecondaryText, { color: textColor, textDecorationLine: note.done ? "line-through" : "none" }]}>
+            Όνομα ακινήτου: {note.apartmentTitle || "-"}
+          </Text>
+          <Text style={[styles.noteSecondaryText, { color: textColor, textDecorationLine: note.done ? "line-through" : "none" }]}>
+            Όνομα πελάτη: {note.clientName || "-"}
+          </Text>
+        </View>
+        {renderDoneButton(note, isPast)}
+      </Pressable>
+    );
+  };
+
+  const renderCompactNoteCard = (note: BrokerNote, width: DimensionValue, visibleFields: string[]) => {
+    const isPast = note.date < formatDateKey(today);
+    const textColor = note.done ? colors.onBrandTertiary : colors.onSurface;
+    const compactTextStyle = { color: textColor, textDecorationLine: note.done ? "line-through" as const : "none" as const };
+
+    return (
+      <Pressable
+        key={note.id}
+        disabled={isPast}
+        onPress={(event) => {
+          event.stopPropagation();
+          onEditNotePress(note);
+        }}
+        style={({ pressed }) => [styles.noteCard, styles.compactNoteCard, { width, backgroundColor: note.done ? colors.brandTertiary : noteCategoryColorMap[note.category] ?? colors.surfaceSecondary, borderColor: note.done ? colors.onBrandTertiary : colors.border, opacity: isPast ? 0.6 : pressed ? 0.82 : 1 }]}
+      >
+        <View style={styles.noteDetails}>
+          {visibleFields.includes("time") ? <Text style={[styles.notePrimaryText, compactTextStyle]} numberOfLines={1}>{note.time || "--:--"}</Text> : null}
+          {visibleFields.includes("apartment") ? <Text style={[styles.noteSecondaryText, compactTextStyle]} numberOfLines={1}>{note.apartmentTitle || "-"}</Text> : null}
+          {visibleFields.includes("client") ? <Text style={[styles.noteSecondaryText, compactTextStyle]} numberOfLines={1}>{note.clientName || "-"}</Text> : null}
+          {visibleFields.includes("apartmentOrClient") ? <Text style={[styles.noteSecondaryText, compactTextStyle]} numberOfLines={1}>{note.apartmentTitle || note.clientName || "-"}</Text> : null}
+          {visibleFields.includes("timeOrTitle") ? <Text style={[styles.notePrimaryText, compactTextStyle]} numberOfLines={1}>{note.time || note.apartmentTitle || "--:--"}</Text> : null}
+        </View>
+        {renderDoneButton(note, isPast)}
+      </Pressable>
+    );
+  };
+
+  const renderDayAgenda = (date: Date, notes: BrokerNote[], showFullTitle: boolean) => {
+    const dateKey = formatDateKey(date);
+    const isPast = date < today;
+    const dayLabel = `${FULL_WEEKDAY_LABELS[(date.getDay() + 6) % 7]}, ${date.getDate()} ${GREEK_MONTHS_GENITIVE[date.getMonth()]}`;
+
+    return (
+      <Pressable
+        disabled={showFullTitle || isPast}
+        onPress={() => onSelectDate(date)}
+        style={[styles.dayViewCard, { backgroundColor: colors.surface, borderColor: isPast ? colors.muted : colors.border, opacity: isPast ? 0.62 : 1 }]}
+      >
+        <Text style={[styles.dayViewTitle, { color: colors.onSurface }]}>{showFullTitle ? "Ημερήσιο πλάνο" : dayLabel}</Text>
+        {showFullTitle ? <Text style={[styles.dayViewSubtitle, { color: colors.onSurfaceTertiary }]}>{dayLabel}</Text> : null}
+        {notes.length === 0 ? (
+          <View style={styles.emptyStateWrap}>
+            <Text style={[styles.emptyStateText, { color: colors.onSurfaceTertiary }]}>Δεν υπάρχουν σημειώσεις για αυτήν την ημέρα.</Text>
+          </View>
+        ) : showFullTitle ? (
+          <View style={styles.noteList}>{[...notes].sort((a, b) => (a.time ?? "99:99").localeCompare(b.time ?? "99:99")).map(renderExpandedNoteCard)}</View>
+        ) : (
+          (() => {
+            const layout = calculateGridLayout(notes, false, "");
+            const cardWidth = `${100 / layout.columnCount}%` as DimensionValue;
+            return <View style={styles.noteGrid}>{layout.notes.map((note) => renderCompactNoteCard(note, cardWidth, layout.visibleFields))}</View>;
+          })()
+        )}
+        {!isPast ? (
+          <Pressable
+            style={[styles.addNoteRow, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+            onPress={(event) => {
+              event.stopPropagation();
+              onAddNotePress(dateKey);
+            }}
+          >
+            <Ionicons name="add-circle" size={28} color={brandPrimaryColor} />
+          </Pressable>
+        ) : null}
+      </Pressable>
+    );
+  };
+
+  const renderAgenda = () => {
+    const isPastWeek = endOfWeek(currentDate) < today;
+    const showArchiveBanner = calendarViewMode === "day" ? currentDate < today : isPastWeek;
+    const archiveBanner = showArchiveBanner ? (
+      <View style={[styles.archiveBanner, { backgroundColor: colors.surfaceTertiary, borderColor: colors.muted }]}>
+        <Ionicons name="lock-closed-outline" size={18} color={colors.onBrandTertiary} />
+        <Text style={[styles.archiveBannerText, { color: colors.onBrandTertiary }]}>Προβολή ιστορικού: Οι σημειώσεις παρελθόντων ημερών είναι αρχειοθετημένες και μη επεξεργάσιμες</Text>
+      </View>
+    ) : null;
+
+    return (
+      <ScrollView
+        style={styles.agendaScroll}
+        contentContainerStyle={[styles.agendaContent, { paddingBottom: bottomInset + 96 }]}
+        showsVerticalScrollIndicator={false}
+      >
+        {archiveBanner}
+        {calendarViewMode === "day" ? renderDayAgenda(currentDate, selectedDayNotes, true) : weekAgendaDays.map((cell) => renderDayAgenda(cell.date, notesByDate.get(cell.dateKey) ?? [], false))}
+        {calendarViewMode === "week" && weekAgendaDays.length === 0 ? <View style={styles.emptyStateWrap}><Text style={[styles.emptyStateText, { color: colors.onSurfaceTertiary }]}>Δεν υπάρχουν σημειώσεις αυτήν την εβδομάδα.</Text></View> : null}
+      </ScrollView>
+    );
+  };
+
   return (
-    <GestureDetector gesture={pinchGesture}>
+    <GestureDetector gesture={calendarGesture}>
       <View style={[styles.monthCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}> 
         {(calendarViewMode === "month" || calendarViewMode === "week") ? (
           <View style={styles.calendarHeaderRow}>
@@ -433,6 +510,7 @@ function CalendarView({
                     return (
                       <Pressable
                         key={cell.dateKey}
+                        disabled={isPastDay}
                         onPress={() => handleDaySelect(new Date(cell.date))}
                         style={[
                           styles.dayCell,
@@ -480,6 +558,7 @@ function CalendarView({
               return (
                 <Pressable
                   key={`week-day-${cell.dateKey}`}
+                  disabled={isPastDay}
                   onPress={() => handleDaySelect(new Date(cell.date))}
                   style={[
                     styles.dayCell,
@@ -499,7 +578,7 @@ function CalendarView({
           </View>
         ) : null}
 
-        {calendarViewMode === "week" || calendarViewMode === "day" ? renderDayPlan() : null}
+        {calendarViewMode === "week" || calendarViewMode === "day" ? renderAgenda() : null}
 
         {isLoading ? (
           <View style={styles.loadingOverlay}>
@@ -526,11 +605,8 @@ export default function CalendarScreen() {
   const [isNoteModalVisible, setIsNoteModalVisible] = useState(false);
   const [noteModalDate, setNoteModalDate] = useState(() => formatDateKey(new Date()));
   const [selectedNoteToEdit, setSelectedNoteToEdit] = useState<BrokerNote | null>(null);
+  const [completedNotePendingEdit, setCompletedNotePendingEdit] = useState<BrokerNote | null>(null);
   const [notesRefreshToken, setNotesRefreshToken] = useState(0);
-  const [currentTimeStr, setCurrentTimeStr] = useState(() => {
-    const now = new Date();
-    return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
-  });
 
   const currentMonthIndex = currentDate.getMonth();
   const currentYear = currentDate.getFullYear();
@@ -547,19 +623,26 @@ export default function CalendarScreen() {
       setNotesRefreshToken((previous) => previous + 1);
     }, []),
   );
+  useFocusEffect(
+    useCallback(() => {
+      const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+        if (calendarViewMode === "day") {
+          setCurrentDate(startOfWeek(currentDate));
+          setCalendarViewMode("week");
+          return true;
+        }
 
-  useEffect(() => {
-    const updateTime = () => {
-      const now = new Date();
-      setCurrentTimeStr(`${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`);
-    };
+        if (calendarViewMode === "week") {
+          setCalendarViewMode("month");
+          return true;
+        }
 
-    updateTime();
-    const interval = setInterval(updateTime, 30_000);
-    return () => {
-      clearInterval(interval);
-    };
-  }, []);
+        return true;
+      });
+
+      return () => subscription.remove();
+    }, [calendarViewMode, currentDate]),
+  );
 
   useEffect(() => {
     let isMounted = true;
@@ -622,61 +705,18 @@ export default function CalendarScreen() {
           } satisfies BrokerListingItem;
         });
 
-        const chatsSnapshot = await getDocs(
-          query(collection(db, "chats"), where("users", "array-contains", brokerId)),
-        );
-        const chatDocs = chatsSnapshot.docs.filter((docSnap) => {
-          const data = docSnap.data() as FirestoreChatDoc;
-          return data.type === "host";
-        });
-        const clientsMap = new Map<string, BrokerClientItem>();
-
-        for (const chatDoc of chatDocs) {
-          const data = chatDoc.data() as FirestoreChatDoc;
-          const status = typeof data.status === "string" ? data.status : "active";
-          if (status !== "active") {
-            continue;
-          }
-
-          const users = Array.isArray(data.users)
-            ? data.users.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-            : [];
-
-          const clientId = users.find((uid) => uid !== brokerId);
-          if (!clientId) {
-            continue;
-          }
-
-          const participantDisplayNames =
-            data.participantDisplayNames && typeof data.participantDisplayNames === "object"
-              ? (data.participantDisplayNames as Record<string, unknown>)
-              : {};
-          const clientNameCandidate = participantDisplayNames[clientId];
-          const clientName =
-            typeof clientNameCandidate === "string" && clientNameCandidate.trim().length > 0
-              ? clientNameCandidate
-              : "Πελάτης";
-
-          const apartmentId = typeof data.apartmentId === "string" ? data.apartmentId : undefined;
-          const existing = clientsMap.get(clientId);
-
-          if (!existing) {
-            clientsMap.set(clientId, {
-              id: clientId,
-              name: clientName,
-              apartmentIds: apartmentId ? [apartmentId] : [],
-              isActive: true,
-            });
-          } else if (apartmentId) {
-            const ids = new Set(existing.apartmentIds ?? []);
-            ids.add(apartmentId);
-            existing.apartmentIds = Array.from(ids);
-          }
-        }
+        const clients = (await getBrokerClientProfiles(brokerId))
+          .filter((profile) => typeof profile.clientName === "string" && profile.clientName.trim().length > 0)
+          .map((profile) => ({
+            id: profile.clientId,
+            name: profile.clientName!.trim(),
+            apartmentIds: profile.apartmentIds ?? [],
+            isActive: true,
+          } satisfies BrokerClientItem));
 
         if (isMounted) {
           setRealListings(listings);
-          setRealClients(Array.from(clientsMap.values()));
+          setRealClients(clients);
         }
       } catch {
         if (isMounted) {
@@ -698,21 +738,72 @@ export default function CalendarScreen() {
     setIsNoteModalVisible(true);
   }, []);
 
-  const openEditNoteModal = useCallback((note: BrokerNote) => {
+  const openNoteEditor = useCallback((note: BrokerNote) => {
     setSelectedNoteToEdit(note);
     setNoteModalDate(note.date);
     setIsNoteModalVisible(true);
   }, []);
+
+  const openEditNoteModal = useCallback((note: BrokerNote) => {
+    if (note.done) {
+      setCompletedNotePendingEdit(note);
+      return;
+    }
+    openNoteEditor(note);
+  }, [openNoteEditor]);
 
   const closeNoteModal = useCallback(() => {
     setIsNoteModalVisible(false);
     setSelectedNoteToEdit(null);
   }, []);
 
+  const closeCompletedNotePrompt = useCallback(() => {
+    setCompletedNotePendingEdit(null);
+  }, []);
+
   const handleNoteMutation = useCallback(() => {
     setNotesRefreshToken((prev) => prev + 1);
     setSelectedNoteToEdit(null);
   }, []);
+
+  const handleToggleNoteDone = useCallback(
+    async (note: BrokerNote) => {
+      const nextDone = !note.done;
+      const rangeKey = `${visibleRange.start}_${visibleRange.end}`;
+      setVisibleNotes((previous) => {
+        const next = previous.map((item) => (item.id === note.id ? { ...item, done: nextDone } : item));
+        memoryNotesCache[rangeKey] = next;
+        return next;
+      });
+
+      try {
+        await updateBrokerNote(brokerId, note.id, { done: nextDone });
+      } catch {
+        setVisibleNotes((previous) => {
+          const reverted = previous.map((item) => (item.id === note.id ? { ...item, done: note.done } : item));
+          memoryNotesCache[rangeKey] = reverted;
+          return reverted;
+        });
+      }
+    },
+    [brokerId, visibleRange.end, visibleRange.start],
+  );
+
+  const handleEditCompletedNote = useCallback(
+    async (removeCompletion: boolean) => {
+      const note = completedNotePendingEdit;
+      if (!note) return;
+
+      setCompletedNotePendingEdit(null);
+      if (removeCompletion) {
+        await handleToggleNoteDone(note);
+        openNoteEditor({ ...note, done: false });
+      } else {
+        openNoteEditor(note);
+      }
+    },
+    [completedNotePendingEdit, handleToggleNoteDone, openNoteEditor],
+  );
 
   const goToPrevious = useCallback(() => {
     setCurrentDate((prev) => shiftDateByCalendarView(prev, calendarViewMode, -1));
@@ -747,10 +838,10 @@ export default function CalendarScreen() {
   );
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.surface }]}> 
-      <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
-        <View style={styles.brandRow}>
-          <Text style={[styles.brand, { color: colors.onSurface }]}>
+    <View style={[styles.container, { backgroundColor: colors.surface, paddingTop: insets.top + spacing.lg }]}>
+      <View style={styles.header}>
+        <View style={styles.headerTopRow}>
+          <Text style={[styles.brandTitle, { color: colors.onSurface }]}>
             {t("common.brandPrefix")}<Text style={[styles.brandAccent, { color: colors.brand }]}>{t("common.brandSuffix")}</Text>
           </Text>
         </View>
@@ -775,9 +866,11 @@ export default function CalendarScreen() {
           onSelectDate={setCurrentDate}
           onAddNotePress={openCreateNoteModal}
           onEditNotePress={openEditNoteModal}
+          onToggleNoteDone={handleToggleNoteDone}
+          onNavigate={(direction) => setCurrentDate((previous) => shiftDateByCalendarView(previous, calendarViewMode, direction))}
+          bottomInset={insets.bottom}
           visibleNotes={visibleNotes}
           isLoading={isVisibleNotesLoading}
-          currentTimeStr={currentTimeStr}
         />
       </View>
 
@@ -844,6 +937,33 @@ export default function CalendarScreen() {
         </Pressable>
       </Modal>
 
+      <CenteredActionModal
+        visible={completedNotePendingEdit !== null}
+        title="Η σημείωση έχει ολοκληρωθεί"
+        description="Θέλετε αφαιρέσετε ή να διατηρήσετε την ένδειξη ολοκλήρωσης πριν ανοίξετε την επεξεργασία;"
+        onDismiss={closeCompletedNotePrompt}
+        actions={[
+          {
+            label: "Αφαίρεση και επεξεργασία",
+            iconName: "create-outline",
+            onPress: () => void handleEditCompletedNote(true),
+            variant: "solid",
+          },
+          {
+            label: "Διατήρηση και επεξεργασία",
+            iconName: "checkmark-circle-outline",
+            onPress: () => void handleEditCompletedNote(false),
+            variant: "outline",
+          },
+          {
+            label: "Ακύρωση",
+            iconName: "close-outline",
+            onPress: closeCompletedNotePrompt,
+            variant: "muted",
+          },
+        ]}
+      />
+
       <BrokerNoteModal
         visible={isNoteModalVisible}
         brokerId={brokerId}
@@ -863,7 +983,6 @@ export default function CalendarScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingHorizontal: spacing.lg,
   },
   calendarHeader: {
     minHeight: 48,
@@ -906,7 +1025,7 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.lg,
   },
   calendarModuleContainer: {
-    width: "100%",
+    marginHorizontal: spacing.lg,
     justifyContent: "center",
     gap: spacing.sm,
   },
@@ -972,10 +1091,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: spacing.sm,
   },
-  header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xs },
-  brandRow: { flexDirection: "row", alignItems: "center" },
-  brand: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"] },
-  brandAccent: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"] },
+  header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.sm },
+  headerTopRow: { flexDirection: "row", alignItems: "center", minHeight: 44 },
+  brandTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], includeFontPadding: false },
+  brandAccent: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], includeFontPadding: false },
   weekBarTouchArea: {
     width: 14,
     height: 42,
@@ -1025,14 +1144,16 @@ const styles = StyleSheet.create({
     fontSize: fontSize.base,
   },
   dayViewCard: {
-    marginTop: spacing.md,
-    borderRadius: radius.md,
+    marginTop: spacing.lg,
+    marginBottom: spacing.sm,
+    borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     padding: spacing.md,
   },
   dayViewTitle: {
     fontFamily: fonts.bold,
     fontSize: fontSize.base,
+    marginBottom: spacing.sm,
   },
   dayViewSubtitle: {
     marginTop: 2,
@@ -1040,9 +1161,49 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     marginBottom: spacing.sm,
   },
+  agendaScroll: {
+    maxHeight: 520,
+    borderRadius: radius.lg,
+    overflow: "hidden",
+  },
+  agendaContent: {
+    paddingVertical: spacing.sm,
+    gap: spacing.md,
+    overflow: "hidden",
+  },
+  archiveBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: radius.sm,
+    padding: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  archiveBannerText: {
+    flex: 1,
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+  },
+  noteList: {
+    gap: spacing.sm,
+  },
+  noteDetails: {
+    flex: 1,
+  },
+  doneButton: {
+    width: 32,
+    height: 32,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: spacing.sm,
+  },
   noteGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
+    rowGap: spacing.sm,
   },
   addNoteRow: {
     marginTop: spacing.sm,
@@ -1053,12 +1214,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   noteCard: {
-    borderRadius: radius.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: radius.md,
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
     minHeight: 52,
     marginBottom: spacing.xs,
+  },
+  compactNoteCard: {
+    minHeight: 52,
   },
   noteIndicatorDot: {
     position: "absolute",

@@ -34,6 +34,7 @@ import { useTheme } from "@/src/context/ThemeContext";
 // import { useLocationCoordinates } from "@/src/hooks/useLocationCoordinates";
 import { uploadBrokerPrivateImageAsync, uploadImageAsync, uploadListingDocumentAsync, uploadListingImageAsync } from "@/src/api/imageUpload";
 import { upsertListing } from "@/src/api/listings";
+import { syncBrokerClientProfile, upsertBrokerClientProfile } from "@/src/api/brokerClientProfiles";
 import { getUserProfile } from "@/src/api/userProfile";
 import { t } from "@/src/locales";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
@@ -908,8 +909,7 @@ export default function CreateListingScreen() {
             users?: unknown;
             brokerChatRole?: string;
             status?: string;
-            participantDisplayNames?: Record<string, string>;
-            participantAvatars?: Record<string, string>;
+            apartmentId?: string;
           };
           if (chatData.brokerChatRole && chatData.brokerChatRole !== "client") return null;
           if (chatData.status === "closed") return null;
@@ -919,8 +919,18 @@ export default function CreateListingScreen() {
 
           const profileSnap = await getDoc(doc(db, "users", clientUserId));
           const profile = profileSnap.exists() ? profileSnap.data() as { name?: string; photoUrl?: string; avatar?: string; photos?: string[] } : {};
-          const clientName = chatData.participantDisplayNames?.[clientUserId] || profile.name?.trim() || "Πελάτης";
-          const clientAvatar = chatData.participantAvatars?.[clientUserId] || profile.photoUrl || profile.avatar || profile.photos?.[0] || "";
+          const clientName = profile.name?.trim() || "";
+          if (!clientName) return null;
+          const clientAvatar = profile.photoUrl || profile.avatar || profile.photos?.[0] || "";
+          void upsertBrokerClientProfile({
+            brokerId: auth.userId!,
+            clientId: clientUserId,
+            clientName,
+            clientAvatar,
+            role: "client",
+            chatRoomId: chatDoc.id,
+            apartmentId: typeof chatData.apartmentId === "string" ? chatData.apartmentId : undefined,
+          }).catch(() => undefined);
           let filterSet: FilterSetPayload | null = null;
 
           try {
@@ -1567,6 +1577,13 @@ export default function CreateListingScreen() {
         lastMessageTimestamp: serverTimestamp(),
         updatedAt: serverTimestamp(),
       }, { merge: true });
+      await syncBrokerClientProfile({
+        brokerId: selectedBrokerId,
+        clientId: auth.userId,
+        role: "owner",
+        chatRoomId,
+        apartmentId: listingId,
+      });
       await addDoc(collection(db, "chats", chatRoomId, "messages"), {
         senderId: auth.userId,
         type: "listing_assignment",

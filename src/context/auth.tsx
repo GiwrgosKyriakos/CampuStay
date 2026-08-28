@@ -15,6 +15,7 @@ import { doc, getDoc, onSnapshot, serverTimestamp, setDoc } from "firebase/fires
 import { storage } from "@/src/utils/storage";
 import { setUserIdCache } from "@/src/utils/userId";
 import { db, firebaseAuth } from "@/src/config/firebase";
+import { isBrokerOrAgencyUser } from "@/src/utils/roles";
 
 const TOKEN_KEY = "auth_token";
 const GUEST_KEY = "auth_guest";
@@ -212,7 +213,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               ? userData.needsProfileSetup
               : !userSnap.exists();
 
-          setIsBroker(!!userData?.is_broker);
+          setIsBroker(isBrokerOrAgencyUser(userData));
           setNotLookingForRoommate(userData?.not_looking_for_roommate === true);
           await persist(idToken, mapFirebaseUser(firebaseUser), needsSetup);
 
@@ -220,7 +221,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           unsubscribeUserDoc = onSnapshot(userRef, (snapshot) => {
             if (!mounted) return;
             const data = snapshot.exists() ? snapshot.data() : null;
-            setIsBroker(!!data?.is_broker);
+            setIsBroker(isBrokerOrAgencyUser(data));
             setNotLookingForRoommate(data?.not_looking_for_roommate === true);
             if (typeof data?.needsProfileSetup === "boolean") {
               setNeedsProfileSetup(data.needsProfileSetup);

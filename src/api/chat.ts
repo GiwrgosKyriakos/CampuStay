@@ -12,6 +12,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/src/config/firebase";
 import { getUserSettings } from "@/src/api/accountSettings";
+import { syncBrokerClientProfile } from "@/src/api/brokerClientProfiles";
 
 /**
  * Marks all incoming messages from a specific sender as read within a chat room.
@@ -208,6 +209,15 @@ export async function getOrCreateHostChat(params: {
       },
       { merge: true },
     );
+    if (brokerChatRole) {
+      await syncBrokerClientProfile({
+        brokerId: hostId,
+        clientId: currentUserId,
+        role: "client",
+        chatRoomId: existingRoomId,
+        apartmentId,
+      });
+    }
     return existingRoomId;
   }
 
@@ -232,6 +242,15 @@ export async function getOrCreateHostChat(params: {
       },
       { merge: true },
     );
+    if (brokerChatRole) {
+      await syncBrokerClientProfile({
+        brokerId: hostId,
+        clientId: currentUserId,
+        role: "client",
+        chatRoomId,
+        apartmentId,
+      });
+    }
     return chatRoomId;
   }
 
@@ -247,6 +266,16 @@ export async function getOrCreateHostChat(params: {
     },
     { merge: true },
   );
+
+  if (brokerChatRole) {
+    await syncBrokerClientProfile({
+      brokerId: hostId,
+      clientId: currentUserId,
+      role: "client",
+      chatRoomId,
+      apartmentId,
+    });
+  }
 
   return chatRoomId;
 }

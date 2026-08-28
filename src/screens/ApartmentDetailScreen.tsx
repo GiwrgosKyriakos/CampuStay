@@ -43,6 +43,7 @@ import { subscribeUserLikedApartmentIds, toggleApartmentLike } from "@/src/api/a
 import { getUserSettings } from "@/src/api/accountSettings";
 import { deleteListingPermanently } from "@/src/api/listings";
 import { getUserProfile } from "@/src/api/userProfile";
+import { upsertBrokerClientProfile } from "@/src/api/brokerClientProfiles";
 import CenteredActionModal from "@/src/components/CenteredActionModal";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import { WatermarkBadge } from "@/src/components/WatermarkBadge";
@@ -639,8 +640,7 @@ export default function ApartmentDetailScreen() {
             users?: unknown;
             brokerChatRole?: string;
             status?: string;
-            participantDisplayNames?: Record<string, string>;
-            participantAvatars?: Record<string, string>;
+            apartmentId?: string;
           };
           if (chatData.brokerChatRole && chatData.brokerChatRole !== "client") continue;
           if (chatData.status === "closed") continue;
@@ -652,6 +652,18 @@ export default function ApartmentDetailScreen() {
 
           const profileSnap = await getDoc(doc(db, "users", clientUserId));
           const profile = profileSnap.exists() ? profileSnap.data() as FirestoreUserDoc : {};
+          const clientName = profile.name?.trim() || "";
+          if (!clientName) continue;
+          const clientAvatar = profile.photoUrl || profile.avatar || profile.photos?.[0] || "";
+          void upsertBrokerClientProfile({
+            brokerId: auth.userId!,
+            clientId: clientUserId,
+            clientName,
+            clientAvatar,
+            role: "client",
+            chatRoomId: chatDoc.id,
+            apartmentId: typeof chatData.apartmentId === "string" ? chatData.apartmentId : undefined,
+          }).catch(() => undefined);
           let filterSet: FilterSetPayload | null = null;
           try {
             const filterSnap = await getDocs(
@@ -668,8 +680,8 @@ export default function ApartmentDetailScreen() {
 
           clientsMap.set(clientUserId, {
             clientUserId,
-            clientName: chatData.participantDisplayNames?.[clientUserId] || profile.name?.trim() || "Πελάτης",
-            clientAvatar: chatData.participantAvatars?.[clientUserId] || profile.photoUrl || profile.avatar || profile.photos?.[0] || "",
+            clientName,
+            clientAvatar,
             chatRoomId: chatDoc.id,
             filterSet,
           });
@@ -1744,11 +1756,6 @@ export default function ApartmentDetailScreen() {
                 {images.map((uri, index) => (
                   <View key={`${uri}-${index}`} style={styles.carouselSlide}>
                     <Image source={{ uri }} style={styles.carouselImage} contentFit="cover" transition={200} />
-                    <WatermarkBadge
-                      config={resolvedWatermarkConfig ?? apt.watermarkConfig}
-                      position="bottom-left"
-                      style={{ bottom: 16, left: 16 }}
-                    />
                   </View>
                 ))}
               </ScrollView>
@@ -1770,6 +1777,11 @@ export default function ApartmentDetailScreen() {
               <Text style={styles.placeholderSubText}>{t("apartmentDetail.noPhotosAvailable")}</Text>
             </View>
           )}
+
+          <WatermarkBadge
+            config={resolvedWatermarkConfig ?? apt.watermarkConfig}
+            position="bottom-left"
+          />
 
           <View style={[styles.rentBadge, hasApprovedClientPrice && styles.rentBadgeApproved]}>
             {hasApprovedClientPrice ? (

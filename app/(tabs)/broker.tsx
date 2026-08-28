@@ -14,6 +14,7 @@ import { t } from "@/src/locales";
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
 import type { LeadReadinessKey } from "../broker-client-detail";
 import { getPipelineStageConfig, type PipelineStageKey } from "@/src/constants/pipeline";
+import { isBrokerOrAgencyUser } from "@/src/utils/roles";
 
 export interface BrokerApartment {
   id: string;
@@ -146,7 +147,8 @@ export default function BrokerHubScreen() {
             getDocs(collection(db, "chats", chat.id, "messages")),
           ]);
           const user = userSnap.exists() ? userSnap.data() : {};
-          const profileData = profileSnap.exists() ? profileSnap.data() as { leadReadiness?: LeadReadinessKey | null; pipelineStage?: PipelineStageKey; activeApartmentTitle?: string | null; dealCommission?: number } : {};
+          if (isBrokerOrAgencyUser(user) && data.brokerChatRole !== "client") return null;
+          const profileData = profileSnap.exists() ? profileSnap.data() as { leadReadiness?: LeadReadinessKey | null; pipelineStage?: PipelineStageKey; activeApartmentTitle?: string | null; dealCommission?: number; clientName?: string } : {};
           const stageConfig = getPipelineStageConfig(profileData.pipelineStage);
           const messageTypes = messagesSnapshot.docs.map((message) => (message.data() as { type?: unknown }).type);
           const apartmentId = typeof data.apartmentId === "string" ? data.apartmentId : undefined;
@@ -170,7 +172,7 @@ export default function BrokerHubScreen() {
             .at(-1)?.filterSetData;
           return {
             clientUserId,
-            clientName: typeof user.name === "string" ? user.name : "Πελάτης",
+            clientName: profileData.clientName?.trim() || (typeof user.name === "string" ? user.name.trim() : ""),
             clientAvatar: typeof user.photoUrl === "string" ? user.photoUrl : typeof user.avatar === "string" ? user.avatar : Array.isArray(user.photos) ? String(user.photos[0] ?? "") : "",
             chatRoomId: chat.id,
             leadReadiness: profileData.leadReadiness ?? null,
@@ -229,6 +231,7 @@ export default function BrokerHubScreen() {
 
   const renderClientItem = useCallback(({ item }: { item: BrokerClientLead }) => {
     const stage = getPipelineStageConfig(item.pipelineStage);
+    const stagePercent = Math.round(stage.probability * 100);
     return (
       <Pressable
         style={[styles.clientCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
@@ -240,10 +243,12 @@ export default function BrokerHubScreen() {
             {item.clientAvatar ? <Image contentFit="cover" source={{ uri: item.clientAvatar }} style={styles.clientAvatar} /> : <DefaultProfileAvatar size={42} />}
           </View>
           <View style={styles.clientTextCol}>
-            <Text style={styles.clientCardName} numberOfLines={1}>{item.clientName || "Πελάτης"}</Text>
+            <Text style={styles.clientCardName} numberOfLines={1}>{item.clientName || "-"}</Text>
             <Text style={styles.clientCardMeta} numberOfLines={1}>{item.apartmentTitle || "Χωρίς διαμέρισμα"}{typeof item.apartmentPrice === "number" ? ` · €${item.apartmentPrice.toLocaleString("el-GR")}` : ""}</Text>
           </View>
           <View style={styles.headerBadgesRow}>
+            <View style={[styles.percentBadgePill, { backgroundColor: colors.brandTertiary }]}><Text style={[styles.percentBadgeText, { color: colors.brand }]}>{stagePercent}%</Text></View>
+            {item.hasMessage ? <View style={[styles.badgePill, { backgroundColor: colors.surfaceTertiary }]}><Ionicons name="mail-outline" size={14} color={colors.onSurface} /></View> : null}
             {item.leadReadiness === "hot" ? <View style={[styles.badgePill, { backgroundColor: "rgba(239, 68, 68, 0.12)" }]}><Ionicons name="flame" size={15} color="#EF4444" /></View> : item.leadReadiness === "warm" ? <View style={[styles.badgePill, { backgroundColor: "rgba(245, 158, 11, 0.12)" }]}><Ionicons name="sunny" size={15} color="#F59E0B" /></View> : item.leadReadiness === "cold" ? <View style={[styles.badgePill, { backgroundColor: "rgba(56, 189, 248, 0.12)" }]}><Ionicons name="snow" size={15} color="#38BDF8" /></View> : null}
             {item.sharedFilterSet ? <View style={[styles.badgePill, { backgroundColor: colors.surfaceTertiary }]}><Ionicons name="options-outline" size={15} color={colors.brand} /></View> : null}
           </View>
@@ -251,14 +256,11 @@ export default function BrokerHubScreen() {
         </View>
         {isMoneyModeActive ? (
           <View style={styles.pipelineBadgeRow}>
-            <Text style={[styles.pipelineBadge, { backgroundColor: colors.surfaceTertiary, color: colors.onSurface }]}>{stage.shortLabel}</Text>
-            <Text style={[styles.pipelineBadge, { backgroundColor: colors.surfaceTertiary, color: colors.onSurface }]}>{Math.round(stage.probability * 100)}%</Text>
             <Text style={[styles.pipelineBadge, { backgroundColor: colors.surfaceTertiary, color: colors.onSurface }]}>Προμήθεια: €{Math.round(item.dealCommission).toLocaleString("el-GR")}</Text>
             <Text style={[styles.weightedBadge, { backgroundColor: colors.brandTertiary, color: colors.brand }]}>Αναμενόμενο: €{Math.round(item.weightedShare).toLocaleString("el-GR")}</Text>
           </View>
         ) : (
           <View style={styles.clientStatusBar}>
-            {item.hasMessage ? <View style={[styles.statusBadge, { backgroundColor: colors.surface }]}><Ionicons name="mail-outline" size={14} color={colors.onSurface} /></View> : null}
             {item.hasPriceProposal ? <View style={[styles.statusBadge, { backgroundColor: colors.surface }]}><Text style={styles.statusBadgeText}>💵</Text></View> : null}
             {item.hasVisitRequest ? <Pressable style={[styles.statusBadge, { backgroundColor: item.isVisitCompleted ? colors.brand : colors.surface }]} onPress={(event) => { event.stopPropagation(); void handleToggleVisitCompleted(item); }} hitSlop={6}><Text style={[styles.statusBadgeText, { color: item.isVisitCompleted ? colors.onBrand : colors.onSurface }]}>🏠</Text></Pressable> : null}
             {item.isDealClosed ? <View style={[styles.statusBadge, { backgroundColor: colors.surface }]}><Text style={styles.statusBadgeText}>✅</Text></View> : null}
@@ -317,6 +319,6 @@ export default function BrokerHubScreen() {
 
 const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface }, header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.sm }, brand: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface }, brandAccent: { color: colors.brand }, toggleShell: { flexDirection: "row", backgroundColor: colors.surfaceSecondary, borderRadius: radius.pill, padding: 4, marginHorizontal: spacing.lg, marginBottom: spacing.md, gap: 4 }, toggleOption: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: spacing.sm, borderRadius: radius.pill }, toggleOptionActive: { backgroundColor: colors.brand }, toggleText: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface }, toggleTextActive: { color: colors.onBrand }, contentArea: { flex: 1, paddingHorizontal: spacing.lg }, ownerRowCard: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: spacing.md, marginBottom: spacing.sm, borderRadius: radius.lg, backgroundColor: colors.surfaceSecondary, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }, clientRowCard: { flexDirection: "row", alignItems: "center", gap: spacing.sm, padding: spacing.md, marginBottom: spacing.sm, borderRadius: radius.lg, backgroundColor: colors.surfaceSecondary, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }, rowMain: { flex: 1, gap: spacing.xs }, rowTitle: { flex: 1, fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onSurface }, motivationBadge: { alignSelf: "flex-start", color: colors.onSurfaceTertiary, backgroundColor: colors.surfaceTertiary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 3, fontSize: fontSize.sm }, countPill: { alignSelf: "flex-start", color: colors.brand, fontFamily: fonts.semibold, fontSize: fontSize.sm }, clientAvatar: { width: 48, height: 48, borderRadius: radius.pill }, emptyStateSubtitle: { textAlign: "center", color: colors.onSurfaceTertiary, fontFamily: fonts.regular, padding: spacing.xl }, headerBadgesRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs, marginRight: 2 }, badgePill: { width: 28, height: 28, borderRadius: radius.pill, alignItems: "center", justifyContent: "center" },
-  clientInfoCol: { flex: 1, gap: 2 }, pipelineBadgeRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs, marginTop: 2, flexWrap: "wrap" }, pipelinePercentPill: { backgroundColor: colors.brandTertiary, paddingHorizontal: spacing.xs + 2, paddingVertical: 2, borderRadius: radius.pill }, pipelinePercentText: { fontFamily: fonts.bold, fontSize: fontSize.xs, color: colors.brand }, activeApartmentSub: { flexShrink: 1, fontFamily: fonts.regular, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
+  clientInfoCol: { flex: 1, gap: 2 }, pipelineBadgeRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs, marginTop: 2, flexWrap: "wrap" }, percentBadgePill: { minHeight: 28, paddingHorizontal: spacing.sm, borderRadius: radius.pill, alignItems: "center", justifyContent: "center" }, percentBadgeText: { fontFamily: fonts.bold, fontSize: fontSize.xs }, activeApartmentSub: { flexShrink: 1, fontFamily: fonts.regular, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
   headerTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 44 }, headerActionsRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs }, brokerTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface }, brokerTitleAccent: { color: colors.brand }, headerIconButton: { width: 38, height: 38, borderRadius: radius.pill, backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" }, settingsIconButton: { width: 40, height: 40, borderRadius: radius.pill, backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" }, clientCard: { borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, padding: spacing.md, marginBottom: spacing.sm, gap: spacing.sm }, clientCardHeader: { flexDirection: "row", alignItems: "center", gap: spacing.sm }, clientAvatarWrap: { width: 42, height: 42, borderRadius: radius.pill, overflow: "hidden" }, clientTextCol: { flex: 1, minWidth: 0 }, clientCardName: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface }, clientCardMeta: { marginTop: 2, fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary }, clientStatusBar: { flexDirection: "row", alignItems: "center", gap: spacing.xs }, statusBadge: { minHeight: 28, minWidth: 28, borderRadius: radius.pill, alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.xs }, statusBadgeText: { fontSize: 14 }, pipelineBadge: { paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.pill, fontFamily: fonts.bold, fontSize: fontSize.xs }, weightedBadge: { paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.pill, fontFamily: fonts.bold, fontSize: fontSize.xs },
 });

@@ -14,6 +14,7 @@ import {
 import { db } from "@/src/config/firebase";
 import { normalizeCity } from "@/src/utils/cityNormalization";
 import { sendPushNotification } from "@/src/utils/notificationService";
+import { isBrokerOrAgencyUser } from "@/src/utils/roles";
 
 interface FirestoreUserDoc {
   name?: string | null;
@@ -30,6 +31,11 @@ interface FirestoreUserDoc {
   photoUrl?: string;
   photos?: string[];
   deleted?: boolean;
+  is_broker?: boolean;
+  agencyId?: string | null;
+  agencyRole?: string | null;
+  is_agency_ceo?: boolean;
+  looking_for_roommate?: boolean;
   expoPushToken?: string;
   newMatchesEnabled?: boolean;
 }
@@ -125,6 +131,7 @@ async function getPotentialCandidateRecords(userId: string, currentCity?: string
     
     // 🟢 Έλεγχος αν η ορατότητα είναι απενεργοποιημένη
     if (data.is_visible === false || data.privacy?.is_visible === false) return;
+    if (isBrokerOrAgencyUser(data) && data.looking_for_roommate !== true) return;
 
     const candidate = normalizeCandidate(uid, data);
     if (candidate.deleted) return;

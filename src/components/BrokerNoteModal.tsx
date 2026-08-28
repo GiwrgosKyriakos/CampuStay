@@ -190,7 +190,7 @@ export default function BrokerNoteModal({
         apartmentTitle: selectedApartment?.title,
         apartmentPrice: selectedApartment?.price,
         clientId: selectedClient?.id,
-        clientName: selectedClient?.name,
+        clientName: selectedClient?.name?.trim() || note?.clientName?.trim(),
         category: selectedCategory,
         notesText: detailsText.trim().length > 0 ? detailsText.trim() : undefined,
       };

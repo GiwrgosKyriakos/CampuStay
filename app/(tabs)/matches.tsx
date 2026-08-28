@@ -16,6 +16,7 @@ import { DELETED_ACCOUNT_LABEL } from "@/src/api/accountDeletion";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import { t } from "@/src/locales";
 import { getBlockRelationshipState } from "@/src/api/chat";
+import { isBrokerOrAgencyUser } from "@/src/utils/roles";
 import { HostInboxContent } from "../host-inbox";
 import FilterSetVersionModal, { type SharedFilterSetRecord } from "@/src/components/FilterSetVersionModal";
 
@@ -53,6 +54,9 @@ interface FirestoreUserDoc {
   photos?: string[];
   deleted?: boolean;
   is_broker?: boolean;
+  agencyId?: string | null;
+  agencyRole?: string | null;
+  is_agency_ceo?: boolean;
 }
 
 interface FirestoreChatDoc {
@@ -423,9 +427,9 @@ export default function MatchesScreen() {
             // 🚨 ΔΙΑΧΩΡΙΣΜΟΣ ΡΟΛΩΝ:
             // Αν είμαστε στο Tab "Hosts", δείχνουμε ΜΟΝΟ τα chats που ξεκινήσαμε ΕΜΕΙΣ (ως guests).
             const isVisibleForTab = isBrokersView
-              ? chatType === "host"
+              ? true
               : (notLookingForRoommate || selectedChatType === "host")
-              ? (chatType === "host" && chatData.initiatedBy === uid)
+              ? true
               : (chatType !== "host");
             if (!isVisibleForTab) {
               console.log("[Matches] Hiding chat due to tab/type split", {
@@ -502,7 +506,11 @@ export default function MatchesScreen() {
 
                   const userSnap = await getDoc(doc(db, "users", counterpartUid));
                   const userData = userSnap.exists() ? (userSnap.data() as FirestoreUserDoc) : null;
-                  if (isBrokersView && userData?.is_broker !== true && !chatData.brokerChatRole) return null;
+                  const isCounterpartAgencyMember = isBrokerOrAgencyUser(userData);
+                  const isEffectiveHostChat = chatData.type === "host" || isCounterpartAgencyMember;
+                  if (isBrokersView && !isCounterpartAgencyMember && !chatData.brokerChatRole) return null;
+                  if (!isBrokersView && selectedChatType === "roommate" && isCounterpartAgencyMember) return null;
+                  if (!isBrokersView && selectedChatType === "host" && (!isEffectiveHostChat || (chatData.type === "host" && chatData.initiatedBy !== uid))) return null;
                   const chat_status = chatData.status ?? "active";
                   const chat_initiated_by = chatData.initiatedBy ?? null;
                   const chat_rejected_by = typeof chatData.rejectedBy === "string" ? chatData.rejectedBy : null;

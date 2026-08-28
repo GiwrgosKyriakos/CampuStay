@@ -88,6 +88,7 @@ export interface BrokerNote {
   clientName?: string;
   category: NoteCategory;
   notesText?: string;
+  done: boolean;
   createdAt: FieldValue;
 }
 
@@ -102,10 +103,11 @@ type FirestoreBrokerNoteReadDoc = {
   clientName?: string;
   category?: string;
   notesText?: string;
+  done?: boolean;
   createdAt?: unknown;
 };
 
-type SaveBrokerNoteInput = Omit<BrokerNote, "id" | "createdAt">;
+type SaveBrokerNoteInput = Omit<BrokerNote, "id" | "createdAt" | "done"> & { done?: boolean };
 type UpdateBrokerNoteInput = Partial<BrokerNote>;
 
 export type GridDisplayField = "time" | "apartment" | "client" | "apartmentOrClient" | "timeOrTitle";
@@ -175,6 +177,7 @@ function mapFirestoreDocToBrokerNote(id: string, data: FirestoreBrokerNoteReadDo
     clientName: typeof data.clientName === "string" ? data.clientName : undefined,
     category: normalizeCategory(data.category),
     notesText: typeof data.notesText === "string" ? data.notesText : undefined,
+    done: data.done === true,
     createdAt: (data.createdAt as FieldValue) ?? serverTimestamp(),
   };
 }
@@ -189,6 +192,7 @@ export async function saveBrokerNote(brokerId: string, noteData: SaveBrokerNoteI
     const payload: Omit<BrokerNote, "id"> = {
       ...noteData,
       brokerId,
+      done: noteData.done ?? false,
       category: normalizeCategory(noteData.category),
       createdAt: serverTimestamp(),
     };

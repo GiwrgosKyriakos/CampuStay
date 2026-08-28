@@ -11,6 +11,7 @@ import { useAuth } from "@/src/context/auth";
 import { useTheme } from "@/src/context/ThemeContext";
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
+import CenteredActionModal from "@/src/components/CenteredActionModal";
 import { getPipelineStageConfig, PIPELINE_STAGES, type LossReasonKey, type PipelineStageKey } from "@/src/constants/pipeline";
 import type { BrokerApartment } from "./(tabs)/broker";
 import type { FilterSetPayload } from "@/src/types/filters";
@@ -117,6 +118,7 @@ export default function BrokerClientDetailScreen() {
   const [isNameListModalVisible, setIsNameListModalVisible] = useState(false);
   const [newListName, setNewListName] = useState("");
   const [savingList, setSavingList] = useState(false);
+  const [shareFeedbackModal, setShareFeedbackModal] = useState<{ visible: boolean; title: string; description: string } | null>(null);
   const filters = useMemo<FilterSetPayload | null>(() => { try { return params.sharedFilterSet ? JSON.parse(params.sharedFilterSet) as FilterSetPayload : null; } catch { return null; } }, [params.sharedFilterSet]);
   const rankedPortfolio = useMemo(() => {
     return apartments
@@ -336,6 +338,7 @@ export default function BrokerClientDetailScreen() {
       .map((id) => rankedPortfolio.find((apartment) => apartment.id === id)?.image)
       .filter((image): image is string => !!image)
       .slice(0, 3);
+    const finalNoticeText = `[Κοινοποίηση Λίστας Ακινήτων: ${list.title}]`;
     try {
       await addDoc(collection(db, "chats", params.chatRoomId, "messages"), {
         senderId: auth.userId,
@@ -349,10 +352,24 @@ export default function BrokerClientDetailScreen() {
         createdAt: serverTimestamp(),
         isRead: false,
       });
-      setNewListName(t("brokerClient.listSharedNotice"));
-      setTimeout(() => setNewListName(""), 1800);
+      await setDoc(doc(db, "chats", params.chatRoomId), {
+        lastMessage: finalNoticeText,
+        lastMessageText: finalNoticeText,
+        lastMessageTimestamp: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+      setShareFeedbackModal({
+        visible: true,
+        title: "Η λίστα κοινοποιήθηκε!",
+        description: `Η λίστα «${list.title}» στάλθηκε επιτυχώς στη συνομιλία με τον πελάτη.`,
+      });
     } catch (error) {
       console.error("[BrokerClientDetail] Error sharing property list:", error);
+      setShareFeedbackModal({
+        visible: true,
+        title: "Αποτυχία κοινοποίησης",
+        description: "Δεν ήταν δυνατή η αποστολή της λίστας στη συνομιλία. Παρακαλώ δοκιμάστε ξανά.",
+      });
     }
   };
   return <View style={[styles.container, { paddingTop: insets.top }]} testID="broker-client-detail-screen">
@@ -382,6 +399,18 @@ export default function BrokerClientDetailScreen() {
     <Modal visible={isReadinessModalVisible} transparent animationType="fade" onRequestClose={() => setIsReadinessModalVisible(false)}><Pressable style={styles.modalBackdrop} onPress={() => setIsReadinessModalVisible(false)}><Pressable style={styles.stageModal} onPress={(event) => event.stopPropagation()}><Text style={styles.modalTitle}>Κατηγοριοποίηση/ αξιολόγηση/ προτεραιότητα βάση ετοιμότητας:</Text>{LEAD_READINESS_OPTIONS.map((option) => <Pressable key={option.key} style={styles.stageOption} onPress={() => void handleSelectReadiness(option.key)} testID={`broker-readiness-option-${option.key}`}><Ionicons name={option.iconName} size={22} color={option.iconColor} /><Text style={styles.stageOptionLabel}>{option.label}</Text><Ionicons name={leadReadiness === option.key ? "checkmark-circle" : "ellipse-outline"} size={20} color={leadReadiness === option.key ? colors.brand : colors.onSurfaceTertiary} /></Pressable>)}</Pressable></Pressable></Modal>
     <Modal visible={isLossModalVisible} transparent animationType="fade" onRequestClose={() => setIsLossModalVisible(false)}><Pressable style={styles.modalBackdrop} onPress={() => setIsLossModalVisible(false)}><Pressable style={styles.stageModal} onPress={(event) => event.stopPropagation()}><Text style={styles.modalTitle}>Γιατί χάθηκε η συμφωνία;</Text>{([{ key: "high_price", label: "Υψηλή τιμή" }, { key: "loan_rejected", label: "Απόρριψη δανείου από τράπεζα" }, { key: "chose_another_property", label: "Προτίμησε άλλο ακίνητο" }, { key: "owner_withdrew", label: "Υπαναχώρηση ιδιοκτήτη" }, { key: "other", label: "Άλλο" }] as const).map((reason) => <Pressable key={reason.key} style={styles.stageOption} onPress={() => setLossReason(reason.key)} testID={`broker-loss-reason-${reason.key}`}><Text style={styles.stageOptionLabel}>{reason.label}</Text><Ionicons name={lossReason === reason.key ? "checkmark-circle" : "ellipse-outline"} size={21} color={lossReason === reason.key ? colors.brand : colors.onSurfaceTertiary} /></Pressable>)}{lossReason === "other" ? <TextInput value={lossCustomReason} onChangeText={setLossCustomReason} placeholder="Περιγράψτε τον λόγο" placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} testID="broker-loss-custom-reason" /> : null}<Pressable style={styles.purchasingPowerSaveButton} onPress={() => void handleSaveLossReport()} testID="broker-loss-confirm"><Text style={styles.purchasingPowerSaveText}>Αποθήκευση λόγου</Text></Pressable></Pressable></Pressable></Modal>
     <Modal visible={isNameListModalVisible} transparent animationType="fade" onRequestClose={() => setIsNameListModalVisible(false)}><Pressable style={styles.modalBackdrop} onPress={() => setIsNameListModalVisible(false)}><Pressable style={styles.stageModal} onPress={(event) => event.stopPropagation()}><Text style={styles.modalTitle}>Όνομα λίστας ακινήτων</Text><TextInput value={newListName} onChangeText={setNewListName} autoFocus placeholder="π.χ. Επιλογές για τον πελάτη" placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} testID="property-list-name-input" /><Pressable style={styles.purchasingPowerSaveButton} onPress={() => void handleSavePropertyList()} disabled={savingList} testID="save-property-list"><Ionicons name="save-outline" size={18} color={colors.onBrand} /><Text style={styles.purchasingPowerSaveText}>{savingList ? "Αποθήκευση..." : "Αποθήκευση λίστας"}</Text></Pressable></Pressable></Pressable></Modal>
+    <CenteredActionModal
+      visible={!!shareFeedbackModal?.visible}
+      title={shareFeedbackModal?.title ?? ""}
+      description={shareFeedbackModal?.description}
+      onDismiss={() => setShareFeedbackModal(null)}
+      actions={[{
+        label: t("common.actions.gotIt") || "OK",
+        iconName: "checkmark-circle-outline",
+        onPress: () => setShareFeedbackModal(null),
+      }]}
+      testID="broker-list-shared-feedback-modal"
+    />
   </View>;
 }
 

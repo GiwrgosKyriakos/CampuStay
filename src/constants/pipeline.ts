@@ -67,7 +67,12 @@ export interface BrokerClientProfileDoc {
   purchasePurpose?: string;
   updatedAt: number;
   brokerId?: string;
+  clientId?: string;
   clientUserId?: string;
   clientName?: string;
+  clientAvatar?: string;
+  role?: "client" | "owner";
   chatRoomId?: string;
+  createdAt?: unknown;
+  apartmentIds?: string[];
 }
