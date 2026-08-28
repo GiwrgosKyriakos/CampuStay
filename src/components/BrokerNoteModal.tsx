@@ -230,17 +230,19 @@ export default function BrokerNoteModal({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={closeWithReset}>
-      <Pressable style={styles.cyanModalBackdrop} onPress={closeWithReset}>
+      <Pressable style={styles.modalBackdrop} onPress={closeWithReset}>
         <Pressable
-          style={styles.centeredModalCard}
+          style={styles.modalCard}
           onPress={(event) => event.stopPropagation()}
         >
-          <View style={[styles.previewHeader, { backgroundColor: categoryColor }]}> 
+          <View
+            style={[styles.headerBanner, { backgroundColor: categoryColor }]}
+          >
             <Text style={styles.previewTitle}>{isEditMode ? "Επεξεργασία Σημείωσης" : "Νέα Σημείωση"}</Text>
             <Text style={styles.previewDate}>{date}</Text>
           </View>
 
-          <ScrollView contentContainerStyle={styles.contentWrap} showsVerticalScrollIndicator={false}>
+          <ScrollView style={styles.scrollBody} contentContainerStyle={styles.contentWrap} showsVerticalScrollIndicator={false}>
             <View style={styles.fieldBlock}>
               <Text style={styles.fieldLabel}>Ώρα</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
@@ -280,14 +282,16 @@ export default function BrokerNoteModal({
                   return (
                     <Pressable
                       key={listing.id}
-                      style={[styles.selectorItem, active && styles.selectorItemActive]}
+                      style={[styles.selectorItem, styles.listingItem, active && styles.selectorItemActive]}
                       onPress={() => handleSelectApartment(listing.id)}
                     >
-                      <Text style={[styles.selectorTitle, active && styles.selectorTitleActive]} numberOfLines={1}>
+                      <Text style={[styles.selectorTitle, styles.listingTitle, active && styles.selectorTitleActive]} numberOfLines={1}>
                         {listing.title}
                       </Text>
                       {!!formatPrice(listing.price) && (
-                        <Text style={[styles.selectorMeta, active && styles.selectorMetaActive]}>{formatPrice(listing.price)}</Text>
+                        <View style={[styles.priceBadge, active && styles.priceBadgeActive]}>
+                          <Text style={[styles.priceBadgeText, active && styles.priceBadgeTextActive]}>{formatPrice(listing.price)}</Text>
+                        </View>
                       )}
                     </Pressable>
                   );
@@ -366,7 +370,7 @@ export default function BrokerNoteModal({
             {!!errorText && <Text style={styles.errorText}>{errorText}</Text>}
           </ScrollView>
 
-          <View style={styles.actionRow}>
+          <View style={styles.footerContainer}>
             {isEditMode ? (
               <Pressable style={[styles.actionButton, styles.deleteButton]} onPress={handleDelete} disabled={isSaving}>
                 <Text style={styles.deleteButtonText}>Διαγραφή</Text>
@@ -393,28 +397,36 @@ export default function BrokerNoteModal({
 
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
-    cyanModalBackdrop: {
+    modalBackdrop: {
       flex: 1,
-      backgroundColor: "rgba(8, 48, 60, 0.72)",
+      backgroundColor: colors.surface,
       alignItems: "center",
       justifyContent: "center",
       paddingHorizontal: spacing.lg,
     },
-    centeredModalCard: {
-      width: "100%",
+    modalCard: {
+      width: "92%",
       maxWidth: 480,
-      maxHeight: "85%",
-      borderRadius: radius.lg,
+      maxHeight: "88%",
+      padding: 0,
+      borderRadius: 24,
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
       overflow: "hidden",
     },
-    previewHeader: {
+    scrollBody: {
+      backgroundColor: "transparent",
+      overflow: "hidden",
+      flexShrink: 1,
+    },
+    headerBanner: {
       paddingHorizontal: spacing.lg,
-      paddingVertical: spacing.md,
-      borderTopLeftRadius: radius.lg,
-      borderTopRightRadius: radius.lg,
+      paddingVertical: 14,
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
+      borderBottomLeftRadius: 0,
+      borderBottomRightRadius: 0,
       overflow: "hidden",
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: colors.border,
@@ -432,8 +444,8 @@ function createStyles(colors: ThemeColors) {
     },
     contentWrap: {
       paddingHorizontal: spacing.lg,
-      paddingTop: spacing.md,
-      paddingBottom: spacing.lg,
+      paddingVertical: 12,
+      paddingBottom: 40,
       gap: spacing.md,
     },
     fieldBlock: {
@@ -482,12 +494,16 @@ function createStyles(colors: ThemeColors) {
       gap: spacing.xs,
     },
     selectorItem: {
-      borderRadius: radius.sm,
+      borderRadius: radius.md,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
       paddingHorizontal: spacing.sm,
       paddingVertical: spacing.xs,
       backgroundColor: colors.surface,
+    },
+    listingItem: {
+      flexDirection: "row",
+      alignItems: "center",
     },
     selectorItemActive: {
       borderColor: colors.brandSecondary,
@@ -501,14 +517,30 @@ function createStyles(colors: ThemeColors) {
     selectorTitleActive: {
       color: colors.onSurface,
     },
-    selectorMeta: {
-      marginTop: 1,
+    listingTitle: {
+      flex: 1,
+      minWidth: 0,
+    },
+    priceBadge: {
+      marginLeft: spacing.sm,
+      borderRadius: radius.pill,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 2,
+      backgroundColor: colors.surfaceSecondary,
+    },
+    priceBadgeActive: {
+      borderColor: colors.brand,
+      backgroundColor: colors.brand,
+    },
+    priceBadgeText: {
       fontFamily: fonts.regular,
       fontSize: fontSize.sm,
       color: colors.onSurfaceTertiary,
     },
-    selectorMetaActive: {
-      color: colors.onSurface,
+    priceBadgeTextActive: {
+      color: colors.onBrand,
     },
     emptyHintWrap: {
       paddingHorizontal: spacing.sm,
@@ -554,14 +586,19 @@ function createStyles(colors: ThemeColors) {
       fontSize: fontSize.sm,
       color: colors.error,
     },
-    actionRow: {
+    footerContainer: {
       flexDirection: "row",
       gap: spacing.sm,
       borderTopWidth: StyleSheet.hairlineWidth,
       borderTopColor: colors.border,
       paddingHorizontal: spacing.lg,
-      paddingVertical: spacing.md,
+      paddingVertical: 14,
       backgroundColor: colors.surface,
+      borderBottomLeftRadius: 24,
+      borderBottomRightRadius: 24,
+      borderTopLeftRadius: 0,
+      borderTopRightRadius: 0,
+      overflow: "hidden",
     },
     actionButton: {
       minHeight: 46,

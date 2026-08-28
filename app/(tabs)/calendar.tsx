@@ -102,22 +102,59 @@ function startOfDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
+function getTimeInMinutes(date: Date): number {
+  return date.getHours() * 60 + date.getMinutes();
+}
+
+function parseNoteTimeInMinutes(time?: string): number | null {
+  if (!time) return null;
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(time.trim());
+  return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+}
+
+function compareNoteTime(a?: string, b?: string): number {
+  const aMinutes = parseNoteTimeInMinutes(a);
+  const bMinutes = parseNoteTimeInMinutes(b);
+
+  if (aMinutes === null && bMinutes === null) return 0;
+  if (aMinutes === null) return 1;
+  if (bMinutes === null) return -1;
+  return aMinutes - bMinutes;
+}
+
+function isDateArchived(date: Date, now: Date): boolean {
+  const dateDay = startOfDay(date);
+  const today = startOfDay(now);
+
+  if (dateDay >= today) {
+    return false;
+  }
+
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  return dateDay.getTime() !== yesterday.getTime() || getTimeInMinutes(now) >= 10 * 60;
+}
+
+function getFullDayLabel(date: Date): string {
+  return `${FULL_WEEKDAY_LABELS[(date.getDay() + 6) % 7]}, ${date.getDate()} ${GREEK_MONTHS_GENITIVE[date.getMonth()]}`;
+}
+
+function getRelativeDayLabel(date: Date, today: Date): string {
+  const dateKey = formatDateKey(date);
+  const todayKey = formatDateKey(today);
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  if (dateKey === todayKey) return "Σήμερα";
+  if (dateKey === formatDateKey(yesterday)) return "Χθες";
+  return getFullDayLabel(date);
+}
+
 function formatDateKey(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
-}
-
-function getMonthRange(date: Date): { start: string; end: string } {
-  const year = date.getFullYear();
-  const month = date.getMonth();
-  const firstDay = new Date(year, month, 1);
-  const lastDay = new Date(year, month + 1, 0);
-  return {
-    start: formatDateKey(firstDay),
-    end: formatDateKey(lastDay),
-  };
 }
 
 function startOfWeek(date: Date): Date {
@@ -136,7 +173,18 @@ function endOfWeek(date: Date): Date {
 
 function getVisibleRange(date: Date, mode: CalendarViewMode): { start: string; end: string } {
   if (mode === "month") {
-    return getMonthRange(date);
+    const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
+    const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+    const today = startOfDay(new Date());
+    const upcomingHorizon = new Date(today);
+    upcomingHorizon.setFullYear(upcomingHorizon.getFullYear() + 1);
+    const monthHorizon = new Date(monthEnd);
+    monthHorizon.setFullYear(monthHorizon.getFullYear() + 1);
+
+    return {
+      start: formatDateKey(monthStart < today ? monthStart : today),
+      end: formatDateKey(monthHorizon > upcomingHorizon ? monthHorizon : upcomingHorizon),
+    };
   }
   if (mode === "week") {
     return {
@@ -226,7 +274,14 @@ function CalendarView({
   visibleNotes: BrokerNote[];
   isLoading: boolean;
 }) {
-  const today = useMemo(() => startOfDay(new Date()), []);
+  const [currentTime, setCurrentTime] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const today = useMemo(() => startOfDay(currentTime), [currentTime]);
+  const todayKey = useMemo(() => formatDateKey(today), [today]);
   const selectedDayKey = useMemo(() => formatDateKey(currentDate), [currentDate]);
   const weeks = useMemo(() => buildMonthWeeks(currentDate), [currentDate]);
   const currentWeekStart = useMemo(() => startOfWeek(currentDate), [currentDate]);
@@ -259,6 +314,20 @@ function CalendarView({
   }, [visibleNotes]);
 
   const selectedDayNotes = useMemo(() => notesByDate.get(selectedDayKey) ?? [], [notesByDate, selectedDayKey]);
+  const nextUpNote = useMemo(() => {
+    const currentMinutes = getTimeInMinutes(currentTime);
+    const upcomingNotes = visibleNotes
+      .filter((note) => !note.done && note.date >= todayKey)
+      .sort((a, b) => a.date.localeCompare(b.date) || compareNoteTime(a.time, b.time));
+    const todayNote = upcomingNotes.find((note) => {
+      if (note.date !== todayKey) return false;
+      const noteMinutes = parseNoteTimeInMinutes(note.time);
+      return noteMinutes !== null && noteMinutes >= currentMinutes;
+    });
+
+    return todayNote ?? upcomingNotes.find((note) => note.date > todayKey) ?? null;
+  }, [currentTime, todayKey, visibleNotes]);
+  const isArchivedDate = useCallback((date: Date) => isDateArchived(date, currentTime), [currentTime]);
   const weekAgendaDays = useMemo(
     () => currentWeekCells.filter((cell) => (notesByDate.get(cell.dateKey) ?? []).length > 0),
     [currentWeekCells, notesByDate],
@@ -284,40 +353,18 @@ function CalendarView({
     [onCalendarViewModeChange, onSelectDate],
   );
 
-  const pinchGesture = useMemo(
-    () =>
-      Gesture.Pinch().onEnd((event) => {
-        if (event.scale > 1.1) {
-          if (calendarViewMode === "month") {
-            runOnJS(onCalendarViewModeChange)("week");
-          } else if (calendarViewMode === "week") {
-            runOnJS(onCalendarViewModeChange)("day");
-          }
-        } else if (event.scale < 0.9) {
-          if (calendarViewMode === "day") {
-            runOnJS(onCalendarViewModeChange)("week");
-          } else if (calendarViewMode === "week") {
-            runOnJS(onCalendarViewModeChange)("month");
-          }
-        }
-      }),
-    [calendarViewMode, onCalendarViewModeChange],
-  );
-
   const swipeGesture = useMemo(
     () =>
       Gesture.Pan()
         .activeOffsetX([-24, 24])
         .failOffsetY([-20, 20])
         .onEnd((event) => {
-          if (calendarViewMode === "month" && Math.abs(event.translationX) >= 56) {
+          if (Math.abs(event.translationX) >= 56) {
             runOnJS(onNavigate)(event.translationX < 0 ? 1 : -1);
           }
         }),
-    [calendarViewMode, onNavigate],
+    [onNavigate],
   );
-
-  const calendarGesture = useMemo(() => Gesture.Simultaneous(pinchGesture, swipeGesture), [pinchGesture, swipeGesture]);
 
   const renderDoneButton = (note: BrokerNote, isPast: boolean) => (
     <Pressable
@@ -335,7 +382,7 @@ function CalendarView({
   );
 
   const renderExpandedNoteCard = (note: BrokerNote) => {
-    const isPast = note.date < formatDateKey(today);
+    const isPast = isArchivedDate(new Date(`${note.date}T00:00:00`));
     const textColor = note.done ? colors.onBrandTertiary : colors.onSurface;
 
     return (
@@ -372,7 +419,7 @@ function CalendarView({
   };
 
   const renderCompactNoteCard = (note: BrokerNote, width: DimensionValue, visibleFields: string[]) => {
-    const isPast = note.date < formatDateKey(today);
+    const isPast = isArchivedDate(new Date(`${note.date}T00:00:00`));
     const textColor = note.done ? colors.onBrandTertiary : colors.onSurface;
     const compactTextStyle = { color: textColor, textDecorationLine: note.done ? "line-through" as const : "none" as const };
 
@@ -400,8 +447,9 @@ function CalendarView({
 
   const renderDayAgenda = (date: Date, notes: BrokerNote[], showFullTitle: boolean) => {
     const dateKey = formatDateKey(date);
-    const isPast = date < today;
-    const dayLabel = `${FULL_WEEKDAY_LABELS[(date.getDay() + 6) % 7]}, ${date.getDate()} ${GREEK_MONTHS_GENITIVE[date.getMonth()]}`;
+    const isPast = isArchivedDate(date);
+    const dayLabel = getRelativeDayLabel(date, today);
+    const fullDayLabel = getFullDayLabel(date);
 
     return (
       <Pressable
@@ -409,8 +457,27 @@ function CalendarView({
         onPress={() => onSelectDate(date)}
         style={[styles.dayViewCard, { backgroundColor: colors.surface, borderColor: isPast ? colors.muted : colors.border, opacity: isPast ? 0.62 : 1 }]}
       >
-        <Text style={[styles.dayViewTitle, { color: colors.onSurface }]}>{showFullTitle ? "Ημερήσιο πλάνο" : dayLabel}</Text>
-        {showFullTitle ? <Text style={[styles.dayViewSubtitle, { color: colors.onSurfaceTertiary }]}>{dayLabel}</Text> : null}
+        <View style={styles.dayViewHeaderRow}>
+          <Text style={[styles.dayViewTitle, { color: colors.onSurface }]}>{dayLabel}</Text>
+          <Pressable
+            accessibilityLabel={showFullTitle ? "Σμίκρυνση σε εβδομάδα" : "Μεγέθυνση σε ημέρα"}
+            hitSlop={8}
+            onPress={(event) => {
+              event.stopPropagation();
+              if (showFullTitle) {
+                onSelectDate(startOfWeek(date));
+                onCalendarViewModeChange("week");
+              } else {
+                onSelectDate(date);
+                onCalendarViewModeChange("day");
+              }
+            }}
+            style={[styles.zoomButton, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+          >
+            <Ionicons name={showFullTitle ? "contract-outline" : "expand-outline"} size={19} color={colors.onSurface} />
+          </Pressable>
+        </View>
+        {showFullTitle ? <Text style={[styles.dayViewSubtitle, { color: colors.onSurfaceTertiary }]}>{fullDayLabel}</Text> : null}
         {notes.length === 0 ? (
           <View style={styles.emptyStateWrap}>
             <Text style={[styles.emptyStateText, { color: colors.onSurfaceTertiary }]}>Δεν υπάρχουν σημειώσεις για αυτήν την ημέρα.</Text>
@@ -440,8 +507,8 @@ function CalendarView({
   };
 
   const renderAgenda = () => {
-    const isPastWeek = endOfWeek(currentDate) < today;
-    const showArchiveBanner = calendarViewMode === "day" ? currentDate < today : isPastWeek;
+    const isPastWeek = isArchivedDate(endOfWeek(currentDate));
+    const showArchiveBanner = calendarViewMode === "day" ? isArchivedDate(currentDate) : isPastWeek;
     const archiveBanner = showArchiveBanner ? (
       <View style={[styles.archiveBanner, { backgroundColor: colors.surfaceTertiary, borderColor: colors.muted }]}>
         <Ionicons name="lock-closed-outline" size={18} color={colors.onBrandTertiary} />
@@ -452,7 +519,10 @@ function CalendarView({
     return (
       <ScrollView
         style={styles.agendaScroll}
-        contentContainerStyle={[styles.agendaContent, { paddingBottom: bottomInset + 96 }]}
+        contentContainerStyle={[
+          styles.agendaContent,
+          calendarViewMode === "week" ? { paddingBottom: bottomInset + 72 } : undefined,
+        ]}
         showsVerticalScrollIndicator={false}
       >
         {archiveBanner}
@@ -463,8 +533,9 @@ function CalendarView({
   };
 
   return (
-    <GestureDetector gesture={calendarGesture}>
-      <View style={[styles.monthCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}> 
+    <GestureDetector gesture={swipeGesture}>
+      <View style={styles.calendarView}>
+        <View style={[styles.monthCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
         {(calendarViewMode === "month" || calendarViewMode === "week") ? (
           <View style={styles.calendarHeaderRow}>
             <View style={styles.weekBarTouchArea} />
@@ -500,8 +571,9 @@ function CalendarView({
                   {week.cells.map((cell) => {
                     const dayNotes = notesByDate.get(cell.dateKey) ?? [];
                     const dayTint = getMostFrequentCategoryColor(dayNotes);
-                    const isPastDay = cell.date < today;
+                    const isPastDay = isArchivedDate(cell.date);
                     const isSelected = cell.dateKey === selectedDayKey;
+                    const isToday = cell.dateKey === todayKey;
                     const hasNotes = dayNotes.length > 0;
                     const dotColor = hasNotes
                       ? noteCategoryColorMap[dayNotes[0].category] ?? colors.brand
@@ -516,9 +588,9 @@ function CalendarView({
                           styles.dayCell,
                           {
                             backgroundColor: cell.inCurrentMonth && hasNotes ? dayTint : colors.surface,
-                            borderColor: isSelected ? "#FFFFFF" : colors.border,
+                            borderColor: isToday ? "#FFFFFF" : colors.border,
                             opacity: isPastDay ? 0.45 : cell.inCurrentMonth ? 1 : 0.55,
-                            borderWidth: isSelected ? 2 : StyleSheet.hairlineWidth,
+                            borderWidth: isToday ? 2 : StyleSheet.hairlineWidth,
                           },
                         ]}
                       >
@@ -548,8 +620,9 @@ function CalendarView({
             {currentWeekCells.map((cell) => {
               const dayNotes = notesByDate.get(cell.dateKey) ?? [];
               const dayTint = getMostFrequentCategoryColor(dayNotes);
-              const isPastDay = cell.date < today;
+              const isPastDay = isArchivedDate(cell.date);
               const isSelected = cell.dateKey === selectedDayKey;
+              const isToday = cell.dateKey === todayKey;
               const hasNotes = dayNotes.length > 0;
               const dotColor = hasNotes
                 ? noteCategoryColorMap[dayNotes[0].category] ?? colors.brand
@@ -564,9 +637,9 @@ function CalendarView({
                     styles.dayCell,
                     {
                       backgroundColor: dayTint,
-                      borderColor: isSelected ? "#FFFFFF" : colors.border,
+                      borderColor: isToday ? "#FFFFFF" : colors.border,
                       opacity: isPastDay ? 0.45 : 1,
-                      borderWidth: isSelected ? 2 : StyleSheet.hairlineWidth,
+                      borderWidth: isToday ? 2 : StyleSheet.hairlineWidth,
                     },
                   ]}
                 >
@@ -583,6 +656,30 @@ function CalendarView({
         {isLoading ? (
           <View style={styles.loadingOverlay}>
             <ActivityIndicator size="small" color={colors.brand} />
+          </View>
+        ) : null}
+        </View>
+
+        {calendarViewMode === "month" ? (
+          <View style={[styles.todoCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+            <View style={styles.nextUpSection}>
+              <Text style={[styles.toDoTitle, { color: colors.onSurface }]}>
+                To<Text style={{ color: colors.brand }}>Do</Text>
+              </Text>
+              {isLoading ? (
+                <View style={styles.nextUpEmptyState}>
+                  <ActivityIndicator size="small" color={colors.brand} />
+                </View>
+              ) : nextUpNote ? (
+                renderExpandedNoteCard(nextUpNote)
+              ) : (
+                <View
+                  style={[styles.nextUpEmptyState, { backgroundColor: colors.surface, borderColor: colors.border }]}
+                >
+                  <Text style={[styles.emptyStateText, { color: colors.onSurfaceTertiary }]}>Όλα τα tasks της ημέρας ολοκληρώθηκαν!</Text>
+                </View>
+              )}
+            </View>
           </View>
         ) : null}
       </View>
@@ -846,7 +943,7 @@ export default function CalendarScreen() {
           </Text>
         </View>
       </View>
-      <View style={styles.calendarModuleContainer}>
+      <View style={[styles.calendarModuleContainer, { paddingBottom: insets.bottom + 72 }]}>
         <View style={[styles.calendarHeader, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
           <Pressable style={styles.headerArrowButton} onPress={goToPrevious} hitSlop={8}>
             <Ionicons name="chevron-back" size={22} color={colors.onSurface} />
@@ -1029,6 +1126,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: spacing.sm,
   },
+  calendarView: {
+    width: "100%",
+    gap: spacing.lg,
+  },
   clientsPanelWrap: {
     flex: 1,
     width: "100%",
@@ -1082,8 +1183,12 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.sm,
-    minHeight: 320,
-    position: "relative",
+    width: "100%",
+  },
+  todoCard: {
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: spacing.md,
     width: "100%",
   },
   calendarHeaderRow: {
@@ -1143,6 +1248,28 @@ const styles = StyleSheet.create({
     fontFamily: fonts.semibold,
     fontSize: fontSize.base,
   },
+  nextUpSection: {
+    width: "100%",
+  },
+  nextUpTitle: {
+    fontFamily: fonts.displayExtra,
+    fontSize: fontSize.xl,
+    marginBottom: spacing.sm,
+  },
+  toDoTitle: {
+    fontFamily: fonts.displayExtra,
+    fontSize: fontSize.xl,
+    marginBottom: spacing.sm,
+    textAlign: "center",
+  },
+  nextUpEmptyState: {
+    minHeight: 56,
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.md,
+  },
   dayViewCard: {
     marginTop: spacing.lg,
     marginBottom: spacing.sm,
@@ -1153,7 +1280,21 @@ const styles = StyleSheet.create({
   dayViewTitle: {
     fontFamily: fonts.bold,
     fontSize: fontSize.base,
+    flex: 1,
+  },
+  dayViewHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
     marginBottom: spacing.sm,
+  },
+  zoomButton: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    justifyContent: "center",
   },
   dayViewSubtitle: {
     marginTop: 2,
@@ -1168,6 +1309,7 @@ const styles = StyleSheet.create({
   },
   agendaContent: {
     paddingVertical: spacing.sm,
+    paddingBottom: spacing.md,
     gap: spacing.md,
     overflow: "hidden",
   },
@@ -1176,7 +1318,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing.sm,
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radius.sm,
+    borderRadius: radius.lg,
     padding: spacing.sm,
     marginBottom: spacing.sm,
   },

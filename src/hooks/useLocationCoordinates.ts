@@ -53,6 +53,27 @@ async function geocodeQuery(queryText: string, signal: AbortSignal): Promise<Coo
   return { latitude, longitude };
 }
 
+export async function resolveLocationCoordinates(city?: string | null, area?: string | null): Promise<Coordinates | null> {
+  const cacheKey = normalizeKey(city, area);
+  if (!cacheKey) return DEFAULT_COORDINATES;
+
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
+
+  const controller = new AbortController();
+  const queryText = [area?.trim(), city?.trim(), "Ελλάδα"]
+    .filter((part): part is string => !!part && part.length > 0)
+    .join(", ");
+
+  try {
+    const result = await geocodeQuery(queryText, controller.signal);
+    if (result) cache.set(cacheKey, result);
+    return result;
+  } catch {
+    return null;
+  }
+}
+
 export function useLocationCoordinates(city?: string | null, area?: string | null): Coordinates {
   const cacheKey = useMemo(() => normalizeKey(city, area), [city, area]);
   const [coordinates, setCoordinates] = useState<Coordinates>(() => cache.get(cacheKey) ?? DEFAULT_COORDINATES);

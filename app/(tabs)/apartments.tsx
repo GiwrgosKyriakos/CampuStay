@@ -24,6 +24,8 @@ import { syncBrokerClientProfile } from "@/src/api/brokerClientProfiles";
 import { getUserApartmentNotes, updateNotesOrder, type Apartment as ApartmentNoteData } from "@/src/api/apartmentNotes";
 import { storage } from "@/src/utils/storage";
 import { calculatePricePerSqm } from "@/src/utils/pricing";
+import { calculateTenantCompatibilityScore } from "@/src/utils/compatibilityScore";
+import { resolveLocationCoordinates } from "@/src/hooks/useLocationCoordinates";
 import { isPointInPolygon, type LatLng } from "@/src/utils/geometry";
 import MapPolygonDrawModal from "@/src/components/MapPolygonDrawModal";
 import { WatermarkBadge } from "@/src/components/WatermarkBadge";
@@ -33,6 +35,25 @@ import type { WatermarkConfig } from "@/src/types/listing";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 100;
+const darkMapStyle = [
+  { elementType: "geometry", stylers: [{ color: "#050e1a" }] },
+  { elementType: "labels.text.fill", stylers: [{ color: "#8aa4c6" }] },
+  { elementType: "labels.text.stroke", stylers: [{ color: "#050e1a" }] },
+  { featureType: "landscape", elementType: "geometry", stylers: [{ color: "#0d1b2a" }] },
+  { featureType: "poi", elementType: "geometry", stylers: [{ color: "#10233c" }] },
+  { featureType: "road", elementType: "geometry", stylers: [{ color: "#1b263b" }] },
+  { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#24344f" }] },
+  { featureType: "water", elementType: "geometry", stylers: [{ color: "#0a192f" }] },
+];
+const lightMapStyle = [
+  { elementType: "geometry", stylers: [{ color: "#f1f7f8" }] },
+  { elementType: "labels.text.fill", stylers: [{ color: "#5a7f86" }] },
+  { elementType: "labels.text.stroke", stylers: [{ color: "#f8fbfc" }] },
+  { featureType: "landscape", elementType: "geometry", stylers: [{ color: "#e7f2f4" }] },
+  { featureType: "poi", elementType: "geometry", stylers: [{ color: "#d9ebee" }] },
+  { featureType: "road", elementType: "geometry", stylers: [{ color: "#ffffff" }] },
+  { featureType: "water", elementType: "geometry", stylers: [{ color: "#cdebf2" }] },
+];
 const APARTMENTS_SORT_BY_STORAGE_KEY = "apartments.sortBy";
 
 export type SortOption = "newest" | "oldest" | "price_asc" | "price_desc" | "size_asc" | "size_desc" | "price_sqm_asc" | "price_sqm_desc";
@@ -49,6 +70,7 @@ export interface FilterSetPayload extends SharedFilterSetPayload {
   petFriendly: boolean;
   nearMetro: boolean;
   sortBy?: SortOption;
+  showMatchScoreOnMap?: boolean;
 }
 
 export interface FilterSetDoc extends FilterSetPayload {
@@ -519,6 +541,7 @@ export default function ApartmentsScreen() {
   const [sizeMax, setSizeMax] = useState("");
   const [petFriendly, setPetFriendly] = useState(false);
   const [nearMetro, setNearMetro] = useState(false);
+  const [showMatchScoreOnMap, setShowMatchScoreOnMap] = useState(false);
   const [polygonCoordinates, setPolygonCoordinates] = useState<LatLng[]>([]);
   const [isPolygonModalVisible, setIsPolygonModalVisible] = useState(false);
   const [sortBy, setSortBy] = useState<SortOption>("newest");
@@ -543,7 +566,9 @@ export default function ApartmentsScreen() {
   const [activeTab, setActiveTab] = useState<"all" | "liked">("all");
   const [viewMode, setViewMode] = useState<"list" | "map" | "grid" | "compact">("list");
   const [selectedMapApartment, setSelectedMapApartment] = useState<Apartment | null>(null);
+  const [fallbackCoordinates, setFallbackCoordinates] = useState<Record<string, { latitude: number; longitude: number }>>({});
   const mapRef = useRef<MapView>(null);
+  const previousNonMapViewMode = useRef<"list" | "grid" | "compact">("list");
   const [isViewingMyListings, setIsViewingMyListings] = useState(false);
   const [hideCreateFab, setHideCreateFab] = useState(false);
   const [hasPublishedHostApartment, setHasPublishedHostApartment] = useState(false);
@@ -591,10 +616,11 @@ export default function ApartmentsScreen() {
       sizeMax: sizeMax || undefined,
       petFriendly,
       nearMetro,
+      showMatchScoreOnMap,
       polygonCoordinates: polygonCoordinates.length >= 3 ? polygonCoordinates : undefined,
       sortBy,
     }),
-    [cityQuery, filterSetTitle, maxSqmPrice, nearMetro, petFriendly, polygonCoordinates, rentMax, rentMin, sizeMax, sizeMin, sortBy, minSqmPrice],
+    [cityQuery, filterSetTitle, maxSqmPrice, nearMetro, petFriendly, polygonCoordinates, rentMax, rentMin, showMatchScoreOnMap, sizeMax, sizeMin, sortBy, minSqmPrice],
   );
 
   const savedFilterSetsRef = useMemo(() => auth.userId ? collection(db, "users", auth.userId, "savedFilterSets") : null, [auth.userId]);
@@ -656,6 +682,7 @@ export default function ApartmentsScreen() {
     setSizeMax(savedSet.sizeMax ?? "");
     setPetFriendly(savedSet.petFriendly === true);
     setNearMetro(savedSet.nearMetro === true);
+    setShowMatchScoreOnMap(savedSet.showMatchScoreOnMap === true);
     setPolygonCoordinates(savedSet.polygonCoordinates ?? []);
     setSortBy(savedSet.sortBy && SORT_OPTIONS.includes(savedSet.sortBy) ? savedSet.sortBy : "newest");
     setFilterSetTitle(savedSet.title ?? "");
@@ -871,6 +898,7 @@ export default function ApartmentsScreen() {
       setSizeMax(imported.sizeMax || "");
       setPetFriendly(imported.petFriendly === true);
       setNearMetro(imported.nearMetro === true);
+      setShowMatchScoreOnMap(imported.showMatchScoreOnMap === true);
       setPolygonCoordinates(imported.polygonCoordinates ?? []);
       if (imported.sortBy && SORT_OPTIONS.includes(imported.sortBy)) setSortBy(imported.sortBy);
       setFilterSetTitle(imported.title || "");
@@ -1266,6 +1294,14 @@ export default function ApartmentsScreen() {
     });
   }, [viewMode]);
 
+  const toggleMapView = useCallback(() => {
+    setViewMode((previous) => {
+      if (previous === "map") return previousNonMapViewMode.current;
+      previousNonMapViewMode.current = previous;
+      return "map";
+    });
+  }, []);
+
   const contentPanResponder = useMemo(
     () =>
       PanResponder.create({
@@ -1560,16 +1596,53 @@ export default function ApartmentsScreen() {
     });
   }, [filteredApartments, sortBy]);
 
-  const mapRegion = useMemo<Region>(() => {
-    const locatedApartments = filteredApartments.filter(
-      (apt) => Number.isFinite(apt.latitude) && Number.isFinite(apt.longitude),
+  useEffect(() => {
+    let active = true;
+    const unresolved = filteredApartments.filter(
+      (apt) => !(apt.hasExactLocation !== false && Number.isFinite(apt.latitude) && Number.isFinite(apt.longitude)) && !fallbackCoordinates[apt.id],
     );
+    if (unresolved.length === 0) return () => { active = false; };
+
+    void Promise.all(
+      unresolved.map(async (apt) => ({ id: apt.id, coordinates: await resolveLocationCoordinates(apt.city, apt.area) })),
+    ).then((results) => {
+      if (!active) return;
+      setFallbackCoordinates((previous) => {
+        const next = { ...previous };
+        for (const result of results) {
+          if (result.coordinates) next[result.id] = result.coordinates;
+        }
+        return next;
+      });
+    });
+
+    return () => { active = false; };
+  }, [fallbackCoordinates, filteredApartments]);
+
+  const mapApartments = useMemo(() => {
+    const areaCounts = new Map<string, number>();
+    return filteredApartments.flatMap((apt) => {
+      const exact = apt.hasExactLocation !== false && Number.isFinite(apt.latitude) && Number.isFinite(apt.longitude)
+        ? { latitude: apt.latitude!, longitude: apt.longitude! }
+        : fallbackCoordinates[apt.id];
+      if (!exact) return [];
+      const locationKey = `${exact.latitude.toFixed(5)}:${exact.longitude.toFixed(5)}`;
+      const duplicateIndex = areaCounts.get(locationKey) ?? 0;
+      areaCounts.set(locationKey, duplicateIndex + 1);
+      const angle = duplicateIndex * (Math.PI / 3);
+      const radius = duplicateIndex === 0 ? 0 : 0.0012;
+      return [{ apt, coordinate: { latitude: exact.latitude + Math.sin(angle) * radius, longitude: exact.longitude + Math.cos(angle) * radius }, matchScore: calculateTenantCompatibilityScore({ city: apt.city, area: apt.area, latitude: apt.latitude, longitude: apt.longitude, rent: apt.rent, size: apt.size, floor: apt.floor, tags: apt.tags, amenities: apt.amenities, propertyType: apt.propertyType, propertyCategory: apt.propertyCategory }, currentFilterSet) }];
+    });
+  }, [currentFilterSet, fallbackCoordinates, filteredApartments]);
+
+  const mapRegion = useMemo<Region>(() => {
+    const locatedApartments = mapApartments.map(({ coordinate }) => coordinate);
     if (locatedApartments.length === 0) {
       return { latitude: 37.9838, longitude: 23.7275, latitudeDelta: 0.08, longitudeDelta: 0.08 };
     }
 
-    const latitudes = locatedApartments.map((apt) => apt.latitude!);
-    const longitudes = locatedApartments.map((apt) => apt.longitude!);
+    const latitudes = locatedApartments.map((apt) => apt.latitude);
+    const longitudes = locatedApartments.map((apt) => apt.longitude);
     const latitudeDelta = Math.max(0.04, Math.min(1.2, Math.max(...latitudes) - Math.min(...latitudes) + 0.04));
     const longitudeDelta = Math.max(0.04, Math.min(1.2, Math.max(...longitudes) - Math.min(...longitudes) + 0.04));
     return {
@@ -1578,14 +1651,26 @@ export default function ApartmentsScreen() {
       latitudeDelta,
       longitudeDelta,
     };
-  }, [filteredApartments]);
+  }, [mapApartments]);
+
+  const recenterMap = useCallback(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const coordinates = mapApartments.map(({ coordinate }) => coordinate);
+    if (coordinates.length > 1) {
+      map.fitToCoordinates(coordinates, { edgePadding: { top: 60, bottom: 120, left: 40, right: 40 }, animated: true });
+    } else {
+      map.animateToRegion(mapRegion, 350);
+    }
+  }, [mapApartments, mapRegion]);
+
+  const handleMarkerPress = useCallback((apartment: Apartment) => {
+    setSelectedMapApartment((selected) => selected?.id === apartment.id ? null : apartment);
+  }, []);
 
   useEffect(() => {
-    if (auth.isBroker && viewMode === "map") {
-      mapRef.current?.animateToRegion(mapRegion, 350);
-      setSelectedMapApartment(null);
-    }
-  }, [auth.isBroker, mapRegion, viewMode]);
+    if (viewMode === "map") recenterMap();
+  }, [mapApartments, recenterMap, viewMode]);
 
   const isCompactActive = isViewingMyListings && viewMode === "compact";
 
@@ -1598,7 +1683,7 @@ export default function ApartmentsScreen() {
             {!auth.isBroker ? (
               <Pressable
                 style={[styles.topIconBtn, viewMode === "map" && styles.topIconBtnActive]}
-                onPress={() => setViewMode((previous) => previous === "map" ? "list" : "map")}
+                onPress={toggleMapView}
                 hitSlop={8}
                 testID="seeker-top-map-toggle-btn"
                 accessibilityRole="button"
@@ -1611,6 +1696,7 @@ export default function ApartmentsScreen() {
               <Pressable
                 style={[styles.topIconBtn, isViewingMyListings && styles.topIconBtnActive]}
                 onPress={toggleMyListings}
+                disabled={viewMode === "map"}
                 hitSlop={8}
                 testID="apartments-my-listings-icon-btn"
                 accessibilityRole="button"
@@ -1640,12 +1726,12 @@ export default function ApartmentsScreen() {
           </Pressable>
           {auth.isBroker ? (
             <Pressable
-              style={[styles.iconControlButton, viewMode === "map" && styles.iconControlButtonActive]}
-              onPress={() => setViewMode((previous) => previous === "map" ? "list" : "map")}
+              style={[styles.iconControlButton, viewMode === "map" && styles.mapControlButtonActive]}
+              onPress={toggleMapView}
               hitSlop={8}
               testID="broker-map-toggle-btn"
             >
-              <Ionicons name={viewMode === "map" ? "list-outline" : "map-outline"} size={19} color={viewMode === "map" ? "#000000" : colors.brand} />
+              <Ionicons name={viewMode === "map" ? "map" : "map-outline"} size={19} color={viewMode === "map" ? colors.brand : colors.onSurface} />
             </Pressable>
           ) : (
             <Pressable
@@ -1661,7 +1747,8 @@ export default function ApartmentsScreen() {
             <View style={styles.viewToggle} testID="apartments-view-toggle">
               <Pressable
                 style={[styles.viewToggleOption, activeTab === "all" && styles.viewToggleOptionActive]}
-                onPress={() => setActiveTab("all")}
+                    onPress={() => setActiveTab("all")}
+                    disabled={viewMode === "map"}
                 testID="apartments-view-all"
               >
                 <Text style={[styles.viewToggleText, activeTab === "all" && styles.viewToggleTextActive]}>{t("apartments.all")}</Text>
@@ -1669,6 +1756,7 @@ export default function ApartmentsScreen() {
               <Pressable
                 style={[styles.viewToggleOption, activeTab === "liked" && styles.viewToggleOptionActive]}
                 onPress={() => setActiveTab("liked")}
+                disabled={viewMode === "map"}
                 testID="apartments-view-liked"
               >
                 <Text
@@ -1685,6 +1773,7 @@ export default function ApartmentsScreen() {
               <Pressable
                 style={[styles.viewToggleOption, viewMode === "grid" && styles.viewToggleOptionActive]}
                 onPress={() => setViewMode("grid")}
+                disabled={viewMode === "map"}
                 testID="apartments-view-grid"
               >
                 <Ionicons
@@ -1696,6 +1785,7 @@ export default function ApartmentsScreen() {
               <Pressable
                 style={[styles.viewToggleOption, viewMode === "compact" && styles.viewToggleOptionActive]}
                 onPress={() => setViewMode("compact")}
+                disabled={viewMode === "map"}
                 testID="apartments-view-compact"
               >
                 <Ionicons
@@ -2035,10 +2125,14 @@ export default function ApartmentsScreen() {
               <Text style={styles.switchText}>{t("apartments.nearMetro")}</Text>
               <Switch value={nearMetro} onValueChange={(value) => updateFilterValue(setNearMetro, value)} trackColor={{ true: colors.brand, false: colors.border }} />
             </View>
+            <View style={styles.filterRow} testID="apartments-map-match-score-toggle-row">
+              <Text style={styles.switchText}>Εμφάνιση ποσοστού συμβατότητας στον χάρτη</Text>
+              <Switch value={showMatchScoreOnMap} onValueChange={(value) => updateFilterValue(setShowMatchScoreOnMap, value)} trackColor={{ true: colors.brand, false: colors.border }} />
+            </View>
           </ScrollView>
         )}
       </View>
-      <View {...contentPanResponder.panHandlers} style={styles.flexOne}>
+      <View {...(viewMode === "map" ? {} : contentPanResponder.panHandlers)} style={styles.flexOne}>
       {viewMode === "map" ? (
         <View style={styles.mapContainer}>
           <MapView
@@ -2046,39 +2140,39 @@ export default function ApartmentsScreen() {
             provider={PROVIDER_DEFAULT}
             style={styles.map}
             initialRegion={mapRegion}
+            customMapStyle={isDark ? darkMapStyle : lightMapStyle}
+            onMapReady={recenterMap}
             onPress={() => setSelectedMapApartment(null)}
           >
-            {filteredApartments.map((apt) => {
-              if (!Number.isFinite(apt.latitude) || !Number.isFinite(apt.longitude)) return null;
-              const pinLabel = `${apt.rent}${CURRENCY}`;
+            {mapApartments.map(({ apt, coordinate, matchScore }) => {
+              const pinLabel = showMatchScoreOnMap ? `${matchScore}%` : `${apt.rent} ${CURRENCY}`;
               const isSelected = selectedMapApartment?.id === apt.id;
+              const matchColor = matchScore >= 75 ? colors.success : matchScore >= 50 ? colors.warning : colors.error;
               return (
                 <Marker
-                  key={apt.id}
-                  coordinate={{ latitude: apt.latitude!, longitude: apt.longitude! }}
-                  onPress={() => setSelectedMapApartment(apt)}
+                  key={`${apt.id}-${showMatchScoreOnMap ? "score" : "rent"}`}
+                  coordinate={coordinate}
+                  onPress={() => handleMarkerPress(apt)}
+                  tracksViewChanges={isSelected}
                 >
-                  <View style={[styles.markerBubble, isSelected && styles.markerBubbleSelected]}>
-                    <Text style={[styles.markerBubbleText, isSelected && styles.markerBubbleTextSelected]}>{pinLabel}</Text>
+                  <View style={styles.markerWrapper}>
+                    <View style={[styles.markerBubble, showMatchScoreOnMap && styles.markerScoreBubble, showMatchScoreOnMap && { borderColor: matchColor }, isSelected && styles.markerBubbleSelected]}>
+                      <Text style={[styles.markerBubbleText, isSelected && styles.markerBubbleTextSelected]} numberOfLines={1}>{pinLabel}</Text>
+                    </View>
                   </View>
                 </Marker>
               );
             })}
           </MapView>
+          <Pressable style={styles.mapRecenterButton} onPress={recenterMap} testID="apartments-map-recenter" accessibilityRole="button" accessibilityLabel="Επανακεντρισμός χάρτη">
+            <Ionicons name="locate-outline" size={21} color={colors.brand} />
+          </Pressable>
           {selectedMapApartment ? (
-            <View style={styles.mapCardPreviewOverlay}>
-              <ApartmentGridCard
-                apt={selectedMapApartment}
-                styles={styles}
-                colors={colors}
-                isLiked={likedApartmentIds.has(selectedMapApartment.id)}
-                isOwnListing={false}
-                isMyListingsView={isViewingMyListings}
-                quickChatMeta={hostChatByApartmentId[selectedMapApartment.id]}
-                onOpen={() => router.push({ pathname: "/apartment-detail", params: { data: JSON.stringify(selectedMapApartment) } } as any)}
-                onToggleLike={() => handleToggleLike(selectedMapApartment.id)}
-              />
-            </View>
+            <Pressable style={styles.mapCardPreviewOverlay} onPress={() => router.push({ pathname: "/apartment-detail", params: { data: JSON.stringify(selectedMapApartment) } } as any)} testID={`apartments-map-preview-${selectedMapApartment.id}`}>
+              {selectedMapApartment.image ? <Image source={{ uri: selectedMapApartment.image }} style={styles.mapPreviewThumbnail} contentFit="cover" /> : <View style={[styles.mapPreviewThumbnail, styles.mapPreviewPlaceholder]}><Ionicons name="home-outline" size={24} color={colors.brand} /></View>}
+              <View style={styles.mapPreviewContent}><Text style={styles.mapPreviewTitle} numberOfLines={1}>{selectedMapApartment.title}</Text><View style={styles.mapPreviewLocation}><Ionicons name="location-outline" size={13} color={colors.onSurfaceTertiary} /><Text style={styles.mapPreviewLocationText} numberOfLines={1}>{selectedMapApartment.area}{selectedMapApartment.area && selectedMapApartment.city ? " · " : ""}{selectedMapApartment.city}</Text></View><View style={styles.mapPreviewMetrics}><Text style={styles.mapPreviewRent}>{selectedMapApartment.rent} {CURRENCY}</Text><Text style={styles.mapPreviewScore}>{`${Math.round(calculateTenantCompatibilityScore({ city: selectedMapApartment.city, area: selectedMapApartment.area, latitude: selectedMapApartment.latitude, longitude: selectedMapApartment.longitude, rent: selectedMapApartment.rent, size: selectedMapApartment.size, floor: selectedMapApartment.floor, tags: selectedMapApartment.tags, amenities: selectedMapApartment.amenities, propertyType: selectedMapApartment.propertyType, propertyCategory: selectedMapApartment.propertyCategory }, currentFilterSet))}%`}</Text></View></View>
+              <Pressable style={styles.mapPreviewClose} onPress={(event) => { event.stopPropagation(); setSelectedMapApartment(null); }} hitSlop={8} testID="apartments-map-preview-close"><Ionicons name="close" size={16} color={colors.onSurfaceTertiary} /></Pressable>
+            </Pressable>
           ) : null}
         </View>
       ) : <ScrollView
@@ -2631,7 +2725,7 @@ export default function ApartmentsScreen() {
 const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
   flexOne: { flex: 1 },
-  header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md, gap: spacing.xs },
+  header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md, gap: spacing.xs, borderBottomLeftRadius: radius.lg, borderBottomRightRadius: radius.lg, overflow: "hidden", backgroundColor: colors.surface },
   titleRowTop: {
     flexDirection: "row",
     alignItems: "center",
@@ -3119,7 +3213,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   filterPanelContent: {
     padding: spacing.md,
     gap: spacing.sm,
-    paddingBottom: spacing.lg,
+    paddingBottom: 40,
   },
   polygonFilterSection: {
     gap: spacing.xs,
@@ -3152,42 +3246,84 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   mapContainer: {
     flex: 1,
     position: "relative",
+    overflow: "hidden",
+    borderRadius: radius.lg,
   },
   map: {
     ...StyleSheet.absoluteFillObject,
   },
+  markerWrapper: {
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 4,
+  },
   markerBubble: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 5,
-    borderRadius: radius.pill,
-    backgroundColor: colors.surface,
-    borderWidth: 1.5,
-    borderColor: colors.brand,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: colors.brand,
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
-    elevation: 4,
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 6,
+    overflow: "visible",
+    flexShrink: 0,
   },
+  markerScoreBubble: { borderColor: colors.success },
   markerBubbleSelected: {
     backgroundColor: colors.brand,
     borderColor: colors.onBrand,
   },
   markerBubbleText: {
     fontFamily: fonts.bold,
-    fontSize: fontSize.xs,
-    color: colors.onSurface,
+    fontSize: 13,
+    color: "#FFFFFF",
+    includeFontPadding: false,
+    textAlign: "center",
   },
   markerBubbleTextSelected: {
     color: colors.onBrand,
   },
   mapCardPreviewOverlay: {
     position: "absolute",
-    bottom: spacing.lg,
+    bottom: 95,
     left: spacing.md,
     right: spacing.md,
-    zIndex: 10,
+    zIndex: 9999,
+    elevation: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    minHeight: 84,
+    padding: spacing.sm,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
   },
+  mapPreviewThumbnail: { width: 68, height: 68, borderRadius: radius.md, backgroundColor: colors.surfaceTertiary },
+  mapPreviewPlaceholder: { alignItems: "center", justifyContent: "center" },
+  mapPreviewContent: { flex: 1, minWidth: 0, gap: 4 },
+  mapPreviewTitle: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface },
+  mapPreviewLocation: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 3, maxWidth: "100%", paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: colors.surfaceSecondary },
+  mapPreviewLocationText: { flex: 1, fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
+  mapPreviewMetrics: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  mapPreviewRent: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.brand },
+  mapPreviewScore: { paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: colors.brandTertiary, color: colors.brand, fontFamily: fonts.bold, fontSize: fontSize.xs },
+  mapPreviewClose: { position: "absolute", top: spacing.xs, right: spacing.xs, width: 24, height: 24, borderRadius: radius.pill, alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceSecondary },
+  mapControlButtonActive: { backgroundColor: colors.brandTertiary, borderColor: colors.brand },
+  mapRecenterButton: { position: "absolute", top: 12, right: spacing.lg, width: 44, height: 44, borderRadius: radius.pill, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.16, shadowRadius: 4, elevation: 4 },
+  filterRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 14, paddingHorizontal: spacing.lg, backgroundColor: colors.surfaceSecondary, borderRadius: radius.md, marginVertical: spacing.sm },
   filterActionsRow: {
     flexDirection: "row",
     justifyContent: "flex-end",
