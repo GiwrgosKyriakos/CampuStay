@@ -11,6 +11,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { Image } from "expo-image";
@@ -26,7 +27,6 @@ import {
   getDoc,
   getDocs,
   limit,
-  onSnapshot,
   orderBy,
   query,
   serverTimestamp,
@@ -43,11 +43,19 @@ import { subscribeUserLikedApartmentIds, toggleApartmentLike } from "@/src/api/a
 import { getUserSettings } from "@/src/api/accountSettings";
 import { deleteListingPermanently } from "@/src/api/listings";
 import { getUserProfile } from "@/src/api/userProfile";
-import { upsertBrokerClientProfile } from "@/src/api/brokerClientProfiles";
+import { getBrokerDeals, upsertBrokerClientProfile } from "@/src/api/brokerClientProfiles";
+import {
+  addPropertyInteraction,
+  subscribePropertyInteractions,
+  type InteractionType,
+  type PropertyInteraction,
+} from "@/src/api/propertyInteractions";
 import CenteredActionModal from "@/src/components/CenteredActionModal";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import { WatermarkBadge } from "@/src/components/WatermarkBadge";
 import ApartmentLocationMap from "@/src/components/ApartmentLocationMap";
+import InquiryCandidatesSkeleton from "@/src/components/skeletons/InquiryCandidatesSkeleton";
+import ApartmentDetailSkeleton from "@/src/components/skeletons/ApartmentDetailSkeleton";
 import { t } from "@/src/locales";
 import { db } from "@/src/config/firebase";
 import { useLocationCoordinates } from "@/src/hooks/useLocationCoordinates";
@@ -82,51 +90,53 @@ type ListingExtraInformation = {
   isImmediatelyAvailable?: boolean;
 };
 
-type InquiryItem = {
+type BrokerPropertyDealStage = "liked" | "lead" | "showing_scheduled" | "offer_made" | "deal_closed" | "lost";
+
+type BrokerPropertyDealLead = {
   id: string;
-  customerId: string;
-  customerName: string;
-  customerAvatar: string;
+  name: string;
+  avatar: string;
+  pipelineStage: BrokerPropertyDealStage;
   chatRoomId: string;
+  messageCount: number;
   lastMessageText: string;
-  sortKey: number;
 };
 
-interface PropertyInteractionLogData {
-  callsCount: number;
-  showingsCount: number;
-  commentsCount: number;
-  emailsCount: number;
-  recentCalls: string[];
-  recentShowings: string[];
-  clientFeedback: string[];
-  recentEmails: string[];
+type HostInquiringClient = {
+  id: string;
+  name: string;
+  avatar: string;
+  chatRoomId: string;
+  compatibilityScore: number | null;
+};
+
+type InteractionTypeMeta = {
+  icon: keyof typeof Ionicons.glyphMap;
+  color: string;
+  bg: string;
+  label: string;
+};
+
+function getTypeMeta(type: InteractionType, colors: ThemeColors): InteractionTypeMeta {
+  switch (type) {
+    case "call":
+      return { icon: "call-outline", color: "#10B981", bg: "rgba(16,185,129,0.12)", label: "Κλήση" };
+    case "showing":
+      return { icon: "key-outline", color: colors.brand, bg: colors.brandTertiary, label: "Υπόδειξη" };
+    case "email":
+      return { icon: "mail-outline", color: "#38BDF8", bg: "rgba(56,189,248,0.12)", label: "Email" };
+    case "comment":
+    default:
+      return {
+        icon: "chatbubble-ellipses-outline",
+        color: "#F59E0B",
+        bg: "rgba(245,158,11,0.12)",
+        label: "Σχόλιο",
+      };
+  }
 }
 
-const MOCK_PROPERTY_INTERACTIONS: PropertyInteractionLogData = {
-  callsCount: 14,
-  showingsCount: 6,
-  commentsCount: 8,
-  emailsCount: 11,
-  recentCalls: [
-    "24/08 - Γιώργος Π. (Ερώτηση για διαθεσιμότητα & κοινόχρηστα)",
-    "22/08 - Ελένη Κ. (Ενδιαφέρον για άμεση επίσκεψη)",
-    "19/08 - Νίκος Μ. (Διαπραγμάτευση τιμής)",
-  ],
-  recentShowings: [
-    "25/08 - Ολοκληρωμένη υπόδειξη (Θετικές εντυπώσεις)",
-    "21/08 - Υπόδειξη με υποψήφιο φοιτητή & γονείς",
-  ],
-  clientFeedback: [
-    "Εξαιρετικός φυσικός φωτισμός και ευρύχωρο μπαλκόνι",
-    "Θετική εντύπωση για την εγγύτητα στο Μετρό",
-    "Παρατήρηση για την ανάγκη βαψίματος στο υπνοδωμάτιο",
-  ],
-  recentEmails: [
-    "23/08 - Αίτημα αποστολής αναλυτικής κάτοψης & λογαριασμών",
-    "20/08 - Ερώτηση σχετικά με τη δυνατότητα φιλοξενίας κατοικιδίου",
-  ],
-};
+const INTERACTION_TYPES: InteractionType[] = ["call", "showing", "comment", "email"];
 
 interface BrokerClientWithFilters {
   clientUserId: string;
@@ -239,6 +249,8 @@ interface FirestoreUserDoc {
   gender?: string | null;
   city?: string | null;
   is_broker?: boolean;
+  notLookingForRoommate?: boolean;
+  not_looking_for_roommate?: boolean;
   is_visible?: boolean;
   phone_number?: string;
   phone?: string;
@@ -270,6 +282,7 @@ type LikedUserItem = {
   chatRoomId: string | null;
   hasExistingChat: boolean;
   sortKey: number;
+  isHostCandidate?: boolean;
 };
 
 type ShareMatchItem = {
@@ -365,6 +378,19 @@ function toMillis(value: unknown): number {
     return (value as TimestampLike).toMillis!();
   }
   return 0;
+}
+
+function getBrokerPropertyStageLabel(stage: BrokerPropertyDealStage): string {
+  if (stage === "showing_scheduled") return "Επίσκεψη";
+  if (stage === "offer_made") return "Προσφορά";
+  if (stage === "deal_closed") return "Ολοκληρώθηκε";
+  if (stage === "lost") return "Χάθηκε";
+  return "Lead";
+}
+
+function getBrokerPropertyStageTone(stage: BrokerPropertyDealStage, colors: ThemeColors): { backgroundColor: string } {
+  if (stage === "lost" || stage === "showing_scheduled") return { backgroundColor: colors.surfaceTertiary };
+  return { backgroundColor: colors.brandTertiary };
 }
 
 function normalizeGenderForMatch(gender: string | null | undefined): MatchUserProfile["gender"] {
@@ -591,33 +617,89 @@ export default function ApartmentDetailScreen() {
   const [resolvedOrientation, setResolvedOrientation] = useState<string | null>(null);
   const [publishedAtMillis, setPublishedAtMillis] = useState<number | null>(null);
   const [updatedAtMillis, setUpdatedAtMillis] = useState<number | null>(null);
-  const [checkingVisibility, setCheckingVisibility] = useState(false);
+  const [checkingVisibility, setCheckingVisibility] = useState(() => Boolean(apt?.id && auth.userId && !auth.isGuest));
   const [isListingExcluded, setIsListingExcluded] = useState(false);
   const [showPhoneNumber, setShowPhoneNumber] = useState(false);
   const [hostPhoneNumber, setHostPhoneNumber] = useState("");
   const [resolvedHostId, setResolvedHostId] = useState<string | null>(apt?.hostId || apt?.ownerId || null);
+  const [hostUserData, setHostUserData] = useState<FirestoreUserDoc | null>(null);
+  const [hostProfileLoaded, setHostProfileLoaded] = useState(false);
+  const [resolvedAssignedBrokerIds, setResolvedAssignedBrokerIds] = useState<string[]>(apt?.assignedBrokerIds || []);
   const [approvedClientPrice, setApprovedClientPrice] = useState<number | null>(null);
   const [isOffMarketListing, setIsOffMarketListing] = useState(apt?.isOffMarket === true);
   const [offMarketAccessUserIds, setOffMarketAccessUserIds] = useState<string[]>(apt?.offMarketAccessUserIds || []);
   const [resolvedWatermarkConfig, setResolvedWatermarkConfig] = useState<WatermarkConfig | undefined>(apt?.watermarkConfig);
   const offMarketGuardShown = useRef(false);
 
-  const [inquiries, setInquiries] = useState<InquiryItem[]>([]);
-  const [loadingInquiries, setLoadingInquiries] = useState(false);
   const [clientPool, setClientPool] = useState<BrokerClientWithFilters[]>([]);
   const [loadingClients, setLoadingClients] = useState(false);
-  const [inquiryToDelete, setInquiryToDelete] = useState<InquiryItem | null>(null);
-  const [deletingInquiryId, setDeletingInquiryId] = useState<string | null>(null);
-  const [inquiriesSectionY, setInquiriesSectionY] = useState<number | null>(null);
+  const [brokerPropertyDealLeads, setBrokerPropertyDealLeads] = useState<BrokerPropertyDealLead[]>([]);
+  const [loadingBrokerPropertyDealLeads, setLoadingBrokerPropertyDealLeads] = useState(false);
+  const [hostInquiringClients, setHostInquiringClients] = useState<HostInquiringClient[]>([]);
+  const [loadingHostInquiringClients, setLoadingHostInquiringClients] = useState(false);
+  const [isClientsSectionOpen, setIsClientsSectionOpen] = useState(false);
+  const [clientsSectionY, setClientsSectionY] = useState<number | null>(null);
+  const [viewerLookingForRoommate, setViewerLookingForRoommate] = useState(false);
+  const [viewerProfileLoaded, setViewerProfileLoaded] = useState(false);
+  const [interactions, setInteractions] = useState<PropertyInteraction[]>([]);
+  const [selectedClientFilter, setSelectedClientFilter] = useState("all");
+  const [selectedTypeFilter, setSelectedTypeFilter] = useState<InteractionType | "all">("all");
+  const [addInteractionModalVisible, setAddInteractionModalVisible] = useState(false);
+  const [newInteractionType, setNewInteractionType] = useState<InteractionType>("call");
+  const [newInteractionClientId, setNewInteractionClientId] = useState("");
+  const [newInteractionNote, setNewInteractionNote] = useState("");
+  const [isSavingInteraction, setIsSavingInteraction] = useState(false);
 
   const isListingOwner = useMemo(() => {
     if (!apt || !auth.userId) return false;
     const isDirectOwner = (!!apt.ownerId && apt.ownerId === auth.userId) || (!!apt.hostId && apt.hostId === auth.userId);
-    const isAssigned = Array.isArray(apt.assignedBrokerIds) && apt.assignedBrokerIds.includes(auth.userId);
+    const isAssigned = resolvedAssignedBrokerIds.includes(auth.userId);
     return isDirectOwner || (auth.isBroker && isAssigned);
-  }, [apt, auth.isBroker, auth.userId]);
+  }, [apt, auth.isBroker, auth.userId, resolvedAssignedBrokerIds]);
   const isStrictHostOwner = !!apt?.hostId && !!auth.userId && auth.userId === apt.hostId;
-  const canViewLikedUsers = !isListingOwner && !auth.isBroker;
+  const isBrokerListing = hostUserData?.is_broker === true;
+  const hostNotLookingForRoommate = hostUserData?.notLookingForRoommate === true || hostUserData?.not_looking_for_roommate === true;
+  const hostLookingForRoommate = hostUserData ? !hostNotLookingForRoommate : false;
+  const hasAssignedBrokers = resolvedAssignedBrokerIds.length > 0;
+  const isListingEligible = hostProfileLoaded && (isBrokerListing || hostNotLookingForRoommate || hasAssignedBrokers);
+  const canViewerSeeSection = viewerProfileLoaded && !isListingOwner && !auth.isBroker && !auth.notLookingForRoommate && viewerLookingForRoommate && isListingEligible;
+  const canViewLikedUsers = canViewerSeeSection;
+  const currentApartmentId = apt?.id;
+  const listingOwnerIds = useMemo(
+    () => new Set([apt?.ownerId, apt?.hostId].filter((id): id is string => typeof id === "string" && id.length > 0)),
+    [apt?.hostId, apt?.ownerId],
+  );
+  const availableClientOptions = useMemo(() => {
+    const clients = new Map<string, string>();
+    brokerPropertyDealLeads.forEach((client) => clients.set(client.id, client.name));
+    hostInquiringClients.forEach((client) => clients.set(client.id, client.name));
+    interactions.forEach((interaction) => {
+      if (interaction.clientId) clients.set(interaction.clientId, interaction.clientName);
+    });
+    return Array.from(clients.entries()).map(([id, name]) => ({ id, name }));
+  }, [brokerPropertyDealLeads, hostInquiringClients, interactions]);
+
+  const interactionMetrics = useMemo(() => {
+    const filteredByClient = selectedClientFilter === "all"
+      ? interactions
+      : interactions.filter((interaction) => interaction.clientId === selectedClientFilter);
+
+    return {
+      calls: filteredByClient.filter((interaction) => interaction.type === "call").length,
+      showings: filteredByClient.filter((interaction) => interaction.type === "showing").length,
+      comments: filteredByClient.filter((interaction) => interaction.type === "comment").length,
+      emails: filteredByClient.filter((interaction) => interaction.type === "email").length,
+    };
+  }, [interactions, selectedClientFilter]);
+
+  const visibleInteractions = useMemo(
+    () => interactions.filter((interaction) => {
+      const matchesClient = selectedClientFilter === "all" || interaction.clientId === selectedClientFilter;
+      const matchesType = selectedTypeFilter === "all" || interaction.type === selectedTypeFilter;
+      return matchesClient && matchesType;
+    }),
+    [interactions, selectedClientFilter, selectedTypeFilter],
+  );
 
   useEffect(() => {
     if (!auth.userId || !auth.isBroker || !isListingOwner) {
@@ -699,6 +781,211 @@ export default function ApartmentDetailScreen() {
     return () => { mounted = false; };
   }, [auth.isBroker, auth.userId, isListingOwner]);
 
+  useEffect(() => {
+    if (!auth.isBroker || !isListingOwner || !auth.userId || !currentApartmentId) {
+      setBrokerPropertyDealLeads([]);
+      setLoadingBrokerPropertyDealLeads(false);
+      return;
+    }
+
+    let mounted = true;
+    const currentUserId = auth.userId;
+    const apartmentId = currentApartmentId;
+    setLoadingBrokerPropertyDealLeads(true);
+
+    void (async () => {
+      try {
+        const [deals, chatsSnap] = await Promise.all([
+          getBrokerDeals(currentUserId),
+          getDocs(
+            query(
+              collection(db, "chats"),
+              where("apartmentId", "==", apartmentId),
+              where("users", "array-contains", currentUserId),
+            ),
+          ),
+        ]);
+        const propertyDeals = Array.from(
+          new Map(
+            deals
+              .filter((deal) => {
+                const isListingOwner = listingOwnerIds.has(deal.clientId);
+                return deal.role !== "owner" && deal.apartmentId === apartmentId && !isListingOwner;
+              })
+              .map((deal) => [deal.clientId, deal]),
+          ).values(),
+        );
+        const chatCandidates = await Promise.all(chatsSnap.docs.map(async (chatDoc) => {
+          const chatData = chatDoc.data() as FirestoreInquiryChatDoc & { brokerChatRole?: string; lastMessageText?: string };
+          if (chatData.status === "closed" || chatData.brokerChatRole === "owner") return null;
+          const users = Array.isArray(chatData.users) ? chatData.users : [];
+          const clientId = users.find((userId) => userId !== currentUserId);
+          if (typeof clientId !== "string" || !clientId) return null;
+
+          let messageCount = 0;
+          try {
+            const messagesSnap = await getDocs(collection(db, "chats", chatDoc.id, "messages"));
+            messageCount = messagesSnap.size;
+          } catch {
+            messageCount = 0;
+          }
+
+          return {
+            clientId,
+            chatRoomId: chatDoc.id,
+            messageCount,
+            lastMessageText: chatData.lastMessageText?.trim() || "",
+          };
+        }));
+        const chatByClient = new Map<string, { chatRoomId: string; messageCount: number; lastMessageText: string }>();
+        chatCandidates.filter((candidate): candidate is NonNullable<typeof candidate> => candidate !== null).forEach((candidate) => {
+          const previous = chatByClient.get(candidate.clientId);
+          if (!previous || candidate.messageCount > previous.messageCount) {
+            chatByClient.set(candidate.clientId, candidate);
+          }
+        });
+
+        const rows = await Promise.all(propertyDeals.map(async (deal) => {
+          const [profileSnap, userSnap] = await Promise.all([
+            getDoc(doc(db, "brokerClientProfiles", `${currentUserId}_${deal.clientId}`)),
+            getDoc(doc(db, "users", deal.clientId)),
+          ]);
+          const profile = profileSnap.exists() ? profileSnap.data() as { clientName?: string; clientAvatar?: string; chatRoomId?: string } : {};
+          const user = userSnap.exists() ? userSnap.data() as FirestoreUserDoc : {};
+          const photos = Array.isArray(user.photos) ? user.photos : [];
+          const chat = chatByClient.get(deal.clientId);
+          return {
+            id: deal.clientId,
+            name: profile.clientName?.trim() || user.name?.trim() || t("common.values.unknown"),
+            avatar: profile.clientAvatar?.trim() || user.photoUrl || user.avatar || photos[0] || "",
+            pipelineStage: deal.pipelineStage,
+            chatRoomId: chat?.chatRoomId || profile.chatRoomId || "",
+            messageCount: chat?.messageCount || 0,
+            lastMessageText: chat?.lastMessageText || "",
+          } satisfies BrokerPropertyDealLead;
+        }));
+
+        if (mounted) setBrokerPropertyDealLeads(rows);
+      } catch (error) {
+        console.error("[ApartmentDetail] Failed to load broker property deal leads:", error);
+        if (mounted) setBrokerPropertyDealLeads([]);
+      } finally {
+        if (mounted) setLoadingBrokerPropertyDealLeads(false);
+      }
+    })();
+
+    return () => { mounted = false; };
+  }, [auth.isBroker, auth.userId, currentApartmentId, isListingOwner, listingOwnerIds]);
+
+  useEffect(() => {
+    if (auth.isBroker || !isListingOwner || !auth.userId || !currentApartmentId) {
+      setHostInquiringClients([]);
+      setLoadingHostInquiringClients(false);
+      return;
+    }
+
+    let active = true;
+    const currentUserId = auth.userId;
+    const apartmentId = currentApartmentId;
+    setLoadingHostInquiringClients(true);
+
+    void (async () => {
+      try {
+        const [chatsSnap, hostProfile, hostQuizSnap, excludedUserIds] = await Promise.all([
+          getDocs(
+            query(
+              collection(db, "chats"),
+              where("apartmentId", "==", apartmentId),
+              where("users", "array-contains", currentUserId),
+            ),
+          ),
+          getUserProfile(currentUserId),
+          getDoc(doc(db, "quiz_answers", currentUserId)).catch(() => null),
+          getExcludedUserIds(currentUserId),
+        ]);
+
+        const hostDataSnap = await getDoc(doc(db, "users", currentUserId));
+        const hostData = hostDataSnap.exists() ? hostDataSnap.data() as FirestoreUserDoc : null;
+        const isHostSeekingRoommate = hostData
+          ? hostData.notLookingForRoommate !== true && hostData.not_looking_for_roommate !== true
+          : false;
+        const hostMatchProfile = hostProfile && isHostSeekingRoommate
+          ? toMatchProfile(currentUserId, hostProfile, (hostQuizSnap?.data() as FirestoreQuizDoc | undefined)?.answers ?? {})
+          : null;
+        const clients = await Promise.all(
+          chatsSnap.docs.map(async (chatDoc) => {
+            const chatData = chatDoc.data() as FirestoreInquiryChatDoc;
+            if (chatData.status === "rejected" || chatData.status === "closed") return null;
+
+            const users = Array.isArray(chatData.users) ? chatData.users : [];
+            const clientId = users.find((uid) => uid !== currentUserId);
+            if (!clientId || excludedUserIds.has(clientId)) return null;
+
+            const messagesSnap = await getDocs(
+              query(collection(db, "chats", chatDoc.id, "messages"), orderBy("createdAt", "desc"), limit(1)),
+            );
+            if (messagesSnap.empty) return null;
+
+            const [clientUserSnap, clientQuizSnap] = await Promise.all([
+              getDoc(doc(db, "users", clientId)),
+              getDoc(doc(db, "quiz_answers", clientId)).catch(() => null),
+            ]);
+            if (!clientUserSnap.exists()) return null;
+
+            const clientData = clientUserSnap.data() as FirestoreUserDoc;
+            if (clientData.is_broker === true) return null;
+
+            let compatibilityScore: number | null = null;
+            if (hostMatchProfile) {
+              const clientMatchProfile = toMatchProfile(
+                clientId,
+                clientData,
+                (clientQuizSnap?.data() as FirestoreQuizDoc | undefined)?.answers ?? {},
+              );
+              compatibilityScore = calculateMatchScore(hostMatchProfile, clientMatchProfile);
+            }
+
+            return {
+              id: clientId,
+              name: clientData.name?.trim() || t("common.values.unknown"),
+              avatar: clientData.photoUrl || clientData.avatar || clientData.photos?.[0] || "",
+              chatRoomId: chatDoc.id,
+              compatibilityScore,
+            } satisfies HostInquiringClient;
+          }),
+        );
+
+        if (active) {
+          const uniqueClients = new Map<string, HostInquiringClient>();
+          clients.forEach((client) => {
+            if (client) uniqueClients.set(client.id, client);
+          });
+          setHostInquiringClients(Array.from(uniqueClients.values()));
+        }
+      } catch (error) {
+        console.warn("[ApartmentDetail] Failed to load host clients:", error);
+        if (active) setHostInquiringClients([]);
+      } finally {
+        if (active) setLoadingHostInquiringClients(false);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [auth.isBroker, auth.userId, currentApartmentId, isListingOwner]);
+
+  useEffect(() => {
+    if (!currentApartmentId || !isListingOwner) {
+      setInteractions([]);
+      setSelectedClientFilter("all");
+      setSelectedTypeFilter("all");
+      return;
+    }
+
+    return subscribePropertyInteractions(currentApartmentId, setInteractions);
+  }, [currentApartmentId, isListingOwner]);
+
   const matchedClients = useMemo(() => {
     if (!apt || clientPool.length === 0) return [];
 
@@ -766,6 +1053,10 @@ export default function ApartmentDetailScreen() {
     if (!apt?.id) return;
 
     let mounted = true;
+    setResolvedHostId(apt.hostId || apt.ownerId || null);
+    setResolvedAssignedBrokerIds(Array.isArray(apt.assignedBrokerIds) ? apt.assignedBrokerIds : []);
+    setHostUserData(null);
+    setHostProfileLoaded(false);
 
     void (async () => {
       try {
@@ -779,6 +1070,7 @@ export default function ApartmentDetailScreen() {
         setIsOffMarketListing(docData.isOffMarket === true);
         setOffMarketAccessUserIds(Array.isArray(docData.offMarketAccessUserIds) ? docData.offMarketAccessUserIds : []);
         setResolvedWatermarkConfig(docData.watermarkConfig);
+        setResolvedAssignedBrokerIds(Array.isArray(docData.assignedBrokerIds) ? docData.assignedBrokerIds : []);
         setFiles2d3d(Array.isArray(docData.files2d3d) ? docData.files2d3d.filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0) : []);
         const imgs = Array.isArray(docData.images)
           ? docData.images.filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0)
@@ -844,25 +1136,38 @@ export default function ApartmentDetailScreen() {
   useEffect(() => {
     if (!resolvedHostId) {
       setHostPhoneNumber("");
+      setHostUserData(null);
+      setHostProfileLoaded(true);
       return;
     }
 
     let active = true;
+    setHostProfileLoaded(false);
 
     void (async () => {
       try {
         const hostSnap = await getDoc(doc(db, "users", resolvedHostId));
         if (!hostSnap.exists() || !active) {
-          if (active) setHostPhoneNumber("");
+          if (active) {
+            setHostPhoneNumber("");
+            setHostUserData(null);
+            setHostProfileLoaded(true);
+          }
           return;
         }
 
         const hostData = hostSnap.data() as FirestoreUserDoc;
+        setHostUserData(hostData);
+        setHostProfileLoaded(true);
         const rawPhone = typeof hostData.phone_number === "string" ? hostData.phone_number : typeof hostData.phone === "string" ? hostData.phone : "";
         if (!active) return;
         setHostPhoneNumber(rawPhone.replace(/[^0-9]/g, "").slice(0, 10));
       } catch (error) {
-        if (active) setHostPhoneNumber("");
+        if (active) {
+          setHostPhoneNumber("");
+          setHostUserData(null);
+          setHostProfileLoaded(true);
+        }
         console.error("[ApartmentDetail] Failed to load host phone number:", error);
       }
     })();
@@ -871,6 +1176,38 @@ export default function ApartmentDetailScreen() {
       active = false;
     };
   }, [resolvedHostId]);
+
+  useEffect(() => {
+    if (!auth.userId || auth.isGuest) {
+      setViewerLookingForRoommate(false);
+      setViewerProfileLoaded(true);
+      return;
+    }
+
+    let active = true;
+    setViewerProfileLoaded(false);
+    void getDoc(doc(db, "users", auth.userId))
+      .then((snapshot) => {
+        if (!active) return;
+        const viewerData = snapshot.exists() ? snapshot.data() as FirestoreUserDoc : null;
+        const isNotLooking =
+          auth.notLookingForRoommate === true ||
+          viewerData?.notLookingForRoommate === true ||
+          viewerData?.not_looking_for_roommate === true;
+        setViewerLookingForRoommate(!isNotLooking);
+        setViewerProfileLoaded(true);
+      })
+      .catch(() => {
+        if (active) {
+          setViewerLookingForRoommate(false);
+          setViewerProfileLoaded(true);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [auth.isGuest, auth.notLookingForRoommate, auth.userId]);
 
   useEffect(() => {
     if (!apt?.id || !auth.userId || auth.isGuest || isListingOwner) {
@@ -950,105 +1287,6 @@ export default function ApartmentDetailScreen() {
       active = false;
     };
   }, [apt?.hostId, apt?.id, apt?.ownerId, auth.isGuest, auth.userId]);
-
-  useEffect(() => {
-    if (!isListingOwner || !auth.userId || !apt?.id) {
-      setInquiries([]);
-      setLoadingInquiries(false);
-      return;
-    }
-
-    setLoadingInquiries(true);
-    let mounted = true;
-    const currentUid = auth.userId;
-
-    const inquiriesQuery = query(
-      collection(db, "chats"),
-      where("apartmentId", "==", apt.id),
-      where("users", "array-contains", currentUid),
-    );
-
-    const unsubscribe = onSnapshot(
-      inquiriesQuery,
-      (snapshot) => {
-        void (async () => {
-          try {
-            const rows = await Promise.all(
-              snapshot.docs.map(async (chatDoc) => {
-                const chatData = chatDoc.data() as FirestoreInquiryChatDoc;
-                const clearedAtMap =
-                  chatData.clearedAt && typeof chatData.clearedAt === "object"
-                    ? (chatData.clearedAt as Record<string, unknown>)
-                    : {};
-                const myClearedAt = Object.prototype.hasOwnProperty.call(clearedAtMap, currentUid)
-                  ? toMillis(clearedAtMap[currentUid])
-                  : 0;
-                const lastMessageAt = toMillis(chatData.lastMessageTimestamp);
-                if (myClearedAt > 0 && lastMessageAt <= myClearedAt) return null;
-
-                const users = Array.isArray(chatData.users) ? chatData.users : [];
-                const customerId = users.find((uid) => uid !== currentUid) || "";
-                if (!customerId) return null;
-
-                const userSnap = await getDoc(doc(db, "users", customerId));
-                const userData = userSnap.exists() ? (userSnap.data() as FirestoreUserDoc) : null;
-                const photos = Array.isArray(userData?.photos) ? userData.photos : [];
-
-                let lastMessageText = "";
-                try {
-                  const lastMessageSnap = await getDocs(
-                    query(collection(db, "chats", chatDoc.id, "messages"), orderBy("createdAt", "desc"), limit(1)),
-                  );
-
-                  if (!lastMessageSnap.empty) {
-                    const payload = lastMessageSnap.docs[0].data() as { text?: string };
-                    lastMessageText = payload.text?.trim() || "";
-                  }
-                } catch {
-                  lastMessageText = "";
-                }
-
-                return {
-                  id: chatDoc.id,
-                  customerId,
-                  customerName: userData?.name?.trim() || t("common.values.unknown"),
-                  customerAvatar: userData?.photoUrl || photos[0] || "",
-                  chatRoomId: chatDoc.id,
-                  lastMessageText,
-                  sortKey:
-                    toMillis(chatData.lastMessageTimestamp) ||
-                    toMillis(chatData.updatedAt) ||
-                    toMillis(chatData.createdAt),
-                } as InquiryItem;
-              }),
-            );
-
-            if (mounted) {
-              const filtered = rows.filter((row): row is InquiryItem => !!row).sort((a, b) => b.sortKey - a.sortKey);
-              setInquiries(filtered);
-            }
-          } catch (error) {
-            console.error("[ApartmentDetail] Failed to load inquiries:", error);
-            if (mounted) setInquiries([]);
-          } finally {
-            if (mounted) setLoadingInquiries(false);
-          }
-        })();
-      },
-      (error) => {
-        console.error("[ApartmentDetail] Inquiries snapshot error:", error);
-        if (mounted) {
-          setInquiries([]);
-          setLoadingInquiries(false);
-        }
-      },
-    );
-
-    return () => {
-      mounted = false;
-      unsubscribe();
-    };
-  }, [apt?.id, auth.userId, isListingOwner]);
 
   useEffect(() => {
     if (!shareModalVisible || !auth.userId) {
@@ -1171,7 +1409,7 @@ export default function ApartmentDetailScreen() {
   }, [apt?.id, auth.userId, closeDealModalVisible, isStrictHostOwner]);
 
   useEffect(() => {
-    if (!showLikedUsersSection || !canViewLikedUsers || !apt?.id || !auth.userId || auth.isGuest) {
+    if (!showLikedUsersSection || !canViewerSeeSection || !apt?.id || !auth.userId || auth.isGuest) {
       setLikedUsers([]);
       setLoadingLikedUsers(false);
       return;
@@ -1183,12 +1421,13 @@ export default function ApartmentDetailScreen() {
     void (async () => {
       try {
         const currentUserId = auth.userId!;
-        const [likesSnap, excludedUserIds, currentProfile, currentQuizSnap, chatsSnap] = await Promise.all([
+        const [likesSnap, chatsForApartmentSnap, viewerChatsSnap, excludedUserIds, currentProfile, currentQuizSnap] = await Promise.all([
           getDocs(query(collection(db, "liked_apartments"), where("apartmentId", "==", apt.id))),
+          getDocs(query(collection(db, "chats"), where("apartmentId", "==", apt.id))),
+          getDocs(query(collection(db, "chats"), where("users", "array-contains", currentUserId))),
           getExcludedUserIds(currentUserId),
           getUserProfile(currentUserId),
           getDoc(doc(db, "quiz_answers", currentUserId)).catch(() => null),
-          getDocs(query(collection(db, "chats"), where("users", "array-contains", currentUserId))),
         ]);
 
         if (!active) return;
@@ -1201,7 +1440,7 @@ export default function ApartmentDetailScreen() {
         const existingChatByUser = new Map<string, { chatRoomId: string; status: string }>();
         const rejectedUserIds = new Set<string>();
 
-        chatsSnap.docs.forEach((chatDoc) => {
+        viewerChatsSnap.docs.forEach((chatDoc) => {
           const chatData = chatDoc.data() as FirestoreInquiryChatDoc;
           const users = Array.isArray(chatData.users) ? chatData.users : [];
           const counterpartId = users.find((uid) => uid !== currentUserId);
@@ -1225,11 +1464,54 @@ export default function ApartmentDetailScreen() {
           }
         });
 
+        if (hostLookingForRoommate && hasAssignedBrokers && resolvedHostId && hostUserData) {
+          const hostQuizSnap = await getDoc(doc(db, "quiz_answers", resolvedHostId)).catch(() => null);
+          const hostMatchProfile = toMatchProfile(
+            resolvedHostId,
+            hostUserData,
+            (hostQuizSnap?.exists() ? (hostQuizSnap.data() as FirestoreQuizDoc).answers : {}) ?? {},
+          );
+          const compatibilityScore = currentMatchProfile
+            ? calculateMatchScore(currentMatchProfile, hostMatchProfile)
+            : null;
+          const existingHostChat = existingChatByUser.get(resolvedHostId);
+          const hostPhotos = Array.isArray(hostUserData.photos) ? hostUserData.photos : [];
+          if (!active) return;
+          setLikedUsers([{
+            id: resolvedHostId,
+            name: hostUserData.name?.trim() || t("common.values.unknown"),
+            avatar: hostUserData.photoUrl || hostUserData.avatar || hostPhotos[0] || "",
+            age: typeof hostUserData.age === "number" ? hostUserData.age : null,
+            gender: hostUserData.gender?.trim() || t("common.values.nonBinary"),
+            compatibilityScore,
+            chatRoomId: existingHostChat?.chatRoomId ?? null,
+            hasExistingChat: !!existingHostChat,
+            sortKey: compatibilityScore ?? 0,
+            isHostCandidate: true,
+          }]);
+          return;
+        }
+
+        const candidateTimestampByUser = new Map<string, number>();
+        likesSnap.docs.forEach((likeDoc) => {
+          const likeData = likeDoc.data() as FirestoreLikedApartmentDoc;
+          const targetUserId = typeof likeData.userId === "string" ? likeData.userId : "";
+          if (targetUserId) candidateTimestampByUser.set(targetUserId, toMillis(likeData.timestamp));
+        });
+
+        chatsForApartmentSnap.docs.forEach((chatDoc) => {
+          const chatData = chatDoc.data() as FirestoreInquiryChatDoc;
+          const users = Array.isArray(chatData.users) ? chatData.users : [];
+          users.forEach((userId) => {
+            if (!listingOwnerIds.has(userId)) {
+              candidateTimestampByUser.set(userId, Math.max(candidateTimestampByUser.get(userId) ?? 0, toMillis(chatData.lastMessageTimestamp)));
+            }
+          });
+        });
+
         const rows = await Promise.all(
-          likesSnap.docs.map(async (likeDoc) => {
-            const likeData = likeDoc.data() as FirestoreLikedApartmentDoc;
-            const targetUserId = typeof likeData.userId === "string" ? likeData.userId : "";
-            if (!targetUserId || targetUserId === currentUserId) return null;
+          Array.from(candidateTimestampByUser.entries()).map(async ([targetUserId, interactionTimestamp]) => {
+            if (targetUserId === currentUserId) return null;
             if (excludedUserIds.has(targetUserId) || rejectedUserIds.has(targetUserId)) return null;
 
             const [userSnap, settings, counterpartQuizSnap] = await Promise.all([
@@ -1242,6 +1524,8 @@ export default function ApartmentDetailScreen() {
 
             const userData = userSnap.data() as FirestoreUserDoc;
             if (userData.is_broker === true) return null;
+            const isCandidateNotLooking = userData.notLookingForRoommate === true || userData.not_looking_for_roommate === true;
+            if (isCandidateNotLooking) return null;
 
             const isVisibleInUsers = userData.is_visible !== false;
             const isVisibleInSettings = settings?.privacy?.is_visible ?? true;
@@ -1266,7 +1550,7 @@ export default function ApartmentDetailScreen() {
               compatibilityScore,
               chatRoomId: existingChat?.chatRoomId ?? null,
               hasExistingChat: !!existingChat,
-              sortKey: compatibilityScore ?? toMillis(likeData.timestamp),
+              sortKey: compatibilityScore ?? interactionTimestamp,
             } satisfies LikedUserItem;
           }),
         );
@@ -1288,7 +1572,7 @@ export default function ApartmentDetailScreen() {
     return () => {
       active = false;
     };
-  }, [apt?.id, auth.isBroker, auth.isGuest, auth.userId, canViewLikedUsers, showLikedUsersSection]);
+  }, [apt?.id, auth.isBroker, auth.isGuest, auth.userId, canViewerSeeSection, hasAssignedBrokers, hostLookingForRoommate, hostUserData, listingOwnerIds, resolvedHostId, showLikedUsersSection]);
 
   const allGalleryPhotos = useMemo(
     () => [...(dbImages.length > 0 ? dbImages : [apt?.image]), ...files2d3d].filter(
@@ -1309,11 +1593,7 @@ export default function ApartmentDetailScreen() {
   }
 
   if (checkingVisibility) {
-    return (
-      <View style={[styles.container, styles.center]}>
-        <ActivityIndicator size="large" color={colors.brand} />
-      </View>
-    );
+    return <ApartmentDetailSkeleton />;
   }
 
   if (isListingExcluded) {
@@ -1490,13 +1770,42 @@ export default function ApartmentDetailScreen() {
     }
   };
 
-  const handleScrollToInquiries = () => {
-    if (inquiriesSectionY == null) return;
-    pageScrollRef.current?.scrollTo({ y: Math.max(0, inquiriesSectionY - spacing.lg), animated: true });
+  const handleSaveInteraction = async () => {
+    if (!auth.userId || !apt?.id || !newInteractionClientId || !newInteractionNote.trim() || isSavingInteraction) return;
+
+    const client = availableClientOptions.find((option) => option.id === newInteractionClientId);
+    if (!client) return;
+
+    setIsSavingInteraction(true);
+    try {
+      await addPropertyInteraction({
+        apartmentId: apt.id,
+        clientId: client.id,
+        clientName: client.name,
+        type: newInteractionType,
+        note: newInteractionNote.trim(),
+        loggedByUserId: auth.userId,
+      });
+      setNewInteractionType("call");
+      setNewInteractionClientId("");
+      setNewInteractionNote("");
+      setAddInteractionModalVisible(false);
+    } catch (error) {
+      console.error("[ApartmentDetail] Failed to save property interaction:", error);
+      setActionModal({
+        title: t("common.messages.tryAgain"),
+        description: "Δεν ήταν δυνατή η αποθήκευση της αλληλεπίδρασης.",
+      });
+    } finally {
+      setIsSavingInteraction(false);
+    }
   };
 
-  const handleOpenInquiry = (item: InquiryItem) => {
-    router.push({ pathname: "/chat/[id]", params: { id: item.customerId, chatRoomId: item.chatRoomId } });
+  const handleToggleAndScrollToClients = () => {
+    setIsClientsSectionOpen(true);
+    if (clientsSectionY != null) {
+      pageScrollRef.current?.scrollTo({ y: Math.max(0, clientsSectionY - spacing.lg), animated: true });
+    }
   };
 
   const handleOpenLikedUserChat = async (item: LikedUserItem) => {
@@ -1510,10 +1819,22 @@ export default function ApartmentDetailScreen() {
       return;
     }
 
-    const chatRoomId = [auth.userId, item.id].sort().join("_");
     setChatActionUserId(item.id);
 
     try {
+      if (item.isHostCandidate) {
+        const chatRoomId = await getOrCreateHostChat({
+          currentUserId: auth.userId,
+          hostId: item.id,
+          apartmentId: apt.id,
+          apartmentTitle: apt.title,
+        });
+        setLikedUsers((current) => current.map((entry) => entry.id === item.id ? { ...entry, chatRoomId, hasExistingChat: true } : entry));
+        router.push({ pathname: "/chat/[id]", params: { id: item.id, chatRoomId } });
+        return;
+      }
+
+      const chatRoomId = [auth.userId, item.id].sort().join("_");
       await setDoc(
         doc(db, "chats", chatRoomId),
         {
@@ -1594,34 +1915,6 @@ export default function ApartmentDetailScreen() {
       });
     } finally {
       setSendingShareChatId(null);
-    }
-  };
-
-  const handleConfirmDeleteInquiry = async () => {
-    if (!auth.userId || !inquiryToDelete) return;
-
-    const item = inquiryToDelete;
-    setInquiryToDelete(null);
-    setDeletingInquiryId(item.id);
-    setInquiries((current) => current.filter((entry) => entry.id !== item.id));
-
-    try {
-      await setDoc(doc(db, "chats", item.chatRoomId), {
-        [`clearedAt.${auth.userId}`]: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      }, { merge: true });
-    } catch (error) {
-      console.error("[ApartmentDetail] Failed to delete inquiry chat:", error);
-      setInquiries((current) => {
-        if (current.some((entry) => entry.id === item.id)) return current;
-        return [item, ...current].sort((a, b) => b.sortKey - a.sortKey);
-      });
-      setActionModal({
-        title: t("common.messages.tryAgain"),
-        description: t("apartmentDetail.deleteChatFailedMessage"),
-      });
-    } finally {
-      setDeletingInquiryId(null);
     }
   };
 
@@ -1808,10 +2101,34 @@ export default function ApartmentDetailScreen() {
 
             {isListingOwner ? (
               <View style={styles.titleActions}>
+                {isStrictHostOwner ? (
+                  <Pressable
+                    style={[
+                      styles.titleActionBtn,
+                      apartmentStatus === "closed_deal" ? styles.dealActionBtnClosed : styles.dealActionBtnActive,
+                    ]}
+                    onPress={() => {
+                      if (apartmentStatus === "closed_deal") {
+                        setShowReopenDealConfirm(true);
+                      } else {
+                        handleOpenCloseDeal();
+                      }
+                    }}
+                    testID={`apartment-detail-close-deal-btn-${apt.id}`}
+                    hitSlop={8}
+                  >
+                    {apartmentStatus === "closed_deal" ? (
+                      <Ionicons name="eye-outline" size={20} color={colors.onSurfaceTertiary} />
+                    ) : (
+                      <MaterialCommunityIcons name="handshake-outline" size={20} color={colors.onBrand} />
+                    )}
+                  </Pressable>
+                ) : null}
                 <Pressable
-                  style={styles.titleActionBtn}
-                  onPress={handleScrollToInquiries}
+                  style={[styles.titleActionBtn, isClientsSectionOpen && styles.titleActionBtnActive]}
+                  onPress={handleToggleAndScrollToClients}
                   testID={`apartment-detail-inquiries-btn-${apt.id}`}
+                  hitSlop={8}
                 >
                   <Ionicons name="chatbubbles-outline" size={18} color={colors.onSurface} />
                 </Pressable>
@@ -1819,6 +2136,7 @@ export default function ApartmentDetailScreen() {
                   style={styles.titleActionBtn}
                   onPress={() => setDeleteModalVisible(true)}
                   testID={`apartment-detail-delete-${apt.id}`}
+                  hitSlop={8}
                 >
                   <Ionicons name="trash-outline" size={20} color={colors.onSurface} />
                 </Pressable>
@@ -1900,15 +2218,13 @@ export default function ApartmentDetailScreen() {
           </View>
         ) : null}
 
-        {!isListingOwner && showLikedUsersSection ? (
+        {canViewerSeeSection && showLikedUsersSection ? (
           <View style={styles.section} testID="apartment-detail-liked-users-section">
             <Text style={styles.sectionTitle}>Ενδιαφερόμενοι Συγκάτοικοι</Text>
 
             <View style={styles.inquiriesList}>
               {loadingLikedUsers ? (
-                <View style={styles.inquiriesEmptyState}>
-                  <ActivityIndicator size="small" color={colors.brandSecondary} />
-                </View>
+                <InquiryCandidatesSkeleton />
               ) : likedUsers.length ? (
                 likedUsers.map((item) => (
                   <View key={item.id} style={styles.likedUserCard}>
@@ -1968,9 +2284,11 @@ export default function ApartmentDetailScreen() {
           <View style={styles.section} testID="apartment-detail-client-matches-section">
             <Text style={styles.sectionTitle}>Clients</Text>
             {loadingClients ? (
-              <ActivityIndicator color={colors.brand} size="small" style={styles.clientMatchesLoading} />
+              <InquiryCandidatesSkeleton />
             ) : matchedClients.length === 0 ? (
-              <Text style={styles.clientMatchesEmptyText}>Δεν βρέθηκαν συμβατοί πελάτες για αυτό το ακίνητο.</Text>
+              <View style={styles.crmEmptyState}>
+                <Text style={styles.clientMatchesEmptyText}>Δεν βρέθηκαν συμβατοί πελάτες για αυτό το ακίνητο.</Text>
+              </View>
             ) : (
               <View style={styles.clientsList}>
                 {matchedClients.map((client) => (
@@ -2000,85 +2318,117 @@ export default function ApartmentDetailScreen() {
                 <Ionicons color={colors.brand} name="newspaper-outline" size={20} />
                 <Text style={styles.interactionCardTitle}>Ιστορικό Αλληλεπιδράσεων</Text>
               </View>
+              <Pressable
+                style={styles.addInteractionBtn}
+                onPress={() => {
+                  if (availableClientOptions.length > 0 && !newInteractionClientId) {
+                    setNewInteractionClientId(availableClientOptions[0].id);
+                  }
+                  setAddInteractionModalVisible(true);
+                }}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Προσθήκη αλληλεπίδρασης"
+                testID="apartment-detail-add-interaction-btn"
+              >
+                <Ionicons color={colors.onBrand} name="add" size={20} />
+              </Pressable>
             </View>
+
+            <ScrollView
+              contentContainerStyle={styles.clientFilterChipsWrap}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+            >
+              <Pressable
+                style={[styles.clientFilterChip, selectedClientFilter === "all" && styles.clientFilterChipActive]}
+                onPress={() => setSelectedClientFilter("all")}
+                testID="apartment-detail-interaction-client-all"
+              >
+                <Text style={[styles.clientFilterChipText, selectedClientFilter === "all" && styles.clientFilterChipTextActive]}>
+                  Όλοι οι πελάτες
+                </Text>
+              </Pressable>
+              {availableClientOptions.map((client) => {
+                const isSelected = selectedClientFilter === client.id;
+                return (
+                  <Pressable
+                    key={client.id}
+                    style={[styles.clientFilterChip, isSelected && styles.clientFilterChipActive]}
+                    onPress={() => setSelectedClientFilter(isSelected ? "all" : client.id)}
+                    testID={`apartment-detail-interaction-client-${client.id}`}
+                  >
+                    <Text style={[styles.clientFilterChipText, isSelected && styles.clientFilterChipTextActive]}>
+                      {client.name}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
 
             <View style={styles.metricsSummaryBar}>
-              <View style={styles.metricCounterItem}><Ionicons color="#10B981" name="call-outline" size={15} /><Text style={styles.metricCounterNumber}>{MOCK_PROPERTY_INTERACTIONS.callsCount}</Text><Text style={styles.metricCounterLabel}>Κλήσεις</Text></View>
+              <Pressable
+                style={[styles.metricCounterItem, selectedTypeFilter === "call" && styles.metricCounterItemActive]}
+                onPress={() => setSelectedTypeFilter(selectedTypeFilter === "call" ? "all" : "call")}
+                testID="apartment-detail-interaction-filter-call"
+              >
+                <Ionicons color="#10B981" name="call-outline" size={16} />
+                <Text style={styles.metricCounterNumber}>{interactionMetrics.calls}</Text>
+                <Text style={styles.metricCounterLabel}>Κλήσεις</Text>
+              </Pressable>
               <View style={styles.metricCounterDivider} />
-              <View style={styles.metricCounterItem}><Ionicons color={colors.brand} name="key-outline" size={15} /><Text style={styles.metricCounterNumber}>{MOCK_PROPERTY_INTERACTIONS.showingsCount}</Text><Text style={styles.metricCounterLabel}>Υποδείξεις</Text></View>
+              <Pressable
+                style={[styles.metricCounterItem, selectedTypeFilter === "showing" && styles.metricCounterItemActive]}
+                onPress={() => setSelectedTypeFilter(selectedTypeFilter === "showing" ? "all" : "showing")}
+                testID="apartment-detail-interaction-filter-showing"
+              >
+                <Ionicons color={colors.brand} name="key-outline" size={16} />
+                <Text style={styles.metricCounterNumber}>{interactionMetrics.showings}</Text>
+                <Text style={styles.metricCounterLabel}>Υποδείξεις</Text>
+              </Pressable>
               <View style={styles.metricCounterDivider} />
-              <View style={styles.metricCounterItem}><Ionicons color="#F59E0B" name="chatbubble-ellipses-outline" size={15} /><Text style={styles.metricCounterNumber}>{MOCK_PROPERTY_INTERACTIONS.commentsCount}</Text><Text style={styles.metricCounterLabel}>Σχόλια</Text></View>
+              <Pressable
+                style={[styles.metricCounterItem, selectedTypeFilter === "comment" && styles.metricCounterItemActive]}
+                onPress={() => setSelectedTypeFilter(selectedTypeFilter === "comment" ? "all" : "comment")}
+                testID="apartment-detail-interaction-filter-comment"
+              >
+                <Ionicons color="#F59E0B" name="chatbubble-ellipses-outline" size={16} />
+                <Text style={styles.metricCounterNumber}>{interactionMetrics.comments}</Text>
+                <Text style={styles.metricCounterLabel}>Σχόλια</Text>
+              </Pressable>
               <View style={styles.metricCounterDivider} />
-              <View style={styles.metricCounterItem}><Ionicons color="#38BDF8" name="mail-outline" size={15} /><Text style={styles.metricCounterNumber}>{MOCK_PROPERTY_INTERACTIONS.emailsCount}</Text><Text style={styles.metricCounterLabel}>Emails</Text></View>
+              <Pressable
+                style={[styles.metricCounterItem, selectedTypeFilter === "email" && styles.metricCounterItemActive]}
+                onPress={() => setSelectedTypeFilter(selectedTypeFilter === "email" ? "all" : "email")}
+                testID="apartment-detail-interaction-filter-email"
+              >
+                <Ionicons color="#38BDF8" name="mail-outline" size={16} />
+                <Text style={styles.metricCounterNumber}>{interactionMetrics.emails}</Text>
+                <Text style={styles.metricCounterLabel}>Emails</Text>
+              </Pressable>
             </View>
 
-            <View style={styles.categorySection}>
-              <View style={styles.categoryHeader}><Ionicons color="#10B981" name="call-outline" size={16} /><Text style={styles.categoryTitleText}>Τηλέφωνο</Text><View style={styles.categoryCountBadge}><Text style={styles.categoryCountText}>{`${MOCK_PROPERTY_INTERACTIONS.callsCount} συνολικά`}</Text></View></View>
-              <View style={styles.itemLogList}>{MOCK_PROPERTY_INTERACTIONS.recentCalls.map((item) => <View key={item} style={styles.logBulletRow}><Text style={styles.logBulletSymbol}>•</Text><Text style={styles.logItemText}>{item}</Text></View>)}</View>
-            </View>
-            <View style={styles.categorySection}>
-              <View style={styles.categoryHeader}><Ionicons color={colors.brand} name="key-outline" size={16} /><Text style={styles.categoryTitleText}>Υποδείξεις</Text><View style={styles.categoryCountBadge}><Text style={styles.categoryCountText}>{`${MOCK_PROPERTY_INTERACTIONS.showingsCount} ραντεβού`}</Text></View></View>
-              <View style={styles.itemLogList}>{MOCK_PROPERTY_INTERACTIONS.recentShowings.map((item) => <View key={item} style={styles.logBulletRow}><Text style={styles.logBulletSymbol}>•</Text><Text style={styles.logItemText}>{item}</Text></View>)}</View>
-            </View>
-            <View style={styles.categorySection}>
-              <View style={styles.categoryHeader}><Ionicons color="#F59E0B" name="chatbubble-ellipses-outline" size={16} /><Text style={styles.categoryTitleText}>Σχόλια από πελάτες</Text><View style={styles.categoryCountBadge}><Text style={styles.categoryCountText}>{`${MOCK_PROPERTY_INTERACTIONS.commentsCount} σχόλια`}</Text></View></View>
-              <View style={styles.itemLogList}>{MOCK_PROPERTY_INTERACTIONS.clientFeedback.map((item) => <View key={item} style={styles.logBulletRow}><Text style={styles.logBulletSymbol}>•</Text><Text style={styles.logItemText}>{item}</Text></View>)}</View>
-            </View>
-            <View style={styles.categorySection}>
-              <View style={styles.categoryHeader}><Ionicons color="#38BDF8" name="mail-outline" size={16} /><Text style={styles.categoryTitleText}>Emails</Text><View style={styles.categoryCountBadge}><Text style={styles.categoryCountText}>{`${MOCK_PROPERTY_INTERACTIONS.emailsCount} μηνύματα`}</Text></View></View>
-              <View style={styles.itemLogList}>{MOCK_PROPERTY_INTERACTIONS.recentEmails.map((item) => <View key={item} style={styles.logBulletRow}><Text style={styles.logBulletSymbol}>•</Text><Text style={styles.logItemText}>{item}</Text></View>)}</View>
-            </View>
-          </View>
-        ) : null}
-
-        {isListingOwner ? (
-          <View
-            style={styles.section}
-            onLayout={(event) => setInquiriesSectionY(event.nativeEvent.layout.y)}
-            testID="apartment-detail-inquiries-section"
-          >
-            <Text style={styles.sectionTitle}>{t("apartmentDetail.inquiriesTitle")}</Text>
-
-            <View style={styles.inquiriesList}>
-              {loadingInquiries ? (
-                <View style={styles.inquiriesEmptyState}>
-                  <ActivityIndicator size="small" color={colors.brandSecondary} />
-                </View>
-              ) : inquiries.length ? (
-                inquiries.map((item) => (
-                  <Pressable key={item.id} style={styles.inquiryCard} onPress={() => handleOpenInquiry(item)}>
-                    <View style={styles.inquiryAvatarWrap}>
-                      {item.customerAvatar ? (
-                        <Image source={{ uri: item.customerAvatar }} style={styles.inquiryAvatarImage} contentFit="cover" />
-                      ) : (
-                        <DefaultProfileAvatar size={50} iconSize={22} />
-                      )}
-                    </View>
-
-                    <View style={styles.inquiryContent}>
-                      <Text style={styles.inquiryName} numberOfLines={1}>{item.customerName}</Text>
-                      <Text style={styles.inquiryPreview} numberOfLines={2}>
-                        {item.lastMessageText || t("common.values.notAvailable")}
-                      </Text>
-                    </View>
-
-                    <Pressable
-                      style={styles.inquiryDeleteBtn}
-                      onPress={(event) => {
-                        event.stopPropagation();
-                        setInquiryToDelete(item);
-                      }}
-                      hitSlop={8}
-                      disabled={deletingInquiryId === item.id}
-                    >
-                      <Ionicons name="trash-outline" size={18} color={colors.error} />
-                    </Pressable>
-                  </Pressable>
-                ))
+            <View style={styles.itemLogList}>
+              {visibleInteractions.length === 0 ? (
+                <Text style={styles.emptyLogText}>Δεν υπάρχουν καταγεγραμμένες αλληλεπιδράσεις για τα επιλεγμένα κριτήρια.</Text>
               ) : (
-                <View style={styles.inquiriesEmptyState}>
-                  <Text style={styles.inquiriesEmptyText}>{t("apartmentDetail.inquiriesEmpty")}</Text>
-                </View>
+                visibleInteractions.map((item) => {
+                  const typeTone = getTypeMeta(item.type, colors);
+                  return (
+                    <View key={item.id} style={styles.logEntryRow}>
+                      <View style={[styles.logTypeIconWrap, { backgroundColor: typeTone.bg }]}>
+                        <Ionicons color={typeTone.color} name={typeTone.icon} size={15} />
+                      </View>
+                      <View style={styles.logEntryContent}>
+                        <View style={styles.logEntryTopLine}>
+                          <Text style={styles.logClientName} numberOfLines={1}>{item.clientName}</Text>
+                          <Text style={styles.logDateText}>{formatDateTime(item.createdAtMillis)}</Text>
+                        </View>
+                        <Text style={styles.logNoteText}>{item.note || typeTone.label}</Text>
+                      </View>
+                    </View>
+                  );
+                })
               )}
             </View>
           </View>
@@ -2099,6 +2449,126 @@ export default function ApartmentDetailScreen() {
             })}
           </View>
         </View>
+
+        {isListingOwner ? (
+          <View
+            style={styles.crmSectionContainer}
+            onLayout={(event) => setClientsSectionY(event.nativeEvent.layout.y)}
+            testID="apartment-detail-clients-section"
+          >
+            <Pressable
+              style={styles.extraDetailsHeaderRow}
+              onPress={() => setIsClientsSectionOpen((previous) => !previous)}
+              testID="apartment-detail-clients-toggle"
+            >
+              <Text style={styles.sectionTitle}>{auth.isBroker ? "Ενδιαφερόμενοι Πελάτες (CRM)" : "Ενδιαφερόμενοι"}</Text>
+              <Ionicons
+                name={isClientsSectionOpen ? "chevron-up" : "chevron-down"}
+                size={20}
+                color={colors.onSurface}
+              />
+            </Pressable>
+            {isClientsSectionOpen ? (
+              <View style={styles.clientsContentWrap}>
+            {auth.isBroker ? (
+              loadingBrokerPropertyDealLeads ? (
+                <InquiryCandidatesSkeleton />
+              ) : brokerPropertyDealLeads.length === 0 ? (
+                <View style={styles.crmEmptyState}>
+                  <Text style={styles.crmEmptyStateText}>Δεν υπάρχουν ακόμη ενδιαφερόμενοι πελάτες για αυτό το ακίνητο</Text>
+                </View>
+              ) : (
+                brokerPropertyDealLeads.map((client) => {
+                  const hasChat = Boolean(client.chatRoomId) && (client.messageCount > 0 || Boolean(client.lastMessageText.trim()));
+                  const stageTone = getBrokerPropertyStageTone(client.pipelineStage, colors);
+                  return (
+                    <View key={client.id} style={styles.clientLeadRow} testID={`apartment-detail-crm-client-${client.id}`}>
+                    <View style={styles.clientInfoWrap}>
+                      {client.avatar ? (
+                        <Image source={{ uri: client.avatar }} style={styles.clientAvatar} contentFit="cover" />
+                      ) : (
+                        <View style={[styles.clientAvatar, styles.clientAvatarFallback]}>
+                          <Ionicons color={colors.onSurfaceTertiary} name="person-outline" size={18} />
+                          </View>
+                        )}
+                        <View style={styles.clientInlineMetaRow}>
+                        <Text style={styles.clientName} numberOfLines={1}>{client.name}</Text>
+                        <View style={[styles.stagePill, { backgroundColor: stageTone.backgroundColor }]}>
+                          <Text style={styles.stagePillText}>{getBrokerPropertyStageLabel(client.pipelineStage)}</Text>
+                        </View>
+                      </View>
+                    </View>
+                    <View style={styles.crmActionButtonsRow}>
+                      {hasChat ? (
+                        <Pressable
+                          style={[styles.crmActionBtn, styles.crmActionBtnActive]}
+                          onPress={() => router.push({ pathname: "/chat/[id]", params: { id: client.id, chatRoomId: client.chatRoomId } })}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Άνοιγμα συνομιλίας με ${client.name}`}
+                          testID={`apartment-detail-crm-chat-${client.id}`}
+                        >
+                          <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.brand} />
+                        </Pressable>
+                      ) : null}
+                      <Pressable
+                        style={styles.crmActionBtn}
+                        onPress={() => router.push({ pathname: "/broker-client-detail", params: { clientUserId: client.id } })}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Άνοιγμα προφίλ πελάτη ${client.name}`}
+                        testID={`apartment-detail-crm-client-detail-${client.id}`}
+                      >
+                        <Ionicons name="open-outline" size={18} color={colors.onSurface} />
+                      </Pressable>
+                    </View>
+                  </View>
+                );
+                })
+              )
+            ) : (
+              loadingHostInquiringClients ? (
+                <InquiryCandidatesSkeleton />
+              ) : hostInquiringClients.length === 0 ? (
+                <View style={styles.crmEmptyState}>
+                  <Text style={styles.crmEmptyStateText}>Δεν υπάρχουν ακόμη ενδιαφερόμενοι πελάτες για αυτό το ακίνητο</Text>
+                </View>
+              ) : (
+                hostInquiringClients.map((client) => (
+                  <View key={client.id} style={styles.clientLeadRow} testID={`host-client-row-${client.id}`}>
+                    <View style={styles.clientInfoWrap}>
+                      {client.avatar ? (
+                        <Image source={{ uri: client.avatar }} style={styles.clientAvatar} contentFit="cover" />
+                      ) : (
+                        <View style={[styles.clientAvatar, styles.clientAvatarFallback]}>
+                          <Ionicons color={colors.onSurfaceTertiary} name="person-outline" size={18} />
+                        </View>
+                      )}
+                      <Text numberOfLines={1} style={styles.clientName}>{client.name}</Text>
+                    </View>
+                    <View style={styles.crmActionButtonsRow}>
+                      {client.compatibilityScore != null ? (
+                        <View style={styles.matchBadge} testID={`host-client-match-${client.id}`}>
+                          <Ionicons color={colors.brand} name="sparkles" size={12} />
+                          <Text style={styles.matchBadgeText}>{`${client.compatibilityScore}%`}</Text>
+                        </View>
+                      ) : null}
+                      <Pressable
+                        style={[styles.crmActionBtn, styles.crmActionBtnActive]}
+                        onPress={() => router.push({ pathname: "/chat/[id]", params: { id: client.id, chatRoomId: client.chatRoomId } })}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Άνοιγμα συνομιλίας με ${client.name}`}
+                        testID={`host-client-chat-btn-${client.id}`}
+                      >
+                        <Ionicons color={colors.brand} name="chatbubble-ellipses-outline" size={18} />
+                      </Pressable>
+                    </View>
+                  </View>
+                ))
+              )
+            )}
+              </View>
+            ) : null}
+          </View>
+        ) : null}
 
         {shouldShowExtraDetailsSection ? (
           <View style={styles.section}>
@@ -2409,39 +2879,6 @@ export default function ApartmentDetailScreen() {
         </Pressable>
       </View>
 
-      {isStrictHostOwner ? (
-        <View style={[styles.dealFabCluster, { bottom: spacing.lg + insets.bottom + 86 }]}>
-          <Pressable
-            style={[
-              styles.hostInboxFab,
-              apartmentStatus === "closed_deal" ? styles.hostInboxFabMuted : styles.hostInboxFabActive,
-            ]}
-            onPress={() => {
-              if (apartmentStatus === "closed_deal") {
-                setShowReopenDealConfirm(true);
-              } else {
-                handleOpenCloseDeal();
-              }
-            }}
-            testID="apartment-detail-close-deal-fab"
-          >
-            {apartmentStatus === "closed_deal" ? (
-              <Ionicons name="eye-outline" size={22} color={colors.onSurfaceTertiary} />
-            ) : (
-              <MaterialCommunityIcons name="handshake-outline" size={22} color={colors.onBrand} />
-            )}
-          </Pressable>
-
-          <Pressable
-            style={styles.hostInboxFab}
-            onPress={handleScrollToInquiries}
-            testID="apartment-detail-host-inbox-fab"
-          >
-            <Text style={styles.hostInboxFabText}>✉️</Text>
-          </Pressable>
-        </View>
-      ) : null}
-
       <CenteredActionModal
         visible={deleteModalVisible}
         title={t("apartmentDetail.deleteListingTitle")}
@@ -2496,33 +2933,6 @@ export default function ApartmentDetailScreen() {
         testID="apartment-detail-reopen-deal-modal"
       />
 
-      <CenteredActionModal
-        visible={!!inquiryToDelete}
-        title={t("apartmentDetail.deleteChatTitle")}
-        description={t("apartmentDetail.deleteChatMessage")}
-        onDismiss={() => {
-          if (!deletingInquiryId) setInquiryToDelete(null);
-        }}
-        actionsLayout="horizontal"
-        actions={[
-          {
-            label: t("common.actions.cancel"),
-            variant: "muted",
-            iconName: "close-outline",
-            onPress: () => setInquiryToDelete(null),
-          },
-          {
-            label: t("common.actions.delete"),
-            variant: "danger",
-            iconName: "trash-outline",
-            onPress: () => {
-              void handleConfirmDeleteInquiry();
-            },
-          },
-        ]}
-        testID="apartment-detail-delete-chat-modal"
-      />
-
       <Modal
         transparent
         animationType="fade"
@@ -2538,6 +2948,125 @@ export default function ApartmentDetailScreen() {
               </Pressable>
             </View>
             {selectedFileModal ? <Image source={{ uri: selectedFileModal.uri }} style={styles.fileViewerImage} contentFit="contain" /> : null}
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        transparent
+        animationType="fade"
+        visible={addInteractionModalVisible}
+        onRequestClose={() => {
+          if (!isSavingInteraction) setAddInteractionModalVisible(false);
+        }}
+      >
+        <View style={styles.shareModalBackdrop}>
+          <View style={styles.interactionModalCard}>
+            <View style={styles.interactionModalTitleRow}>
+              <Text style={styles.interactionModalTitle}>Νέα αλληλεπίδραση</Text>
+              <Pressable
+                onPress={() => setAddInteractionModalVisible(false)}
+                disabled={isSavingInteraction}
+                hitSlop={8}
+                testID="apartment-detail-add-interaction-close"
+              >
+                <Ionicons name="close" size={24} color={colors.onSurface} />
+              </Pressable>
+            </View>
+
+            <ScrollView
+              style={styles.interactionModalScroll}
+              contentContainerStyle={styles.interactionModalContent}
+              keyboardShouldPersistTaps="handled"
+            >
+              <Text style={styles.interactionModalSectionLabel}>Πελάτης</Text>
+              {availableClientOptions.length === 0 ? (
+                <View style={styles.interactionModalEmptyState}>
+                  <Text style={styles.shareModalEmptyText}>Δεν υπάρχουν διαθέσιμοι πελάτες για καταγραφή.</Text>
+                </View>
+              ) : (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.clientFilterChipsWrap}
+                >
+                  {availableClientOptions.map((client) => {
+                    const isSelected = newInteractionClientId === client.id;
+                    return (
+                      <Pressable
+                        key={client.id}
+                        style={[styles.clientFilterChip, isSelected && styles.clientFilterChipActive]}
+                        onPress={() => setNewInteractionClientId(client.id)}
+                        testID={`apartment-detail-add-interaction-client-${client.id}`}
+                      >
+                        <Text style={[styles.clientFilterChipText, isSelected && styles.clientFilterChipTextActive]}>
+                          {client.name}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              )}
+
+              <Text style={styles.interactionModalSectionLabel}>Τύπος</Text>
+              <View style={styles.interactionTypeChipsWrap}>
+                {INTERACTION_TYPES.map((type) => {
+                  const typeTone = getTypeMeta(type, colors);
+                  const isSelected = newInteractionType === type;
+                  return (
+                    <Pressable
+                      key={type}
+                      style={[styles.interactionTypeChip, isSelected && styles.interactionTypeChipActive]}
+                      onPress={() => setNewInteractionType(type)}
+                      testID={`apartment-detail-add-interaction-type-${type}`}
+                    >
+                      <Ionicons name={typeTone.icon} size={16} color={isSelected ? colors.brand : typeTone.color} />
+                      <Text style={[styles.interactionTypeChipText, isSelected && styles.interactionTypeChipTextActive]}>
+                        {typeTone.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <Text style={styles.interactionModalSectionLabel}>Σημείωση</Text>
+              <TextInput
+                value={newInteractionNote}
+                onChangeText={setNewInteractionNote}
+                style={styles.interactionNoteInput}
+                placeholder="Προσθέστε λεπτομέρειες..."
+                placeholderTextColor={colors.onSurfaceTertiary}
+                multiline
+                textAlignVertical="top"
+                maxLength={1000}
+                testID="apartment-detail-add-interaction-note"
+              />
+            </ScrollView>
+
+            <View style={styles.interactionModalActions}>
+              <Pressable
+                style={styles.shareModalCancelBtn}
+                onPress={() => setAddInteractionModalVisible(false)}
+                disabled={isSavingInteraction}
+                testID="apartment-detail-add-interaction-cancel"
+              >
+                <Text style={styles.shareModalCancelText}>{t("common.actions.cancel")}</Text>
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.interactionSaveBtn,
+                  (!newInteractionClientId || !newInteractionNote.trim() || isSavingInteraction) && styles.interactionSaveBtnDisabled,
+                ]}
+                onPress={() => {
+                  void handleSaveInteraction();
+                }}
+                disabled={!newInteractionClientId || !newInteractionNote.trim() || isSavingInteraction}
+                testID="apartment-detail-add-interaction-save"
+              >
+                {isSavingInteraction ? <ActivityIndicator size="small" color={colors.onBrand} /> : <Ionicons name="checkmark" size={18} color={colors.onBrand} />}
+                <Text style={styles.interactionSaveText}>Αποθήκευση</Text>
+              </Pressable>
+            </View>
           </View>
         </View>
       </Modal>
@@ -2949,6 +3478,14 @@ function createStyles(colors: ThemeColors) {
       backgroundColor: colors.brandTertiary,
       borderColor: colors.brand,
     },
+    dealActionBtnActive: {
+      backgroundColor: colors.brand,
+      borderColor: colors.brand,
+    },
+    dealActionBtnClosed: {
+      backgroundColor: colors.surfaceTertiary,
+      borderColor: colors.border,
+    },
     doubleHeartText: {
       fontSize: 18,
       lineHeight: 20,
@@ -2996,8 +3533,103 @@ function createStyles(colors: ThemeColors) {
       fontSize: fontSize.lg,
       color: colors.onSurface,
     },
+    crmSectionContainer: {
+      marginHorizontal: spacing.lg,
+      marginTop: spacing.lg,
+      marginBottom: spacing.md,
+      gap: spacing.sm,
+    },
+    crmSectionTitle: {
+      fontFamily: fonts.bold,
+      fontSize: fontSize.lg,
+      color: colors.onSurface,
+    },
+    clientsContentWrap: {
+      gap: spacing.sm,
+    },
+    clientLeadRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: spacing.sm,
+      marginVertical: spacing.sm,
+      gap: spacing.sm,
+    },
+    clientInfoWrap: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      flex: 1,
+      minWidth: 0,
+    },
+    clientTextMeta: {
+      flex: 1,
+      minWidth: 0,
+      justifyContent: "center",
+      paddingTop: 3,
+      gap: 3,
+    },
+    clientInlineMetaRow: {
+      flex: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      minWidth: 0,
+    },
+    stagePill: {
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 3,
+      borderRadius: radius.pill,
+      backgroundColor: colors.brandTertiary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    stagePillText: {
+      fontFamily: fonts.bold,
+      fontSize: fontSize.xs,
+      color: colors.brand,
+      includeFontPadding: false,
+      textAlignVertical: "center",
+    },
+    crmActionButtonsRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+    },
+    crmActionBtn: {
+      width: 36,
+      height: 36,
+      borderRadius: radius.pill,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    crmActionBtnActive: {
+      backgroundColor: colors.brandTertiary,
+      borderColor: colors.brand,
+    },
+    crmEmptyState: {
+      padding: spacing.md,
+      borderRadius: radius.md,
+      backgroundColor: colors.surfaceSecondary,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    crmEmptyStateText: {
+      fontFamily: fonts.regular,
+      fontSize: fontSize.sm,
+      color: colors.onSurfaceTertiary,
+      textAlign: "center",
+    },
     propertyInteractionCard: {
-      marginTop: spacing.md,
+      marginHorizontal: spacing.lg,
+      marginTop: spacing.lg,
       padding: spacing.md,
       borderRadius: radius.lg,
       backgroundColor: colors.surfaceSecondary,
@@ -3008,6 +3640,40 @@ function createStyles(colors: ThemeColors) {
     interactionHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
     interactionTitleWrap: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
     interactionCardTitle: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface },
+    addInteractionBtn: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: colors.brand,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    clientFilterChipsWrap: {
+      flexDirection: "row",
+      gap: spacing.xs,
+      paddingVertical: 2,
+    },
+    clientFilterChip: {
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 6,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    clientFilterChipActive: {
+      backgroundColor: colors.brandTertiary,
+      borderColor: colors.brand,
+    },
+    clientFilterChipText: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.xs,
+      color: colors.onSurfaceTertiary,
+    },
+    clientFilterChipTextActive: {
+      color: colors.brand,
+      fontFamily: fonts.bold,
+    },
     metricsSummaryBar: {
       flexDirection: "row",
       alignItems: "center",
@@ -3019,18 +3685,65 @@ function createStyles(colors: ThemeColors) {
       borderColor: colors.border,
     },
     metricCounterItem: { alignItems: "center", gap: 2 },
+    metricCounterItemActive: {
+      backgroundColor: colors.brandTertiary,
+      borderRadius: radius.sm,
+      paddingHorizontal: 4,
+    },
     metricCounterNumber: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface },
     metricCounterLabel: { fontFamily: fonts.regular, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
     metricCounterDivider: { width: StyleSheet.hairlineWidth, height: 24, backgroundColor: colors.border },
-    categorySection: { gap: 4 },
-    categoryHeader: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
-    categoryTitleText: { flex: 1, fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface },
-    categoryCountBadge: { paddingHorizontal: spacing.xs, paddingVertical: 2, borderRadius: radius.pill, backgroundColor: colors.surfaceTertiary },
-    categoryCountText: { fontFamily: fonts.bold, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
-    itemLogList: { gap: 3, paddingLeft: spacing.xs, marginTop: 2 },
-    logBulletRow: { flexDirection: "row", alignItems: "flex-start", gap: 6 },
-    logBulletSymbol: { fontSize: fontSize.xs, color: colors.onSurfaceTertiary, lineHeight: 16 },
-    logItemText: { flex: 1, fontFamily: fonts.regular, fontSize: fontSize.xs, color: colors.onSurface, lineHeight: 16 },
+    itemLogList: { gap: 3, marginTop: 2 },
+    logEntryRow: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      gap: spacing.sm,
+      paddingVertical: spacing.xs,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+    },
+    logTypeIconWrap: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      alignItems: "center",
+      justifyContent: "center",
+      marginTop: 2,
+    },
+    logEntryContent: {
+      flex: 1,
+      gap: 2,
+    },
+    logEntryTopLine: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: spacing.sm,
+    },
+    logClientName: {
+      flex: 1,
+      fontFamily: fonts.bold,
+      fontSize: fontSize.sm,
+      color: colors.onSurface,
+    },
+    logDateText: {
+      fontFamily: fonts.regular,
+      fontSize: fontSize.xs,
+      color: colors.onSurfaceTertiary,
+    },
+    logNoteText: {
+      fontFamily: fonts.regular,
+      fontSize: fontSize.sm,
+      color: colors.onSurface,
+      lineHeight: 18,
+    },
+    emptyLogText: {
+      fontFamily: fonts.regular,
+      fontSize: fontSize.sm,
+      color: colors.onSurfaceTertiary,
+      textAlign: "center",
+      paddingVertical: spacing.md,
+    },
     clientsList: { gap: spacing.sm, marginTop: spacing.sm },
     clientMatchesLoading: { marginTop: spacing.sm },
     clientMatchRow: {
@@ -3043,17 +3756,20 @@ function createStyles(colors: ThemeColors) {
       borderWidth: 1,
       borderColor: colors.border,
     },
-    clientAvatar: { width: 40, height: 40, borderRadius: 20 },
+    clientAvatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: colors.surfaceTertiary },
     clientAvatarFallback: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
+      width: 50,
+      height: 50,
+      borderRadius: 25,
       backgroundColor: colors.surfaceTertiary,
       alignItems: "center",
       justifyContent: "center",
     },
-    clientName: { flex: 1, fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface },
+    clientName: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface, flexShrink: 1 },
     matchBadge: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
       paddingHorizontal: spacing.sm,
       paddingVertical: 4,
       borderRadius: radius.pill,
@@ -3086,16 +3802,6 @@ function createStyles(colors: ThemeColors) {
     fontSize: fontSize.sm,
     textAlign: "center",
   },
-    inquiryCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.lg,
-    backgroundColor: colors.surfaceSecondary,
-    padding: spacing.sm,
-  },
     inquiryAvatarWrap: {
     width: 50,
     height: 50,
@@ -3106,30 +3812,10 @@ function createStyles(colors: ThemeColors) {
     width: "100%",
     height: "100%",
   },
-    inquiryContent: {
-    flex: 1,
-    gap: 2,
-  },
     inquiryName: {
     fontFamily: fonts.bold,
     fontSize: fontSize.base,
     color: colors.onSurface,
-  },
-    inquiryPreview: {
-    fontFamily: fonts.regular,
-    fontSize: fontSize.sm,
-    color: colors.onSurfaceTertiary,
-    lineHeight: 18,
-  },
-    inquiryDeleteBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
   },
     likedUserCard: {
       flexDirection: "row",
@@ -3166,6 +3852,115 @@ function createStyles(colors: ThemeColors) {
       alignItems: "center",
       justifyContent: "center",
       paddingHorizontal: spacing.lg,
+    },
+    interactionModalCard: {
+      width: "100%",
+      maxWidth: 460,
+      maxHeight: "88%",
+      backgroundColor: colors.surface,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: spacing.lg,
+      gap: spacing.md,
+    },
+    interactionModalTitleRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: spacing.sm,
+    },
+    interactionModalTitle: {
+      flex: 1,
+      fontFamily: fonts.bold,
+      fontSize: fontSize.xl,
+      color: colors.onSurface,
+    },
+    interactionModalScroll: {
+      flexShrink: 1,
+    },
+    interactionModalContent: {
+      gap: spacing.sm,
+      paddingBottom: spacing.xs,
+    },
+    interactionModalSectionLabel: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.sm,
+      color: colors.onSurface,
+      marginTop: spacing.xs,
+    },
+    interactionModalEmptyState: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.md,
+      backgroundColor: colors.surfaceSecondary,
+      padding: spacing.md,
+    },
+    interactionTypeChipsWrap: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: spacing.xs,
+    },
+    interactionTypeChip: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: spacing.sm,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surfaceSecondary,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    interactionTypeChipActive: {
+      backgroundColor: colors.brandTertiary,
+      borderColor: colors.brand,
+    },
+    interactionTypeChipText: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.sm,
+      color: colors.onSurfaceTertiary,
+    },
+    interactionTypeChipTextActive: {
+      color: colors.brand,
+      fontFamily: fonts.bold,
+    },
+    interactionNoteInput: {
+      minHeight: 104,
+      maxHeight: 160,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.md,
+      backgroundColor: colors.surfaceSecondary,
+      color: colors.onSurface,
+      fontFamily: fonts.regular,
+      fontSize: fontSize.base,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.md,
+    },
+    interactionModalActions: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: spacing.sm,
+    },
+    interactionSaveBtn: {
+      minHeight: 40,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: spacing.xs,
+      paddingHorizontal: spacing.md,
+      borderRadius: radius.pill,
+      backgroundColor: colors.brand,
+    },
+    interactionSaveBtnDisabled: {
+      opacity: 0.45,
+    },
+    interactionSaveText: {
+      fontFamily: fonts.bold,
+      fontSize: fontSize.sm,
+      color: colors.onBrand,
     },
     shareModalCard: {
       width: "100%",
@@ -3581,41 +4376,6 @@ function createStyles(colors: ThemeColors) {
     borderTopWidth: 1,
     borderTopColor: colors.divider,
   },
-    dealFabCluster: {
-      position: "absolute",
-      right: spacing.lg,
-      flexDirection: "row",
-      alignItems: "center",
-      gap: spacing.sm,
-      zIndex: 30,
-    },
-    hostInboxFab: {
-      width: 50,
-      height: 50,
-      borderRadius: 25,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: colors.muted,
-      borderWidth: 1,
-      borderColor: "#A8D9FF",
-      shadowColor: "#000",
-      shadowOpacity: 0.18,
-      shadowRadius: 8,
-      shadowOffset: { width: 0, height: 4 },
-      elevation: 7,
-    },
-    hostInboxFabText: {
-      fontSize: 22,
-      color: colors.brandTertiary,
-    },
-    hostInboxFabActive: {
-      backgroundColor: colors.brand,
-      borderColor: colors.brand,
-    },
-    hostInboxFabMuted: {
-      backgroundColor: colors.surfaceTertiary,
-      borderColor: colors.border,
-    },
     contactBtn: {
     minHeight: 56,
     borderRadius: radius.pill,

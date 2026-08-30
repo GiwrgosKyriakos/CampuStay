@@ -19,6 +19,18 @@ export interface FilterSetPayload {
   polygonCoordinates?: LatLng[];
   sortBy?: string;
   summary?: string;
+  showMatchScore?: boolean;
+  propertyTypes?: string[];
+  propertyCategories?: string[];
+  floors?: string[];
+  bedroomsMin?: string;
+  bathroomsMin?: string;
+  furnishedStatus?: "all" | "furnished" | "unfurnished";
+  heatingTypes?: string[];
+  energyClasses?: string[];
+  constructionYearMin?: string;
+  renovationYearMin?: string;
+  selectedAmenities?: string[];
   version?: number;
   updatedAt?: number;
 }

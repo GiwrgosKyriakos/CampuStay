@@ -14,10 +14,11 @@ export type BrokerPipelineStage =
   | "closed_won"
   | "closed_lost";
 
-export type DealPipelineStage = "lead" | "showing_scheduled" | "offer_made" | "deal_closed" | "lost";
+export type DealPipelineStage = "liked" | "lead" | "showing_scheduled" | "offer_made" | "deal_closed" | "lost";
 
 export interface BrokerDeal {
   id: string;
+  dealId?: string;
   brokerId: string;
   clientId: string;
   role?: BrokerRelationshipRole;
@@ -88,8 +89,8 @@ export async function upsertBrokerClientProfile(input: {
   if (!input.brokerId.trim() || !input.clientId.trim() || input.brokerId === input.clientId) return;
 
   const profileRef = doc(db, "brokerClientProfiles", getBrokerClientProfileId(input.brokerId, input.clientId));
-  const existingSnapshot = await getDoc(profileRef);
-  const existing = existingSnapshot.exists() ? (existingSnapshot.data() as Partial<BrokerClientProfile>) : null;
+  const existingSnapshot = await getDoc(profileRef).catch(() => null);
+  const existing = existingSnapshot?.exists() ? (existingSnapshot.data() as Partial<BrokerClientProfile>) : null;
   const previousApartmentIds = Array.isArray(existing?.apartmentIds)
     ? existing.apartmentIds.filter((apartmentId): apartmentId is string => typeof apartmentId === "string")
     : [];
@@ -109,12 +110,12 @@ export async function upsertBrokerClientProfile(input: {
       ...(clientName ? { clientName } : {}),
       ...(clientAvatar ? { clientAvatar } : {}),
       ...(input.chatRoomId?.trim() ? { chatRoomId: input.chatRoomId.trim() } : {}),
-      ...(input.pipelineStage && !input.apartmentId || !existingSnapshot.exists()
+      ...(input.pipelineStage && !input.apartmentId || !existingSnapshot?.exists()
         ? { pipelineStage: input.pipelineStage ?? "new_lead" }
         : {}),
-      ...(input.pipelineStage && !input.apartmentId || !existingSnapshot.exists() ? { stageUpdatedAt: Date.now() } : {}),
+      ...(input.pipelineStage && !input.apartmentId || !existingSnapshot?.exists() ? { stageUpdatedAt: Date.now() } : {}),
       apartmentIds,
-      ...(!existingSnapshot.exists() || !existing?.createdAt ? { createdAt: serverTimestamp() } : {}),
+      ...(!existingSnapshot?.exists() || !existing?.createdAt ? { createdAt: serverTimestamp() } : {}),
       updatedAt: serverTimestamp(),
     },
     { merge: true },
@@ -122,7 +123,7 @@ export async function upsertBrokerClientProfile(input: {
 
   if (input.apartmentId?.trim()) {
     const dealRef = doc(collection(profileRef, "deals"), getDealId(input.apartmentId));
-    const dealSnapshot = await getDoc(dealRef);
+    const dealSnapshot = await getDoc(dealRef).catch(() => null);
     await setDoc(
       dealRef,
       {
@@ -134,7 +135,7 @@ export async function upsertBrokerClientProfile(input: {
         ...(input.apartmentTitle?.trim() ? { apartmentTitle: input.apartmentTitle.trim() } : {}),
         ...(typeof input.rent === "number" && Number.isFinite(input.rent) ? { rent: input.rent } : {}),
         ...(input.pipelineStage ? { pipelineStage: getDealStage(input.pipelineStage) } : {}),
-        ...(!dealSnapshot.exists() ? { createdAt: serverTimestamp() } : {}),
+        ...(!dealSnapshot?.exists() ? { createdAt: serverTimestamp() } : {}),
         updatedAt: serverTimestamp(),
       },
       { merge: true },

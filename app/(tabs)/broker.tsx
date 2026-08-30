@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, StyleSheet, Pressable, Animated, PanResponder, FlatList, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, Pressable, Animated, PanResponder, FlatList } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -10,6 +10,7 @@ import { useTheme } from "@/src/context/ThemeContext";
 import { useAuth } from "@/src/context/auth";
 import { db } from "@/src/config/firebase";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
+import BrokerHubSkeleton from "@/src/components/skeletons/BrokerHubSkeleton";
 import { t } from "@/src/locales";
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
 import type { LeadReadinessKey } from "../broker-client-detail";
@@ -32,7 +33,6 @@ export interface BrokerApartment {
   documents?: Record<string, BrokerDocument[]>;
   [key: string]: unknown;
 }
-
 export interface BrokerDocument {
   id: string;
   name: string;
@@ -48,6 +48,7 @@ export interface BrokerOwnerItem {
   ownerAvatar?: string;
   aggregatePipelinePercentage: number;
   expectedRevenue: number;
+  brokerCommission: number;
 }
 
 export interface FilterSetPayload {
@@ -90,6 +91,7 @@ export interface BrokerClientLead {
 
 type BrokerHubSegment = "clients" | "owners";
 const SWIPE_THRESHOLD = 56;
+const BROKER_COMMISSION_RATE = 1;
 
 function mapApartment(id: string, data: Record<string, unknown>): BrokerApartment {
   return {
@@ -105,7 +107,7 @@ function mapApartment(id: string, data: Record<string, unknown>): BrokerApartmen
   };
 }
 
-function getDealPipelinePercentage(stage: "lead" | "showing_scheduled" | "offer_made" | "deal_closed" | "lost"): number {
+function getDealPipelinePercentage(stage: "liked" | "lead" | "showing_scheduled" | "offer_made" | "deal_closed" | "lost"): number {
   if (stage === "showing_scheduled") return 40;
   if (stage === "offer_made") return 60;
   if (stage === "deal_closed") return 100;
@@ -146,7 +148,7 @@ export default function BrokerHubScreen() {
           const details = apartment.ownerDetails;
           const name = details?.name?.trim();
           if (!name) return;
-          const current = ownerMap.get(name) ?? { name, apartments: [], aggregatePipelinePercentage: 0, expectedRevenue: 0 };
+          const current = ownerMap.get(name) ?? { name, apartments: [], aggregatePipelinePercentage: 0, expectedRevenue: 0, brokerCommission: 0 };
           current.ownerId ??= typeof apartment.ownerId === "string" ? apartment.ownerId : typeof apartment.hostId === "string" ? apartment.hostId : undefined;
           current.ownerAvatar ??= details?.avatar || "";
           current.apartments.push(apartment);
@@ -168,7 +170,7 @@ export default function BrokerHubScreen() {
           const profileData = profileSnap.exists() ? profileSnap.data() as { leadReadiness?: LeadReadinessKey | null; pipelineStage?: PipelineStageKey; activeApartmentTitle?: string | null; dealCommission?: number; clientName?: string } : {};
           const apartmentId = typeof data.apartmentId === "string" ? data.apartmentId : undefined;
           const deal = apartmentId ? dealByClientApartment.get(`${apartmentId}:${clientUserId}`) : undefined;
-          const stageConfig = getPipelineStageConfig(deal?.pipelineStage === "lead" ? "new_lead" : deal?.pipelineStage === "deal_closed" ? "closed_won" : deal?.pipelineStage === "lost" ? "closed_lost" : deal?.pipelineStage ?? profileData.pipelineStage);
+          const stageConfig = getPipelineStageConfig(deal?.pipelineStage === "liked" || deal?.pipelineStage === "lead" ? "new_lead" : deal?.pipelineStage === "deal_closed" ? "closed_won" : deal?.pipelineStage === "lost" ? "closed_lost" : deal?.pipelineStage ?? profileData.pipelineStage);
           const messageTypes = messagesSnapshot.docs.map((message) => (message.data() as { type?: unknown }).type);
           let apartmentTitle = typeof data.apartmentTitle === "string" ? data.apartmentTitle : profileData.activeApartmentTitle ?? undefined;
           let apartmentPrice: number | undefined;
@@ -228,6 +230,7 @@ export default function BrokerHubScreen() {
             const discount = Math.min(100, Math.max(0, Number(apartment.maxDiscountPercent) || 0));
             return total + (propertyMaxStages[index] / 100) * apartment.rent * (1 - discount / 100);
           }, 0);
+          owner.brokerCommission = owner.expectedRevenue * BROKER_COMMISSION_RATE;
         });
         const ownerEntries = [...ownerMap.values()];
         const ownerIds = [...new Set(ownerEntries.map((owner) => owner.ownerId).filter((id): id is string => Boolean(id)))];
@@ -252,6 +255,16 @@ export default function BrokerHubScreen() {
     void loadBrokerData();
     return () => { active = false; };
   }, [auth.userId]);
+
+  const { clientsExpectedRevenue, ownersExpectedRevenue, totalExpectedRevenue } = useMemo(() => {
+    const clientsExpectedRevenue = clients.reduce((total, client) => total + client.weightedShare, 0);
+    const ownersExpectedRevenue = owners.reduce((total, owner) => total + owner.expectedRevenue, 0);
+    return {
+      clientsExpectedRevenue,
+      ownersExpectedRevenue,
+      totalExpectedRevenue: clientsExpectedRevenue + ownersExpectedRevenue,
+    };
+  }, [clients, owners]);
 
   const handleSwipeTabChange = useCallback((direction: "left" | "right") => {
     setSelectedSegment(direction === "left" ? "owners" : "clients");
@@ -335,7 +348,10 @@ export default function BrokerHubScreen() {
         <View style={styles.ownerAggregatePill}><Text style={[styles.percentBadgeText, styles.ownerAggregateText]}>{item.aggregatePipelinePercentage}%</Text></View>
         <Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />
       </View>
-      {isMoneyModeActive ? <View style={styles.pipelineBadgeRow}><Text style={styles.ownerRevenuePill}>Αναμενόμενο: €{Math.round(item.expectedRevenue).toLocaleString("el-GR")}</Text></View> : null}
+      {isMoneyModeActive ? <View style={styles.pipelineBadgeRow}>
+        <Text style={[styles.pipelineBadge, { backgroundColor: colors.surfaceTertiary, color: colors.onSurface }]}>Προμήθεια: €{Math.round(item.brokerCommission).toLocaleString("el-GR")}</Text>
+        <Text style={[styles.weightedBadge, { backgroundColor: colors.brandTertiary, color: colors.brand }]}>Αναμενόμενο: €{Math.round(item.expectedRevenue).toLocaleString("el-GR")}</Text>
+      </View> : null}
     </Pressable>
   ), [colors, isMoneyModeActive, router, styles]);
 
@@ -373,7 +389,27 @@ export default function BrokerHubScreen() {
         <Pressable style={[styles.toggleOption, clientsActive && styles.toggleOptionActive]} onPress={() => setSelectedSegment("clients")} testID="broker-hub-toggle-clients"><Text style={[styles.toggleText, clientsActive && styles.toggleTextActive]}>{t("brokerHub.clients")}</Text></Pressable>
         <Pressable style={[styles.toggleOption, !clientsActive && styles.toggleOptionActive]} onPress={() => setSelectedSegment("owners")} testID="broker-hub-toggle-owners"><Text style={[styles.toggleText, !clientsActive && styles.toggleTextActive]}>{t("brokerHub.owners")}</Text></Pressable>
       </View>
-      {isLoading ? <ActivityIndicator testID="broker-hub-loading" color={colors.brand} /> : (
+      {isMoneyModeActive ? (
+        <View style={styles.revenueOverviewCard} testID="broker-revenue-overview">
+          <View style={styles.revenueCardHeader}>
+            <Ionicons name="cash-outline" size={20} color={colors.onSurfaceTertiary} />
+            <Text style={styles.revenueCardTitle}>Συνολικά Αναμενόμενα Έσοδα</Text>
+          </View>
+          <Text style={styles.revenueGrandTotalText}>{Math.round(totalExpectedRevenue).toLocaleString("el-GR")} €</Text>
+          <View style={styles.revenueBreakdownPanel}>
+            <View style={styles.breakdownColumn}>
+              <Text style={styles.breakdownLabel}>Πελάτες</Text>
+              <Text style={styles.breakdownValue}>{Math.round(clientsExpectedRevenue).toLocaleString("el-GR")} €</Text>
+            </View>
+            <View style={styles.breakdownDivider} />
+            <View style={styles.breakdownColumn}>
+              <Text style={styles.breakdownLabel}>Ιδιοκτήτες</Text>
+              <Text style={styles.breakdownValue}>{Math.round(ownersExpectedRevenue).toLocaleString("el-GR")} €</Text>
+            </View>
+          </View>
+        </View>
+      ) : null}
+      {isLoading ? <BrokerHubSkeleton cardCount={6} /> : (
         <Animated.View style={[styles.contentArea, { transform: [{ translateX: swipeX }] }]} {...contentPanResponder.panHandlers}>
           {clientsActive ? <FlatList data={clients} testID="broker-clients-list" keyExtractor={(item) => item.clientUserId} ListEmptyComponent={<Text style={styles.emptyStateSubtitle}>{t("brokerHub.noClients")}</Text>} renderItem={renderClientItem} /> : <FlatList data={owners} testID="broker-owners-list" keyExtractor={(item) => item.name} ListEmptyComponent={<Text style={styles.emptyStateSubtitle}>{t("brokerHub.noOwners")}</Text>} renderItem={renderOwnerItem} />}
         </Animated.View>
@@ -388,11 +424,10 @@ const createOwnerStyles = (colors: ThemeColors) => StyleSheet.create({
   ownerCountText: { fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.brand },
   ownerAggregatePill: { minHeight: 28, paddingHorizontal: spacing.sm, borderRadius: radius.pill, alignItems: "center", justifyContent: "center", backgroundColor: colors.brandTertiary },
   ownerAggregateText: { color: colors.brand },
-  ownerRevenuePill: { paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.pill, backgroundColor: colors.brandTertiary, color: colors.brand, fontFamily: fonts.bold, fontSize: fontSize.sm },
 });
 
 const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface }, header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.sm }, brand: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface }, brandAccent: { color: colors.brand }, toggleShell: { flexDirection: "row", backgroundColor: colors.surfaceSecondary, borderRadius: radius.pill, padding: 4, marginHorizontal: spacing.lg, marginBottom: spacing.md, gap: 4 }, toggleOption: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: spacing.sm, borderRadius: radius.pill }, toggleOptionActive: { backgroundColor: colors.brand }, toggleText: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface }, toggleTextActive: { color: colors.onBrand }, contentArea: { flex: 1, paddingHorizontal: spacing.lg }, ownerRowCard: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: spacing.md, marginBottom: spacing.sm, borderRadius: radius.lg, backgroundColor: colors.surfaceSecondary, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }, clientRowCard: { flexDirection: "row", alignItems: "center", gap: spacing.sm, padding: spacing.md, marginBottom: spacing.sm, borderRadius: radius.lg, backgroundColor: colors.surfaceSecondary, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }, rowMain: { flex: 1, gap: spacing.xs }, rowTitle: { flex: 1, fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onSurface }, motivationBadge: { alignSelf: "flex-start", color: colors.onSurfaceTertiary, backgroundColor: colors.surfaceTertiary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 3, fontSize: fontSize.sm }, countPill: { alignSelf: "flex-start", color: colors.brand, fontFamily: fonts.semibold, fontSize: fontSize.sm }, clientAvatar: { width: 48, height: 48, borderRadius: radius.pill }, emptyStateSubtitle: { textAlign: "center", color: colors.onSurfaceTertiary, fontFamily: fonts.regular, padding: spacing.xl }, headerBadgesRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs, marginRight: 2 }, badgePill: { width: 28, height: 28, borderRadius: radius.pill, alignItems: "center", justifyContent: "center" },
   clientInfoCol: { flex: 1, gap: 2 }, pipelineBadgeRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs, marginTop: 2, flexWrap: "wrap" }, percentBadgePill: { minHeight: 28, paddingHorizontal: spacing.sm, borderRadius: radius.pill, alignItems: "center", justifyContent: "center" }, percentBadgeText: { fontFamily: fonts.bold, fontSize: fontSize.xs }, activeApartmentSub: { flexShrink: 1, fontFamily: fonts.regular, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
-  headerTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 44 }, headerActionsRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs }, brokerTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface }, brokerTitleAccent: { color: colors.brand }, headerIconButton: { width: 38, height: 38, borderRadius: radius.pill, backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" }, settingsIconButton: { width: 40, height: 40, borderRadius: radius.pill, backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" }, clientCard: { borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, padding: spacing.md, marginBottom: spacing.sm, gap: spacing.sm }, clientCardHeader: { flexDirection: "row", alignItems: "center", gap: spacing.sm }, clientAvatarWrap: { width: 42, height: 42, borderRadius: radius.pill, overflow: "hidden" }, clientTextCol: { flex: 1, minWidth: 0 }, clientCardName: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface }, clientCardMeta: { marginTop: 2, fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary }, clientStatusBar: { flexDirection: "row", alignItems: "center", gap: spacing.xs }, statusBadge: { minHeight: 28, minWidth: 28, borderRadius: radius.pill, alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.xs }, statusBadgeText: { fontSize: 14 }, pipelineBadge: { paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.pill, fontFamily: fonts.bold, fontSize: fontSize.xs }, weightedBadge: { paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.pill, fontFamily: fonts.bold, fontSize: fontSize.xs },
+  headerTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 44 }, headerActionsRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs }, brokerTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface }, brokerTitleAccent: { color: colors.brand }, headerIconButton: { width: 38, height: 38, borderRadius: radius.pill, backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" }, settingsIconButton: { width: 40, height: 40, borderRadius: radius.pill, backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" }, clientCard: { borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, padding: spacing.md, marginBottom: spacing.sm, gap: spacing.sm }, clientCardHeader: { flexDirection: "row", alignItems: "center", gap: spacing.sm }, clientAvatarWrap: { width: 42, height: 42, borderRadius: radius.pill, overflow: "hidden" }, clientTextCol: { flex: 1, minWidth: 0 }, clientCardName: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface }, clientCardMeta: { marginTop: 2, fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary }, clientStatusBar: { flexDirection: "row", alignItems: "center", gap: spacing.xs }, statusBadge: { minHeight: 28, minWidth: 28, borderRadius: radius.pill, alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.xs }, statusBadgeText: { fontSize: 14 }, pipelineBadge: { paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.pill, fontFamily: fonts.bold, fontSize: fontSize.xs }, weightedBadge: { paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.pill, fontFamily: fonts.bold, fontSize: fontSize.xs }, revenueOverviewCard: { backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.md, marginHorizontal: spacing.lg, marginBottom: spacing.md, gap: spacing.sm, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 3 }, revenueCardHeader: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.xs, width: "100%" }, revenueCardTitle: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface, textAlign: "center" }, revenueGrandTotalText: { fontFamily: fonts.displayExtra, fontSize: 32, color: colors.brand, textAlign: "center", alignSelf: "center", marginVertical: 4 }, revenueBreakdownPanel: { flexDirection: "row", alignItems: "center", justifyContent: "space-around", backgroundColor: colors.surfaceSecondary, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, paddingVertical: spacing.sm, paddingHorizontal: spacing.md }, breakdownColumn: { alignItems: "center", gap: 2, flex: 1 }, breakdownLabel: { fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.onSurfaceTertiary }, breakdownValue: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onSurface }, breakdownDivider: { width: 1, height: 24, backgroundColor: colors.border },
 });

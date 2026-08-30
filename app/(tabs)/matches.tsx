@@ -1,17 +1,18 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { useTheme } from "@/src/context/ThemeContext";
-import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Modal, Animated, PanResponder } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Modal, Animated, PanResponder, NativeScrollEvent, NativeSyntheticEvent } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { collection, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
+import { collection, doc, deleteField, FieldPath, getDoc, getDocs, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 
 import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
 import type { Gender, RoommateProfile } from "@/src/data/profiles";
 import { getUserId } from "@/src/utils/userId";
 import { useAuth } from "@/src/context/auth";
 import { db } from "@/src/config/firebase";
+import { cleanupObsoleteChatMessages } from "@/src/api/chatCleanup";
 import { DELETED_ACCOUNT_LABEL } from "@/src/api/accountDeletion";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import { t } from "@/src/locales";
@@ -19,6 +20,7 @@ import { getBlockRelationshipState } from "@/src/api/chat";
 import { isBrokerOrAgencyUser } from "@/src/utils/roles";
 import { HostInboxContent } from "../host-inbox";
 import FilterSetVersionModal, { type SharedFilterSetRecord } from "@/src/components/FilterSetVersionModal";
+import InboxSkeleton from "@/src/components/skeletons/InboxSkeleton";
 
 const TAB_BAR_SPACE = 100;
 
@@ -94,19 +96,53 @@ interface LastMessageMeta {
 let memoryMatchesCache: Record<string, ChatListItem[]> = {};
 let memoryLastMessagesCache: Record<string, LastMessageMeta> = {};
 
+// Roommate/host/broker each need an isolated cache slot so switching tabs never flashes stale rows.
+function getInboxCacheKey(isBrokersView: boolean, selectedChatType: "roommate" | "host"): string {
+  return isBrokersView ? "broker" : selectedChatType;
+}
+
 const getSafeMillis = (timestamp: any): number => {
   if (!timestamp) return 0;
-  if (typeof timestamp.toMillis === "function") {
-    const millis = timestamp.toMillis();
-    return Number.isFinite(millis) ? millis : 0;
+  try {
+    if (typeof timestamp.toMillis === "function") {
+      const millis = timestamp.toMillis();
+      return Number.isFinite(millis) ? millis : 0;
+    }
+  } catch {
+    // Pending Firestore timestamps can expose an unavailable delegate.
   }
-  if (typeof timestamp.seconds === "number") {
-    const nanos = typeof timestamp.nanoseconds === "number" ? timestamp.nanoseconds : 0;
-    return timestamp.seconds * 1000 + Math.floor(nanos / 1_000_000);
+  try {
+    if (typeof timestamp.seconds === "number") {
+      const nanos = typeof timestamp.nanoseconds === "number" ? timestamp.nanoseconds : 0;
+      return timestamp.seconds * 1000 + Math.floor(nanos / 1_000_000);
+    }
+  } catch {
+    return 0;
   }
   if (typeof timestamp === "number" && Number.isFinite(timestamp)) return timestamp;
+  if (timestamp instanceof Date) return timestamp.getTime();
+  if (typeof timestamp === "string") {
+    const parsed = Date.parse(timestamp);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
   return 0;
 };
+
+function getClearedAtForUser(chatData: FirestoreChatDoc, uid: string): number {
+  const nestedValue = chatData.clearedAt && typeof chatData.clearedAt === "object"
+    ? chatData.clearedAt[uid]
+    : undefined;
+  const flatValue = (chatData as FirestoreChatDoc & Record<string, unknown>)[`clearedAt.${uid}`];
+  return getSafeMillis(nestedValue ?? flatValue);
+}
+
+function isDeletedForUser(chatData: FirestoreChatDoc, uid: string): boolean {
+  const nestedValue = chatData.deletedUsers && typeof chatData.deletedUsers === "object"
+    ? chatData.deletedUsers[uid]
+    : undefined;
+  const flatValue = (chatData as FirestoreChatDoc & Record<string, unknown>)[`deletedUsers.${uid}`];
+  return nestedValue === true || flatValue === true;
+}
 
 function isMessageRead(msg: FirestoreLastMessageDoc | null, currentUserId: string): boolean {
   if (!msg) return true;
@@ -185,9 +221,14 @@ export default function MatchesScreen() {
   const router = useRouter();
   const auth = useAuth();
   const [selectedChatType, setSelectedChatType] = useState<"roommate" | "host">("roommate");
-  const [matches, setMatches] = useState<ChatListItem[]>(() => memoryMatchesCache.roommate ?? []);
-  const [loading, setLoading] = useState(() => !memoryMatchesCache.roommate || memoryMatchesCache.roommate.length === 0);
+  const [inboxLimit, setInboxLimit] = useState(15);
+  const [hasMoreInbox, setHasMoreInbox] = useState(true);
   const [isBrokersView, setIsBrokersView] = useState(false);
+  const [matches, setMatches] = useState<ChatListItem[]>(() => memoryMatchesCache[getInboxCacheKey(false, "roommate")] ?? []);
+  const [loading, setLoading] = useState(() => {
+    const cached = memoryMatchesCache[getInboxCacheKey(false, "roommate")];
+    return !cached || cached.length === 0;
+  });
   const [showGlobalFilterHistoryModal, setShowGlobalFilterHistoryModal] = useState(false);
   const [globalFilterSets, setGlobalFilterSets] = useState<SharedFilterSetRecord[]>([]);
   const [selectedGlobalFilterSet, setSelectedGlobalFilterSet] = useState<SharedFilterSetRecord | null>(null);
@@ -201,8 +242,20 @@ export default function MatchesScreen() {
   const swipeX = React.useRef(new Animated.Value(0)).current;
   const SWIPE_THRESHOLD = 56;
   const messageUnsubsRef = React.useRef<Record<string, () => void>>({});
+  const locallyDeletedChatIdsRef = React.useRef(new Set<string>());
+  const chatSnapshotVersionRef = React.useRef(0);
+  const inboxLoadMoreLockRef = React.useRef(false);
   const isBroker = !!auth.isBroker;
   const notLookingForRoommate = auth.notLookingForRoommate === true;
+
+  const handleInboxScroll = React.useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    const isNearBottom = contentOffset.y + layoutMeasurement.height >= contentSize.height - 120;
+    if (!isNearBottom || !hasMoreInbox || inboxLoadMoreLockRef.current) return;
+
+    inboxLoadMoreLockRef.current = true;
+    setInboxLimit((previous) => previous + 15);
+  }, [hasMoreInbox]);
 
   useEffect(() => {
     memoryLastMessagesCache = lastMessageByChat;
@@ -232,21 +285,37 @@ export default function MatchesScreen() {
     async (profile: ChatListItem) => {
       if (!currentUserId || !profile.chatRoomId) return;
 
-      setDeletingChatId(profile.chatRoomId);
+      const roomId = profile.chatRoomId;
+      setDeletingChatId(roomId);
+      locallyDeletedChatIdsRef.current.add(roomId);
+      setMatches((prev) => prev.filter((item) => item.chatRoomId !== roomId));
+      Object.keys(memoryMatchesCache).forEach((cacheKey) => {
+        memoryMatchesCache[cacheKey] = memoryMatchesCache[cacheKey].filter((item) => item.chatRoomId !== roomId);
+      });
+      setChatToDelete(null);
+      setActiveContextChatId(null);
+
       try {
-        const chatRef = doc(db, "chats", profile.chatRoomId);
+        const chatRef = doc(db, "chats", roomId);
+        const now = Date.now();
+
         await setDoc(
           chatRef,
           {
-            [`clearedAt.${currentUserId}`]: serverTimestamp(),
-            updatedAt: serverTimestamp(),
+            clearedAt: { [currentUserId]: now },
+            deletedUsers: { [currentUserId]: true },
+            updatedAt: now,
           },
           { merge: true },
         );
-
-        setMatches((prev) => prev.filter((item) => item.chatRoomId !== profile.chatRoomId));
-        setChatToDelete(null);
-        setActiveContextChatId(null);
+        await updateDoc(
+          chatRef,
+          new FieldPath(`clearedAt.${currentUserId}`),
+          deleteField(),
+          new FieldPath(`deletedUsers.${currentUserId}`),
+          deleteField(),
+        );
+        void cleanupObsoleteChatMessages(roomId);
       } catch (err) {
         console.error("Delete chat failed:", err);
       } finally {
@@ -276,8 +345,9 @@ export default function MatchesScreen() {
         const chatRef = doc(db, "chats", chatRoomId);
         const chatSnap = await getDoc(chatRef);
         const chatData = chatSnap.exists()
-          ? (chatSnap.data() as { status?: "pending" | "active" | "rejected"; initiatedBy?: string | null })
+          ? (chatSnap.data() as FirestoreChatDoc)
           : null;
+        if (chatData && (isDeletedForUser(chatData, uid) || getClearedAtForUser(chatData, uid) > 0)) return;
         const blockState = await getBlockRelationshipState(uid, toUid);
         const blockedByUsers = {
           [uid]: blockState.isBlocker,
@@ -325,6 +395,12 @@ export default function MatchesScreen() {
     }
   }, [notLookingForRoommate]);
 
+  React.useEffect(() => {
+    setInboxLimit(15);
+    setHasMoreInbox(true);
+    inboxLoadMoreLockRef.current = false;
+  }, [isBrokersView, notLookingForRoommate, selectedChatType]);
+
   const contentPanResponder = React.useMemo(
     () =>
       PanResponder.create({
@@ -358,9 +434,18 @@ export default function MatchesScreen() {
   );
 
   React.useEffect(() => {
-    const cachedMatches = memoryMatchesCache[selectedChatType];
-    if (cachedMatches) setMatches(cachedMatches);
-  }, [selectedChatType]);
+    const cacheKey = getInboxCacheKey(isBrokersView, selectedChatType);
+    const cachedMatches = memoryMatchesCache[cacheKey];
+    if (cachedMatches) {
+      // Cache hit: show the target tab's rows immediately, no stale flash from the previous tab.
+      setMatches(cachedMatches);
+      setLoading(false);
+    } else {
+      // No cache yet for this tab: clear stale rows so the skeleton renders instead of the old tab's list.
+      setMatches([]);
+      setLoading(true);
+    }
+  }, [isBrokersView, selectedChatType]);
 
   React.useEffect(() => {
     if (auth.isGuest) {
@@ -396,8 +481,16 @@ export default function MatchesScreen() {
           console.warn("[Matches] Roommate chat backfill skipped", reconcileError);
         }
 
-        const chatsQ = query(collection(db, "chats"), where("users", "array-contains", uid));
+        const chatsQ = query(
+          collection(db, "chats"),
+          where("users", "array-contains", uid),
+          orderBy("lastMessageTimestamp", "desc"),
+          limit(inboxLimit),
+        );
         unsub = onSnapshot(chatsQ, (snapshot) => {
+          const snapshotVersion = ++chatSnapshotVersionRef.current;
+          setHasMoreInbox(snapshot.docs.length >= inboxLimit);
+          inboxLoadMoreLockRef.current = false;
           // 🚨 Αφαιρέσαμε το πρόωρο setLoading(false) από εδώ!
           console.log("[Matches] Chats snapshot received", {
             uid,
@@ -407,17 +500,21 @@ export default function MatchesScreen() {
           const activeChatIds = new Set(snapshot.docs.map((d) => d.id));
           const visibleChatDocs = snapshot.docs.filter((chatDoc) => {
             const chatData = chatDoc.data() as FirestoreChatDoc;
-            const clearedAtMap =
-              chatData.clearedAt && typeof chatData.clearedAt === "object"
-                ? (chatData.clearedAt as Record<string, unknown>)
-                : {};
-            const clearedAtForCurrentUser = Object.prototype.hasOwnProperty.call(clearedAtMap, uid)
-              ? getSafeMillis(clearedAtMap[uid])
-              : 0;
-
+            const isExplicitlyDeleted = isDeletedForUser(chatData, uid);
+            const clearedAtForCurrentUser = getClearedAtForUser(chatData, uid);
             const lastMessageTs = getSafeMillis(chatData.lastMessageTimestamp);
 
-            const shouldHideForClear = clearedAtForCurrentUser > 0 && lastMessageTs <= clearedAtForCurrentUser;
+            if (
+              locallyDeletedChatIdsRef.current.has(chatDoc.id) &&
+              clearedAtForCurrentUser > 0 &&
+              lastMessageTs > clearedAtForCurrentUser
+            ) {
+              locallyDeletedChatIdsRef.current.delete(chatDoc.id);
+            }
+
+            const isHiddenByClear = clearedAtForCurrentUser > 0 && lastMessageTs <= clearedAtForCurrentUser;
+            const shouldHideForClear =
+              locallyDeletedChatIdsRef.current.has(chatDoc.id) || isExplicitlyDeleted || isHiddenByClear;
             if (shouldHideForClear) {
               console.log("[Matches] Hiding chat because no message exists after clear cutoff", {
                 chatId: chatDoc.id,
@@ -560,11 +657,15 @@ export default function MatchesScreen() {
                   return !existingChatIds.has(chatRoomId);
                 });
 
-                fallbackRows = await Promise.all(
+                const fallbackCandidates = await Promise.all(
                   missingTargets.map(async (targetUid) => {
+                    const chatRoomId = [uid, targetUid].sort().join("_");
+                    if (locallyDeletedChatIdsRef.current.has(chatRoomId)) return null;
+                    const existingChat = await getDoc(doc(db, "chats", chatRoomId));
+                    const existingChatData = existingChat.exists() ? existingChat.data() as FirestoreChatDoc : null;
+                    if (existingChatData && (isDeletedForUser(existingChatData, uid) || getClearedAtForUser(existingChatData, uid) > 0)) return null;
                     const userSnap = await getDoc(doc(db, "users", targetUid));
                     const userData = userSnap.exists() ? (userSnap.data() as FirestoreUserDoc) : null;
-                    const chatRoomId = [uid, targetUid].sort().join("_");
 
                     return {
                       sortKey: 0,
@@ -572,14 +673,18 @@ export default function MatchesScreen() {
                     };
                   }),
                 );
+                fallbackRows = fallbackCandidates.filter(
+                  (row): row is { sortKey: number; item: ChatListItem } => row !== null,
+                );
               }
 
-              if (mounted) {
+              if (mounted && snapshotVersion === chatSnapshotVersionRef.current) {
                 const finalItems = [...rows, ...fallbackRows]
                   .filter((r): r is { sortKey: number; item: ChatListItem } => !!r)
+                  .filter((row) => !locallyDeletedChatIdsRef.current.has(row.item.chatRoomId))
                   .sort((a, b) => (Number.isFinite(b.sortKey) ? b.sortKey : 0) - (Number.isFinite(a.sortKey) ? a.sortKey : 0))
                   .map((row) => row.item);
-                memoryMatchesCache[selectedChatType] = finalItems;
+                memoryMatchesCache[getInboxCacheKey(isBrokersView, selectedChatType)] = finalItems;
                 setMatches(finalItems);
               }
             } catch (error) {
@@ -604,7 +709,7 @@ export default function MatchesScreen() {
       Object.values(messageUnsubsRef.current).forEach((off) => off());
       messageUnsubsRef.current = {};
     };
-  }, [auth.isGuest, auth.userId, ensureRoommateChatsFromLikes, isBrokersView, notLookingForRoommate, selectedChatType]);
+  }, [auth.isGuest, auth.userId, ensureRoommateChatsFromLikes, inboxLimit, isBrokersView, notLookingForRoommate, selectedChatType]);
 
   const handleAcceptChat = async (profile: ChatListItem) => {
     if (!currentUserId || !profile.chatRoomId) return;
@@ -746,9 +851,7 @@ export default function MatchesScreen() {
           </Pressable>
         </View>
       ) : loading ? (
-        <View style={styles.empty} testID="matches-loading">
-          <ActivityIndicator size="large" color={colors.brand} />
-        </View>
+        <InboxSkeleton testID="matches-loading" />
       ) : matches.length === 0 ? (
         <View style={styles.empty} testID="matches-empty">
           <View style={styles.emptyIcon}>
@@ -769,6 +872,8 @@ export default function MatchesScreen() {
         <ScrollView
           contentContainerStyle={[styles.list, { paddingBottom: TAB_BAR_SPACE + insets.bottom }]}
           showsVerticalScrollIndicator={false}
+          onScroll={handleInboxScroll}
+          scrollEventThrottle={100}
         >
           {matches.map((p) => {
             const isDeleted = isDeletedCounterpart(p);

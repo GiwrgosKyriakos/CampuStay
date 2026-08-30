@@ -1,21 +1,23 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "@/src/context/ThemeContext";
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Modal, NativeScrollEvent, NativeSyntheticEvent, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { collection, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, setDoc, where, orderBy, limit, updateDoc } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, onSnapshot, query, setDoc, where, orderBy, limit, updateDoc, FieldPath, deleteField } from "firebase/firestore";
 
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
 import { useAuth } from "@/src/context/auth";
 import { db } from "@/src/config/firebase";
+import { cleanupObsoleteChatMessages } from "@/src/api/chatCleanup";
 import { DELETED_ACCOUNT_LABEL } from "@/src/api/accountDeletion";
 import { t } from "@/src/locales";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import { getBlockRelationshipState } from "@/src/api/chat";
 import { syncBrokerClientProfile } from "@/src/api/brokerClientProfiles";
 import { isBrokerOrAgencyUser } from "@/src/utils/roles";
+import InboxSkeleton from "@/src/components/skeletons/InboxSkeleton";
 
 interface FirestoreUserDoc {
   name?: string | null;
@@ -32,6 +34,7 @@ interface FirestoreHostChatDoc {
   users?: string[];
   type?: "roommate" | "host" | string;
   clearedAt?: Record<string, unknown>;
+  deletedUsers?: Record<string, boolean>;
   apartmentTitle?: string;
   apartmentId?: string;
   apartmentImage?: string;
@@ -82,6 +85,49 @@ function toMillis(value: unknown): number {
   return 0;
 }
 
+const getSafeMillis = (timestamp: any): number => {
+  if (!timestamp) return 0;
+  try {
+    if (typeof timestamp.toMillis === "function") {
+      const millis = timestamp.toMillis();
+      return Number.isFinite(millis) ? millis : 0;
+    }
+  } catch {
+    // Pending Firestore timestamps can expose an unavailable delegate.
+  }
+  try {
+    if (typeof timestamp.seconds === "number") {
+      const nanos = typeof timestamp.nanoseconds === "number" ? timestamp.nanoseconds : 0;
+      return timestamp.seconds * 1000 + Math.floor(nanos / 1_000_000);
+    }
+  } catch {
+    return 0;
+  }
+  if (typeof timestamp === "number" && Number.isFinite(timestamp)) return timestamp;
+  if (timestamp instanceof Date) return timestamp.getTime();
+  if (typeof timestamp === "string") {
+    const parsed = Date.parse(timestamp);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+  return 0;
+};
+
+function getClearedAtForUser(chatData: FirestoreHostChatDoc, uid: string): number {
+  if (chatData.clearedAt && typeof chatData.clearedAt === "object" && uid in chatData.clearedAt) {
+    return getSafeMillis(chatData.clearedAt[uid]);
+  }
+  const flatKey = `clearedAt.${uid}`;
+  return getSafeMillis((chatData as Record<string, unknown>)[flatKey]);
+}
+
+function isDeletedForUser(chatData: FirestoreHostChatDoc, uid: string): boolean {
+  if (chatData.deletedUsers && typeof chatData.deletedUsers === "object" && uid in chatData.deletedUsers) {
+    return chatData.deletedUsers[uid] === true;
+  }
+  const flatKey = `deletedUsers.${uid}`;
+  return (chatData as Record<string, unknown>)[flatKey] === true;
+}
+
 const normalizeText = (text: string): string =>
   text
     .normalize("NFD")
@@ -101,6 +147,8 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
   const router = useRouter();
   const auth = useAuth();
   const [items, setItems] = useState<HostInboxItem[]>([]);
+  const [hostInboxLimit, setHostInboxLimit] = useState(15);
+  const [hasMoreHostInbox, setHasMoreHostInbox] = useState(true);
   const [loading, setLoading] = useState(true);
   const [activeContextChatId, setActiveContextChatId] = useState<string | null>(null);
   const [chatToDelete, setChatToDelete] = useState<HostInboxItem | null>(null);
@@ -110,6 +158,17 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const canSeeBrokerRoleMetadata = auth.isBroker === true || isBrokerOrAgencyUser(auth.user as Parameters<typeof isBrokerOrAgencyUser>[0]);
+  const locallyDeletedChatIdsRef = useRef(new Set<string>());
+  const hostInboxLoadMoreLockRef = useRef(false);
+
+  const handleHostInboxScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    const isNearBottom = contentOffset.y + layoutMeasurement.height >= contentSize.height - 120;
+    if (!isNearBottom || !hasMoreHostInbox || hostInboxLoadMoreLockRef.current) return;
+
+    hostInboxLoadMoreLockRef.current = true;
+    setHostInboxLimit((previous) => previous + 15);
+  }, [hasMoreHostInbox]);
 
   const normalizedQuery = useMemo(() => normalizeText(searchQuery), [searchQuery]);
   const filteredItems = useMemo(() => {
@@ -130,17 +189,22 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
     }
 
     setLoading(true);
+    hostInboxLoadMoreLockRef.current = false;
     let mounted = true;
     const currentUid = auth.userId;
 
     const hostChatsQ = query(
       collection(db, "chats"),
-      where("users", "array-contains", currentUid)
+      where("users", "array-contains", currentUid),
+      orderBy("lastMessageTimestamp", "desc"),
+      limit(hostInboxLimit),
     );
 
     const unsubscribe = onSnapshot(
       hostChatsQ,
       (snapshot) => {
+        setHasMoreHostInbox(snapshot.docs.length >= hostInboxLimit);
+        hostInboxLoadMoreLockRef.current = false;
         if (snapshot.empty) {
           if (mounted) {
             setItems([]);
@@ -156,21 +220,25 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
               const chatData = chatDoc.data() as FirestoreHostChatDoc;
               const isHostChat = chatData.type === "host" || !!chatData.apartmentId;
               if (!isHostChat) return false;
-
-              // Per-user clear logic: show chat only when a new message arrives after clear timestamp.
-              const clearedAtMap =
-                chatData.clearedAt && typeof chatData.clearedAt === "object"
-                  ? (chatData.clearedAt as Record<string, unknown>)
-                  : {};
-              const myClearedAt = Object.prototype.hasOwnProperty.call(clearedAtMap, currentUid)
-                ? toMillis(clearedAtMap[currentUid])
-                : 0;
-              const lastMessageAt = toMillis(chatData.lastMessageTimestamp);
-              if (myClearedAt > 0 && lastMessageAt <= myClearedAt) return false;
-              
               if (chatData.initiatedBy === currentUid) return false;
-              
-              return true;
+
+              const isExplicitlyDeleted = isDeletedForUser(chatData, currentUid);
+              const clearedAtForCurrentUser = getClearedAtForUser(chatData, currentUid);
+              const lastMessageTs = getSafeMillis(chatData.lastMessageTimestamp);
+
+              // If a new message arrived after the user cleared the chat, unhide it
+              if (
+                locallyDeletedChatIdsRef.current.has(chatDoc.id) &&
+                clearedAtForCurrentUser > 0 &&
+                lastMessageTs > clearedAtForCurrentUser
+              ) {
+                locallyDeletedChatIdsRef.current.delete(chatDoc.id);
+              }
+
+              const isHiddenByClear = clearedAtForCurrentUser > 0 && lastMessageTs <= clearedAtForCurrentUser;
+              const shouldHide = locallyDeletedChatIdsRef.current.has(chatDoc.id) || isExplicitlyDeleted || isHiddenByClear;
+
+              return !shouldHide;
             });
 
             // 2. Επεξεργαζόμαστε ΜΟΝΟ τα εγκεκριμένα με απόλυτη ασφάλεια (try/catch ανά chat)
@@ -273,7 +341,7 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
       mounted = false;
       unsubscribe();
     };
-  }, [auth.isGuest, auth.userId]);
+  }, [auth.isGuest, auth.userId, hostInboxLimit]);
 
   const handleOpenChat = (item: HostInboxItem) => {
     if (activeContextChatId) {
@@ -290,18 +358,39 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
 
   const handleConfirmDeleteChat = async () => {
     if (!auth.userId || !chatToDelete) return;
-    setDeletingChatId(chatToDelete.chatRoomId);
+    const roomId = chatToDelete.chatRoomId;
+    const currentUid = auth.userId;
+
+    setDeletingChatId(roomId);
+    locallyDeletedChatIdsRef.current.add(roomId);
+    setItems((prev) => prev.filter((item) => item.chatRoomId !== roomId));
+    setChatToDelete(null);
+    setActiveContextChatId(null);
+
     try {
+      const chatRef = doc(db, "chats", roomId);
+      const now = Date.now();
+
       await setDoc(
-        doc(db, "chats", chatToDelete.chatRoomId),
+        chatRef,
         {
-          [`clearedAt.${auth.userId}`]: serverTimestamp(),
-          updatedAt: serverTimestamp(),
+          clearedAt: { [currentUid]: now },
+          deletedUsers: { [currentUid]: true },
+          updatedAt: now,
         },
         { merge: true },
       );
-      setChatToDelete(null);
-      setActiveContextChatId(null);
+
+      await updateDoc(
+        chatRef,
+        new FieldPath(`clearedAt.${currentUid}`),
+        deleteField(),
+        new FieldPath(`deletedUsers.${currentUid}`),
+        deleteField(),
+      ).catch(() => {});
+      void cleanupObsoleteChatMessages(roomId);
+    } catch (err) {
+      console.error("[HostInbox] Delete chat failed:", err);
     } finally {
       setDeletingChatId(null);
     }
@@ -344,23 +433,42 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
   };
   
   const handleDeleteRejectedChat = async (item: HostInboxItem) => {
-  if (!auth.userId || !item.chatRoomId) return;
-  setDeletingChatId(item.chatRoomId);
-  try {
-    await setDoc(
-      doc(db, "chats", item.chatRoomId),
-      {
-        [`clearedAt.${auth.userId}`]: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      },
-      { merge: true },
-    );
-  } catch (err) {
-    console.error("Delete rejected chat failed:", err);
-  } finally {
-    setDeletingChatId(null);
-  }
-};
+    if (!auth.userId || !item.chatRoomId) return;
+    const roomId = item.chatRoomId;
+    const currentUid = auth.userId;
+
+    setDeletingChatId(roomId);
+    locallyDeletedChatIdsRef.current.add(roomId);
+    setItems((prev) => prev.filter((i) => i.chatRoomId !== roomId));
+
+    try {
+      const chatRef = doc(db, "chats", roomId);
+      const now = Date.now();
+
+      await setDoc(
+        chatRef,
+        {
+          clearedAt: { [currentUid]: now },
+          deletedUsers: { [currentUid]: true },
+          updatedAt: now,
+        },
+        { merge: true },
+      );
+
+      await updateDoc(
+        chatRef,
+        new FieldPath(`clearedAt.${currentUid}`),
+        deleteField(),
+        new FieldPath(`deletedUsers.${currentUid}`),
+        deleteField(),
+      ).catch(() => {});
+      void cleanupObsoleteChatMessages(roomId);
+    } catch (err) {
+      console.error("[HostInbox] Delete rejected chat failed:", err);
+    } finally {
+      setDeletingChatId(null);
+    }
+  };
 
   return (
     <View style={styles.container} testID="host-inbox-screen">
@@ -447,9 +555,7 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
           <Text style={styles.emptyTitle}>{t("common.cta.signInOrRegister")}</Text>
         </View>
       ) : loading ? (
-        <View style={styles.loading}>
-          <ActivityIndicator size="large" color={colors.brand} />
-        </View>
+        <InboxSkeleton testID="host-inbox-loading" />
       ) : items.length === 0 ? (
         <View style={styles.empty}>
           <Text style={styles.emptyTitle}>{t("host-inbox.emptyTitle")}</Text>
@@ -464,7 +570,12 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
           <Text style={styles.emptySub}>Δοκιμάστε διαφορετικούς όρους αναζήτησης</Text>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={styles.list}
+          showsVerticalScrollIndicator={false}
+          onScroll={handleHostInboxScroll}
+          scrollEventThrottle={100}
+        >
           {filteredItems.map((item) => {
             
             // 🎯 ΔΙΟΡΘΩΣΗ: Δυναμική αλλαγή ονόματος και avatar βάσει block state

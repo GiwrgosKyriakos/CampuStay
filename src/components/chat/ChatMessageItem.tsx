@@ -52,6 +52,8 @@ export interface ChatMessageItemProps {
   onPropertyListPress: () => void;
   onDeletePress: () => void;
   onApprove: () => void;
+  showMatchScore: boolean;
+  compatibilityScore: number;
 }
 
 export default function ChatMessageItem({
@@ -72,6 +74,8 @@ export default function ChatMessageItem({
   onPropertyListPress,
   onDeletePress,
   onApprove,
+  showMatchScore,
+  compatibilityScore,
 }: ChatMessageItemProps) {
   const deleteProps = canDeleteForEveryone ? { onLongPress: onDeletePress, delayLongPress: 300 } : {};
   const apartmentShare = message.type === "apartment_share" && !!message.apartmentData;
@@ -82,13 +86,14 @@ export default function ChatMessageItem({
 
   if (apartmentShare && message.apartmentData) {
     const apartment = message.apartmentData;
+    const matchColor = compatibilityScore >= 75 ? colors.success : compatibilityScore >= 50 ? colors.warning : colors.error;
     return (
       <Pressable key={message.id} style={[styles.shareBubble, isMine ? styles.shareBubbleMine : styles.shareBubbleTheirs, itemMarginStyle]} onPress={onApartmentPress} {...deleteProps} testID={`chat-message-${message.id}`}>
         {apartmentCoverImage ? <Image source={{ uri: apartmentCoverImage }} style={styles.shareImage} contentFit="cover" transition={120} /> : <View style={styles.shareImageFallback}><Ionicons name="home-outline" size={22} color={colors.onSurfaceTertiary} /></View>}
         <View style={styles.shareContent}>
           <Text style={[styles.shareTitle, isMine && styles.shareTitleMine]} numberOfLines={1}>{apartment.title || message.text}</Text>
           <View style={styles.shareLocationRow}><Ionicons name="location-outline" size={13} color={isMine ? "rgba(255,255,255,0.88)" : colors.onSurfaceTertiary} /><Text style={[styles.shareLocationText, isMine && styles.shareLocationTextMine]} numberOfLines={1}>{[apartment.area, apartment.city].filter(Boolean).join(", ")}</Text></View>
-          <View style={styles.shareMetaRow}><View style={styles.sharePricePill}><Text style={styles.sharePriceText}>{`€${apartment.rent ?? 0}`}</Text></View><Text style={[styles.shareStatsText, isMine && styles.shareStatsTextMine]} numberOfLines={1}>{`${apartment.rooms ?? 0} rooms · ${apartment.size ?? 0} m²`}</Text></View>
+          <View style={styles.shareMetaRow}><View style={styles.sharePricePill}><Text style={styles.sharePriceText}>{`€${apartment.rent ?? 0}`}</Text></View>{showMatchScore ? <View style={[styles.matchScoreCardBadge, { borderColor: matchColor }]}><Ionicons name="sparkles" size={11} color={matchColor} style={styles.matchScoreIcon} /><Text style={[styles.matchScoreCardText, { color: matchColor }]}>{`${Math.round(compatibilityScore)}%`}</Text></View> : null}<Text style={[styles.shareStatsText, isMine && styles.shareStatsTextMine]} numberOfLines={1}>{`${apartment.rooms ?? 0} rooms · ${apartment.size ?? 0} m²`}</Text></View>
         </View>
       </Pressable>
     );

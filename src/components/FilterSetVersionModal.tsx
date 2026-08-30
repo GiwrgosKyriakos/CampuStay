@@ -7,6 +7,7 @@ import { db } from "@/src/config/firebase";
 import { useAuth } from "@/src/context/auth";
 import { fontSize, fonts, radius, spacing, type ThemeColors } from "@/src/theme";
 import { useTheme } from "@/src/context/ThemeContext";
+import type { LatLng } from "@/src/utils/geometry";
 
 export type FilterSetSortOption = "newest" | "oldest" | "price_asc" | "price_desc" | "size_asc" | "size_desc" | "price_sqm_asc" | "price_sqm_desc";
 
@@ -24,6 +25,19 @@ export interface FilterSetVersionData {
   nearMetro: boolean;
   sortBy?: FilterSetSortOption;
   summary: string;
+  showMatchScore?: boolean;
+  propertyTypes?: string[];
+  propertyCategories?: string[];
+  floors?: string[];
+  bedroomsMin?: string;
+  bathroomsMin?: string;
+  furnishedStatus?: "all" | "furnished" | "unfurnished";
+  heatingTypes?: string[];
+  energyClasses?: string[];
+  constructionYearMin?: string;
+  renovationYearMin?: string;
+  selectedAmenities?: string[];
+  polygonCoordinates?: LatLng[];
   updatedAt: number;
 }
 
@@ -106,7 +120,12 @@ export default function FilterSetVersionModal({ visible, filterSet, onClose, onU
         minSqmPrice: nonEmpty(draft.minSqmPrice ?? ""), maxSqmPrice: nonEmpty(draft.maxSqmPrice ?? ""),
         cityQuery: nonEmpty(draft.cityQuery ?? ""), sizeMin: nonEmpty(draft.sizeMin ?? ""), sizeMax: nonEmpty(draft.sizeMax ?? ""),
         petFriendly: draft.petFriendly === true, nearMetro: draft.nearMetro === true,
-        sortBy: draft.sortBy, summary: draft.summary, updatedAt,
+        sortBy: draft.sortBy, summary: draft.summary, showMatchScore: draft.showMatchScore === true,
+        propertyTypes: draft.propertyTypes, propertyCategories: draft.propertyCategories, floors: draft.floors,
+        bedroomsMin: nonEmpty(draft.bedroomsMin ?? ""), bathroomsMin: nonEmpty(draft.bathroomsMin ?? ""),
+        furnishedStatus: draft.furnishedStatus, heatingTypes: draft.heatingTypes, energyClasses: draft.energyClasses,
+        constructionYearMin: nonEmpty(draft.constructionYearMin ?? ""), renovationYearMin: nonEmpty(draft.renovationYearMin ?? ""),
+        selectedAmenities: draft.selectedAmenities, polygonCoordinates: draft.polygonCoordinates, updatedAt,
       };
       const updated = { ...filterSet, currentVersion: nextVersion, versions: [...filterSet.versions, next], updatedAt };
       await updateDoc(doc(db, "users", filterSet.userId, "sharedFilterSets", filterSet.id), updated);

@@ -1,11 +1,5 @@
 import { getBlockRelationshipState, setBlockStateBetweenUsers } from "@/src/api/chat";
 import { useTheme } from "@/src/context/ThemeContext";
-import {
-  BottomSheetBackdrop,
-  BottomSheetModal,
-  BottomSheetView,
-  type BottomSheetBackdropProps,
-} from "@gorhom/bottom-sheet";
 import { LinearGradient } from "expo-linear-gradient";
 import { getUserProfile } from "@/src/api/userProfile";
 import { sendPushNotification } from '@/src/utils/notificationService'; // Προσάρμοσε το path ανάλογα με το φάκελό σου
@@ -14,16 +8,13 @@ import {
   View,
   Text,
   StyleSheet,
-  Animated,
-  PanResponder,
   Pressable,
   TextInput,
   ScrollView,
+  FlatList,
   ActivityIndicator,
   Platform,
   StatusBar,
-  Modal,
-  Linking,
   Keyboard,
 } from "react-native";
 import { Image } from "expo-image";
@@ -36,13 +27,20 @@ import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme"
 import type { Gender, RoommateProfile } from "@/src/data/profiles";
 import { useAuth } from "@/src/context/auth";
 import { db } from "@/src/config/firebase";
-import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, setDoc, getDoc, getDocs, deleteDoc, limit } from "firebase/firestore";
+import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, setDoc, getDoc, getDocs, deleteDoc, limit, FieldPath, deleteField } from "firebase/firestore";
 import { markIncomingMessagesAsRead } from "@/src/api/chat";
+import { cleanupObsoleteChatMessages } from "@/src/api/chatCleanup";
 import { syncBrokerClientProfile } from "@/src/api/brokerClientProfiles";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import CenteredActionModal, { type CenteredModalAction } from "@/src/components/CenteredActionModal";
 import FilterSetVersionModal, { type SharedFilterSetRecord, type FilterSetVersionData } from "@/src/components/FilterSetVersionModal";
 import ChatMessageItem from "@/src/components/chat/ChatMessageItem";
+import PriceProposalModal from "@/src/components/chat/modals/PriceProposalModal";
+import VisitRequestModal from "@/src/components/chat/modals/VisitRequestModal";
+import UserProfileModal from "@/src/components/chat/modals/UserProfileModal";
+import BlockUserModal from "@/src/components/chat/modals/BlockUserModal";
+import FilterSetDetailsModal from "@/src/components/chat/modals/FilterSetDetailsModal";
+import type { FilterSetMessageData, FirestoreUserDoc } from "@/src/components/chat/modals/types";
 import { getUserSettings, saveUserNotifications, saveUserPrivacy, type NotificationPreferences } from "@/src/api/accountSettings";
 import { submitReportedUserEntry } from "@/src/services/reportedUsers";
 import { subscribeUserLikedApartmentIds, toggleApartmentLike } from "@/src/api/apartmentLikes";
@@ -51,22 +49,14 @@ import {
   type CompatibilityQuizAnswers,
   type UserProfile as MatchUserProfile,
 } from "@/src/utils/matchAlgorithm";
+import { calculateTenantCompatibilityScore } from "@/src/utils/compatibilityScore";
+import type { FilterSetPayload } from "@/src/types/filters";
 import { t } from "@/src/locales";
 import { WatermarkBadge } from "@/src/components/WatermarkBadge";
 import type { WatermarkConfig } from "@/src/types/listing";
+import ChatMessagesSkeleton from "@/src/components/skeletons/ChatMessagesSkeleton";
 
 const CURRENCY = "€";
-const FILTER_SORT_LABELS: Record<string, string> = {
-  newest: "Πιο πρόσφατα",
-  oldest: "Πιο παλιά",
-  price_asc: "Αύξουσα τιμή",
-  price_desc: "Φθίνουσα τιμή",
-  size_asc: "Αύξον εμβαδόν",
-  size_desc: "Φθίνουσα εμβαδόν",
-  price_sqm_asc: "Αύξουσα τιμή/τ.μ.",
-  price_sqm_desc: "Φθίνουσα τιμή/τ.μ.",
-};
-
 interface Message {
   id: string;
   text: string;
@@ -90,22 +80,6 @@ interface Message {
   previewImages?: string[];
 }
 
-interface FilterSetMessageData {
-  title?: string;
-  rentMin?: string;
-  rentMax?: string;
-  minSqmPrice?: string;
-  maxSqmPrice?: string;
-  cityQuery?: string;
-  sizeMin?: string;
-  sizeMax?: string;
-  petFriendly?: boolean;
-  nearMetro?: boolean;
-  sortBy?: string;
-  summary?: string;
-  sharedAt?: number;
-}
-
 interface SharedApartmentData {
   id: string;
   title: string;
@@ -118,6 +92,11 @@ interface SharedApartmentData {
   rooms: number;
   size: number;
   tags?: string[];
+  latitude?: number;
+  longitude?: number;
+  amenities?: string[];
+  propertyType?: string;
+  propertyCategory?: string;
 }
 
 interface FirestoreMessageDoc {
@@ -192,6 +171,8 @@ interface FirestoreApartmentDoc {
   tags?: string[];
   amenities?: string[];
   hostId?: string;
+  ownerId?: string;
+  assignedBrokerIds?: string[];
   isOffMarket?: boolean;
   watermarkConfig?: WatermarkConfig;
 }
@@ -217,31 +198,6 @@ interface MutualApartment {
   hostId?: string;
   isOffMarket?: boolean;
   watermarkConfig?: WatermarkConfig;
-}
-
-interface FirestoreUserDoc {
-  name?: string | null;
-  is_broker?: boolean;
-  age?: number | null;
-  gender?: string | null;
-  city?: string | null;
-  university?: string | null;
-  year?: string | null;
-  year_of_study?: string | null;
-  maxBudget?: number | null;
-  budget?: number | null;
-  about?: string;
-  bio?: string;
-  looking_for_apartment?: boolean;
-  instagram?: string;
-  facebook?: string;
-  linkedin?: string;
-  twitter?: string;
-  photoUrl?: string;
-  photos?: string[];
-  phone_number?: string | null;
-  phone?: string | null;
-  directMessagesEnabled?: boolean;
 }
 
 interface FirestoreQuizDoc {
@@ -348,11 +304,32 @@ type MutualApartmentCardProps = {
   colors: ThemeColors;
   styles: ReturnType<typeof createStyles>;
   isLiked: boolean;
+  showMatchScore: boolean;
+  compatibilityScore: number;
   onPress: () => void;
   onToggleLike: () => void;
 };
 
-function MutualApartmentCard({ apartment, colors, styles, isLiked, onPress, onToggleLike }: MutualApartmentCardProps) {
+function getChatMatchScoreColor(score: number, colors: ThemeColors): string {
+  return score >= 75 ? colors.success : score >= 50 ? colors.warning : colors.error;
+}
+
+function getChatApartmentCompatibilityScore(apartment: MutualApartment | SharedApartmentData, filterSet: FilterSetMessageData | null): number {
+  return calculateTenantCompatibilityScore({
+    city: apartment.city,
+    area: apartment.area,
+    latitude: apartment.latitude,
+    longitude: apartment.longitude,
+    rent: apartment.rent,
+    size: apartment.size,
+    tags: apartment.tags,
+    amenities: apartment.amenities,
+    propertyType: apartment.propertyType,
+    propertyCategory: apartment.propertyCategory,
+  }, filterSet as FilterSetPayload | null);
+}
+
+function MutualApartmentCard({ apartment, colors, styles, isLiked, showMatchScore, compatibilityScore, onPress, onToggleLike }: MutualApartmentCardProps) {
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const imageList = apartment.images && apartment.images.length > 0 ? apartment.images : apartment.image ? [apartment.image] : [];
   const activeImage = imageList[activeImageIndex] || "";
@@ -419,9 +396,17 @@ function MutualApartmentCard({ apartment, colors, styles, isLiked, onPress, onTo
           style={StyleSheet.absoluteFill}
         />
 
-        <View style={styles.rentBadge}>
-          <Text style={styles.rentText}>{CURRENCY}{apartment.rent}</Text>
-          <Text style={styles.rentMo}>{t("apartments.perMonthShort")}</Text>
+        <View style={styles.topRightBadgesContainer}>
+          <View style={styles.rentBadge}>
+            <Text style={styles.rentText}>{CURRENCY}{apartment.rent}</Text>
+            <Text style={styles.rentMo}>{t("apartments.perMonthShort")}</Text>
+          </View>
+          {showMatchScore ? (
+            <View style={[styles.matchScoreCardBadge, { borderColor: getChatMatchScoreColor(compatibilityScore, colors) }]}>
+              <Ionicons name="sparkles" size={11} color={getChatMatchScoreColor(compatibilityScore, colors)} style={styles.matchScoreIcon} />
+              <Text style={[styles.matchScoreCardText, { color: getChatMatchScoreColor(compatibilityScore, colors) }]}>{`${Math.round(compatibilityScore)}%`}</Text>
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.cardBody}>
@@ -479,6 +464,8 @@ function buildApartmentRoutePayload(apartmentId: string, data: FirestoreApartmen
     image: data.image || data.imageUrl || data.images?.[0] || "",
     tags: tags.length ? tags : [t("apartments.newListing")],
     hostId: data.hostId,
+    ownerId: data.ownerId,
+    assignedBrokerIds: data.assignedBrokerIds,
   };
 }
 
@@ -500,10 +487,6 @@ function getMessageGroupInfo(messages: Message[], index: number, currentUserId: 
     return { position: "middle", isConsecutive: true };
   }
   return { position: "last", isConsecutive: true };
-}
-
-function toCompatibilityQuiz(answers: Record<string, string>): CompatibilityQuizAnswers {
-  return answers as CompatibilityQuizAnswers;
 }
 
 function normalizeGenderForMatch(value: string | null | undefined): MatchUserProfile["gender"] {
@@ -529,13 +512,6 @@ function normalizeSocialUrl(platform: "instagram" | "facebook" | "linkedin" | "t
     default:
       return trimmed;
   }
-}
-
-function toIsoDate(value: Date): string {
-  const year = value.getFullYear();
-  const month = `${value.getMonth() + 1}`.padStart(2, "0");
-  const day = `${value.getDate()}`.padStart(2, "0");
-  return `${year}-${month}-${day}`;
 }
 
 function parseIsoDate(value: string): Date | null {
@@ -564,19 +540,6 @@ function getStatusLabel(status: Message["status"]): string {
   return status === "approved" ? "Επιβεβαιώθηκε" : "Σε αναμονή";
 }
 
-function getNextHalfHour(base: Date): Date {
-  const rounded = new Date(base.getTime());
-  rounded.setSeconds(0, 0);
-  rounded.setMinutes(rounded.getMinutes() + 30);
-  const minutes = rounded.getMinutes();
-  const normalizedMinutes = minutes <= 30 ? 30 : 0;
-  if (normalizedMinutes === 0 && minutes > 30) {
-    rounded.setHours(rounded.getHours() + 1);
-  }
-  rounded.setMinutes(normalizedMinutes, 0, 0);
-  return rounded;
-}
-
 function evaluateEffectiveChatMuted(params: {
   chatRoomId: string | null;
   muteAllNotifications: boolean;
@@ -594,16 +557,69 @@ function evaluateEffectiveChatMuted(params: {
   return mutedChatIds.includes(chatRoomId) || legacyChatMuted;
 }
 
-function timestampToMillis(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (value && typeof value === "object" && "toMillis" in value) {
-    const fn = (value as { toMillis?: () => number }).toMillis;
-    if (typeof fn === "function") {
-      const millis = fn();
-      return Number.isFinite(millis) ? millis : 0;
+export function safeTimestampToMillis(value: unknown, fallback: number = 0): number {
+  if (value == null) return fallback;
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (value instanceof Date) {
+    const millis = value.getTime();
+    return Number.isFinite(millis) ? millis : fallback;
+  }
+
+  if (typeof value === "object") {
+    try {
+      const maybeToMillis = (value as { toMillis?: () => number }).toMillis;
+      if (typeof maybeToMillis === "function") {
+        const millis = maybeToMillis.call(value);
+        if (typeof millis === "number" && Number.isFinite(millis)) {
+          return millis;
+        }
+      }
+    } catch {
+      // Pending Firestore timestamp delegates can be unavailable in local snapshots.
+    }
+
+    try {
+      const seconds = (value as { seconds?: unknown }).seconds;
+      const nanoseconds = (value as { nanoseconds?: unknown }).nanoseconds;
+      if (typeof seconds === "number" && Number.isFinite(seconds)) {
+        const safeNanos = typeof nanoseconds === "number" && Number.isFinite(nanoseconds) ? nanoseconds : 0;
+        return Math.trunc(seconds * 1000 + safeNanos / 1_000_000);
+      }
+    } catch {
+      // Fall through to the configured fallback.
     }
   }
-  return 0;
+
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+
+  return fallback;
+}
+
+function getUserClearedAt(data: FirestoreChatDoc, userId: string): number {
+  return safeTimestampToMillis(getUserClearedAtValue(data, userId), 0);
+}
+
+function getUserClearedAtValue(data: FirestoreChatDoc, userId: string): unknown {
+  if (data.clearedAt && typeof data.clearedAt === "object" && userId in data.clearedAt) {
+    return data.clearedAt[userId];
+  }
+  const flatKey = `clearedAt.${userId}`;
+  return (data as FirestoreChatDoc & Record<string, unknown>)[flatKey];
+}
+
+function getUserDeleted(data: FirestoreChatDoc, userId: string): boolean {
+  if (data.deletedUsers && typeof data.deletedUsers === "object" && userId in data.deletedUsers) {
+    return data.deletedUsers[userId] === true;
+  }
+  const flatKey = `deletedUsers.${userId}`;
+  return (data as FirestoreChatDoc & Record<string, unknown>)[flatKey] === true;
 }
 
 function isSharedApartmentData(value: unknown): value is SharedApartmentData {
@@ -644,7 +660,7 @@ export default function ChatScreen() {
         // 🚀 Δίνουμε ένα ελάχιστο delay (50-100ms) για να προλάβει το KeyboardAvoidingView
         // να μικρύνει το layout, και μετά κάνουμε scroll στο τελευταίο μήνυμα.
         setTimeout(() => {
-          scrollRef.current?.scrollToEnd({ animated: true });
+          scrollRef.current?.scrollToOffset({ offset: 0, animated: true });
         }, 80);
       },
     );
@@ -721,9 +737,18 @@ export default function ChatScreen() {
     return [currentUserId, id].sort().join("_");
   }, [chatRoomIdParam, currentUserId, id]);
 
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<FlatList<Message>>(null);
   const [text, setText] = useState("");
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [rawMessages, setRawMessages] = useState<Message[]>([]);
+  const [userClearedAt, setUserClearedAt] = useState(0);
+  const [userClearedAtValue, setUserClearedAtValue] = useState<unknown>(null);
+  const [userDeleted, setUserDeleted] = useState(false);
+  const [chatMetadataLoaded, setChatMetadataLoaded] = useState(false);
+  const [chatMetadataRoomId, setChatMetadataRoomId] = useState<string | null>(null);
+  const [messagesLoaded, setMessagesLoaded] = useState(false);
+  const [messageLimit, setMessageLimit] = useState(15);
+  const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
+  const [hasMoreOlderMessages, setHasMoreOlderMessages] = useState(true);
   const [chatStatus, setChatStatus] = useState<"pending" | "active" | "rejected">("active");
   const [chatInitiatedBy, setChatInitiatedBy] = useState<string | null>(null);
   const [chatRejectedBy, setChatRejectedBy] = useState<string | null>(null);
@@ -731,9 +756,11 @@ export default function ChatScreen() {
   const [crossChatNoticeTarget, setCrossChatNoticeTarget] = useState<"matches" | "hostInbox" | null>(null);
   const [isCrossChatNoticeDismissed, setIsCrossChatNoticeDismissed] = useState(false);
   const [isNoticeDismissedLocally, setIsNoticeDismissedLocally] = useState(false);
-  const clearedAtCutoffRef = useRef<number | null>(null);
   const [chatType, setChatType] = useState<"roommate" | "host">("roommate");
   const [brokerChatRole, setBrokerChatRole] = useState<"client" | "owner" | null>(null);
+  const [assignedOwnerProperties, setAssignedOwnerProperties] = useState<ReturnType<typeof buildApartmentRoutePayload>[]>([]);
+  const [loadingAssignedOwnerProperties, setLoadingAssignedOwnerProperties] = useState(false);
+  const [showAssignedPropertiesDropdown, setShowAssignedPropertiesDropdown] = useState(false);
   const [hostPhoneFromChatMeta, setHostPhoneFromChatMeta] = useState("");
   const [hostApartmentId, setHostApartmentId] = useState<string | null>(null);
   const [hostApartmentTitle, setHostApartmentTitle] = useState<string | null>(null);
@@ -743,14 +770,6 @@ export default function ChatScreen() {
   const [showHostActionMenu, setShowHostActionMenu] = useState(false);
   const [showPriceProposalModal, setShowPriceProposalModal] = useState(false);
   const [showVisitRequestModal, setShowVisitRequestModal] = useState(false);
-  const [proposedPriceInput, setProposedPriceInput] = useState("");
-  const [selectedVisitDate, setSelectedVisitDate] = useState<string | null>(null);
-  const [selectedVisitHour, setSelectedVisitHour] = useState("12");
-  const [selectedVisitMinute, setSelectedVisitMinute] = useState<"00" | "30">("00");
-  const [visitMonthCursor, setVisitMonthCursor] = useState(() => {
-    const now = new Date();
-    return new Date(now.getFullYear(), now.getMonth(), 1);
-  });
   const [isSubmittingHostAction, setIsSubmittingHostAction] = useState(false);
   const [currentUserLikedIds, setCurrentUserLikedIds] = useState<Set<string>>(new Set());
   const [counterpartLikedIds, setCounterpartLikedIds] = useState<Set<string>>(new Set());
@@ -768,8 +787,6 @@ export default function ChatScreen() {
   const [activeViewList, setActiveViewList] = useState<{ listTitle: string; apartments: MutualApartment[] } | null>(null);
   const [loadingListFeed, setLoadingListFeed] = useState(false);
   const [isDeletingMessage, setIsDeletingMessage] = useState(false);
-  const [expandReport, setExpandReport] = useState(false);
-  const [reportReason, setReportReason] = useState("");
   const [isSubmittingBlockAction, setIsSubmittingBlockAction] = useState(false);
   const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreferences>(DEFAULT_NOTIFICATION_PREFERENCES);
   const [actionModal, setActionModal] = useState<{
@@ -777,8 +794,9 @@ export default function ChatScreen() {
     description?: string;
     actions: CenteredModalAction[];
   } | null>(null);
-  const profileCardTranslateY = useRef(new Animated.Value(0)).current;
+  const olderLoadTriggeredRef = useRef(false);
   const isRoommateChat = chatType === "roommate";
+  const isBrokerOwnerChat = auth.isBroker && chatType === "host" && brokerChatRole === "owner";
 
   const handleOpenPropertyList = useCallback(async (message: Message) => {
     const apartmentIds = message.apartmentIds ?? [];
@@ -803,74 +821,45 @@ export default function ChatScreen() {
     }
   }, []);
 
-  const closeProfileModal = useCallback(() => {
-    setProfileModalVisible(false);
-    profileCardTranslateY.setValue(0);
-  }, [profileCardTranslateY]);
 
-  const profileCardPanResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: (_evt, gestureState) =>
-          profileModalVisible &&
-          gestureState.dy > 8 &&
-          Math.abs(gestureState.dy) > Math.abs(gestureState.dx),
-        onPanResponderMove: (_evt, gestureState) => {
-          if (gestureState.dy > 0) {
-            profileCardTranslateY.setValue(gestureState.dy);
-          }
-        },
-        onPanResponderRelease: (_evt, gestureState) => {
-          const shouldClose = gestureState.dy > 120 || gestureState.vy > 1.1;
-          if (shouldClose) {
-            Animated.timing(profileCardTranslateY, {
-              toValue: 420,
-              duration: 180,
-              useNativeDriver: true,
-            }).start(() => {
-              closeProfileModal();
-            });
-            return;
-          }
+  const messages = useMemo(() => {
+    if (!chatMetadataLoaded || chatMetadataRoomId !== chatRoomId || userDeleted) return [];
 
-          Animated.spring(profileCardTranslateY, {
-            toValue: 0,
-            bounciness: 6,
-            useNativeDriver: true,
-          }).start();
-        },
-        onPanResponderTerminate: () => {
-          Animated.spring(profileCardTranslateY, {
-            toValue: 0,
-            bounciness: 6,
-            useNativeDriver: true,
-          }).start();
-        },
-      }),
-    [closeProfileModal, profileCardTranslateY, profileModalVisible],
-  );
+    const sorted = [...rawMessages].sort(
+      (a, b) => safeTimestampToMillis(a.createdAt) - safeTimestampToMillis(b.createdAt),
+    );
 
-  useEffect(() => {
-    if (profileModalVisible) {
-      profileCardTranslateY.setValue(0);
-    }
-  }, [profileCardTranslateY, profileModalVisible]);
+    if (userClearedAt <= 0) return sorted;
 
-  const createdAtToMillis = useCallback((value: any): number => {
-    if (typeof value === "number") return value;
-    if (value?.toMillis && typeof value.toMillis === "function") return value.toMillis();
-    const parsed = Date.parse(String(value));
-    return Number.isNaN(parsed) ? 0 : parsed;
-  }, []);
+    return sorted.filter((message) => safeTimestampToMillis(message.createdAt) > userClearedAt);
+  }, [chatMetadataLoaded, chatMetadataRoomId, chatRoomId, rawMessages, userClearedAt, userDeleted]);
 
-  const sortMessages = useCallback(
-    (list: Message[]) =>
-      [...list].sort((a, b) => createdAtToMillis(a.createdAt) - createdAtToMillis(b.createdAt)),
-    [createdAtToMillis],
-  );
+  // FlatList inverted={true} expects newest-first order (index 0 = latest message).
+  const invertedMessages = useMemo(() => [...messages].reverse(), [messages]);
+
+  const handleLoadOlderMessages = useCallback(() => {
+    if (isLoadingOlderMessages || !hasMoreOlderMessages || !messagesLoaded || olderLoadTriggeredRef.current) return;
+
+    olderLoadTriggeredRef.current = true;
+    setIsLoadingOlderMessages(true);
+    setMessageLimit((previous) => previous + 10);
+  }, [hasMoreOlderMessages, isLoadingOlderMessages, messagesLoaded]);
 
   useEffect(() => {
     if (!currentUserId || !chatRoomId) return;
+
+    setRawMessages([]);
+    setUserClearedAt(0);
+    setUserClearedAtValue(null);
+    setUserDeleted(false);
+    setChatMetadataLoaded(false);
+    setChatMetadataRoomId(null);
+    setMessagesLoaded(false);
+    setMessageLimit(15);
+    setIsLoadingOlderMessages(false);
+    setHasMoreOlderMessages(true);
+    olderLoadTriggeredRef.current = false;
+
     const chatRef = doc(db, "chats", chatRoomId);
     const unsubChat = onSnapshot(chatRef, (snapshot) => {
       if (!snapshot.exists()) {
@@ -880,7 +869,11 @@ export default function ChatScreen() {
         setChatRejections([]);
         setIsCrossChatNoticeDismissed(false);
         setIsNoticeDismissedLocally(false);
-        clearedAtCutoffRef.current = null;
+        setUserClearedAt(0);
+        setUserClearedAtValue(null);
+        setUserDeleted(false);
+        setChatMetadataLoaded(true);
+        setChatMetadataRoomId(chatRoomId);
         setChatType("roommate");
         setBrokerChatRole(null);
         setHostPhoneFromChatMeta("");
@@ -894,14 +887,15 @@ export default function ChatScreen() {
       setChatInitiatedBy(typeof data.initiatedBy === "string" ? data.initiatedBy : null);
       setChatRejectedBy(typeof data.rejectedBy === "string" ? data.rejectedBy : null);
       setChatRejections(Array.isArray(data.rejections) ? data.rejections.filter((entry): entry is string => typeof entry === "string") : []);
-      const clearedAtMap = data.clearedAt && typeof data.clearedAt === "object"
-        ? (data.clearedAt as Record<string, unknown>)
-        : {};
       const dismissedCrossChatNoticesMap = data.dismissedCrossChatNotices && typeof data.dismissedCrossChatNotices === "object"
         ? (data.dismissedCrossChatNotices as Record<string, unknown>)
         : {};
-      const clearCutoff = currentUserId ? timestampToMillis(clearedAtMap[currentUserId]) : 0;
-      clearedAtCutoffRef.current = clearCutoff > 0 ? clearCutoff : null;
+      const userClearCutoff = currentUserId ? getUserClearedAt(data, currentUserId) : 0;
+      setUserClearedAt(userClearCutoff);
+      setUserClearedAtValue(currentUserId ? getUserClearedAtValue(data, currentUserId) : null);
+      setUserDeleted(currentUserId ? getUserDeleted(data, currentUserId) : false);
+      setChatMetadataLoaded(true);
+      setChatMetadataRoomId(chatRoomId);
       setIsCrossChatNoticeDismissed(currentUserId ? dismissedCrossChatNoticesMap[currentUserId] === true : false);
       setChatType(data.type === "host" ? "host" : "roommate");
       setBrokerChatRole(data.brokerChatRole === "client" || data.brokerChatRole === "owner" ? data.brokerChatRole : null);
@@ -921,62 +915,92 @@ export default function ChatScreen() {
       setIsBlocker(currentUserId ? blockedMap[currentUserId] === true : false);
       setIsBlocked(counterpartId ? blockedMap[counterpartId] === true : false);
     });
-
-    const q = query(
-      collection(db, "chats", chatRoomId, "messages"),
-      orderBy("createdAt", "asc"),
-    );
-    const unsub = onSnapshot(q, (snapshot) => {
-      const fetched: Message[] = snapshot.docs
-        .map((doc) => {
-          const data = doc.data() as FirestoreMessageDoc;
-          const apartmentData = isSharedApartmentData(data.apartmentData) ? data.apartmentData : undefined;
-          return {
-            id: doc.id,
-            text: data.text ?? "",
-            noteText: typeof data.noteText === "string" ? data.noteText : undefined,
-            senderId: data.senderId ?? "",
-            createdAt: data.createdAt ?? Date.now(),
-            isRead: data.isRead ?? true,
-            type: data.type,
-            status: data.status,
-            proposedPrice: typeof data.proposedPrice === "number" ? data.proposedPrice : undefined,
-            requestedDate: typeof data.requestedDate === "string" ? data.requestedDate : undefined,
-            requestedTime: typeof data.requestedTime === "string" ? data.requestedTime : undefined,
-            apartmentId: typeof data.apartmentId === "string" ? data.apartmentId : undefined,
-            apartmentData,
-            filterSetData: data.filterSetData,
-            filterSetId: typeof data.filterSetId === "string" ? data.filterSetId : undefined,
-            listId: typeof data.listId === "string" ? data.listId : undefined,
-            listTitle: typeof data.listTitle === "string" ? data.listTitle : undefined,
-            apartmentIds: Array.isArray(data.apartmentIds) ? data.apartmentIds.filter((item): item is string => typeof item === "string") : undefined,
-            apartmentCount: typeof data.apartmentCount === "number" ? data.apartmentCount : undefined,
-            previewImages: Array.isArray(data.previewImages) ? data.previewImages.filter((item): item is string => typeof item === "string") : undefined,
-          };
-        });
-
-      const cutoff = clearedAtCutoffRef.current;
-      const filteredFetched = cutoff
-        ? fetched.filter((message) => createdAtToMillis(message.createdAt) > cutoff)
-        : fetched;
-
-      setMessages((prev) => {
-        const optimisticPending = prev.filter((m) => {
-          if (!(m.id.startsWith("temp-") && m.senderId === currentUserId)) return false;
-          return cutoff ? createdAtToMillis(m.createdAt) > cutoff : true;
-        });
-        const unresolved = optimisticPending.filter(
-          (temp) => !filteredFetched.some((serverMsg) => serverMsg.senderId === temp.senderId && serverMsg.text === temp.text),
-        );
-        return sortMessages([...filteredFetched, ...unresolved]);
-      });
-      requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: false }));
-    });
     return () => {
-      unsub();
       unsubChat();
     };
-  }, [chatRoomId, currentUserId, sortMessages]);
+  }, [chatRoomId, currentUserId]);
+
+  useEffect(() => {
+    if (!currentUserId || !chatRoomId || !chatMetadataLoaded || chatMetadataRoomId !== chatRoomId) return;
+
+    if (userDeleted) {
+      setRawMessages([]);
+      setMessagesLoaded(true);
+      setHasMoreOlderMessages(false);
+      setIsLoadingOlderMessages(false);
+      olderLoadTriggeredRef.current = false;
+      return;
+    }
+
+    const messagesCollection = collection(db, "chats", chatRoomId, "messages");
+    const messagesQuery = userClearedAt > 0 && userClearedAtValue != null
+      ? query(messagesCollection, where("createdAt", ">", userClearedAtValue), orderBy("createdAt", "desc"), limit(messageLimit))
+      : query(messagesCollection, orderBy("createdAt", "desc"), limit(messageLimit));
+
+    const unsubscribe = onSnapshot(
+      messagesQuery,
+      (snapshot) => {
+        const fetched: Message[] = snapshot.docs
+          .map((messageDoc) => {
+            const data = messageDoc.data() as FirestoreMessageDoc;
+            const apartmentData = isSharedApartmentData(data.apartmentData) ? data.apartmentData : undefined;
+            return {
+              id: messageDoc.id,
+              text: data.text ?? "",
+              noteText: typeof data.noteText === "string" ? data.noteText : undefined,
+              senderId: data.senderId ?? "",
+              createdAt: safeTimestampToMillis(data.createdAt, Date.now()),
+              isRead: data.isRead ?? true,
+              type: data.type,
+              status: data.status,
+              proposedPrice: typeof data.proposedPrice === "number" ? data.proposedPrice : undefined,
+              requestedDate: typeof data.requestedDate === "string" ? data.requestedDate : undefined,
+              requestedTime: typeof data.requestedTime === "string" ? data.requestedTime : undefined,
+              apartmentId: typeof data.apartmentId === "string" ? data.apartmentId : undefined,
+              apartmentData,
+              filterSetData: data.filterSetData,
+              filterSetId: typeof data.filterSetId === "string" ? data.filterSetId : undefined,
+              listId: typeof data.listId === "string" ? data.listId : undefined,
+              listTitle: typeof data.listTitle === "string" ? data.listTitle : undefined,
+              apartmentIds: Array.isArray(data.apartmentIds) ? data.apartmentIds.filter((item): item is string => typeof item === "string") : undefined,
+              apartmentCount: typeof data.apartmentCount === "number" ? data.apartmentCount : undefined,
+              previewImages: Array.isArray(data.previewImages) ? data.previewImages.filter((item): item is string => typeof item === "string") : undefined,
+            };
+          })
+          .filter((message) => safeTimestampToMillis(message.createdAt) > userClearedAt);
+
+        const oldestMessageMillis = fetched.length > 0
+          ? Math.min(...fetched.map((message) => safeTimestampToMillis(message.createdAt)))
+          : 0;
+        const reachesClearCutoff = userClearedAt > 0 && oldestMessageMillis <= userClearedAt;
+        setHasMoreOlderMessages(snapshot.docs.length >= messageLimit && !reachesClearCutoff);
+        setIsLoadingOlderMessages(false);
+        olderLoadTriggeredRef.current = false;
+
+        setRawMessages((previous) => {
+          const optimisticPending = previous.filter((message) => {
+            if (!(message.id.startsWith("temp-") && message.senderId === currentUserId)) return false;
+            return !fetched.some((serverMessage) =>
+              serverMessage.senderId === message.senderId && serverMessage.text === message.text,
+            );
+          });
+          return [...fetched, ...optimisticPending];
+        });
+        setMessagesLoaded(true);
+
+        if (messageLimit === 15 && snapshot.docs.length === 15) {
+          setMessageLimit(25);
+        }
+      },
+      () => {
+        setMessagesLoaded(true);
+        setIsLoadingOlderMessages(false);
+        olderLoadTriggeredRef.current = false;
+      },
+    );
+
+    return () => unsubscribe();
+  }, [chatMetadataLoaded, chatMetadataRoomId, chatRoomId, currentUserId, messageLimit, userClearedAt, userClearedAtValue, userDeleted]);
 
   useEffect(() => {
     if (chatType !== "host" || !currentUserId || !counterpartId || !chatRoomId) return;
@@ -1057,16 +1081,18 @@ export default function ChatScreen() {
 
     void (async () => {
       try {
-        const apartmentsSnap = await getDocs(query(collection(db, "apartments"), orderBy("createdAt", "desc")));
+        const fetched = await Promise.all(
+          mutualLikedIds.slice(0, 30).map(async (apartmentId) => {
+            const snapshot = await getDoc(doc(db, "apartments", apartmentId));
+            return snapshot.exists()
+              ? mapApartmentDocToMutualApartment(apartmentId, snapshot.data() as FirestoreApartmentDoc)
+              : null;
+          }),
+        );
         if (!active) return;
 
-        const mutualIdSet = new Set(mutualLikedIds);
-        const fetched = apartmentsSnap.docs
-          .map((docSnap) => mapApartmentDocToMutualApartment(docSnap.id, docSnap.data() as FirestoreApartmentDoc))
-          .filter((apartment) => mutualIdSet.has(apartment.id));
-
         if (active) {
-          setMutualLikedApartments(fetched);
+          setMutualLikedApartments(fetched.filter((apartment): apartment is MutualApartment => apartment !== null));
         }
       } catch {
         if (active) {
@@ -1095,7 +1121,7 @@ export default function ChatScreen() {
   }, [chatRoomId]);
 
   useEffect(() => {
-    if (!currentUserId || !counterpartId || !chatRoomId) {
+    if (!currentUserId || !counterpartId || !chatRoomId || !chatMetadataLoaded || !messagesLoaded) {
       setCrossChatNoticeTarget(null);
       return;
     }
@@ -1133,7 +1159,7 @@ export default function ChatScreen() {
     return () => {
       active = false;
     };
-  }, [chatRoomId, chatType, counterpartId, currentUserId]);
+  }, [chatMetadataLoaded, chatRoomId, chatType, counterpartId, currentUserId, messagesLoaded]);
 
   useEffect(() => {
     if (!currentUserId) {
@@ -1209,6 +1235,8 @@ export default function ChatScreen() {
           image: "https://images.unsplash.com/photo-1564078516393-cf04bd966897?crop=entropy&cs=srgb&fm=jpg&w=1200&q=85",
           tags: [t("apartments.newListing")],
           hostId: undefined,
+          ownerId: undefined,
+          assignedBrokerIds: undefined,
         });
       },
       () => {
@@ -1219,6 +1247,49 @@ export default function ChatScreen() {
 
     return () => unsubscribe();
   }, [chatType, hostApartmentId, hostApartmentTitle]);
+
+  useEffect(() => {
+    if (!isBrokerOwnerChat || !currentUserId || !counterpartId || !showAssignedPropertiesDropdown) {
+      setAssignedOwnerProperties([]);
+      setLoadingAssignedOwnerProperties(false);
+      return;
+    }
+
+    let active = true;
+    setLoadingAssignedOwnerProperties(true);
+    void (async () => {
+      try {
+        const [ownerSnapshot, hostSnapshot] = await Promise.all([
+          getDocs(query(
+            collection(db, "apartments"),
+            where("ownerId", "==", counterpartId),
+            where("assignedBrokerIds", "array-contains", currentUserId),
+          )),
+          getDocs(query(
+            collection(db, "apartments"),
+            where("hostId", "==", counterpartId),
+            where("assignedBrokerIds", "array-contains", currentUserId),
+          )),
+        ]);
+        const propertiesById = new Map<string, ReturnType<typeof buildApartmentRoutePayload>>();
+        [...ownerSnapshot.docs, ...hostSnapshot.docs].forEach((propertyDoc) => {
+          const data = propertyDoc.data() as FirestoreApartmentDoc;
+          if (data.status === "closed_deal") return;
+          propertiesById.set(propertyDoc.id, buildApartmentRoutePayload(propertyDoc.id, data));
+        });
+        if (active) setAssignedOwnerProperties([...propertiesById.values()]);
+      } catch (error) {
+        console.warn("[Chat] Failed to load assigned owner properties:", error);
+        if (active) setAssignedOwnerProperties([]);
+      } finally {
+        if (active) setLoadingAssignedOwnerProperties(false);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [counterpartId, currentUserId, isBrokerOwnerChat, showAssignedPropertiesDropdown]);
 
   useEffect(() => {
     if (!currentUserId || !counterpartId) {
@@ -1317,9 +1388,9 @@ export default function ChatScreen() {
       createdAt: Date.now(),
     };
 
-    setMessages((prev) => sortMessages([...prev, optimisticMessage]));
+    setRawMessages((previous) => [...previous, optimisticMessage]);
     setText("");
-    requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
+    requestAnimationFrame(() => scrollRef.current?.scrollToOffset({ offset: 0, animated: true }));
 
     try {
       // 1. Αποθήκευση μηνύματος στο Firestore (Subcollection)
@@ -1332,11 +1403,22 @@ export default function ChatScreen() {
       });
 
       // 2. Ενημέρωση τελευταίου μηνύματος στο Chat Document
-      await updateDoc(doc(db, "chats", chatRoomId), {
-        lastMessage: trimmed,
-        lastMessageTimestamp: serverTimestamp(),
-      });
-
+      const chatRef = doc(db, "chats", chatRoomId);
+      await setDoc(
+        chatRef,
+        {
+          lastMessage: trimmed,
+          lastMessageTimestamp: Date.now(),
+          updatedAt: Date.now(),
+          deletedUsers: { [id]: false },
+        },
+        { merge: true },
+      );
+      await updateDoc(
+        chatRef,
+        new FieldPath(`deletedUsers.${id}`),
+        deleteField(),
+      );
       // 🚨 ------------------ ΒΗΜΑ 2: ΕΛΕΓΧΟΙ NOTIFICATIONS & MUTE ------------------
       
       // Α. Έλεγχος αν ο παραλήπτης έχει κάνει Mute αυτή τη συγκεκριμένη συνομιλία
@@ -1386,9 +1468,9 @@ export default function ChatScreen() {
     } catch (error) {
       console.error("Error sending message/notification:", error);
       // Επαναφορά του UI (αφαίρεση του optimistic message) σε περίπτωση αποτυχίας
-      setMessages((prev) => prev.filter((m) => m.id !== optimisticMessage.id));
+      setRawMessages((previous) => previous.filter((message) => message.id !== optimisticMessage.id));
     }
-  }, [chatRoomId, chatStatus, chatType, counterpartExists, currentUserId, id, isApartmentUnavailable, sortMessages, text]);
+  }, [chatRoomId, chatStatus, chatType, counterpartExists, currentUserId, id, isApartmentUnavailable, text]);
 
   const socialLinks = useMemo(
     () => [
@@ -1498,7 +1580,7 @@ export default function ChatScreen() {
     messages.forEach((message) => {
       if (message.type !== "filter_set_share" || !message.filterSetData) return;
       const data = message.filterSetData;
-      const updatedAt = data.sharedAt ?? (createdAtToMillis(message.createdAt) || Date.now());
+      const updatedAt = data.sharedAt ?? (safeTimestampToMillis(message.createdAt) || Date.now());
       const version: FilterSetVersionData = {
         version: 1,
         title: data.title ?? "",
@@ -1513,6 +1595,19 @@ export default function ChatScreen() {
         nearMetro: data.nearMetro === true,
         sortBy: data.sortBy as FilterSetVersionData["sortBy"],
         summary: data.summary ?? "",
+        showMatchScore: data.showMatchScore === true || data.showMatchScoreOnMap === true,
+        propertyTypes: data.propertyTypes,
+        propertyCategories: data.propertyCategories,
+        floors: data.floors,
+        bedroomsMin: data.bedroomsMin,
+        bathroomsMin: data.bathroomsMin,
+        furnishedStatus: data.furnishedStatus,
+        heatingTypes: data.heatingTypes,
+        energyClasses: data.energyClasses,
+        constructionYearMin: data.constructionYearMin,
+        renovationYearMin: data.renovationYearMin,
+        selectedAmenities: data.selectedAmenities,
+        polygonCoordinates: data.polygonCoordinates,
         updatedAt,
       };
       const id = message.filterSetId ?? message.id;
@@ -1535,7 +1630,13 @@ export default function ChatScreen() {
       });
     });
     return [...records.values()].sort((a, b) => b.updatedAt - a.updatedAt);
-  }, [counterpartDetails, counterpartId, createdAtToMillis, displayName, messages]);
+  }, [counterpartDetails, counterpartId, displayName, messages]);
+
+  const latestSharedFilterVersion = useMemo<FilterSetMessageData | null>(() => {
+    const versions = filterHistoryRecords.flatMap((record) => record.versions);
+    return [...versions].sort((first, second) => second.updatedAt - first.updatedAt)[0] ?? null;
+  }, [filterHistoryRecords]);
+  const showChatMatchScore = latestSharedFilterVersion?.showMatchScore === true;
 
   // Κρύβουμε τα social links σε περίπτωση block
   const shouldShowSocialLinks = !maskedAsDeleted && !hasBlockedByMe && !blockedByOtherUser && !!counterpartDetails?.looking_for_apartment;
@@ -1554,9 +1655,6 @@ export default function ChatScreen() {
   const displayGender = maskedAsDeleted ? t("common.values.notApplicable") : activeProfile.gender;
   const displayAge = maskedAsDeleted ? t("common.values.emptyDash") : `${activeProfile.age} ${t("common.format.yearsSuffix")}`;
   const displayBudget = maskedAsDeleted ? t("common.values.emptyDash") : `${CURRENCY}${activeProfile.budget}${t("common.format.perMonthShort")}`;
-  const displayCity = maskedAsDeleted
-    ? t("common.values.notApplicable")
-    : counterpartDetails?.city?.trim() || t("common.values.notAvailable");
   const apartmentPillTitle = apartmentLocked ? t("apartments.unavailable") : hostApartment?.title || hostApartmentTitle || t("apartments.unavailable");
   const apartmentPreviewSubtitle = !apartmentLocked && hostApartment
     ? `${hostApartment.area}, ${hostApartment.city}`
@@ -1581,88 +1679,20 @@ export default function ChatScreen() {
   const hostRent = typeof hostApartment?.rent === "number" ? hostApartment.rent : 0;
   const minRecommendedPrice = hostRent * ((100 - hostDiscountPercentage) / 100);
 
-  const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const todayIso = toIsoDate(todayStart);
-
-  const calendarCells = useMemo(() => {
-    const year = visitMonthCursor.getFullYear();
-    const month = visitMonthCursor.getMonth();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const firstDayRaw = new Date(year, month, 1).getDay();
-    const firstDay = (firstDayRaw + 6) % 7;
-
-    const cells: Array<{ day: number; iso: string; disabled: boolean } | null> = [];
-    for (let i = 0; i < firstDay; i += 1) {
-      cells.push(null);
-    }
-    for (let day = 1; day <= daysInMonth; day += 1) {
-      const date = new Date(year, month, day);
-      const iso = toIsoDate(date);
-      const disabled = date.getTime() < todayStart.getTime();
-      cells.push({ day, iso, disabled });
-    }
-    while (cells.length % 7 !== 0) {
-      cells.push(null);
-    }
-    return cells;
-  }, [todayStart, visitMonthCursor]);
-
-  const canGoToPreviousMonth =
-    visitMonthCursor.getFullYear() > todayStart.getFullYear() ||
-    (visitMonthCursor.getFullYear() === todayStart.getFullYear() && visitMonthCursor.getMonth() > todayStart.getMonth());
-
-  const hourOptions = useMemo(
-    () => Array.from({ length: 24 }, (_, value) => `${value}`.padStart(2, "0")),
-    [],
-  );
-  const minuteOptions = useMemo(() => ["00", "30"] as const, []);
-  const isSelectedDateToday = selectedVisitDate === todayIso;
-
-  const isHourDisabled = useCallback(
-    (hour: string) => {
-      if (!isSelectedDateToday) return false;
-      const numericHour = Number(hour);
-      if (numericHour < now.getHours()) return true;
-      if (numericHour > now.getHours()) return false;
-      return minuteOptions.every((minute) => Number(minute) < now.getMinutes());
-    },
-    [isSelectedDateToday, minuteOptions, now],
-  );
-
-  const isMinuteDisabled = useCallback(
-    (minute: "00" | "30") => {
-      if (!isSelectedDateToday) return false;
-      const numericHour = Number(selectedVisitHour);
-      if (numericHour > now.getHours()) return false;
-      if (numericHour < now.getHours()) return true;
-      return Number(minute) < now.getMinutes();
-    },
-    [isSelectedDateToday, now, selectedVisitHour],
-  );
-
   const openVisitRequestModal = useCallback(() => {
-    const nextSlot = getNextHalfHour(new Date());
-    setSelectedVisitDate(toIsoDate(nextSlot));
-    setSelectedVisitHour(`${nextSlot.getHours()}`.padStart(2, "0"));
-    setSelectedVisitMinute(nextSlot.getMinutes() >= 30 ? "30" : "00");
-    setVisitMonthCursor(new Date(nextSlot.getFullYear(), nextSlot.getMonth(), 1));
     setShowVisitRequestModal(true);
     setShowHostActionMenu(false);
   }, []);
 
-  const submitPriceProposal = useCallback(async () => {
+  const submitPriceProposal = useCallback(async (price: number) => {
     if (!currentUserId || !chatRoomId || !hostApartmentId || isSubmittingHostAction) return;
-
-    const parsedPrice = Number(proposedPriceInput.replace(/,/g, ".").replace(/[^0-9.]/g, ""));
-    if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) return;
 
     setIsSubmittingHostAction(true);
     try {
       await addDoc(collection(db, "chats", chatRoomId, "messages"), {
         senderId: currentUserId,
         type: "price_proposal",
-        proposedPrice: Math.round(parsedPrice),
+        proposedPrice: Math.round(price),
         status: "pending",
         apartmentId: hostApartmentId,
         createdAt: serverTimestamp(),
@@ -1677,17 +1707,23 @@ export default function ChatScreen() {
         pipelineStage: "offer_made",
       });
 
+      const chatRef = doc(db, "chats", chatRoomId);
       await setDoc(
-        doc(db, "chats", chatRoomId),
+        chatRef,
         {
-          lastMessage: `Πρόταση τιμής: ${Math.round(parsedPrice)}${CURRENCY}`,
-          lastMessageTimestamp: serverTimestamp(),
-          updatedAt: serverTimestamp(),
+          lastMessage: `Πρόταση τιμής: ${Math.round(price)}${CURRENCY}`,
+          lastMessageTimestamp: Date.now(),
+          updatedAt: Date.now(),
+          deletedUsers: { [counterpartId]: false },
         },
         { merge: true },
       );
+      await updateDoc(
+        chatRef,
+        new FieldPath(`deletedUsers.${counterpartId}`),
+        deleteField(),
+      );
 
-      setProposedPriceInput("");
       setShowPriceProposalModal(false);
     } catch {
       setActionModal({
@@ -1704,13 +1740,12 @@ export default function ChatScreen() {
     } finally {
       setIsSubmittingHostAction(false);
     }
-  }, [brokerChatRole, chatRoomId, counterpartId, currentUserId, hostApartmentId, isSubmittingHostAction, proposedPriceInput]);
+  }, [brokerChatRole, chatRoomId, counterpartId, currentUserId, hostApartmentId, isSubmittingHostAction]);
 
-  const submitVisitRequest = useCallback(async () => {
-    if (!currentUserId || !chatRoomId || !hostApartmentId || !selectedVisitDate || isSubmittingHostAction) return;
-    if (isHourDisabled(selectedVisitHour) || isMinuteDisabled(selectedVisitMinute)) return;
+  const submitVisitRequest = useCallback(async (date: string, time: string) => {
+    if (!currentUserId || !chatRoomId || !hostApartmentId || isSubmittingHostAction) return;
 
-    const visitDate = parseIsoDate(selectedVisitDate);
+    const visitDate = parseIsoDate(date);
     if (!visitDate) return;
 
     setIsSubmittingHostAction(true);
@@ -1718,8 +1753,8 @@ export default function ChatScreen() {
       await addDoc(collection(db, "chats", chatRoomId, "messages"), {
         senderId: currentUserId,
         type: "visit_request",
-        requestedDate: selectedVisitDate,
-        requestedTime: `${selectedVisitHour}:${selectedVisitMinute}`,
+        requestedDate: date,
+        requestedTime: time,
         status: "pending",
         apartmentId: hostApartmentId,
         createdAt: serverTimestamp(),
@@ -1734,14 +1769,21 @@ export default function ChatScreen() {
         pipelineStage: "showing_scheduled",
       });
 
+      const chatRef = doc(db, "chats", chatRoomId);
       await setDoc(
-        doc(db, "chats", chatRoomId),
+        chatRef,
         {
-          lastMessage: `Αίτημα επίσκεψης: ${formatRequestDate(selectedVisitDate)} ${selectedVisitHour}:${selectedVisitMinute}`,
-          lastMessageTimestamp: serverTimestamp(),
-          updatedAt: serverTimestamp(),
+          lastMessage: `Αίτημα επίσκεψης: ${formatRequestDate(date)} ${time}`,
+          lastMessageTimestamp: Date.now(),
+          updatedAt: Date.now(),
+          deletedUsers: { [counterpartId]: false },
         },
         { merge: true },
+      );
+      await updateDoc(
+        chatRef,
+        new FieldPath(`deletedUsers.${counterpartId}`),
+        deleteField(),
       );
 
       setShowVisitRequestModal(false);
@@ -1766,12 +1808,7 @@ export default function ChatScreen() {
     counterpartId,
     currentUserId,
     hostApartmentId,
-    isHourDisabled,
-    isMinuteDisabled,
     isSubmittingHostAction,
-    selectedVisitDate,
-    selectedVisitHour,
-    selectedVisitMinute,
   ]);
 
   const approveHostActionMessage = useCallback(
@@ -1819,14 +1856,21 @@ export default function ChatScreen() {
           isRead: true,
         });
 
+        const chatRef = doc(db, "chats", chatRoomId);
         await setDoc(
-          doc(db, "chats", chatRoomId),
+          chatRef,
           {
             lastMessage: confirmationText,
-            lastMessageTimestamp: serverTimestamp(),
-            updatedAt: serverTimestamp(),
+            lastMessageTimestamp: Date.now(),
+            updatedAt: Date.now(),
+            deletedUsers: { [counterpartId]: false },
           },
           { merge: true },
+        );
+        await updateDoc(
+          chatRef,
+          new FieldPath(`deletedUsers.${counterpartId}`),
+          deleteField(),
         );
       } catch {
         setActionModal({
@@ -1842,7 +1886,7 @@ export default function ChatScreen() {
         });
       }
     },
-    [chatRoomId, currentUserId, hostApartmentId, isCurrentUserHost],
+    [chatRoomId, counterpartId, currentUserId, hostApartmentId, isCurrentUserHost],
   );
 
   const handleApartmentPillPress = () => {
@@ -2094,40 +2138,39 @@ export default function ChatScreen() {
   const handleOpenBlockModal = useCallback(() => {
     setShowContextMenu(false);
     setShowBlockModal(true);
-    setExpandReport(false);
-    setReportReason("");
   }, []);
 
   const handleDeleteChatForCurrentUser = useCallback(async () => {
     if (!currentUserId || !chatRoomId) return;
 
+    const now = Date.now();
     try {
+      const chatRef = doc(db, "chats", chatRoomId);
       await setDoc(
-        doc(db, "chats", chatRoomId),
+        chatRef,
         {
-          [`clearedAt.${currentUserId}`]: serverTimestamp(),
-          updatedAt: serverTimestamp(),
+          clearedAt: { [currentUserId]: now },
+          deletedUsers: { [currentUserId]: true },
+          updatedAt: now,
         },
         { merge: true },
       );
+      await updateDoc(
+        chatRef,
+        new FieldPath(`clearedAt.${currentUserId}`),
+        deleteField(),
+        new FieldPath(`deletedUsers.${currentUserId}`),
+        deleteField(),
+      );
+      void cleanupObsoleteChatMessages(chatRoomId);
       router.back();
-    } catch {
-      setActionModal({
-        title: t("chat.modals.actionFailedTitle"),
-        description: t("common.messages.tryAgain"),
-        actions: [
-          {
-            label: t("common.actions.gotIt"),
-            iconName: "alert-circle-outline",
-            onPress: () => setActionModal(null),
-          },
-        ],
-      });
+    } catch (error) {
+      console.error("[Chat] Failed to clear chat:", error);
     }
   }, [chatRoomId, currentUserId, router]);
 
   const handleBlockFlow = useCallback(
-    async (withReport: boolean) => {
+    async (withReport: boolean, reason = "") => {
       if (!currentUserId || !counterpartId || isSubmittingBlockAction) return;
 
       setIsSubmittingBlockAction(true);
@@ -2159,14 +2202,12 @@ export default function ChatScreen() {
             reportedUserId: counterpartId,
             reportedUsername: displayName,
             reporterUid: currentUserId,
-            reportReasonText: reportReason,
+            reportReasonText: reason,
             chatRoomId,
           });
         }
 
         setShowBlockModal(false);
-        setExpandReport(false);
-        setReportReason("");
 
         setActionModal({
           title: t("chat.modals.actionCompletedTitle"),
@@ -2197,7 +2238,7 @@ export default function ChatScreen() {
         setIsSubmittingBlockAction(false);
       }
     },
-    [chatRoomId, counterpartId, currentUserId, displayName, isSubmittingBlockAction, reportReason],
+    [chatRoomId, counterpartId, currentUserId, displayName, isSubmittingBlockAction],
   );
 
   const executeUnblock = useCallback(async () => {
@@ -2267,7 +2308,7 @@ export default function ChatScreen() {
     <View style={styles.container} testID="chat-screen">
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
-        {chatType === "host" && (hostApartment || hostApartmentId || apartmentLocked) ? (
+        {chatType === "host" && !isBrokerOwnerChat && (hostApartment || hostApartmentId || apartmentLocked) ? (
           <Pressable
             style={[styles.apartmentPill, apartmentLocked && styles.apartmentPillDisabled]}
             onPress={handleApartmentPillPress}
@@ -2384,17 +2425,31 @@ export default function ChatScreen() {
           >
             <Ionicons name="ellipsis-vertical" size={20} color={colors.onSurface} />
           </Pressable>
-          <Pressable
-            style={[styles.iconBtn, isFilterHistoryActive && styles.iconBtnActive]}
-            onPress={() => {
-              setShowContextMenu(false);
-              setIsFilterHistoryActive((previous) => !previous);
-            }}
-            testID="chat-filter-history-toggle"
-            hitSlop={8}
-          >
-            <Ionicons name="time-outline" size={22} color={isFilterHistoryActive ? colors.brand : colors.onSurface} />
-          </Pressable>
+          {isBrokerOwnerChat ? (
+            <Pressable
+              style={[styles.iconBtn, showAssignedPropertiesDropdown && styles.iconBtnActive]}
+              onPress={() => {
+                setShowContextMenu(false);
+                setShowAssignedPropertiesDropdown((previous) => !previous);
+              }}
+              testID="chat-assigned-properties-toggle"
+              hitSlop={8}
+            >
+              <Ionicons name="chevron-down" size={20} color={colors.onSurface} />
+            </Pressable>
+          ) : (
+            <Pressable
+              style={[styles.iconBtn, isFilterHistoryActive && styles.iconBtnActive]}
+              onPress={() => {
+                setShowContextMenu(false);
+                setIsFilterHistoryActive((previous) => !previous);
+              }}
+              testID="chat-filter-history-toggle"
+              hitSlop={8}
+            >
+              <Ionicons name="time-outline" size={22} color={isFilterHistoryActive ? colors.brand : colors.onSurface} />
+            </Pressable>
+          )}
           {isRoommateChat ? (
             <Pressable
               style={[styles.iconBtn, showMutualLikes && styles.iconBtnActive]}
@@ -2477,6 +2532,44 @@ export default function ChatScreen() {
         ) : null}
       </View>
 
+      {showAssignedPropertiesDropdown && isBrokerOwnerChat ? (
+        <>
+          <Pressable
+            style={styles.propertiesDropdownBackdrop}
+            onPress={() => setShowAssignedPropertiesDropdown(false)}
+            testID="chat-assigned-properties-backdrop"
+          />
+          <View style={[styles.propertiesDropdown, { top: insets.top + 54 }]} testID="chat-assigned-properties-dropdown">
+            {loadingAssignedOwnerProperties ? (
+              <View style={styles.emptyDropdownRow}>
+                <ActivityIndicator size="small" color={colors.brand} />
+              </View>
+            ) : assignedOwnerProperties.length === 0 ? (
+              <View style={styles.emptyDropdownRow}>
+                <Text style={styles.emptyDropdownText}>Δεν υπάρχουν ανατεθειμένα ακίνητα</Text>
+              </View>
+            ) : (
+              <ScrollView showsVerticalScrollIndicator={false}>
+                {assignedOwnerProperties.map((property) => (
+                  <Pressable
+                    key={property.id}
+                    style={styles.propertyDropdownRow}
+                    onPress={() => {
+                      setShowAssignedPropertiesDropdown(false);
+                      router.push({ pathname: "/apartment-detail", params: { data: JSON.stringify(property) } } as any);
+                    }}
+                    testID={`chat-assigned-property-${property.id}`}
+                  >
+                    <Text style={styles.propertyDropdownTitle} numberOfLines={1}>{property.title}</Text>
+                    <Text style={styles.propertyDropdownPrice}>{property.rent.toLocaleString("el-GR")} €</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        </>
+      ) : null}
+
       {showContextMenu || showHostActionMenu ? (
         <Pressable
           style={styles.contextMenuBackdrop}
@@ -2528,12 +2621,28 @@ export default function ChatScreen() {
       {activeViewList ? (
         <View style={styles.flex}>
           <View style={styles.listFeedHeaderBanner}>
-            <Pressable onPress={() => setActiveViewList(null)} hitSlop={8} style={styles.backToMessagesBtn} testID="back-to-chat-messages">
-              <Ionicons color={colors.onSurface} name="arrow-back" size={18} />
-              <Text style={styles.backToMessagesText}>Πίσω στα μηνύματα</Text>
-            </Pressable>
             <Text numberOfLines={1} style={styles.listFeedBannerTitle}>{activeViewList.listTitle}</Text>
           </View>
+          <Pressable
+            style={[styles.floatingBackButton, { top: insets.top + spacing.sm }]}
+            onPress={() => setActiveViewList(null)}
+            hitSlop={8}
+            testID="proposal-floating-back-btn"
+            accessibilityRole="button"
+            accessibilityLabel="Επιστροφή στα μηνύματα"
+          >
+            <Ionicons color={colors.onSurface} name="arrow-back" size={20} />
+          </Pressable>
+          <Pressable
+            style={styles.viewInFeedButton}
+            onPress={() => router.push({ pathname: "/apartments", params: { proposalApartmentIds: JSON.stringify(activeViewList.apartments.map((apartment) => apartment.id)) } } as any)}
+            testID="proposal-view-in-feed-btn"
+            accessibilityRole="button"
+            accessibilityLabel="Προβολή στο feed"
+          >
+            <Ionicons name="open-outline" size={18} color={colors.onBrand} />
+            <Text style={styles.viewInFeedButtonText}>Προβολή στο feed</Text>
+          </Pressable>
           {loadingListFeed ? (
             <View style={styles.mutualLikesLoadingWrap}><ActivityIndicator size="large" color={colors.brand} /></View>
           ) : (
@@ -2547,6 +2656,8 @@ export default function ChatScreen() {
                   colors={colors}
                   styles={styles}
                   isLiked={currentUserLikedIds.has(apartment.id)}
+                  showMatchScore={showChatMatchScore}
+                  compatibilityScore={getChatApartmentCompatibilityScore(apartment, latestSharedFilterVersion)}
                   onToggleLike={() => handleToggleApartmentLike(apartment.id)}
                   onPress={() => router.push({ pathname: "/apartment-detail", params: { data: JSON.stringify(apartment) } } as any)}
                 />
@@ -2554,7 +2665,7 @@ export default function ChatScreen() {
             </ScrollView>
           )}
         </View>
-      ) : isFilterHistoryActive ? (
+      ) : isFilterHistoryActive && !isBrokerOwnerChat ? (
         <ScrollView style={styles.flex} contentContainerStyle={styles.filterHistoryList} showsVerticalScrollIndicator={false}>
           {filterHistoryRecords.length === 0 ? (
             <View style={styles.mutualEmptyCard}><Ionicons name="time-outline" size={34} color={colors.onSurfaceTertiary} /><Text style={styles.mutualEmptyTitle}>Δεν υπάρχουν κοινοποιημένα set φίλτρων</Text></View>
@@ -2587,6 +2698,8 @@ export default function ChatScreen() {
                   colors={colors}
                   styles={styles}
                   isLiked={currentUserLikedIds.has(apartment.id)}
+                  showMatchScore={showChatMatchScore}
+                  compatibilityScore={getChatApartmentCompatibilityScore(apartment, latestSharedFilterVersion)}
                   onToggleLike={() => handleToggleApartmentLike(apartment.id)}
                   onPress={() =>
                     router.push({
@@ -2605,66 +2718,71 @@ export default function ChatScreen() {
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           keyboardVerticalOffset={Platform.OS === "ios" ? insets.top + 8 : 0}
         >
-          <ScrollView
-            ref={scrollRef}
-            style={styles.flex}
-            contentContainerStyle={styles.messages}
-            showsVerticalScrollIndicator={false}
-            onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}
-          >
-            {messages.map((m, idx) => {
-              const groupInfo = getMessageGroupInfo(messages, idx, currentUserId || "");
-              const isMine = m.senderId === currentUserId;
-              const canDeleteForEveryone = isMine && !m.id.startsWith("temp-");
-              const lastMsgIsDifferentSender = idx > 0 && messages[idx - 1].senderId !== m.senderId;
-              const isApartmentShare = m.type === "apartment_share" && !!m.apartmentData;
-              const isApartmentNoteShare = m.type === "apartment_note_share" && !!m.apartmentData;
-              const isFilterSetShare = m.type === "filter_set_share" && !!m.filterSetData;
-              const isPropertyListShare = m.type === "property_list_share";
-              const isPriceProposal = m.type === "price_proposal";
-              const isVisitRequest = m.type === "visit_request";
-              const isSystemNotice = m.type === "system_notice";
-              const apartmentData = m.apartmentData;
-              const apartmentCoverImage = getApartmentCoverImage(apartmentData);
-              const apartmentNoteText = (m.noteText || m.text || "").trim();
-
-              const itemMarginStyle = {
-                marginVertical: groupInfo.isConsecutive
-                  ? groupInfo.position === "first"
-                    ? spacing.xs
-                    : 2
-                  : lastMsgIsDifferentSender
-                  ? spacing.sm
-                  : spacing.xs,
-              };
-
-              let borderRadii = {};
-              if (isMine) {
-                if (groupInfo.position === "first") {
-                  borderRadii = { borderTopRightRadius: radius.sm, borderBottomRightRadius: radius.lg };
-                } else if (groupInfo.position === "middle") {
-                  borderRadii = { borderTopRightRadius: radius.sm, borderBottomRightRadius: radius.sm };
-                } else if (groupInfo.position === "last") {
-                  borderRadii = { borderTopRightRadius: radius.lg, borderBottomRightRadius: radius.sm };
-                } else {
-                  borderRadii = { borderTopRightRadius: radius.lg, borderBottomRightRadius: radius.sm };
-                }
-              } else {
-                if (groupInfo.position === "first") {
-                  borderRadii = { borderTopLeftRadius: radius.sm, borderBottomLeftRadius: radius.lg };
-                } else if (groupInfo.position === "middle") {
-                  borderRadii = { borderTopLeftRadius: radius.sm, borderBottomLeftRadius: radius.sm };
-                } else if (groupInfo.position === "last") {
-                  borderRadii = { borderTopLeftRadius: radius.lg, borderBottomLeftRadius: radius.sm };
-                } else {
-                  borderRadii = { borderTopLeftRadius: radius.lg, borderBottomLeftRadius: radius.sm };
-                }
+          {!messagesLoaded || !chatMetadataLoaded ? (
+            <ChatMessagesSkeleton style={styles.flex} testID="chat-messages-skeleton" />
+          ) : (
+            <FlatList
+              ref={scrollRef}
+              style={styles.flex}
+              contentContainerStyle={styles.invertedMessagesContainer}
+              showsVerticalScrollIndicator={false}
+              inverted
+              data={invertedMessages}
+              keyExtractor={(item) => item.id}
+              onEndReached={handleLoadOlderMessages}
+              onEndReachedThreshold={0.2}
+              ListFooterComponent={
+                isLoadingOlderMessages ? (
+                  <View style={styles.topLoadingContainer} testID="chat-loading-older-messages">
+                    <ActivityIndicator color={colors.brand} size="small" />
+                  </View>
+                ) : null
               }
+              renderItem={({ item: m, index }) => {
+                // invertedMessages is newest-first; map back to the chronological index for grouping.
+                const idx = messages.length - 1 - index;
+                const groupInfo = getMessageGroupInfo(messages, idx, currentUserId || "");
+                const isMine = m.senderId === currentUserId;
+                const canDeleteForEveryone = isMine && !m.id.startsWith("temp-");
+                const lastMsgIsDifferentSender = idx > 0 && messages[idx - 1].senderId !== m.senderId;
+                const apartmentData = m.apartmentData;
+                const apartmentCoverImage = getApartmentCoverImage(apartmentData);
 
-              if (m.type !== "__legacy_inline_renderer__") {
+                const itemMarginStyle = {
+                  marginVertical: groupInfo.isConsecutive
+                    ? groupInfo.position === "first"
+                      ? spacing.xs
+                      : 2
+                    : lastMsgIsDifferentSender
+                    ? spacing.sm
+                    : spacing.xs,
+                };
+
+                let borderRadii = {};
+                if (isMine) {
+                  if (groupInfo.position === "first") {
+                    borderRadii = { borderTopRightRadius: radius.sm, borderBottomRightRadius: radius.lg };
+                  } else if (groupInfo.position === "middle") {
+                    borderRadii = { borderTopRightRadius: radius.sm, borderBottomRightRadius: radius.sm };
+                  } else if (groupInfo.position === "last") {
+                    borderRadii = { borderTopRightRadius: radius.lg, borderBottomRightRadius: radius.sm };
+                  } else {
+                    borderRadii = { borderTopRightRadius: radius.lg, borderBottomRightRadius: radius.sm };
+                  }
+                } else {
+                  if (groupInfo.position === "first") {
+                    borderRadii = { borderTopLeftRadius: radius.sm, borderBottomLeftRadius: radius.lg };
+                  } else if (groupInfo.position === "middle") {
+                    borderRadii = { borderTopLeftRadius: radius.sm, borderBottomLeftRadius: radius.sm };
+                  } else if (groupInfo.position === "last") {
+                    borderRadii = { borderTopLeftRadius: radius.lg, borderBottomLeftRadius: radius.sm };
+                  } else {
+                    borderRadii = { borderTopLeftRadius: radius.lg, borderBottomLeftRadius: radius.sm };
+                  }
+                }
+
                 return (
                   <ChatMessageItem
-                    key={m.id}
                     message={m}
                     styles={styles}
                     colors={colors}
@@ -2680,289 +2798,17 @@ export default function ChatScreen() {
                     onApartmentPress={() => {
                       router.push({ pathname: "/apartment-detail", params: { data: JSON.stringify(apartmentData) } });
                     }}
-                    onFilterSetPress={() => setSelectedFilterSetRecord(filterHistoryRecords.find((record) => record.id === (m.filterSetId ?? m.id)) ?? null)}
+                    onFilterSetPress={() => setSelectedFilterSetMessage(m)}
                     onPropertyListPress={() => void handleOpenPropertyList(m)}
                     onDeletePress={() => setMessageActionTarget(m)}
                     onApprove={() => void approveHostActionMessage(m)}
+                    showMatchScore={showChatMatchScore}
+                    compatibilityScore={apartmentData ? getChatApartmentCompatibilityScore(apartmentData, latestSharedFilterVersion) : 0}
                   />
                 );
-              }
-
-              if (isApartmentShare && apartmentData) {
-                return (
-                  <Pressable
-                    key={m.id}
-                    style={[
-                      styles.shareBubble,
-                      isMine ? styles.shareBubbleMine : styles.shareBubbleTheirs,
-                      itemMarginStyle,
-                    ]}
-                    onPress={() => {
-                      router.push({
-                        pathname: "/apartment-detail",
-                        params: { data: JSON.stringify(apartmentData) },
-                      });
-                    }}
-                    onLongPress={
-                      canDeleteForEveryone
-                        ? () => {
-                            setMessageActionTarget(m);
-                          }
-                        : undefined
-                    }
-                    delayLongPress={300}
-                    testID={`chat-message-${m.id}`}
-                  >
-                    {apartmentCoverImage ? (
-                      <Image source={{ uri: apartmentCoverImage }} style={styles.shareImage} contentFit="cover" transition={120} />
-                    ) : (
-                      <View style={styles.shareImageFallback}>
-                        <Ionicons name="home-outline" size={22} color={colors.onSurfaceTertiary} />
-                      </View>
-                    )}
-                    <View style={styles.shareContent}>
-                      <Text style={[styles.shareTitle, isMine && styles.shareTitleMine]} numberOfLines={1}>
-                        {apartmentData.title || m.text}
-                      </Text>
-
-                      <View style={styles.shareLocationRow}>
-                        <Ionicons
-                          name="location-outline"
-                          size={13}
-                          color={isMine ? "rgba(255,255,255,0.88)" : colors.onSurfaceTertiary}
-                        />
-                        <Text style={[styles.shareLocationText, isMine && styles.shareLocationTextMine]} numberOfLines={1}>
-                          {[apartmentData.area, apartmentData.city].filter(Boolean).join(", ")}
-                        </Text>
-                      </View>
-
-                      <View style={styles.shareMetaRow}>
-                        <View style={styles.sharePricePill}>
-                          <Text style={styles.sharePriceText}>€{apartmentData.rent ?? 0}</Text>
-                        </View>
-                        <Text style={[styles.shareStatsText, isMine && styles.shareStatsTextMine]} numberOfLines={1}>
-                          {`${apartmentData.rooms ?? 0} rooms · ${apartmentData.size ?? 0} m²`}
-                        </Text>
-                      </View>
-                    </View>
-                  </Pressable>
-                );
-              }
-
-              if (isFilterSetShare && m.filterSetData) {
-                const filterSet = m.filterSetData;
-                return (
-                  <Pressable
-                    key={m.id}
-                    style={[
-                      styles.filterSetShareBubble,
-                      isMine ? styles.filterSetShareBubbleMine : styles.filterSetShareBubbleTheirs,
-                      itemMarginStyle,
-                    ]}
-                    onPress={() => setSelectedFilterSetRecord(filterHistoryRecords.find((record) => record.id === (m.filterSetId ?? m.id)) ?? null)}
-                    onLongPress={
-                      canDeleteForEveryone
-                        ? () => {
-                            setMessageActionTarget(m);
-                          }
-                        : undefined
-                    }
-                    delayLongPress={300}
-                    testID={`chat-message-${m.id}`}
-                  >
-                    <View style={styles.filterSetShareIcon}>
-                      <Ionicons name="options-outline" size={20} color={isMine ? colors.onBrand : colors.brand} />
-                    </View>
-                    <View style={styles.filterSetShareContent}>
-                      <Text style={[styles.filterSetShareTag, isMine && styles.filterSetShareTagMine]}>
-                        Κριτήρια Αναζήτησης / Set Φίλτρων
-                      </Text>
-                      <Text style={[styles.filterSetShareTitle, isMine && styles.filterSetShareTitleMine]} numberOfLines={1}>
-                        {filterSet.title || filterSet.summary || "Όλα τα διαμερίσματα"}
-                      </Text>
-                      <Text style={[styles.filterSetShareSubtitle, isMine && styles.filterSetShareSubtitleMine]}>
-                        Πατήστε για προβολή λεπτομερειών
-                      </Text>
-                    </View>
-                  </Pressable>
-                );
-              }
-
-              if (isPropertyListShare) {
-                return (
-                  <Pressable
-                    key={m.id}
-                    style={[styles.sharedListMessageCard, isMine ? styles.sharedListMessageCardMine : styles.sharedListMessageCardTheirs, itemMarginStyle]}
-                    onPress={() => void handleOpenPropertyList(m)}
-                    onLongPress={canDeleteForEveryone ? () => setMessageActionTarget(m) : undefined}
-                    delayLongPress={300}
-                    testID={`open-shared-list-${m.id}`}
-                  >
-                    <View style={styles.sharedListHeader}>
-                      <Ionicons color={isMine ? colors.onBrand : colors.brand} name="layers-outline" size={18} />
-                      <Text numberOfLines={1} style={[styles.sharedListTitle, isMine && styles.sharedListTitleMine]}>{m.listTitle || "Λίστα ακινήτων"}</Text>
-                    </View>
-                    <Text style={[styles.sharedListCountText, isMine && styles.sharedListCountTextMine]}>{`${m.apartmentCount || m.apartmentIds?.length || 0} προτεινόμενα ακίνητα`}</Text>
-                    <View style={styles.sharedListActionRow}>
-                      <Text style={[styles.sharedListViewBtnText, isMine && styles.sharedListViewBtnTextMine]}>Προβολή Λίστας</Text>
-                      <Ionicons color={isMine ? colors.onBrand : colors.brand} name="chevron-forward" size={16} />
-                    </View>
-                  </Pressable>
-                );
-              }
-
-              if (isApartmentNoteShare && apartmentData) {
-                return (
-                  <Pressable
-                    key={m.id}
-                    style={[
-                      styles.noteShareBubble,
-                      isMine ? styles.noteShareBubbleMine : styles.noteShareBubbleTheirs,
-                      itemMarginStyle,
-                    ]}
-                    onPress={() => {
-                      router.push({
-                        pathname: "/apartment-detail",
-                        params: { data: JSON.stringify(apartmentData) },
-                      });
-                    }}
-                    onLongPress={
-                      canDeleteForEveryone
-                        ? () => {
-                            setMessageActionTarget(m);
-                          }
-                        : undefined
-                    }
-                    delayLongPress={300}
-                    accessibilityRole="button"
-                    testID={`chat-message-${m.id}`}
-                  >
-                    <View style={styles.noteShareHeader}>
-                      <View style={styles.noteShareBadge}>
-                        <Ionicons
-                          name="document-text-outline"
-                          size={12}
-                          color={isMine ? colors.onBrand : colors.onBrandTertiary}
-                        />
-                        <Text style={[styles.noteShareBadgeText, isMine && styles.noteShareBadgeTextMine]} numberOfLines={1}>
-                          Σημείωση Αγγελίας
-                        </Text>
-                      </View>
-                    </View>
-
-                    <View style={styles.noteShareQuote}>
-                      <Ionicons
-                        name="open-outline"
-                        size={16}
-                        color={isMine ? "rgba(255,255,255,0.72)" : colors.onSurfaceTertiary}
-                      />
-                      <Text style={[styles.noteShareQuoteText, isMine && styles.noteShareQuoteTextMine]}>
-                        {apartmentNoteText || m.text}
-                      </Text>
-                    </View>
-
-                    <View style={styles.noteShareFooter}>
-                      
-                      {apartmentCoverImage ? (
-                        <Image
-                          source={{ uri: apartmentCoverImage }}
-                          style={styles.noteShareThumb}
-                          contentFit="cover"
-                          transition={120}
-                        />
-                      ) : (
-                        <View style={styles.noteShareThumbFallback}>
-                          <Ionicons name="home-outline" size={18} color={colors.onSurfaceTertiary} />
-                        </View>
-                      )}
-                      
-
-                      <View style={styles.noteShareApartmentTextWrap}>
-                        <Text style={[styles.noteShareApartmentTitle, isMine && styles.noteShareApartmentTitleMine]} numberOfLines={1}>
-                          {apartmentData.title || m.text}
-                        </Text>
-                        <Text style={[styles.noteShareApartmentMeta, isMine && styles.noteShareApartmentMetaMine]} numberOfLines={1}>
-                          {[apartmentData.area, apartmentData.city].filter(Boolean).join(", ") || t("common.values.notAvailable")}
-                        </Text>
-                      </View>
-
-                      <View style={[styles.noteShareRentPill, isMine && styles.noteShareRentPillMine]}>
-                        <Text style={[styles.noteShareRentText, isMine && styles.noteShareRentTextMine]}>{`€${apartmentData.rent ?? 0}`}</Text>
-                      </View>
-                    </View>
-                  </Pressable>
-                );
-              }
-
-              if (chatType === "host" && (isPriceProposal || isVisitRequest)) {
-                const statusLabel = getStatusLabel(m.status);
-                const isPending = m.status !== "approved";
-                const canApprove = isCurrentUserHost && isPending;
-                const title = isPriceProposal ? "Πρόταση τιμής" : "Αίτημα επίσκεψης";
-                const detailText = isPriceProposal
-                  ? `${typeof m.proposedPrice === "number" ? m.proposedPrice : 0}${CURRENCY}/μήνα`
-                  : `${m.requestedDate ? formatRequestDate(m.requestedDate) : "-"} στις ${m.requestedTime || "--:--"}`;
-
-                return (
-                  <View key={m.id} style={[styles.hostActionCardWrap, itemMarginStyle]} testID={`chat-message-${m.id}`}>
-                    <View style={styles.hostActionCard}>
-                      <Text style={styles.hostActionCardTitle}>{title}</Text>
-                      <Text style={styles.hostActionCardDetail}>{detailText}</Text>
-                      <View style={styles.hostActionCardFooter}>
-                        <View style={[styles.hostActionStatusBadge, !isPending && styles.hostActionStatusBadgeApproved]}>
-                          <Text style={[styles.hostActionStatusText, !isPending && styles.hostActionStatusTextApproved]}>
-                            {statusLabel}
-                          </Text>
-                        </View>
-                        {canApprove ? (
-                          <Pressable
-                            style={styles.hostActionApproveBtn}
-                            onPress={() => {
-                              void approveHostActionMessage(m);
-                            }}
-                            testID={`chat-host-action-approve-${m.id}`}
-                          >
-                            <Ionicons name="checkmark-circle" size={28} color={colors.brand} />
-                          </Pressable>
-                        ) : null}
-                      </View>
-                    </View>
-                  </View>
-                );
-              }
-
-              if (isSystemNotice) {
-                return (
-                  <View key={m.id} style={[styles.systemNoticeWrap, itemMarginStyle]} testID={`chat-message-${m.id}`}>
-                    <Text style={styles.systemNoticeText}>{m.text}</Text>
-                  </View>
-                );
-              }
-
-              return (
-                <Pressable
-                  key={m.id}
-                  style={[
-                    styles.bubble,
-                    isMine ? styles.bubbleMine : styles.bubbleTheirs,
-                    borderRadii,
-                    itemMarginStyle,
-                  ]}
-                  onLongPress={
-                    canDeleteForEveryone
-                      ? () => {
-                          setMessageActionTarget(m);
-                        }
-                      : undefined
-                  }
-                  delayLongPress={300}
-                  testID={`chat-message-${m.id}`}
-                >
-                  <Text style={[styles.bubbleText, isMine && styles.bubbleTextMine]}>{m.text}</Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
+              }}
+            />
+          )}
 
           <View
             style={[
@@ -3020,59 +2866,14 @@ export default function ChatScreen() {
         </KeyboardAvoidingView>
       )}
 
-      <Modal
-        transparent
-        animationType="fade"
+      <PriceProposalModal
         visible={showPriceProposalModal}
-        onRequestClose={() => {
-          if (!isSubmittingHostAction) {
-            setShowPriceProposalModal(false);
-          }
-        }}
-      >
-        <View style={styles.hostRequestModalBackdrop}>
-          <View style={styles.hostRequestModalCard}>
-            <Text style={styles.hostRequestModalTitle}>Υπόβαλλε πρόταση τιμής στον αγγελιοδότη</Text>
-            <TextInput
-              style={styles.hostRequestPriceInput}
-              value={proposedPriceInput}
-              onChangeText={setProposedPriceInput}
-              placeholder="0"
-              placeholderTextColor={colors.onSurfaceTertiary}
-              keyboardType="numeric"
-              editable={!isSubmittingHostAction}
-              testID="chat-price-proposal-input"
-            />
-            <Text style={styles.hostRequestHintText}>
-              {`Η πρόταση τιμής θα ήταν καλό να μην είναι λιγότερο από ${minRecommendedPrice.toFixed(0)}${CURRENCY} (${hostDiscountPercentage}% κάτω)`}
-            </Text>
-
-            <View style={styles.hostRequestModalActions}>
-              <Pressable
-                style={styles.hostRequestCancelBtn}
-                onPress={() => setShowPriceProposalModal(false)}
-                disabled={isSubmittingHostAction}
-                testID="chat-price-proposal-cancel"
-              >
-                <Text style={styles.hostRequestCancelText}>{t("common.actions.cancel")}</Text>
-              </Pressable>
-              <Pressable
-                style={[
-                  styles.hostRequestSubmitBtn,
-                  (!proposedPriceInput.trim() || isSubmittingHostAction) && styles.hostRequestSubmitBtnDisabled,
-                ]}
-                onPress={() => {
-                  void submitPriceProposal();
-                }}
-                disabled={!proposedPriceInput.trim() || isSubmittingHostAction}
-                testID="chat-price-proposal-submit"
-              >
-                <Ionicons name="checkmark-circle" size={30} color={colors.onBrand} />
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        isSubmitting={isSubmittingHostAction}
+        minRecommendedPrice={minRecommendedPrice}
+        hostDiscountPercentage={hostDiscountPercentage}
+        onClose={() => setShowPriceProposalModal(false)}
+        onSubmit={(price) => void submitPriceProposal(price)}
+      />
 
       <FilterSetVersionModal
         visible={!!selectedFilterSetRecord}
@@ -3081,274 +2882,20 @@ export default function ChatScreen() {
         onUpdated={setSelectedFilterSetRecord}
       />
 
-      <Modal
-        transparent
-        animationType="slide"
+      <VisitRequestModal
         visible={showVisitRequestModal}
-        onRequestClose={() => {
-          if (!isSubmittingHostAction) {
-            setShowVisitRequestModal(false);
-          }
-        }}
-      >
-        <View style={styles.hostRequestModalBackdrop}>
-          <View style={styles.hostVisitModalCard}>
-            <Text style={styles.hostRequestModalTitle}>Ζήτα επίσκεψη</Text>
+        isSubmitting={isSubmittingHostAction}
+        onClose={() => setShowVisitRequestModal(false)}
+        onSubmit={(date, time) => void submitVisitRequest(date, time)}
+      />
 
-            <View style={styles.visitCalendarHeader}>
-              <Pressable
-                style={[styles.visitCalendarNavBtn, !canGoToPreviousMonth && styles.visitCalendarNavBtnDisabled]}
-                onPress={() => {
-                  if (!canGoToPreviousMonth) return;
-                  setVisitMonthCursor((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
-                }}
-                disabled={!canGoToPreviousMonth}
-                testID="chat-visit-prev-month"
-              >
-                <Ionicons name="chevron-back" size={16} color={colors.onSurface} />
-              </Pressable>
-              <Text style={styles.visitCalendarHeaderText}>
-                {new Intl.DateTimeFormat("el-GR", { month: "long", year: "numeric" }).format(visitMonthCursor)}
-              </Text>
-              <Pressable
-                style={styles.visitCalendarNavBtn}
-                onPress={() => {
-                  setVisitMonthCursor((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
-                }}
-                testID="chat-visit-next-month"
-              >
-                <Ionicons name="chevron-forward" size={16} color={colors.onSurface} />
-              </Pressable>
-            </View>
-
-            <View style={styles.visitWeekdaysRow}>
-              {["Δε", "Τρ", "Τε", "Πε", "Πα", "Σα", "Κυ"].map((weekday) => (
-                <Text key={weekday} style={styles.visitWeekdayText}>{weekday}</Text>
-              ))}
-            </View>
-
-            <View style={styles.visitDaysGrid}>
-              {calendarCells.map((cell, index) => {
-                if (!cell) {
-                  return <View key={`empty-${index}`} style={styles.visitDayCell} />;
-                }
-
-                const isSelected = selectedVisitDate === cell.iso;
-                return (
-                  <Pressable
-                    key={cell.iso}
-                    style={[
-                      styles.visitDayCell,
-                      styles.visitDayButton,
-                      isSelected && styles.visitDayButtonSelected,
-                      cell.disabled && styles.visitDayButtonDisabled,
-                    ]}
-                    onPress={() => {
-                      if (cell.disabled) return;
-                      setSelectedVisitDate(cell.iso);
-                    }}
-                    disabled={cell.disabled}
-                    testID={`chat-visit-day-${cell.iso}`}
-                  >
-                    <Text
-                      style={[
-                        styles.visitDayText,
-                        isSelected && styles.visitDayTextSelected,
-                        cell.disabled && styles.visitDayTextDisabled,
-                      ]}
-                    >
-                      {cell.day}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-
-            <View style={styles.visitTimePickerWrap}>
-              <View style={styles.visitTimeColumn}>
-                <Text style={styles.visitTimeColumnLabel}>Ώρα</Text>
-                <ScrollView style={styles.visitTimeList} showsVerticalScrollIndicator={false}>
-                  {hourOptions.map((hour) => {
-                    const disabled = isHourDisabled(hour);
-                    const selected = selectedVisitHour === hour;
-                    return (
-                      <Pressable
-                        key={hour}
-                        style={[
-                          styles.visitTimeOption,
-                          selected && styles.visitTimeOptionSelected,
-                          disabled && styles.visitTimeOptionDisabled,
-                        ]}
-                        onPress={() => {
-                          if (disabled) return;
-                          setSelectedVisitHour(hour);
-                        }}
-                        disabled={disabled}
-                        testID={`chat-visit-hour-${hour}`}
-                      >
-                        <Text
-                          style={[
-                            styles.visitTimeOptionText,
-                            selected && styles.visitTimeOptionTextSelected,
-                            disabled && styles.visitTimeOptionTextDisabled,
-                          ]}
-                        >
-                          {hour}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-
-              <View style={styles.visitTimeColumn}>
-                <Text style={styles.visitTimeColumnLabel}>Λεπτά</Text>
-                <ScrollView style={styles.visitTimeList} showsVerticalScrollIndicator={false}>
-                  {minuteOptions.map((minute) => {
-                    const disabled = isMinuteDisabled(minute);
-                    const selected = selectedVisitMinute === minute;
-                    return (
-                      <Pressable
-                        key={minute}
-                        style={[
-                          styles.visitTimeOption,
-                          selected && styles.visitTimeOptionSelected,
-                          disabled && styles.visitTimeOptionDisabled,
-                        ]}
-                        onPress={() => {
-                          if (disabled) return;
-                          setSelectedVisitMinute(minute);
-                        }}
-                        disabled={disabled}
-                        testID={`chat-visit-minute-${minute}`}
-                      >
-                        <Text
-                          style={[
-                            styles.visitTimeOptionText,
-                            selected && styles.visitTimeOptionTextSelected,
-                            disabled && styles.visitTimeOptionTextDisabled,
-                          ]}
-                        >
-                          {minute}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-            </View>
-
-            <View style={styles.hostRequestModalActions}>
-              <Pressable
-                style={styles.hostRequestCancelBtn}
-                onPress={() => setShowVisitRequestModal(false)}
-                disabled={isSubmittingHostAction}
-                testID="chat-visit-request-cancel"
-              >
-                <Text style={styles.hostRequestCancelText}>{t("common.actions.cancel")}</Text>
-              </Pressable>
-              <Pressable
-                style={[
-                  styles.hostRequestSubmitBtn,
-                  (!selectedVisitDate || isSubmittingHostAction || isHourDisabled(selectedVisitHour) || isMinuteDisabled(selectedVisitMinute)) &&
-                    styles.hostRequestSubmitBtnDisabled,
-                ]}
-                onPress={() => {
-                  void submitVisitRequest();
-                }}
-                disabled={!selectedVisitDate || isSubmittingHostAction || isHourDisabled(selectedVisitHour) || isMinuteDisabled(selectedVisitMinute)}
-                testID="chat-visit-request-submit"
-              >
-                <Ionicons name="checkmark-circle" size={30} color={colors.onBrand} />
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal
-        transparent
-        animationType="fade"
+      <BlockUserModal
         visible={showBlockModal}
-        onRequestClose={() => {
-          if (!isSubmittingBlockAction) {
-            setShowBlockModal(false);
-            setExpandReport(false);
-            setReportReason("");
-          }
-        }}
-      >
-        <View style={styles.blockModalBackdrop}>
-          <View style={styles.blockModalCard}>
-            <Text style={styles.blockModalTitle}>{t("chat.blockModal.title")}</Text>
-
-            <Pressable
-              style={[styles.blockButton, isSubmittingBlockAction && styles.blockButtonDisabled]}
-              onPress={() => {
-                void handleBlockFlow(false);
-              }}
-              disabled={isSubmittingBlockAction}
-              testID="chat-block-confirm-button"
-            >
-              <Text style={styles.blockButtonText}>{t("chat.blockModal.blockOnly")}</Text>
-            </Pressable>
-
-            <Pressable
-              style={[styles.reportToggleButton, isSubmittingBlockAction && styles.blockButtonDisabled]}
-              onPress={() => setExpandReport(true)}
-              disabled={isSubmittingBlockAction}
-              testID="chat-block-report-expand"
-            >
-              <Text style={styles.reportToggleText}>{t("chat.blockModal.blockAndReport")}</Text>
-            </Pressable>
-
-            {expandReport ? (
-              <View style={styles.reportInputWrapper}>
-                <TextInput
-                  value={reportReason}
-                  onChangeText={setReportReason}
-                  placeholder={t("chat.blockModal.reportReasonPlaceholder")}
-                  placeholderTextColor={colors.onSurfaceTertiary}
-                  style={styles.reportInput}
-                  multiline
-                  numberOfLines={4}
-                  textAlignVertical="top"
-                  editable={!isSubmittingBlockAction}
-                  testID="chat-block-report-reason-input"
-                />
-                <Pressable
-                  style={[
-                    styles.reportSubmitButton,
-                    (!reportReason.trim() || isSubmittingBlockAction) && styles.blockButtonDisabled,
-                  ]}
-                  onPress={() => {
-                    void handleBlockFlow(true);
-                  }}
-                  disabled={!reportReason.trim() || isSubmittingBlockAction}
-                  testID="chat-block-report-submit"
-                >
-                  <Text style={styles.reportSubmitText}>{t("chat.blockModal.submitBlockAndReport")}</Text>
-                </Pressable>
-              </View>
-            ) : null}
-
-            <Pressable
-              style={styles.modalCancelButton}
-              onPress={() => {
-                if (!isSubmittingBlockAction) {
-                  setShowBlockModal(false);
-                  setExpandReport(false);
-                  setReportReason("");
-                }
-              }}
-              disabled={isSubmittingBlockAction}
-              testID="chat-block-cancel"
-            >
-              <Text style={styles.modalCancelText}>{t("common.actions.cancel")}</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
+        isSubmitting={isSubmittingBlockAction}
+        onClose={() => setShowBlockModal(false)}
+        onBlockOnly={() => void handleBlockFlow(false)}
+        onBlockAndReport={(reason) => void handleBlockFlow(true, reason)}
+      />
 
       <CenteredActionModal
         visible={showGlobalUnmuteModal}
@@ -3378,150 +2925,31 @@ export default function ChatScreen() {
         testID="chat-unmute-global-override-modal"
       />
 
-      <Modal
-        transparent
-        animationType="slide"
+      <UserProfileModal
         visible={profileModalVisible}
-        onRequestClose={closeProfileModal}
-      >
-        <View style={styles.profileModalBackdrop}>
-          <Animated.View
-            style={[styles.profileModalCard, { transform: [{ translateY: profileCardTranslateY }] }]}
-            {...profileCardPanResponder.panHandlers}
-          >
-          <View style={styles.profileModalTopRow}>
-            <View style={styles.profileSummaryLeft}>
-              {showAvatarImage ? (
-                <Image source={{ uri: activeProfile.photo }} style={styles.profileModalAvatar} contentFit="cover" />
-              ) : (
-                <DefaultProfileAvatar size={64} iconSize={28} />
-              )}
-              <View style={styles.profileMetaColumn}>
-                <Text style={styles.profileMetaName} numberOfLines={1}>{displayName}</Text>
-                <Text style={styles.profileMetaLine}>{`${t("common.format.ageLabel", { age: activeProfile.age || 0 })}`}</Text>
-                <Text style={styles.profileMetaLine}>{displayCity}</Text>
-                <Text style={styles.profileMetaLine} numberOfLines={1}>{displayUniversity || t("common.values.notAvailable")}</Text>
-              </View>
-            </View>
+        profile={activeProfile}
+        details={counterpartDetails}
+        compatibilityScore={compatibilityScore}
+        displayName={displayName}
+        displayAbout={displayAbout}
+        showAvatar={showAvatarImage}
+        socialLinks={shouldShowSocialLinks ? socialLinks : []}
+        onClose={() => setProfileModalVisible(false)}
+      />
 
-            <View style={styles.compatibilityPill}>
-              <Text style={styles.compatibilityPillLabel}>{t("chat.compatibility")}</Text>
-              <Text style={styles.compatibilityPillValue}>{compatibilityScore != null ? `${compatibilityScore}%` : "--"}</Text>
-            </View>
-          </View>
-
-          <View style={styles.aboutSection}>
-            <Text style={styles.aboutTitle}>{t("chat.aboutMe")}</Text>
-            <Text style={styles.aboutBody}>{displayAbout}</Text>
-          </View>
-
-          {shouldShowSocialLinks && socialLinks.length > 0 ? (
-            <View style={styles.socialSection}>
-              <Text style={styles.aboutTitle}>{t("chat.socialLinks")}</Text>
-              <View style={styles.socialGrid}>
-                {socialLinks.map((social) => (
-                  <Pressable
-                    key={social.id}
-                    style={styles.socialPill}
-                    onPress={() => {
-                      void Linking.openURL(social.url);
-                    }}
-                    testID={`chat-social-link-${social.id}`}
-                  >
-                    <Ionicons name={social.icon} size={16} color={colors.onBrandTertiary} />
-                    <Text style={styles.socialPillText}>{social.label}</Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-          ) : null}
-
-          <Pressable style={styles.modalCloseBtn} onPress={closeProfileModal}>
-            <Text style={styles.modalCloseBtnText}>{t("common.actions.done")}</Text>
-          </Pressable>
-          </Animated.View>
-        </View>
-      </Modal>
-
-      <Modal
-        transparent
-        animationType="fade"
+      <FilterSetDetailsModal
         visible={!!selectedFilterSetMessage}
-        onRequestClose={() => setSelectedFilterSetMessage(null)}
-      >
-        <View style={styles.filterSetModalBackdrop}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setSelectedFilterSetMessage(null)} />
-          <View style={styles.filterSetModalCard} testID="chat-filter-set-details-modal">
-            <View style={styles.filterSetModalHeader}>
-              <Text style={styles.filterSetModalTitle}>Κριτήρια Αναζήτησης</Text>
-              <Pressable
-                style={styles.filterSetModalClose}
-                onPress={() => setSelectedFilterSetMessage(null)}
-                testID="chat-filter-set-details-close"
-              >
-                <Ionicons name="close-outline" size={22} color={colors.onSurface} />
-              </Pressable>
-            </View>
-            {selectedFilterSetMessage?.filterSetData ? (
-              <>
-                <ScrollView style={styles.filterSetModalScroll} contentContainerStyle={styles.filterSetModalContent}>
-                  {selectedFilterSetMessage.filterSetData.title ? (
-                    <View style={styles.filterSetDetailRow}>
-                      <Text style={styles.filterSetDetailLabel}>Τίτλος</Text>
-                      <Text style={styles.filterSetDetailValue}>{selectedFilterSetMessage.filterSetData.title}</Text>
-                    </View>
-                  ) : null}
-                  <View style={styles.filterSetDetailRow}>
-                    <Text style={styles.filterSetDetailLabel}>Ενοίκιο</Text>
-                    <Text style={styles.filterSetDetailValue}>{`${selectedFilterSetMessage.filterSetData.rentMin || "0"} - ${selectedFilterSetMessage.filterSetData.rentMax || "∞"} €`}</Text>
-                  </View>
-                  <View style={styles.filterSetDetailRow}>
-                    <Text style={styles.filterSetDetailLabel}>Τιμή / τ.μ.</Text>
-                    <Text style={styles.filterSetDetailValue}>{`${selectedFilterSetMessage.filterSetData.minSqmPrice || "0"} - ${selectedFilterSetMessage.filterSetData.maxSqmPrice || "∞"} €/m²`}</Text>
-                  </View>
-                  <View style={styles.filterSetDetailRow}>
-                    <Text style={styles.filterSetDetailLabel}>Περιοχή / Πόλη</Text>
-                    <Text style={styles.filterSetDetailValue}>{selectedFilterSetMessage.filterSetData.cityQuery?.trim() || "Όλες οι περιοχές"}</Text>
-                  </View>
-                  <View style={styles.filterSetDetailRow}>
-                    <Text style={styles.filterSetDetailLabel}>Εμβαδόν</Text>
-                    <Text style={styles.filterSetDetailValue}>{`${selectedFilterSetMessage.filterSetData.sizeMin || "0"} - ${selectedFilterSetMessage.filterSetData.sizeMax || "∞"} m²`}</Text>
-                  </View>
-                  <View style={styles.filterSetDetailRow}>
-                    <Text style={styles.filterSetDetailLabel}>Κατοικίδια</Text>
-                    <Text style={styles.filterSetDetailValue}>{selectedFilterSetMessage.filterSetData.petFriendly ? "Ναι" : "Όχι"}</Text>
-                  </View>
-                  <View style={styles.filterSetDetailRow}>
-                    <Text style={styles.filterSetDetailLabel}>Μετρό</Text>
-                    <Text style={styles.filterSetDetailValue}>{selectedFilterSetMessage.filterSetData.nearMetro ? "Ναι" : "Όχι"}</Text>
-                  </View>
-                  <View style={styles.filterSetDetailRow}>
-                    <Text style={styles.filterSetDetailLabel}>Ταξινόμηση</Text>
-                    <Text style={styles.filterSetDetailValue}>{FILTER_SORT_LABELS[selectedFilterSetMessage.filterSetData.sortBy || "newest"] || selectedFilterSetMessage.filterSetData.sortBy || "Πιο πρόσφατα"}</Text>
-                  </View>
-                </ScrollView>
-                {auth.isBroker && selectedFilterSetMessage.senderId !== currentUserId ? (
-                  <Pressable
-                    style={styles.filterSetApplyButton}
-                    onPress={() => {
-                      const filterSetData = selectedFilterSetMessage.filterSetData;
-                      setSelectedFilterSetMessage(null);
-                      router.push({
-                        pathname: "/(tabs)/apartments",
-                        params: { importedFilters: JSON.stringify(filterSetData) },
-                      } as never);
-                    }}
-                    testID="broker-apply-filter-set-btn"
-                  >
-                    <Ionicons name="search-outline" size={19} color={colors.onBrand} />
-                    <Text style={styles.filterSetApplyButtonText}>Εφαρμογή στην Αναζήτηση</Text>
-                  </Pressable>
-                ) : null}
-              </>
-            ) : null}
-          </View>
-        </View>
-      </Modal>
+        filterSetData={selectedFilterSetMessage?.filterSetData ?? null}
+        canApply={!!auth.isBroker && selectedFilterSetMessage?.senderId !== currentUserId}
+        onClose={() => setSelectedFilterSetMessage(null)}
+        onApply={() => {
+          const filterSetData = selectedFilterSetMessage?.filterSetData;
+          setSelectedFilterSetMessage(null);
+          if (filterSetData) {
+            router.push({ pathname: "/(tabs)/apartments", params: { importedFilters: JSON.stringify(filterSetData) } } as never);
+          }
+        }}
+      />
 
       <CenteredActionModal
         visible={!!messageActionTarget}
@@ -3696,6 +3124,59 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   iconBtnActive: {
     backgroundColor: colors.brandTertiary,
+  },
+  propertiesDropdownBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 9998,
+  },
+  propertiesDropdown: {
+    position: "absolute",
+    right: spacing.md,
+    width: 260,
+    maxHeight: 240,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingVertical: spacing.xs,
+    zIndex: 9999,
+    elevation: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+  },
+  propertyDropdownRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+    gap: spacing.sm,
+  },
+  propertyDropdownTitle: {
+    flex: 1,
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+    color: colors.onSurface,
+  },
+  propertyDropdownPrice: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.sm,
+    color: colors.brand,
+  },
+  emptyDropdownRow: {
+    padding: spacing.md,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  emptyDropdownText: {
+    fontFamily: fonts.regular,
+    fontSize: fontSize.xs,
+    color: colors.onSurfaceTertiary,
+    textAlign: "center",
   },
   mutualLikesEmoji: {
     fontSize: 20,
@@ -3925,10 +3406,15 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderColor: "#FF5A66",
   },
   photo: { ...StyleSheet.absoluteFillObject },
-  rentBadge: {
+  topRightBadgesContainer: {
     position: "absolute",
     top: spacing.md,
     right: spacing.md,
+    alignItems: "flex-end",
+    gap: 6,
+    zIndex: 3,
+  },
+  rentBadge: {
     flexDirection: "row",
     alignItems: "flex-end",
     backgroundColor: colors.brand,
@@ -3938,6 +3424,24 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   rentText: { fontFamily: fonts.displayExtra, fontSize: fontSize.xl, color: colors.onBrand },
   rentMo: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onBrand, paddingBottom: 2 },
+  matchScoreCardBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(26, 26, 26, 0.88)",
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3.5,
+    borderRadius: radius.pill,
+    borderWidth: 1.5,
+    alignSelf: "flex-end",
+  },
+  matchScoreIcon: { marginRight: 1 },
+  matchScoreCardText: {
+    fontFamily: fonts.bold,
+    fontSize: fontSize.xs,
+    fontWeight: "800",
+    includeFontPadding: false,
+  },
   cardBody: {
     position: "absolute",
     left: 0,
@@ -4017,212 +3521,12 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.brand,
   },
-  blockModalBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.55)",
+  invertedMessagesContainer: { paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, gap: 0 },
+  topLoadingContainer: {
+    paddingVertical: spacing.sm,
+    alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: spacing.lg,
   },
-  blockModalCard: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.lg,
-    gap: spacing.sm,
-  },
-  blockModalTitle: {
-    fontFamily: fonts.bold,
-    fontSize: fontSize.lg,
-    color: colors.onSurface,
-    marginBottom: spacing.xs,
-  },
-  blockButton: {
-    backgroundColor: colors.error,
-    borderRadius: radius.md,
-    paddingVertical: spacing.md,
-    alignItems: "center",
-  },
-  blockButtonText: {
-    fontFamily: fonts.bold,
-    fontSize: fontSize.base,
-    color: colors.onError,
-  },
-  reportToggleButton: {
-    backgroundColor: colors.surfaceSecondary,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingVertical: spacing.md,
-    alignItems: "center",
-  },
-  reportToggleText: {
-    fontFamily: fonts.semibold,
-    fontSize: fontSize.base,
-    color: colors.onSurface,
-  },
-  reportInputWrapper: {
-    marginTop: spacing.xs,
-    gap: spacing.sm,
-  },
-  reportInput: {
-    minHeight: 96,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceSecondary,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    fontFamily: fonts.regular,
-    fontSize: fontSize.base,
-    color: colors.onSurface,
-  },
-  reportSubmitButton: {
-    backgroundColor: colors.brand,
-    borderRadius: radius.md,
-    paddingVertical: spacing.md,
-    alignItems: "center",
-  },
-  reportSubmitText: {
-    fontFamily: fonts.bold,
-    fontSize: fontSize.base,
-    color: colors.onBrand,
-  },
-  modalCancelButton: {
-    alignSelf: "center",
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-  },
-  modalCancelText: {
-    fontFamily: fonts.semibold,
-    fontSize: fontSize.base,
-    color: colors.onSurfaceTertiary,
-  },
-  blockButtonDisabled: {
-    opacity: 0.6,
-  },
-  profileModalBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.55)",
-    justifyContent: "flex-end",
-  },
-  profileModalCard: {
-    maxHeight: "100%",
-    backgroundColor: colors.surface,
-    borderTopLeftRadius: radius.lg,
-    borderTopRightRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.lg,
-    gap: spacing.md,
-    paddingBottom: 60,
-  },
-  profileModalTopRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: spacing.md,
-  },
-  profileSummaryLeft: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: spacing.md,
-    flex: 1,
-  },
-  profileModalAvatar: {
-    width: 64,
-    height: 64,
-    borderRadius: radius.pill,
-    backgroundColor: colors.surfaceTertiary,
-  },
-  profileMetaColumn: {
-    flex: 1,
-    gap: 2,
-  },
-  profileMetaName: {
-    fontFamily: fonts.displayExtra,
-    fontSize: fontSize.xl,
-    color: colors.onSurface,
-  },
-  profileMetaLine: {
-    fontFamily: fonts.regular,
-    fontSize: fontSize.sm,
-    color: colors.onSurfaceTertiary,
-  },
-  compatibilityPill: {
-    alignSelf: "flex-start",
-    backgroundColor: colors.brandTertiary,
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    alignItems: "center",
-    minWidth: 82,
-  },
-  compatibilityPillLabel: {
-    fontFamily: fonts.semibold,
-    fontSize: 11,
-    color: colors.onBrandTertiary,
-    textTransform: "uppercase",
-  },
-  compatibilityPillValue: {
-    fontFamily: fonts.bold,
-    fontSize: fontSize.lg,
-    color: colors.onBrandTertiary,
-  },
-  aboutSection: {
-    gap: spacing.xs,
-    paddingTop: spacing.xs,
-    borderTopWidth: 1,
-    borderColor: colors.border,
-  },
-  aboutTitle: {
-    fontFamily: fonts.bold,
-    fontSize: fontSize.base,
-    color: colors.onSurface,
-  },
-  aboutBody: {
-    fontFamily: fonts.regular,
-    fontSize: fontSize.base,
-    color: colors.onSurfaceTertiary,
-    lineHeight: 22,
-  },
-  socialSection: {
-    gap: spacing.sm,
-  },
-  socialGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm,
-  },
-  socialPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.xs,
-    backgroundColor: colors.surfaceSecondary,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-  },
-  socialPillText: {
-    fontFamily: fonts.semibold,
-    fontSize: fontSize.sm,
-    color: colors.onSurface,
-  },
-  modalCloseBtn: {
-    alignSelf: "flex-end",
-    backgroundColor: colors.brand,
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    marginTop: spacing.xs,
-  },
-  modalCloseBtnText: {
-    fontFamily: fonts.bold,
-    fontSize: fontSize.base,
-    color: colors.onBrand,
-  },
-  messages: { paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, gap: 0 },
   bubble: {
     maxWidth: "78%",
     paddingHorizontal: spacing.lg,
@@ -4314,9 +3618,10 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   sharedListViewBtnText: { fontFamily: fonts.bold, fontSize: fontSize.xs, color: colors.brand },
   sharedListViewBtnTextMine: { color: colors.onBrand },
   listFeedHeaderBanner: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface },
-  backToMessagesBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingVertical: 4, paddingHorizontal: 8, borderRadius: radius.pill, backgroundColor: colors.surfaceSecondary },
-  backToMessagesText: { fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.onSurface },
   listFeedBannerTitle: { flex: 1, fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onSurface, textAlign: "right" },
+  floatingBackButton: { position: "absolute", right: spacing.md, width: 42, height: 42, borderRadius: radius.pill, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center", zIndex: 9999, elevation: 8, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.18, shadowRadius: 5 },
+  viewInFeedButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.xs, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, marginHorizontal: spacing.lg, marginBottom: spacing.sm },
+  viewInFeedButtonText: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onBrand, includeFontPadding: false },
   filterHistoryList: { padding: spacing.lg, gap: spacing.sm },
   filterHistoryCard: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surfaceSecondary, padding: spacing.md, gap: spacing.xs },
   filterHistoryCardHeader: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
@@ -4324,90 +3629,6 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   filterHistoryVersion: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.brand },
   filterHistoryDate: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
   filterHistorySummary: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurface },
-  filterSetModalBackdrop: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(0,0,0,0.5)",
-    padding: spacing.lg,
-  },
-  filterSetModalCard: {
-    width: "100%",
-    maxHeight: "82%",
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    padding: spacing.lg,
-    gap: spacing.md,
-  },
-  filterSetModalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: spacing.sm,
-  },
-  filterSetModalTitle: {
-    flex: 1,
-    fontFamily: fonts.bold,
-    fontSize: fontSize.lg,
-    color: colors.onSurface,
-  },
-  filterSetModalClose: {
-    width: 34,
-    height: 34,
-    borderRadius: radius.pill,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceSecondary,
-  },
-  filterSetModalScroll: {
-    flexGrow: 0,
-  },
-  filterSetModalContent: {
-    gap: spacing.sm,
-  },
-  filterSetDetailRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: spacing.sm,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceSecondary,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-  },
-  filterSetDetailLabel: {
-    flex: 1,
-    fontFamily: fonts.semibold,
-    fontSize: fontSize.sm,
-    color: colors.onSurfaceTertiary,
-  },
-  filterSetDetailValue: {
-    flex: 1,
-    fontFamily: fonts.semibold,
-    fontSize: fontSize.sm,
-    color: colors.onSurface,
-    textAlign: "right",
-  },
-  filterSetApplyButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing.sm,
-    borderRadius: radius.md,
-    backgroundColor: colors.brand,
-    paddingVertical: spacing.md,
-  },
-  filterSetApplyButtonText: {
-    fontFamily: fonts.bold,
-    fontSize: fontSize.base,
-    color: colors.onBrand,
-  },
   shareBubble: {
     maxWidth: "90%",
     minHeight: 112,
@@ -4756,200 +3977,5 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     fontFamily: fonts.bold,
     fontSize: fontSize.base,
     color: colors.onSurface,
-  },
-  hostRequestModalBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.55)",
-    justifyContent: "center",
-    paddingHorizontal: spacing.lg,
-  },
-  hostRequestModalCard: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.lg,
-    gap: spacing.sm,
-  },
-  hostVisitModalCard: {
-    maxHeight: "92%",
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.lg,
-    gap: spacing.sm,
-  },
-  hostRequestModalTitle: {
-    fontFamily: fonts.bold,
-    fontSize: fontSize.base,
-    color: colors.onSurface,
-  },
-  hostRequestPriceInput: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    fontFamily: fonts.semibold,
-    fontSize: fontSize.lg,
-    color: colors.onSurface,
-    backgroundColor: colors.surfaceSecondary,
-  },
-  hostRequestHintText: {
-    fontFamily: fonts.regular,
-    fontSize: fontSize.sm,
-    color: colors.onSurfaceTertiary,
-  },
-  hostRequestModalActions: {
-    marginTop: spacing.xs,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  hostRequestCancelBtn: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-  },
-  hostRequestCancelText: {
-    fontFamily: fonts.semibold,
-    fontSize: fontSize.base,
-    color: colors.onSurfaceTertiary,
-  },
-  hostRequestSubmitBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: radius.pill,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.brand,
-  },
-  hostRequestSubmitBtnDisabled: {
-    opacity: 0.45,
-  },
-  visitCalendarHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: spacing.xs,
-  },
-  visitCalendarNavBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: radius.pill,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.surfaceSecondary,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  visitCalendarNavBtnDisabled: {
-    opacity: 0.45,
-  },
-  visitCalendarHeaderText: {
-    fontFamily: fonts.bold,
-    fontSize: fontSize.base,
-    color: colors.onSurface,
-    textTransform: "capitalize",
-  },
-  visitWeekdaysRow: {
-    marginTop: spacing.sm,
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  visitWeekdayText: {
-    width: "14.28%",
-    textAlign: "center",
-    fontFamily: fonts.semibold,
-    fontSize: 11,
-    color: colors.onSurfaceTertiary,
-  },
-  visitDaysGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    marginTop: spacing.xs,
-  },
-  visitDayCell: {
-    width: "14.28%",
-    height: 34,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 4,
-  },
-  visitDayButton: {
-    borderRadius: radius.pill,
-  },
-  visitDayButtonSelected: {
-    backgroundColor: colors.brand,
-  },
-  visitDayButtonDisabled: {
-    opacity: 0.32,
-  },
-  visitDayText: {
-    fontFamily: fonts.semibold,
-    fontSize: fontSize.sm,
-    color: colors.onSurface,
-  },
-  visitDayTextSelected: {
-    color: colors.onBrand,
-  },
-  visitDayTextDisabled: {
-    color: colors.onSurfaceTertiary,
-  },
-  visitTimePickerWrap: {
-    flexDirection: "row",
-    gap: spacing.md,
-    marginTop: spacing.sm,
-  },
-  visitTimeColumn: {
-    flex: 1,
-    gap: 6,
-  },
-  visitTimeColumnLabel: {
-    fontFamily: fonts.semibold,
-    fontSize: fontSize.sm,
-    color: colors.onSurfaceTertiary,
-  },
-  visitTimeList: {
-    maxHeight: 118,
-    backgroundColor: colors.surfaceSecondary,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    padding: 4,
-  },
-  visitTimeOption: {
-    borderRadius: radius.md,
-    paddingVertical: 6,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  visitTimeOptionSelected: {
-    backgroundColor: colors.brand,
-  },
-  visitTimeOptionDisabled: {
-    opacity: 0.35,
-  },
-  visitTimeOptionText: {
-    fontFamily: fonts.semibold,
-    fontSize: fontSize.base,
-    color: colors.onSurface,
-  },
-  visitTimeOptionTextSelected: {
-    color: colors.onBrand,
-  },
-  visitTimeOptionTextDisabled: {
-    color: colors.onSurfaceTertiary,
-  },
-  sheetBackground: {
-    backgroundColor: colors.surface,
-    borderTopLeftRadius: radius.lg,
-    borderTopRightRadius: radius.lg,
-  },
-  handleIndicator: {
-    width: 48,
-    height: 5,
-    borderRadius: radius.pill,
-    backgroundColor: colors.borderStrong,
   },
 });

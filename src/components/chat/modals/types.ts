@@ -1,0 +1,54 @@
+export interface FilterSetMessageData {
+  title?: string;
+  rentMin?: string;
+  rentMax?: string;
+  minSqmPrice?: string;
+  maxSqmPrice?: string;
+  cityQuery?: string;
+  sizeMin?: string;
+  sizeMax?: string;
+  petFriendly?: boolean;
+  nearMetro?: boolean;
+  sortBy?: string;
+  summary?: string;
+  showMatchScore?: boolean;
+  showMatchScoreOnMap?: boolean;
+  propertyTypes?: string[];
+  propertyCategories?: string[];
+  floors?: string[];
+  bedroomsMin?: string;
+  bathroomsMin?: string;
+  furnishedStatus?: "all" | "furnished" | "unfurnished";
+  heatingTypes?: string[];
+  energyClasses?: string[];
+  constructionYearMin?: string;
+  renovationYearMin?: string;
+  selectedAmenities?: string[];
+  polygonCoordinates?: { latitude: number; longitude: number }[];
+  sharedAt?: number;
+}
+
+export interface FirestoreUserDoc {
+  name?: string | null;
+  is_broker?: boolean;
+  age?: number | null;
+  gender?: string | null;
+  city?: string | null;
+  university?: string | null;
+  year?: string | null;
+  year_of_study?: string | null;
+  maxBudget?: number | null;
+  budget?: number | null;
+  about?: string;
+  bio?: string;
+  looking_for_apartment?: boolean;
+  instagram?: string;
+  facebook?: string;
+  linkedin?: string;
+  twitter?: string;
+  photoUrl?: string;
+  photos?: string[];
+  phone_number?: string | null;
+  phone?: string | null;
+  directMessagesEnabled?: boolean;
+}
