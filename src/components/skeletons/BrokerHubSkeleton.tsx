@@ -48,11 +48,9 @@ export default function BrokerHubSkeleton({ cardCount = 5 }: BrokerHubSkeletonPr
             <View style={styles.badgesRow}>
               <Animated.View style={[styles.percentBadge, { backgroundColor: colors.surfaceTertiary, opacity: pulseAnim }]} />
               <Animated.View style={[styles.iconBadge, { backgroundColor: colors.surfaceTertiary, opacity: pulseAnim }]} />
+              <Animated.View style={[styles.iconBadge, { backgroundColor: colors.surfaceTertiary, opacity: pulseAnim }]} />
+              <Animated.View style={[styles.iconBadge, { backgroundColor: colors.surfaceTertiary, opacity: pulseAnim }]} />
             </View>
-          </View>
-          <View style={styles.cardFooter}>
-            <Animated.View style={[styles.statusBadge, { backgroundColor: colors.surfaceTertiary, opacity: pulseAnim }]} />
-            <Animated.View style={[styles.statusBadge, { backgroundColor: colors.surfaceTertiary, opacity: pulseAnim }]} />
           </View>
         </View>
       ))}
@@ -109,17 +107,6 @@ const styles = StyleSheet.create({
   iconBadge: {
     width: 24,
     height: 24,
-    borderRadius: radius.pill,
-  },
-  cardFooter: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.xs,
-    marginTop: 2,
-  },
-  statusBadge: {
-    width: 28,
-    height: 28,
     borderRadius: radius.pill,
   },
 });

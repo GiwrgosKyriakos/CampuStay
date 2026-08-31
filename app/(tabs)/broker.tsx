@@ -80,7 +80,6 @@ export interface BrokerClientLead {
   apartmentId?: string;
   apartmentTitle?: string;
   apartmentPrice?: number;
-  hasMessage: boolean;
   hasPriceProposal: boolean;
   hasVisitRequest: boolean;
   isVisitCompleted: boolean;
@@ -203,7 +202,6 @@ export default function BrokerHubScreen() {
             apartmentId,
             apartmentTitle,
             apartmentPrice,
-            hasMessage: messagesSnapshot.size > 0,
             hasPriceProposal: messageTypes.includes("price_proposal"),
             hasVisitRequest: messageTypes.includes("visit_request"),
             isVisitCompleted: data.visitCompleted === true,
@@ -309,7 +307,10 @@ export default function BrokerHubScreen() {
           </View>
           <View style={styles.headerBadgesRow}>
             <View style={[styles.percentBadgePill, { backgroundColor: colors.brandTertiary }]}><Text style={[styles.percentBadgeText, { color: colors.brand }]}>{stagePercent}%</Text></View>
-            {item.hasMessage ? <View style={[styles.badgePill, { backgroundColor: colors.surfaceTertiary }]}><Ionicons name="mail-outline" size={14} color={colors.onSurface} /></View> : null}
+            {item.hasPriceProposal ? <View style={[styles.badgePill, { backgroundColor: "rgba(16, 185, 129, 0.12)" }]}><Ionicons name="cash-outline" size={15} color="#10B981" /></View> : null}
+            {item.hasVisitRequest ? <Pressable style={[styles.badgePill, { backgroundColor: item.isVisitCompleted ? colors.brand : colors.surfaceTertiary }]} onPress={(event) => { event.stopPropagation(); void handleToggleVisitCompleted(item); }} hitSlop={6} testID={`broker-client-visit-toggle-${item.clientUserId}`}>
+              <Ionicons name="home-outline" size={14} color={item.isVisitCompleted ? colors.onBrand : colors.brand} />
+            </Pressable> : null}
             {item.leadReadiness === "hot" ? <View style={[styles.badgePill, { backgroundColor: "rgba(239, 68, 68, 0.12)" }]}><Ionicons name="flame" size={15} color="#EF4444" /></View> : item.leadReadiness === "warm" ? <View style={[styles.badgePill, { backgroundColor: "rgba(245, 158, 11, 0.12)" }]}><Ionicons name="sunny" size={15} color="#F59E0B" /></View> : item.leadReadiness === "cold" ? <View style={[styles.badgePill, { backgroundColor: "rgba(56, 189, 248, 0.12)" }]}><Ionicons name="snow" size={15} color="#38BDF8" /></View> : null}
             {item.sharedFilterSet ? <View style={[styles.badgePill, { backgroundColor: colors.surfaceTertiary }]}><Ionicons name="options-outline" size={15} color={colors.brand} /></View> : null}
           </View>
@@ -322,9 +323,7 @@ export default function BrokerHubScreen() {
           </View>
         ) : (
           <View style={styles.clientStatusBar}>
-            {item.hasPriceProposal ? <View style={[styles.statusBadge, { backgroundColor: colors.surface }]}><Text style={styles.statusBadgeText}>💵</Text></View> : null}
-            {item.hasVisitRequest ? <Pressable style={[styles.statusBadge, { backgroundColor: item.isVisitCompleted ? colors.brand : colors.surface }]} onPress={(event) => { event.stopPropagation(); void handleToggleVisitCompleted(item); }} hitSlop={6}><Text style={[styles.statusBadgeText, { color: item.isVisitCompleted ? colors.onBrand : colors.onSurface }]}>🏠</Text></Pressable> : null}
-            {item.isDealClosed ? <View style={[styles.statusBadge, { backgroundColor: colors.surface }]}><Text style={styles.statusBadgeText}>✅</Text></View> : null}
+            {item.isDealClosed ? <View style={[styles.statusBadge, { backgroundColor: colors.surface }]}><Ionicons name="checkmark-circle-outline" size={16} color={colors.brand} /></View> : null}
           </View>
         )}
       </Pressable>

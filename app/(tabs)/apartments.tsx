@@ -33,6 +33,8 @@ import type { FilterSetPayload as SharedFilterSetPayload } from "@/src/types/fil
 import type { FilterSetVersionData, SharedFilterSetRecord } from "@/src/components/FilterSetVersionModal";
 import type { WatermarkConfig } from "@/src/types/listing";
 import ApartmentsFeedSkeleton from "@/src/components/skeletons/ApartmentsFeedSkeleton";
+import AgencyPickerModal, { type AgencyItem } from "@/src/components/filters/AgencyPickerModal";
+import ProposalListsPickerModal, { type ReceivedProposalList } from "@/src/components/filters/ProposalListsPickerModal";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 100;
@@ -136,6 +138,15 @@ interface BrokerDirectoryItem {
   id: string;
   name: string;
   avatar: string;
+}
+
+export function filterApartmentsByAgency(apartments: Apartment[], selectedAgencyId: string, agencyBrokerIds: string[]): Apartment[] {
+  if (!selectedAgencyId) return apartments;
+  return apartments.filter((apartment) => (
+    apartment.agencyId === selectedAgencyId ||
+    (!!apartment.hostId && agencyBrokerIds.includes(apartment.hostId)) ||
+    (Array.isArray(apartment.assignedBrokerIds) && apartment.assignedBrokerIds.some((brokerId) => agencyBrokerIds.includes(brokerId)))
+  ));
 }
 
 type ShowOnlyModalType = "agency" | "broker" | "list" | null;
@@ -360,6 +371,7 @@ interface Apartment {
   extraInformation?: ApartmentExtraInformation;
   hostId?: string;
   ownerId?: string;
+  agencyId?: string;
   assignedBrokerIds?: string[];
   isOffMarket?: boolean;
   offMarketAccessUserIds?: string[];
@@ -397,6 +409,7 @@ interface FirestoreApartmentDoc {
   extraInformation?: Partial<ApartmentExtraInformation>;
   hostId?: string;
   ownerId?: string;
+  agencyId?: string;
   assignedBrokerIds?: string[];
   isOffMarket?: boolean;
   offMarketAccessUserIds?: string[];
@@ -673,7 +686,13 @@ export default function ApartmentsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const auth = useAuth();
-  const { importedFilters, proposalApartmentIds: proposalApartmentIdsParam } = useLocalSearchParams<{ importedFilters?: string; proposalApartmentIds?: string }>();
+  const params = useLocalSearchParams<{
+    importedFilters?: string;
+    proposalApartmentIds?: string;
+    activeProposalListId?: string;
+    activeProposalListTitle?: string;
+  }>();
+  const { importedFilters, proposalApartmentIds: proposalApartmentIdsParam } = params;
   const [publishedApartments, setPublishedApartments] = useState<Apartment[]>([]);
   const [loading, setLoading] = useState(true);
   const [showFilters, setShowFilters] = useState(false);
@@ -709,6 +728,8 @@ export default function ApartmentsScreen() {
   const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false);
   const [showOnlyModalType, setShowOnlyModalType] = useState<ShowOnlyModalType>(null);
   const [selectedBrokerFilter, setSelectedBrokerFilter] = useState<BrokerDirectoryItem | null>(null);
+  const [selectedAgency, setSelectedAgency] = useState<AgencyItem | null>(null);
+  const [agencyBrokerIds, setAgencyBrokerIds] = useState<string[]>([]);
   const [brokerDirectory, setBrokerDirectory] = useState<BrokerDirectoryItem[]>([]);
   const [loadingBrokerDirectory, setLoadingBrokerDirectory] = useState(false);
   const [showOwnListingsInFeed, setShowOwnListingsInFeed] = useState(false);
@@ -729,6 +750,7 @@ export default function ApartmentsScreen() {
   const [viewMode, setViewMode] = useState<"list" | "map" | "grid" | "compact">("list");
   const [selectedMapApartment, setSelectedMapApartment] = useState<Apartment | null>(null);
   const [proposalApartmentIds, setProposalApartmentIds] = useState<string[]>([]);
+  const [selectedProposalList, setSelectedProposalList] = useState<ReceivedProposalList | null>(null);
   const [markersTracking, setMarkersTracking] = useState(true);
   const [fallbackCoordinates, setFallbackCoordinates] = useState<Record<string, { latitude: number; longitude: number }>>({});
   const mapRef = useRef<MapView>(null);
@@ -979,6 +1001,31 @@ export default function ApartmentsScreen() {
     };
   }, [showOnlyModalType]);
 
+  useEffect(() => {
+    if (!selectedAgency?.id) {
+      setAgencyBrokerIds([]);
+      return;
+    }
+
+    let active = true;
+    void getDocs(query(collection(db, "users"), where("agencyId", "==", selectedAgency.id)))
+      .then((snapshot) => {
+        if (!active) return;
+        const ids = new Set(selectedAgency.activeBrokerIds ?? []);
+        snapshot.docs.forEach((brokerDoc) => {
+          const data = brokerDoc.data() as { is_broker?: boolean };
+          if (data.is_broker === true) ids.add(brokerDoc.id);
+        });
+        setAgencyBrokerIds(Array.from(ids));
+      })
+      .catch((error) => {
+        console.warn("[Apartments] Error loading agency brokers:", error);
+        if (active) setAgencyBrokerIds(selectedAgency.activeBrokerIds ?? []);
+      });
+
+    return () => { active = false; };
+  }, [selectedAgency]);
+
   const sendFilterSetToBroker = useCallback(async (brokerId: string) => {
     if (!auth.userId || sendingBrokerId) return;
 
@@ -1137,19 +1184,32 @@ export default function ApartmentsScreen() {
   useEffect(() => {
     if (typeof proposalApartmentIdsParam !== "string" || !proposalApartmentIdsParam.trim()) {
       setProposalApartmentIds([]);
+      setSelectedProposalList(null);
       return;
     }
 
     try {
       const parsed = JSON.parse(proposalApartmentIdsParam);
-      setProposalApartmentIds(Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string" && id.length > 0) : []);
+      const ids = Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string" && id.length > 0) : [];
+      setProposalApartmentIds(ids);
+      if (params.activeProposalListId && ids.length > 0) {
+        setSelectedProposalList({
+          id: params.activeProposalListId,
+          title: params.activeProposalListTitle || "Προτεινόμενη Λίστα",
+          apartmentIds: ids,
+          brokerId: "",
+          brokerName: "",
+          brokerAvatar: "",
+          createdAtMillis: Date.now(),
+        });
+      }
       setActiveTab("all");
       setIsViewingMyListings(false);
       setShowFilters(false);
     } catch {
       setProposalApartmentIds([]);
     }
-  }, [proposalApartmentIdsParam]);
+  }, [params.activeProposalListId, params.activeProposalListTitle, proposalApartmentIdsParam]);
 
   useEffect(() => {
     if (auth.isGuest || !auth.userId) {
@@ -1419,6 +1479,7 @@ export default function ApartmentsScreen() {
                   extraInformation: data.extraInformation,
                   hostId: data.hostId,
                   ownerId: data.ownerId || data.hostId,
+                  agencyId: data.agencyId,
                   assignedBrokerIds: Array.isArray(data.assignedBrokerIds) ? data.assignedBrokerIds : [],
                   isOffMarket: data.isOffMarket === true,
                   offMarketAccessUserIds: Array.isArray(data.offMarketAccessUserIds) ? data.offMarketAccessUserIds : [],
@@ -1759,6 +1820,10 @@ export default function ApartmentsScreen() {
         if (!isOwner && !isAssigned) return false;
       }
 
+      if (selectedAgency?.id && !filterApartmentsByAgency([apt], selectedAgency.id, agencyBrokerIds).length) {
+        return false;
+      }
+
       if (polygonCoordinates.length >= 3) {
         if (!Number.isFinite(apt.latitude) || !Number.isFinite(apt.longitude)) return false;
         if (!isPointInPolygon({ latitude: apt.latitude!, longitude: apt.longitude! }, polygonCoordinates)) return false;
@@ -1852,6 +1917,8 @@ export default function ApartmentsScreen() {
     rentMin,
     searchQuery,
     selectedBrokerFilter,
+    selectedAgency,
+    agencyBrokerIds,
     selectedAmenities,
     showOwnListingsInFeed,
     sizeMax,
@@ -2102,6 +2169,17 @@ export default function ApartmentsScreen() {
             </View>
           ) : null}
         </View>
+        {selectedProposalList ? (
+          <View style={styles.activeProposalFilterBar}>
+            <View style={[styles.activeFilterChip, { backgroundColor: colors.brandTertiary }]} testID="apartments-active-proposal-list-chip">
+              <Ionicons color={colors.brand} name="folder-open" size={14} />
+              <Text style={[styles.activeFilterChipText, { color: colors.brand }]} numberOfLines={1}>{selectedProposalList.title}</Text>
+              <Pressable onPress={() => { setSelectedProposalList(null); setProposalApartmentIds([]); }} hitSlop={6}>
+                <Ionicons color={colors.brand} name="close" size={14} />
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
         {showSearch && (
           <View style={styles.searchPanel} testID="apartments-search-panel">
             <View style={styles.searchInputWrap}>
@@ -2271,12 +2349,13 @@ export default function ApartmentsScreen() {
             <Text style={[styles.sortTitle, { marginTop: spacing.md }]}>Show only</Text>
             <View style={styles.showOnlyRow}>
               <Pressable
-                style={styles.showOnlyCard}
+                style={[styles.showOnlyCard, selectedAgency && styles.showOnlyCardActive]}
                 onPress={() => setShowOnlyModalType("agency")}
                 testID="apartments-show-only-agency"
               >
-                <Ionicons name="business-outline" size={20} color={colors.onSurface} />
-                <Text style={styles.showOnlyLabel} numberOfLines={1}>Μεσιτικό γραφείο</Text>
+                <Ionicons name="business-outline" size={20} color={selectedAgency ? colors.onBrand : colors.onSurface} />
+                <Text style={[styles.showOnlyLabel, selectedAgency && styles.showOnlyLabelActive]} numberOfLines={1}>{selectedAgency ? selectedAgency.name : "Μεσιτικό γραφείο"}</Text>
+                {selectedAgency ? <Pressable onPress={(event) => { event.stopPropagation(); setSelectedAgency(null); }} hitSlop={8}><Ionicons name="close-circle" size={16} color={colors.onBrand} /></Pressable> : null}
               </Pressable>
               <Pressable
                 style={[styles.showOnlyCard, selectedBrokerFilter && styles.showOnlyCardActive]}
@@ -2301,12 +2380,13 @@ export default function ApartmentsScreen() {
                 ) : null}
               </Pressable>
               <Pressable
-                style={styles.showOnlyCard}
+                style={[styles.showOnlyCard, selectedProposalList && styles.showOnlyCardActive]}
                 onPress={() => setShowOnlyModalType("list")}
                 testID="apartments-show-only-list"
               >
-                <Ionicons name="list-outline" size={20} color={colors.onSurface} />
-                <Text style={styles.showOnlyLabel} numberOfLines={1}>Λίστα</Text>
+                <Ionicons name="list-outline" size={20} color={selectedProposalList ? colors.onBrand : colors.onSurface} />
+                <Text style={[styles.showOnlyLabel, selectedProposalList && styles.showOnlyLabelActive]} numberOfLines={1}>{selectedProposalList ? selectedProposalList.title : "Λίστα"}</Text>
+                {selectedProposalList ? <Pressable onPress={(event) => { event.stopPropagation(); setSelectedProposalList(null); setProposalApartmentIds([]); }} hitSlop={8}><Ionicons name="close-circle" size={16} color={colors.onBrand} /></Pressable> : null}
               </Pressable>
             </View>
 
@@ -2693,9 +2773,10 @@ export default function ApartmentsScreen() {
             <Pressable
               style={[styles.hostInboxFab, hostInboxHasUnread && styles.hostInboxFabUnread]}
               onPress={() => router.push("/host-inbox" as any)}
+              accessibilityLabel="Μηνύματα / Προτάσεις"
               testID="apartments-host-inbox-fab"
             >
-              <Text style={[styles.hostInboxFabText, hostInboxHasUnread && styles.hostInboxFabTextUnread]}>✉️</Text>
+              <Ionicons name="mail-outline" size={22} color={colors.onBrand} />
             </Pressable>
           )}
           <Pressable
@@ -2749,7 +2830,7 @@ export default function ApartmentsScreen() {
           <View style={styles.filterHistoryCard} testID="apartments-show-only-modal">
             <View style={styles.filterHistoryHeader}>
               <Text style={styles.filterHistoryTitle}>
-                {showOnlyModalType === "agency" ? "Μεσιτικό γραφείο" : showOnlyModalType === "list" ? "Λίστα" : "Επιλογή Μεσίτη"}
+                {showOnlyModalType === "agency" ? "Επιλογή Μεσιτικού Γραφείου" : showOnlyModalType === "list" ? "Προτεινόμενες Λίστες Ακινήτων" : "Επιλογή Μεσίτη"}
               </Text>
               <Pressable
                 style={styles.filterHistoryCloseButton}
@@ -2759,13 +2840,26 @@ export default function ApartmentsScreen() {
                 <Ionicons name="close-outline" size={22} color={colors.onSurface} />
               </Pressable>
             </View>
-            {showOnlyModalType === "agency" || showOnlyModalType === "list" ? (
-              <View style={styles.showOnlyPlaceholderWrap}>
-                <Ionicons name="construct-outline" size={36} color={colors.brand} />
-                <Text style={styles.showOnlyPlaceholderText}>Δουλεύουμε σε αυτό</Text>
-              </View>
-            ) : null}
-            {showOnlyModalType === "broker" ? (
+            {showOnlyModalType === "agency" ? (
+              <AgencyPickerModal
+                visible
+                selectedAgencyId={selectedAgency?.id ?? null}
+                onSelectAgency={(agency) => {
+                  setSelectedAgency(agency);
+                  setShowOnlyModalType(null);
+                }}
+              />
+            ) : showOnlyModalType === "list" ? (
+              <ProposalListsPickerModal
+                visible
+                selectedListId={selectedProposalList?.id ?? null}
+                onSelectList={(list) => {
+                  setSelectedProposalList(list);
+                  setProposalApartmentIds(list?.apartmentIds ?? []);
+                  setShowOnlyModalType(null);
+                }}
+              />
+            ) : showOnlyModalType === "broker" ? (
               loadingBrokerDirectory ? (
                 <View style={styles.filterHistoryState}>
                   <ActivityIndicator size="small" color={colors.brand} />
@@ -3776,8 +3870,29 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   mapRecenterButton: { position: "absolute", top: 12, right: spacing.lg, width: 44, height: 44, borderRadius: radius.pill, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.16, shadowRadius: 4, elevation: 4 },
   filterActionsRow: {
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "flex-end",
     gap: spacing.sm,
+  },
+  activeProposalFilterBar: {
+    marginTop: spacing.sm,
+    marginHorizontal: spacing.lg,
+  },
+  activeFilterChip: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.pill,
+  },
+  activeFilterChipText: {
+    flex: 1,
+    minWidth: 0,
+    fontFamily: fonts.bold,
+    fontSize: fontSize.xs,
   },
   filterActionButton: {
     width: 38,
@@ -4250,13 +4365,6 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   hostInboxFabUnread: {
     backgroundColor: colors.brand,
     borderColor: colors.brand,
-  },
-  hostInboxFabText: {
-    fontSize: 22,
-    color: colors.brandTertiary,
-  },
-  hostInboxFabTextUnread: {
-    color: colors.brandTertiary,
   },
   cardPlaceholder: {
     backgroundColor: colors.surfaceSecondary,

@@ -31,6 +31,7 @@ import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp,
 import { markIncomingMessagesAsRead } from "@/src/api/chat";
 import { cleanupObsoleteChatMessages } from "@/src/api/chatCleanup";
 import { syncBrokerClientProfile } from "@/src/api/brokerClientProfiles";
+import { addPropertyInteraction } from "@/src/api/propertyInteractions";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import CenteredActionModal, { type CenteredModalAction } from "@/src/components/CenteredActionModal";
 import FilterSetVersionModal, { type SharedFilterSetRecord, type FilterSetVersionData } from "@/src/components/FilterSetVersionModal";
@@ -40,6 +41,7 @@ import VisitRequestModal from "@/src/components/chat/modals/VisitRequestModal";
 import UserProfileModal from "@/src/components/chat/modals/UserProfileModal";
 import BlockUserModal from "@/src/components/chat/modals/BlockUserModal";
 import FilterSetDetailsModal from "@/src/components/chat/modals/FilterSetDetailsModal";
+import SearchHistoryPickerModal, { type SearchHistorySelection } from "@/src/components/chat/modals/SearchHistoryPickerModal";
 import type { FilterSetMessageData, FirestoreUserDoc } from "@/src/components/chat/modals/types";
 import { getUserSettings, saveUserNotifications, saveUserPrivacy, type NotificationPreferences } from "@/src/api/accountSettings";
 import { submitReportedUserEntry } from "@/src/services/reportedUsers";
@@ -78,6 +80,14 @@ interface Message {
   apartmentIds?: string[];
   apartmentCount?: number;
   previewImages?: string[];
+  hasClientInteracted?: boolean;
+  proposalFeedback?: Record<string, ProposalItemFeedback>;
+}
+
+interface ProposalItemFeedback {
+  status: "accepted" | "rejected";
+  reason?: string;
+  updatedAt: number;
 }
 
 interface SharedApartmentData {
@@ -120,6 +130,8 @@ interface FirestoreMessageDoc {
   apartmentIds?: string[];
   apartmentCount?: number;
   previewImages?: string[];
+  hasClientInteracted?: boolean;
+  proposalFeedback?: Record<string, ProposalItemFeedback>;
 }
 
 interface FirestoreChatDoc {
@@ -175,6 +187,16 @@ interface FirestoreApartmentDoc {
   assignedBrokerIds?: string[];
   isOffMarket?: boolean;
   watermarkConfig?: WatermarkConfig;
+}
+
+interface BrokerClientDropdownProperty {
+  id: string;
+  title: string;
+  rent: number;
+  area: string;
+  city: string;
+  compatibilityScore: number;
+  rawApartmentPayload: ReturnType<typeof buildApartmentRoutePayload>;
 }
 
 interface MutualApartment {
@@ -308,6 +330,10 @@ type MutualApartmentCardProps = {
   compatibilityScore: number;
   onPress: () => void;
   onToggleLike: () => void;
+  proposalFeedback?: ProposalItemFeedback;
+  proposalMode?: boolean;
+  onAcceptProposal?: () => void;
+  onRejectProposal?: () => void;
 };
 
 function getChatMatchScoreColor(score: number, colors: ThemeColors): string {
@@ -329,7 +355,7 @@ function getChatApartmentCompatibilityScore(apartment: MutualApartment | SharedA
   }, filterSet as FilterSetPayload | null);
 }
 
-function MutualApartmentCard({ apartment, colors, styles, isLiked, showMatchScore, compatibilityScore, onPress, onToggleLike }: MutualApartmentCardProps) {
+function MutualApartmentCard({ apartment, colors, styles, isLiked, showMatchScore, compatibilityScore, onPress, onToggleLike, proposalFeedback, proposalMode = false, onAcceptProposal, onRejectProposal }: MutualApartmentCardProps) {
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const imageList = apartment.images && apartment.images.length > 0 ? apartment.images : apartment.image ? [apartment.image] : [];
   const activeImage = imageList[activeImageIndex] || "";
@@ -341,7 +367,7 @@ function MutualApartmentCard({ apartment, colors, styles, isLiked, showMatchScor
   }, [activeImageIndex, imageList.length]);
 
   return (
-    <View style={styles.cardWrap}>
+    <View style={[styles.cardWrap, proposalFeedback?.status === "rejected" && styles.rejectedCardDimmed]}>
       <Pressable
         style={({ pressed }) => [styles.card, apartment.isOffMarket && styles.offMarketCard, pressed && styles.cardPressed]}
         onPress={onPress}
@@ -428,9 +454,30 @@ function MutualApartmentCard({ apartment, colors, styles, isLiked, showMatchScor
           </View>
         </View>
       </Pressable>
-      <Pressable style={[styles.likeBtn, isLiked && styles.likeBtnActive]} onPress={onToggleLike} testID={`apartment-like-${apartment.id}`}>
-        <Ionicons name={isLiked ? "heart" : "heart-outline"} size={20} color={isLiked ? "#FFFFFF" : colors.onSurface} />
-      </Pressable>
+      {proposalMode ? (
+        <View style={styles.proposalCardActionsRow}>
+          <Pressable
+            style={[styles.proposalActionBtn, styles.proposalRejectBtn, proposalFeedback?.status === "rejected" && styles.proposalRejectBtnActive]}
+            onPress={onRejectProposal}
+            hitSlop={6}
+            testID={`proposal-reject-${apartment.id}`}
+          >
+            <Ionicons name="close" size={20} color={proposalFeedback?.status === "rejected" ? "#FFFFFF" : "#EF4444"} />
+          </Pressable>
+          <Pressable
+            style={[styles.proposalActionBtn, styles.proposalAcceptBtn, proposalFeedback?.status === "accepted" && styles.proposalAcceptBtnActive]}
+            onPress={onAcceptProposal}
+            hitSlop={6}
+            testID={`proposal-accept-${apartment.id}`}
+          >
+            <Ionicons name="add" size={22} color={proposalFeedback?.status === "accepted" ? "#FFFFFF" : "#10B981"} />
+          </Pressable>
+        </View>
+      ) : (
+        <Pressable style={[styles.likeBtn, isLiked && styles.likeBtnActive]} onPress={onToggleLike} testID={`apartment-like-${apartment.id}`}>
+          <Ionicons name={isLiked ? "heart" : "heart-outline"} size={20} color={isLiked ? "#FFFFFF" : colors.onSurface} />
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -760,6 +807,8 @@ export default function ChatScreen() {
   const [brokerChatRole, setBrokerChatRole] = useState<"client" | "owner" | null>(null);
   const [assignedOwnerProperties, setAssignedOwnerProperties] = useState<ReturnType<typeof buildApartmentRoutePayload>[]>([]);
   const [loadingAssignedOwnerProperties, setLoadingAssignedOwnerProperties] = useState(false);
+  const [clientInteractedProperties, setClientInteractedProperties] = useState<BrokerClientDropdownProperty[]>([]);
+  const [loadingClientInteractedProperties, setLoadingClientInteractedProperties] = useState(false);
   const [showAssignedPropertiesDropdown, setShowAssignedPropertiesDropdown] = useState(false);
   const [hostPhoneFromChatMeta, setHostPhoneFromChatMeta] = useState("");
   const [hostApartmentId, setHostApartmentId] = useState<string | null>(null);
@@ -784,7 +833,12 @@ export default function ChatScreen() {
   const [selectedFilterSetMessage, setSelectedFilterSetMessage] = useState<Message | null>(null);
   const [selectedFilterSetRecord, setSelectedFilterSetRecord] = useState<SharedFilterSetRecord | null>(null);
   const [isFilterHistoryActive, setIsFilterHistoryActive] = useState(false);
-  const [activeViewList, setActiveViewList] = useState<{ listTitle: string; apartments: MutualApartment[] } | null>(null);
+  const [searchHistoryPickerVisible, setSearchHistoryPickerVisible] = useState(false);
+  const [searchHistoryBannerDismissed, setSearchHistoryBannerDismissed] = useState(false);
+  const [activeViewList, setActiveViewList] = useState<{ listTitle: string; apartments: MutualApartment[]; messageId?: string; listId?: string } | null>(null);
+  const [proposalFeedbackMap, setProposalFeedbackMap] = useState<Record<string, ProposalItemFeedback>>({});
+  const [rejectionDrafts, setRejectionDrafts] = useState<Record<string, string>>({});
+  const [submittingFeedbackAptId, setSubmittingFeedbackAptId] = useState<string | null>(null);
   const [loadingListFeed, setLoadingListFeed] = useState(false);
   const [isDeletingMessage, setIsDeletingMessage] = useState(false);
   const [isSubmittingBlockAction, setIsSubmittingBlockAction] = useState(false);
@@ -797,11 +851,17 @@ export default function ChatScreen() {
   const olderLoadTriggeredRef = useRef(false);
   const isRoommateChat = chatType === "roommate";
   const isBrokerOwnerChat = auth.isBroker && chatType === "host" && brokerChatRole === "owner";
+  const isBrokerClientChat =
+    chatType === "host" &&
+    ((auth.isBroker && brokerChatRole !== "owner") ||
+      (!auth.isBroker && counterpartDetails?.is_broker === true));
 
   const handleOpenPropertyList = useCallback(async (message: Message) => {
     const apartmentIds = message.apartmentIds ?? [];
+    setProposalFeedbackMap(message.proposalFeedback ?? {});
+    setRejectionDrafts({});
     if (apartmentIds.length === 0) {
-      setActiveViewList({ listTitle: message.listTitle || "Λίστα ακινήτων", apartments: [] });
+      setActiveViewList({ listTitle: message.listTitle || "Λίστα ακινήτων", apartments: [], messageId: message.id, listId: message.listId || message.id });
       return;
     }
     setLoadingListFeed(true);
@@ -813,6 +873,8 @@ export default function ChatScreen() {
       setActiveViewList({
         listTitle: message.listTitle || "Λίστα ακινήτων",
         apartments: apartments.filter((apartment): apartment is MutualApartment => apartment !== null),
+        messageId: message.id,
+        listId: message.listId || message.id,
       });
     } catch (error) {
       console.warn("[Chat] Error loading shared property list:", error);
@@ -820,6 +882,15 @@ export default function ChatScreen() {
       setLoadingListFeed(false);
     }
   }, []);
+
+  const sortedProposalApartments = useMemo(() => {
+    if (!activeViewList) return [];
+
+    const rank = (status?: ProposalItemFeedback["status"]) => status === "accepted" ? 1 : status === "rejected" ? 2 : 0;
+    return [...activeViewList.apartments].sort((first, second) =>
+      rank(proposalFeedbackMap[first.id]?.status) - rank(proposalFeedbackMap[second.id]?.status),
+    );
+  }, [activeViewList, proposalFeedbackMap]);
 
 
   const messages = useMemo(() => {
@@ -965,6 +1036,8 @@ export default function ChatScreen() {
               apartmentIds: Array.isArray(data.apartmentIds) ? data.apartmentIds.filter((item): item is string => typeof item === "string") : undefined,
               apartmentCount: typeof data.apartmentCount === "number" ? data.apartmentCount : undefined,
               previewImages: Array.isArray(data.previewImages) ? data.previewImages.filter((item): item is string => typeof item === "string") : undefined,
+              hasClientInteracted: data.hasClientInteracted === true,
+              proposalFeedback: data.proposalFeedback,
             };
           })
           .filter((message) => safeTimestampToMillis(message.createdAt) > userClearedAt);
@@ -1028,7 +1101,7 @@ export default function ChatScreen() {
   }, [isRoommateChat, showMutualLikes]);
 
   useEffect(() => {
-    if (!isRoommateChat || !currentUserId) {
+    if ((!isRoommateChat && !isBrokerClientChat) || !currentUserId) {
       setCurrentUserLikedIds(new Set());
       return;
     }
@@ -1038,12 +1111,72 @@ export default function ChatScreen() {
     });
 
     return () => unsubscribe();
-  }, [currentUserId, isRoommateChat]);
+  }, [currentUserId, isBrokerClientChat, isRoommateChat]);
 
   const handleToggleApartmentLike = useCallback((apartmentId: string) => {
     if (!currentUserId) return;
     void toggleApartmentLike(currentUserId, apartmentId);
   }, [currentUserId]);
+
+  const handleAcceptProposalApartment = useCallback(async (apartment: MutualApartment) => {
+    if (!currentUserId || !chatRoomId || !activeViewList?.messageId || auth.isBroker) return;
+
+    const updatedAt = Date.now();
+    if (!currentUserLikedIds.has(apartment.id)) {
+      await toggleApartmentLike(currentUserId, apartment.id);
+    }
+    setProposalFeedbackMap((previous) => ({
+      ...previous,
+      [apartment.id]: { status: "accepted", updatedAt },
+    }));
+
+    try {
+      await updateDoc(doc(db, "chats", chatRoomId, "messages", activeViewList.messageId), {
+        [`proposalFeedback.${apartment.id}`]: { status: "accepted", updatedAt },
+        hasClientInteracted: true,
+      });
+    } catch (error) {
+      console.warn("[Chat] Failed to persist proposal acceptance:", error);
+    }
+  }, [activeViewList?.messageId, auth.isBroker, chatRoomId, currentUserId, currentUserLikedIds]);
+
+  const handleRejectProposalApartment = useCallback((apartmentId: string) => {
+    setProposalFeedbackMap((previous) => ({
+      ...previous,
+      [apartmentId]: { status: "rejected", updatedAt: Date.now() },
+    }));
+  }, []);
+
+  const handleSubmitRejectionReason = useCallback(async (apartment: MutualApartment) => {
+    const reasonText = rejectionDrafts[apartment.id]?.trim();
+    if (!reasonText || !currentUserId || !chatRoomId || !activeViewList?.messageId || submittingFeedbackAptId || auth.isBroker) return;
+
+    const updatedAt = Date.now();
+    setSubmittingFeedbackAptId(apartment.id);
+    try {
+      await addPropertyInteraction({
+        apartmentId: apartment.id,
+        apartmentTitle: apartment.title,
+        clientId: currentUserId,
+        clientName: counterpartDetails?.name?.trim() || t("common.values.unknown"),
+        type: "comment",
+        note: `Απόρριψη πρότασης: ${reasonText}`,
+        loggedByUserId: currentUserId,
+      });
+      await updateDoc(doc(db, "chats", chatRoomId, "messages", activeViewList.messageId), {
+        [`proposalFeedback.${apartment.id}`]: { status: "rejected", reason: reasonText, updatedAt },
+        hasClientInteracted: true,
+      });
+      setProposalFeedbackMap((previous) => ({
+        ...previous,
+        [apartment.id]: { status: "rejected", reason: reasonText, updatedAt },
+      }));
+    } catch (error) {
+      console.error("[Chat] Failed to submit proposal rejection reason:", error);
+    } finally {
+      setSubmittingFeedbackAptId(null);
+    }
+  }, [activeViewList?.messageId, auth.isBroker, chatRoomId, counterpartDetails?.name, currentUserId, rejectionDrafts, submittingFeedbackAptId]);
 
   useEffect(() => {
     if (!isRoommateChat || !counterpartId) {
@@ -1636,7 +1769,139 @@ export default function ChatScreen() {
     const versions = filterHistoryRecords.flatMap((record) => record.versions);
     return [...versions].sort((first, second) => second.updatedAt - first.updatedAt)[0] ?? null;
   }, [filterHistoryRecords]);
+  const hasSharedSearchHistory = useMemo(
+    () => messages.some((message) => message.type === "search_history_share" && message.senderId === currentUserId),
+    [currentUserId, messages],
+  );
+
+  useEffect(() => {
+    if (!isBrokerClientChat || !currentUserId || !counterpartId || !chatRoomId || !showAssignedPropertiesDropdown) {
+      setClientInteractedProperties([]);
+      setLoadingClientInteractedProperties(false);
+      return;
+    }
+
+    const brokerId = auth.isBroker ? currentUserId : counterpartId;
+    const clientUid = auth.isBroker ? counterpartId : currentUserId;
+    let active = true;
+    setLoadingClientInteractedProperties(true);
+
+    void (async () => {
+      try {
+        const [messagesSnapshot, likesSnapshot, brokerOwnedSnapshot, brokerAssignedSnapshot] = await Promise.all([
+          getDocs(collection(db, "chats", chatRoomId, "messages")),
+          getDocs(query(collection(db, "liked_apartments"), where("userId", "==", clientUid))),
+          getDocs(query(collection(db, "apartments"), where("hostId", "==", brokerId))),
+          getDocs(query(collection(db, "apartments"), where("assignedBrokerIds", "array-contains", brokerId))),
+        ]);
+
+        const brokerApartmentDocs = new Map<string, FirestoreApartmentDoc>();
+        [...brokerOwnedSnapshot.docs, ...brokerAssignedSnapshot.docs].forEach((apartmentDoc) => {
+          brokerApartmentDocs.set(apartmentDoc.id, apartmentDoc.data() as FirestoreApartmentDoc);
+        });
+
+        const interactedApartmentIds = new Set<string>();
+        if (hostApartmentId) interactedApartmentIds.add(hostApartmentId);
+        messagesSnapshot.docs.forEach((messageDoc) => {
+          const data = messageDoc.data() as FirestoreMessageDoc;
+          if (data.apartmentId) interactedApartmentIds.add(data.apartmentId);
+          if (data.apartmentData?.id) interactedApartmentIds.add(data.apartmentData.id);
+          data.apartmentIds?.forEach((apartmentId) => interactedApartmentIds.add(apartmentId));
+        });
+        likesSnapshot.docs.forEach((likeDoc) => {
+          const apartmentId = likeDoc.data().apartmentId;
+          if (typeof apartmentId === "string" && brokerApartmentDocs.has(apartmentId)) interactedApartmentIds.add(apartmentId);
+        });
+
+        const rows: BrokerClientDropdownProperty[] = [];
+        for (const apartmentId of interactedApartmentIds) {
+          let apartmentData = brokerApartmentDocs.get(apartmentId);
+          if (!apartmentData) {
+            const apartmentSnapshot = await getDoc(doc(db, "apartments", apartmentId));
+            if (apartmentSnapshot.exists()) {
+              const fallbackData = apartmentSnapshot.data() as FirestoreApartmentDoc;
+              const assignedBrokerIds = fallbackData.assignedBrokerIds ?? [];
+              const belongsToBroker = fallbackData.hostId === brokerId || fallbackData.ownerId === brokerId || assignedBrokerIds.includes(brokerId);
+              if (belongsToBroker) {
+                apartmentData = fallbackData;
+              }
+            }
+          }
+
+          if (!apartmentData || apartmentData.status === "closed_deal") continue;
+          const payload = buildApartmentRoutePayload(apartmentId, apartmentData);
+          const score = latestSharedFilterVersion
+            ? calculateTenantCompatibilityScore({
+              city: payload.city,
+              area: payload.area,
+              rent: payload.rent,
+              size: payload.size,
+              tags: payload.tags,
+            }, latestSharedFilterVersion as FilterSetPayload)
+            : 0;
+          rows.push({
+            id: apartmentId,
+            title: payload.title,
+            rent: payload.rent,
+            area: payload.area,
+            city: payload.city,
+            compatibilityScore: Math.round(score),
+            rawApartmentPayload: payload,
+          });
+        }
+
+        if (active) setClientInteractedProperties(rows.sort((first, second) => second.compatibilityScore - first.compatibilityScore));
+      } catch (error) {
+        console.warn("[Chat] Error loading client interacted broker properties:", error);
+        if (active) setClientInteractedProperties([]);
+      } finally {
+        if (active) setLoadingClientInteractedProperties(false);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [auth.isBroker, chatRoomId, counterpartId, currentUserId, hostApartmentId, isBrokerClientChat, latestSharedFilterVersion, showAssignedPropertiesDropdown]);
+
   const showChatMatchScore = latestSharedFilterVersion?.showMatchScore === true;
+
+  const handleShareSearchHistory = useCallback(async (selection: SearchHistorySelection) => {
+    if (!currentUserId || !counterpartId || !chatRoomId || auth.isBroker || (selection.queries.length === 0 && selection.filterSets.length === 0)) return;
+    try {
+      const sharedAt = Date.now();
+      await syncBrokerClientProfile({
+        brokerId: counterpartId,
+        clientId: currentUserId,
+        role: "client",
+        chatRoomId,
+      });
+      await setDoc(doc(db, "brokerClientProfiles", `${counterpartId}_${currentUserId}`), {
+        sharedSearchQueries: selection.queries,
+        sharedSearchFilterSets: selection.filterSets,
+        sharedSearchHistoryAt: sharedAt,
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+      await addDoc(collection(db, "chats", chatRoomId, "messages"), {
+        senderId: currentUserId,
+        receiverId: counterpartId,
+        type: "search_history_share",
+        searchQueries: selection.queries,
+        searchFilterSets: selection.filterSets,
+        text: "Κοινοποίηση ιστορικού αναζητήσεων",
+        createdAt: serverTimestamp(),
+        isRead: false,
+      });
+      setSearchHistoryPickerVisible(false);
+    } catch (error) {
+      console.error("[Chat] Failed to share search history:", error);
+      setActionModal({
+        title: t("common.messages.tryAgain"),
+        description: "Δεν ήταν δυνατός ο διαμοιρασμός του ιστορικού αναζητήσεων.",
+        actions: [{ label: t("common.actions.gotIt"), iconName: "checkmark-circle-outline", onPress: () => setActionModal(null) }],
+      });
+    }
+  }, [auth.isBroker, chatRoomId, counterpartId, currentUserId]);
 
   // Κρύβουμε τα social links σε περίπτωση block
   const shouldShowSocialLinks = !maskedAsDeleted && !hasBlockedByMe && !blockedByOtherUser && !!counterpartDetails?.looking_for_apartment;
@@ -2308,7 +2573,7 @@ export default function ChatScreen() {
     <View style={styles.container} testID="chat-screen">
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
-        {chatType === "host" && !isBrokerOwnerChat && (hostApartment || hostApartmentId || apartmentLocked) ? (
+        {chatType === "host" && !isBrokerOwnerChat && !isBrokerClientChat && (hostApartment || hostApartmentId || apartmentLocked) ? (
           <Pressable
             style={[styles.apartmentPill, apartmentLocked && styles.apartmentPillDisabled]}
             onPress={handleApartmentPillPress}
@@ -2425,11 +2690,12 @@ export default function ChatScreen() {
           >
             <Ionicons name="ellipsis-vertical" size={20} color={colors.onSurface} />
           </Pressable>
-          {isBrokerOwnerChat ? (
+          {isBrokerOwnerChat || isBrokerClientChat ? (
             <Pressable
               style={[styles.iconBtn, showAssignedPropertiesDropdown && styles.iconBtnActive]}
               onPress={() => {
                 setShowContextMenu(false);
+                setIsFilterHistoryActive(false);
                 setShowAssignedPropertiesDropdown((previous) => !previous);
               }}
               testID="chat-assigned-properties-toggle"
@@ -2437,11 +2703,13 @@ export default function ChatScreen() {
             >
               <Ionicons name="chevron-down" size={20} color={colors.onSurface} />
             </Pressable>
-          ) : (
+          ) : null}
+          {isBrokerClientChat ? (
             <Pressable
               style={[styles.iconBtn, isFilterHistoryActive && styles.iconBtnActive]}
               onPress={() => {
                 setShowContextMenu(false);
+                setShowAssignedPropertiesDropdown(false);
                 setIsFilterHistoryActive((previous) => !previous);
               }}
               testID="chat-filter-history-toggle"
@@ -2449,7 +2717,7 @@ export default function ChatScreen() {
             >
               <Ionicons name="time-outline" size={22} color={isFilterHistoryActive ? colors.brand : colors.onSurface} />
             </Pressable>
-          )}
+          ) : null}
           {isRoommateChat ? (
             <Pressable
               style={[styles.iconBtn, showMutualLikes && styles.iconBtnActive]}
@@ -2532,7 +2800,7 @@ export default function ChatScreen() {
         ) : null}
       </View>
 
-      {showAssignedPropertiesDropdown && isBrokerOwnerChat ? (
+      {showAssignedPropertiesDropdown && (isBrokerOwnerChat || isBrokerClientChat) ? (
         <>
           <Pressable
             style={styles.propertiesDropdownBackdrop}
@@ -2540,7 +2808,7 @@ export default function ChatScreen() {
             testID="chat-assigned-properties-backdrop"
           />
           <View style={[styles.propertiesDropdown, { top: insets.top + 54 }]} testID="chat-assigned-properties-dropdown">
-            {loadingAssignedOwnerProperties ? (
+            {isBrokerOwnerChat ? loadingAssignedOwnerProperties ? (
               <View style={styles.emptyDropdownRow}>
                 <ActivityIndicator size="small" color={colors.brand} />
               </View>
@@ -2562,6 +2830,41 @@ export default function ChatScreen() {
                   >
                     <Text style={styles.propertyDropdownTitle} numberOfLines={1}>{property.title}</Text>
                     <Text style={styles.propertyDropdownPrice}>{property.rent.toLocaleString("el-GR")} €</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            ) : loadingClientInteractedProperties ? (
+              <View style={styles.emptyDropdownRow}>
+                <ActivityIndicator size="small" color={colors.brand} />
+              </View>
+            ) : clientInteractedProperties.length === 0 ? (
+              <View style={styles.emptyDropdownRow}>
+                <Text style={styles.emptyDropdownText}>Δεν υπάρχουν ακίνητα επικοινωνίας / ενδιαφέροντος</Text>
+              </View>
+            ) : (
+              <ScrollView showsVerticalScrollIndicator={false}>
+                {clientInteractedProperties.map((property) => (
+                  <Pressable
+                    key={property.id}
+                    style={styles.clientPropertyDropdownRow}
+                    onPress={() => {
+                      setShowAssignedPropertiesDropdown(false);
+                      router.push({ pathname: "/apartment-detail", params: { data: JSON.stringify(property.rawApartmentPayload) } } as any);
+                    }}
+                    testID={`chat-client-property-${property.id}`}
+                  >
+                    <View style={styles.clientPropertyDropdownMain}>
+                      <Text style={styles.propertyDropdownTitle} numberOfLines={1}>{property.title}</Text>
+                      <Text style={styles.clientPropertyDropdownSubtitle} numberOfLines={1}>
+                        {property.area ? `${property.area} • ` : ""}{property.rent.toLocaleString("el-GR")} €
+                      </Text>
+                    </View>
+                    {property.compatibilityScore > 0 ? (
+                      <View style={styles.dropdownMatchBadge}>
+                        <Ionicons color={colors.brand} name="sparkles" size={11} />
+                        <Text style={styles.dropdownMatchBadgeText}>{`${property.compatibilityScore}% Match`}</Text>
+                      </View>
+                    ) : null}
                   </Pressable>
                 ))}
               </ScrollView>
@@ -2621,51 +2924,98 @@ export default function ChatScreen() {
       {activeViewList ? (
         <View style={styles.flex}>
           <View style={styles.listFeedHeaderBanner}>
+            <Pressable
+              style={styles.floatingBackButtonLeft}
+              onPress={() => setActiveViewList(null)}
+              hitSlop={8}
+              testID="proposal-floating-back-btn"
+              accessibilityRole="button"
+              accessibilityLabel="Επιστροφή στα μηνύματα"
+            >
+              <Ionicons color={colors.onSurface} name="arrow-back" size={20} />
+            </Pressable>
             <Text numberOfLines={1} style={styles.listFeedBannerTitle}>{activeViewList.listTitle}</Text>
+            <Pressable
+              style={styles.viewInFeedButton}
+              onPress={() => {
+                setActiveViewList(null);
+                router.push({
+                  pathname: "/(tabs)/apartments",
+                  params: {
+                    activeProposalListId: activeViewList.listId || "custom_list",
+                    activeProposalListTitle: activeViewList.listTitle,
+                    proposalApartmentIds: JSON.stringify(activeViewList.apartments.map((apartment) => apartment.id)),
+                  },
+                } as any);
+              }}
+              testID="proposal-view-in-feed-btn"
+              accessibilityRole="button"
+              accessibilityLabel="Προβολή στο feed"
+            >
+              <Ionicons name="open-outline" size={16} color={colors.onBrand} />
+              <Text style={styles.viewInFeedButtonText}>Προβολή στο feed</Text>
+            </Pressable>
           </View>
-          <Pressable
-            style={[styles.floatingBackButton, { top: insets.top + spacing.sm }]}
-            onPress={() => setActiveViewList(null)}
-            hitSlop={8}
-            testID="proposal-floating-back-btn"
-            accessibilityRole="button"
-            accessibilityLabel="Επιστροφή στα μηνύματα"
-          >
-            <Ionicons color={colors.onSurface} name="arrow-back" size={20} />
-          </Pressable>
-          <Pressable
-            style={styles.viewInFeedButton}
-            onPress={() => router.push({ pathname: "/apartments", params: { proposalApartmentIds: JSON.stringify(activeViewList.apartments.map((apartment) => apartment.id)) } } as any)}
-            testID="proposal-view-in-feed-btn"
-            accessibilityRole="button"
-            accessibilityLabel="Προβολή στο feed"
-          >
-            <Ionicons name="open-outline" size={18} color={colors.onBrand} />
-            <Text style={styles.viewInFeedButtonText}>Προβολή στο feed</Text>
-          </Pressable>
           {loadingListFeed ? (
             <View style={styles.mutualLikesLoadingWrap}><ActivityIndicator size="large" color={colors.brand} /></View>
           ) : (
             <ScrollView style={styles.flex} contentContainerStyle={styles.mutualLikesScroll} showsVerticalScrollIndicator={false}>
               {activeViewList.apartments.length === 0 ? (
                 <View style={styles.mutualEmptyCard}><Text style={styles.mutualEmptyTitle}>Δεν βρέθηκαν ακίνητα στη λίστα</Text></View>
-              ) : activeViewList.apartments.map((apartment) => (
-                <MutualApartmentCard
-                  key={apartment.id}
-                  apartment={apartment}
-                  colors={colors}
-                  styles={styles}
-                  isLiked={currentUserLikedIds.has(apartment.id)}
-                  showMatchScore={showChatMatchScore}
-                  compatibilityScore={getChatApartmentCompatibilityScore(apartment, latestSharedFilterVersion)}
-                  onToggleLike={() => handleToggleApartmentLike(apartment.id)}
-                  onPress={() => router.push({ pathname: "/apartment-detail", params: { data: JSON.stringify(apartment) } } as any)}
-                />
-              ))}
+              ) : sortedProposalApartments.map((apartment) => {
+                const feedback = proposalFeedbackMap[apartment.id];
+                const isRejected = feedback?.status === "rejected";
+                return (
+                  <View key={apartment.id} style={styles.proposalCardWrapper}>
+                    <MutualApartmentCard
+                      apartment={apartment}
+                      colors={colors}
+                      styles={styles}
+                      isLiked={currentUserLikedIds.has(apartment.id)}
+                      showMatchScore={showChatMatchScore}
+                      compatibilityScore={getChatApartmentCompatibilityScore(apartment, latestSharedFilterVersion)}
+                      onToggleLike={() => handleToggleApartmentLike(apartment.id)}
+                      onPress={() => router.push({ pathname: "/apartment-detail", params: { data: JSON.stringify(apartment) } } as any)}
+                      proposalFeedback={feedback}
+                      proposalMode
+                      onRejectProposal={() => handleRejectProposalApartment(apartment.id)}
+                      onAcceptProposal={() => void handleAcceptProposalApartment(apartment)}
+                    />
+                    {isRejected ? (
+                      <View style={styles.rejectionFeedbackBox}>
+                        <Text style={styles.rejectionFeedbackTitle}>
+                          {feedback.reason ? "Αιτιολογία Απόρριψης:" : "Αιτιολογήστε την απόρριψη του ακινήτου:"}
+                        </Text>
+                        {feedback.reason ? (
+                          <Text style={styles.rejectionFeedbackSavedText}>{feedback.reason}</Text>
+                        ) : (
+                          <View style={styles.rejectionInputRow}>
+                            <TextInput
+                              value={rejectionDrafts[apartment.id] || ""}
+                              onChangeText={(textValue) => setRejectionDrafts((previous) => ({ ...previous, [apartment.id]: textValue }))}
+                              placeholder="π.χ. Πολύ ακριβό, μακριά από τη σχολή..."
+                              placeholderTextColor={colors.onSurfaceTertiary}
+                              style={styles.rejectionTextInput}
+                            />
+                            <Pressable
+                              style={[styles.rejectionSubmitBtn, !rejectionDrafts[apartment.id]?.trim() && styles.rejectionSubmitBtnDisabled]}
+                              disabled={!rejectionDrafts[apartment.id]?.trim() || submittingFeedbackAptId === apartment.id}
+                              onPress={() => void handleSubmitRejectionReason(apartment)}
+                              testID={`proposal-rejection-submit-${apartment.id}`}
+                            >
+                              {submittingFeedbackAptId === apartment.id ? <ActivityIndicator color={colors.onBrand} size="small" /> : <Ionicons color={colors.onBrand} name="checkmark" size={18} />}
+                            </Pressable>
+                          </View>
+                        )}
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })}
             </ScrollView>
           )}
         </View>
-      ) : isFilterHistoryActive && !isBrokerOwnerChat ? (
+      ) : isFilterHistoryActive && isBrokerClientChat ? (
         <ScrollView style={styles.flex} contentContainerStyle={styles.filterHistoryList} showsVerticalScrollIndicator={false}>
           {filterHistoryRecords.length === 0 ? (
             <View style={styles.mutualEmptyCard}><Ionicons name="time-outline" size={34} color={colors.onSurfaceTertiary} /><Text style={styles.mutualEmptyTitle}>Δεν υπάρχουν κοινοποιημένα set φίλτρων</Text></View>
@@ -2718,6 +3068,21 @@ export default function ChatScreen() {
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           keyboardVerticalOffset={Platform.OS === "ios" ? insets.top + 8 : 0}
         >
+          {isBrokerClientChat && !auth.isBroker && !hasSharedSearchHistory && !searchHistoryBannerDismissed ? (
+            <View style={styles.searchHistoryShareBanner} testID="chat-search-history-share-banner">
+              <View style={styles.searchHistoryShareTextWrap}>
+                <Text style={styles.searchHistoryShareTitle}>Θέλετε πιο στοχευμένες προτάσεις;</Text>
+                <Text style={styles.searchHistoryShareDescription}>Μοιραστείτε το ιστορικό των αναζητήσεών σας με τον μεσίτη.</Text>
+              </View>
+              <Pressable style={styles.searchHistoryShareButton} onPress={() => setSearchHistoryPickerVisible(true)} testID="chat-open-search-history-picker">
+                <Ionicons name="search-outline" size={16} color={colors.onBrand} />
+                <Text style={styles.searchHistoryShareButtonText}>Επιλογή &amp; Διαμοιρασμός</Text>
+              </Pressable>
+              <Pressable style={styles.searchHistoryShareDismiss} onPress={() => setSearchHistoryBannerDismissed(true)} hitSlop={8} testID="chat-dismiss-search-history-banner">
+                <Ionicons name="close" size={18} color={colors.onSurfaceTertiary} />
+              </Pressable>
+            </View>
+          ) : null}
           {!messagesLoaded || !chatMetadataLoaded ? (
             <ChatMessagesSkeleton style={styles.flex} testID="chat-messages-skeleton" />
           ) : (
@@ -2880,6 +3245,13 @@ export default function ChatScreen() {
         filterSet={selectedFilterSetRecord}
         onClose={() => setSelectedFilterSetRecord(null)}
         onUpdated={setSelectedFilterSetRecord}
+      />
+
+      <SearchHistoryPickerModal
+        visible={searchHistoryPickerVisible}
+        userId={currentUserId}
+        onClose={() => setSearchHistoryPickerVisible(false)}
+        onConfirm={(selection) => void handleShareSearchHistory(selection)}
       />
 
       <VisitRequestModal
@@ -3167,6 +3539,40 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     fontSize: fontSize.sm,
     color: colors.brand,
   },
+  clientPropertyDropdownRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+    gap: spacing.sm,
+  },
+  clientPropertyDropdownMain: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  clientPropertyDropdownSubtitle: {
+    fontFamily: fonts.regular,
+    fontSize: fontSize.xs,
+    color: colors.onSurfaceTertiary,
+  },
+  dropdownMatchBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: radius.pill,
+    backgroundColor: colors.brandTertiary,
+  },
+  dropdownMatchBadgeText: {
+    fontFamily: fonts.bold,
+    fontSize: 11,
+    color: colors.brand,
+  },
   emptyDropdownRow: {
     padding: spacing.md,
     alignItems: "center",
@@ -3405,6 +3811,21 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     backgroundColor: "#FF5A66",
     borderColor: "#FF5A66",
   },
+  rejectedCardDimmed: { opacity: 0.5 },
+  proposalCardWrapper: { gap: spacing.xs, marginBottom: spacing.md },
+  proposalCardActionsRow: { position: "absolute", right: spacing.md, bottom: spacing.md, flexDirection: "row", alignItems: "center", gap: spacing.xs, zIndex: 10 },
+  proposalActionBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", borderWidth: 1.5, backgroundColor: "rgba(255,255,255,0.92)", elevation: 4, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4 },
+  proposalRejectBtn: { borderColor: "#EF4444" },
+  proposalRejectBtnActive: { backgroundColor: "#EF4444" },
+  proposalAcceptBtn: { borderColor: "#10B981" },
+  proposalAcceptBtnActive: { backgroundColor: "#10B981" },
+  rejectionFeedbackBox: { padding: spacing.md, backgroundColor: colors.surfaceSecondary, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, gap: spacing.xs },
+  rejectionFeedbackTitle: { fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
+  rejectionInputRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
+  rejectionTextInput: { flex: 1, height: 40, backgroundColor: colors.surfaceTertiary, borderRadius: radius.sm, paddingHorizontal: spacing.sm, fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurface },
+  rejectionSubmitBtn: { width: 40, height: 40, borderRadius: radius.sm, backgroundColor: colors.brand, alignItems: "center", justifyContent: "center" },
+  rejectionSubmitBtnDisabled: { opacity: 0.45 },
+  rejectionFeedbackSavedText: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurface, fontStyle: "italic" },
   photo: { ...StyleSheet.absoluteFillObject },
   topRightBadgesContainer: {
     position: "absolute",
@@ -3521,6 +3942,23 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.brand,
   },
+  searchHistoryShareBanner: {
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
+    padding: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.brand,
+    backgroundColor: colors.brandTertiary,
+    gap: spacing.xs,
+  },
+  searchHistoryShareTextWrap: { gap: 2, paddingRight: spacing.lg },
+  searchHistoryShareTitle: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onSurface },
+  searchHistoryShareDescription: { fontFamily: fonts.regular, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
+  searchHistoryShareButton: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: spacing.xs, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.pill, backgroundColor: colors.brand },
+  searchHistoryShareButtonText: { fontFamily: fonts.bold, fontSize: fontSize.xs, color: colors.onBrand },
+  searchHistoryShareDismiss: { position: "absolute", top: spacing.xs, right: spacing.xs, padding: 2 },
   invertedMessagesContainer: { paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, gap: 0 },
   topLoadingContainer: {
     paddingVertical: spacing.sm,
@@ -3618,10 +4056,10 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   sharedListViewBtnText: { fontFamily: fonts.bold, fontSize: fontSize.xs, color: colors.brand },
   sharedListViewBtnTextMine: { color: colors.onBrand },
   listFeedHeaderBanner: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface },
-  listFeedBannerTitle: { flex: 1, fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onSurface, textAlign: "right" },
-  floatingBackButton: { position: "absolute", right: spacing.md, width: 42, height: 42, borderRadius: radius.pill, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center", zIndex: 9999, elevation: 8, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.18, shadowRadius: 5 },
-  viewInFeedButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.xs, backgroundColor: colors.brand, borderRadius: radius.md, paddingVertical: spacing.sm, paddingHorizontal: spacing.md, marginHorizontal: spacing.lg, marginBottom: spacing.sm },
-  viewInFeedButtonText: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onBrand, includeFontPadding: false },
+  listFeedBannerTitle: { flex: 1, minWidth: 0, fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onSurface, textAlign: "left" },
+  floatingBackButtonLeft: { width: 36, height: 36, borderRadius: radius.pill, backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
+  viewInFeedButton: { flexShrink: 0, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 3, backgroundColor: colors.brand, borderRadius: radius.pill, paddingVertical: 6, paddingHorizontal: spacing.sm },
+  viewInFeedButtonText: { fontFamily: fonts.bold, fontSize: fontSize.xs, color: colors.onBrand, includeFontPadding: false },
   filterHistoryList: { padding: spacing.lg, gap: spacing.sm },
   filterHistoryCard: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surfaceSecondary, padding: spacing.md, gap: spacing.xs },
   filterHistoryCardHeader: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
