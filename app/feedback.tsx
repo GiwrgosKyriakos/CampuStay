@@ -114,12 +114,12 @@ export default function FeedbackScreen() {
 
       <CenteredActionModal
         visible={successModalVisible}
-        title="Ευχαριστούμε! / Thank You!"
-        description="Το σχόλιο / η πρότασή σας υποβλήθηκε με επιτυχία και θα βοηθήσει στη βελτίωση του CampuStay."
+        title={t("feedback.alerts.successTitle")}
+        description={t("feedback.alerts.successDescription")}
         onDismiss={() => setSuccessModalVisible(false)}
         actions={[
           {
-            label: "Τέλεια",
+            label: t("feedback.alerts.successAction"),
             iconName: "checkmark-circle-outline",
             onPress: () => {
               setText("");
@@ -133,12 +133,12 @@ export default function FeedbackScreen() {
 
       <CenteredActionModal
         visible={errorModalVisible}
-        title="Κάτι πήγε στραβά"
-        description="Δεν ήταν δυνατή η αποστολή. Παρακαλούμε δοκιμάστε ξανά σε λίγο."
+        title={t("feedback.alerts.errorTitle")}
+        description={t("feedback.alerts.errorDescription")}
         onDismiss={() => setErrorModalVisible(false)}
         actions={[
           {
-            label: "Κατάλαβα",
+            label: t("common.actions.gotIt"),
             onPress: () => setErrorModalVisible(false),
           },
         ]}

@@ -14,6 +14,10 @@ const ICONS: Record<string, { active: keyof typeof Ionicons.glyphMap; inactive: 
   broker: { active: "person", inactive: "person-outline" },
   matches: { active: "heart", inactive: "heart-outline" },
   apartments: { active: "home", inactive: "home-outline" },
+  "apartment-pool": { active: "business", inactive: "business-outline" },
+  settlements: { active: "receipt", inactive: "receipt-outline" },
+  "secretariat-pool": { active: "shield-checkmark", inactive: "shield-checkmark-outline" },
+  analytics: { active: "bar-chart", inactive: "bar-chart-outline" },
   profile: { active: "person", inactive: "person-outline" },
 };
 
@@ -22,6 +26,7 @@ export default function GlassTabBar({ state, navigation, descriptors }: BottomTa
   const { colors } = useTheme();
   const auth = useAuth();
   const isBroker = !!auth.isBroker;
+  const isExecutive = auth.agencyRole === "ceo" || auth.agencyRole === "secretary";
   const notLookingForRoommate = auth.notLookingForRoommate === true;
   const styles = useMemo(() => createStyles(colors), [colors]);
   const focusedRouteName = state.routes[state.index]?.name;
@@ -30,17 +35,17 @@ export default function GlassTabBar({ state, navigation, descriptors }: BottomTa
       .filter((route) => {
         const href = (descriptors[route.key]?.options as { href?: string | null } | undefined)?.href;
         if (href === null) return false;
-        if (isBroker) return ["calendar", "matches", "apartments", "broker"].includes(route.name);
+        if (isBroker || isExecutive) return ["calendar", "matches", "apartment-pool", "apartments", "broker", "settlements", "secretariat-pool", ...(isExecutive ? ["analytics"] : [])].includes(route.name);
         if (route.name === "roommates") return !notLookingForRoommate;
         return ["matches", "apartments", "profile"].includes(route.name);
       })
       .sort((left, right) => {
-        const order = isBroker
-          ? ["calendar", "matches", "apartments", "broker"]
+        const order = isBroker || isExecutive
+          ? ["calendar", "matches", "apartment-pool", "apartments", "broker", "settlements", "secretariat-pool", ...(isExecutive ? ["analytics"] : [])]
           : ["roommates", "matches", "apartments", "profile"];
         return order.indexOf(left.name) - order.indexOf(right.name);
       });
-  }, [descriptors, isBroker, notLookingForRoommate, state.routes]);
+  }, [descriptors, isBroker, isExecutive, notLookingForRoommate, state.routes]);
 
   if (isBroker && focusedRouteName === "profile") {
     return null;
@@ -52,7 +57,7 @@ export default function GlassTabBar({ state, navigation, descriptors }: BottomTa
         <View style={styles.row}>
           {visibleRoutes.map((route) => {
             const focused = state.routes[state.index]?.key === route.key;
-            const cfg = route.name === "matches" && isBroker
+            const cfg = route.name === "matches" && (isBroker || isExecutive)
               ? { active: "mail" as const, inactive: "mail-outline" as const }
               : ICONS[route.name] ?? ICONS.roommates;
             const onPress = () => {

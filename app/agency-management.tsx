@@ -45,7 +45,7 @@ export default function AgencyManagementScreen() {
     if (auth.isLoading || !auth.userId) return;
     let mounted = true;
     void getUserProfile(auth.userId).then((profile) => {
-      const authorized = profile?.agencyRole === "ceo" && !!profile.agencyId;
+      const authorized = (profile?.agencyRole === "ceo" || profile?.agencyRole === "secretary") && !!profile.agencyId;
       if (!mounted) return;
       if (!authorized) {
         router.replace("/profile");

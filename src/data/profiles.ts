@@ -13,6 +13,7 @@ export interface RoommateProfile {
   tags: string[];
   photo: string;
   matchScore?: number;
+  quizAnswers?: Record<string, string>;
   deleted?: boolean;
   chat_status?: "pending" | "active" | "rejected";
   chat_initiated_by?: string | null;

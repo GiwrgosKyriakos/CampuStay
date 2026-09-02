@@ -1,3 +1,5 @@
+import type { HardCriteriaKey } from "@/src/types/filters";
+
 export interface FilterSetMessageData {
   title?: string;
   rentMin?: string;
@@ -26,6 +28,14 @@ export interface FilterSetMessageData {
   selectedAmenities?: string[];
   polygonCoordinates?: { latitude: number; longitude: number }[];
   sharedAt?: number;
+  origin?: "client_created" | "broker_created";
+  version?: number;
+  brokerModCount?: number;
+  lastModifiedByBrokerId?: string;
+  lastModifiedByBrokerName?: string;
+  lastModifiedAt?: number;
+  isSharedWithClient?: boolean;
+  sharedByBrokerId?: string;
 }
 
 export interface FirestoreUserDoc {
@@ -51,4 +61,15 @@ export interface FirestoreUserDoc {
   phone_number?: string | null;
   phone?: string | null;
   directMessagesEnabled?: boolean;
+  is_manual_client?: boolean;
+  email?: string | null;
+  pendingClaimEmail?: string;
+  userHardCriteria?: HardCriteriaKey[];
+  looking_for_roommate?: boolean;
+  isLookingForRoommate?: boolean;
+  not_looking_for_roommate?: boolean;
+  agencyId?: string | null;
+  agencyRole?: string | null;
+  is_agency_ceo?: boolean;
+  preferences?: { hideNameInDeck?: boolean; hideInStack?: boolean };
 }

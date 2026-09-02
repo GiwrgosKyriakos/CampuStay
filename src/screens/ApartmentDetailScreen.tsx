@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  AppState,
   Alert,
   Dimensions,
   Linking,
@@ -27,6 +28,7 @@ import {
   getDoc,
   getDocs,
   limit,
+  onSnapshot,
   orderBy,
   query,
   serverTimestamp,
@@ -43,7 +45,7 @@ import { subscribeUserLikedApartmentIds, toggleApartmentLike } from "@/src/api/a
 import { getUserSettings } from "@/src/api/accountSettings";
 import { deleteListingPermanently } from "@/src/api/listings";
 import { getUserProfile } from "@/src/api/userProfile";
-import { getBrokerDeals, upsertBrokerClientProfile } from "@/src/api/brokerClientProfiles";
+import { getBrokerDeals, upsertBrokerClientProfile, type BrokerDeal } from "@/src/api/brokerClientProfiles";
 import {
   addPropertyInteraction,
   subscribePropertyInteractions,
@@ -63,9 +65,24 @@ import { getExcludedUserIds } from "@/src/api/blocking";
 import { calculateMatchScore } from "@/src/utils/matchAlgorithm";
 import type { CompatibilityQuizAnswers, UserProfile as MatchUserProfile } from "@/src/utils/matchAlgorithm";
 import { calculatePricePerSqm } from "@/src/utils/pricing";
-import { calculateTenantCompatibilityScore } from "@/src/utils/compatibilityScore";
+import { calculateTenantCompatibilityScore, type ListingFormData } from "@/src/utils/compatibilityScore";
+import ApartmentRatingModal from "@/src/components/ApartmentRatingModal";
+import CallFeedbackModal, { type PendingCallDetails } from "@/src/components/CallFeedbackModal";
 import type { FilterSetPayload } from "@/src/types/filters";
 import type { WatermarkConfig } from "@/src/types/listing";
+import type { KeySafeLogEntry, ListingWithdrawalMetadata, OpenHouseConfig, VirtualTourData } from "@/src/types/apartment";
+import VirtualTourViewerModal from "@/src/components/VirtualTourViewerModal";
+import { settleClosedDeal } from "@/src/utils/dealAutomations";
+import BrokerSelectorPopover, { type BrokerSelectorItem } from "@/src/components/BrokerSelectorPopover";
+import { clearPendingCallInteraction, getPendingCallInteraction, persistPendingCallInteraction, PENDING_CALL_MAX_AGE_MS } from "@/src/utils/callTracking";
+import { evaluateCompetingClientsStrategy, type ClientDealContext, type StrategyClientInsight } from "@/src/utils/portfolioStrategyAdvisor";
+import { checkoutKeySafe, returnKeySafe, updateOpenHouseConfig } from "@/src/api/agencyCollaboration";
+import CrossBrokerVisitModal from "@/src/components/CrossBrokerVisitModal";
+import OpenHouseScannerModal from "@/src/components/OpenHouseScannerModal";
+import SignContractModal from "@/src/components/SignContractModal";
+import PropertyAssignmentSetupModal from "@/src/components/PropertyAssignmentSetupModal";
+import { sendContractChatRequest } from "@/src/api/contracts";
+import type { ContractDraftContext, DigitalContractDocument } from "@/src/types/esignature";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const CURRENCY = "€";
@@ -90,7 +107,7 @@ type ListingExtraInformation = {
   isImmediatelyAvailable?: boolean;
 };
 
-type BrokerPropertyDealStage = "liked" | "lead" | "showing_scheduled" | "offer_made" | "deal_closed" | "lost";
+type BrokerPropertyDealStage = "liked" | "lead" | "showing_scheduled" | "offer_made" | "negotiation_agreement" | "deal_closed" | "lost";
 
 type BrokerPropertyDealLead = {
   id: string;
@@ -100,6 +117,7 @@ type BrokerPropertyDealLead = {
   chatRoomId: string;
   messageCount: number;
   lastMessageText: string;
+  rating?: number;
 };
 
 type HostInquiringClient = {
@@ -108,6 +126,17 @@ type HostInquiringClient = {
   avatar: string;
   chatRoomId: string;
   compatibilityScore: number | null;
+  rating?: number;
+  managingBrokerId?: string;
+  managingBrokerName?: string;
+  managingBrokerAvatar?: string;
+};
+
+type OwnerBrokerLeadGroup = {
+  brokerId: string;
+  brokerName: string;
+  brokerAvatar: string;
+  leads: HostInquiringClient[];
 };
 
 type InteractionTypeMeta = {
@@ -153,10 +182,13 @@ interface Apartment {
   description?: string;
   propertyCategory?: string;
   propertyType?: string;
+  furnishedStatus?: string;
   floor?: string;
   area: string;
   city: string;
   address?: string;
+  exactAddress?: string;
+  showExactAddress?: boolean;
   latitude?: number;
   longitude?: number;
   hasExactLocation?: boolean;
@@ -172,13 +204,22 @@ interface Apartment {
   hostId?: string;
   ownerId?: string;
   assignedBrokerIds?: string[];
-  status?: "active" | "closed_deal";
+  agencyId?: string;
+  keySafeLocation?: string;
+  keySafeLogs?: KeySafeLogEntry[];
+  openHouseConfig?: OpenHouseConfig;
+  commissionRate?: number;
+  showPhoneNumber?: boolean;
+  hidePhoneFromBrokers?: boolean;
+  status?: "active" | "under_negotiation" | "withdrawn" | "rented" | "sold" | "closed_deal";
   rentedToUserId?: string | null;
   rentedAt?: number | null;
   isOffMarket?: boolean;
   offMarketAccessUserIds?: string[];
   watermarkConfig?: WatermarkConfig;
   files2d3d?: string[];
+  virtualTour?: VirtualTourData;
+  withdrawalMetadata?: ListingWithdrawalMetadata;
 }
 
 interface FirestoreApartmentDoc {
@@ -187,6 +228,7 @@ interface FirestoreApartmentDoc {
   about?: string;
   propertyCategory?: string;
   propertyType?: string;
+  furnishedStatus?: string;
   floor?: string;
   area?: string;
   city?: string;
@@ -205,13 +247,21 @@ interface FirestoreApartmentDoc {
   extraInformation?: Partial<ListingExtraInformation>;
   orientation?: string;
   showPhoneNumber?: boolean;
+  hidePhoneFromBrokers?: boolean;
   hostId?: string;
   assignedBrokerIds?: string[];
+  agencyId?: string;
+  keySafeLocation?: string;
+  keySafeLogs?: KeySafeLogEntry[];
+  openHouseConfig?: OpenHouseConfig;
+  commissionRate?: number;
   ownerId?: string;
-  status?: "active" | "closed_deal";
+  status?: "active" | "under_negotiation" | "withdrawn" | "rented" | "sold" | "closed_deal";
   rentedToUserId?: string | null;
   rentedAt?: FieldValue | null;
   address?: string;
+  exactAddress?: string;
+  showExactAddress?: boolean;
   latitude?: number;
   longitude?: number;
   hasExactLocation?: boolean;
@@ -222,6 +272,8 @@ interface FirestoreApartmentDoc {
   offMarketAccessUserIds?: string[];
   watermarkConfig?: WatermarkConfig;
   files2d3d?: string[];
+  virtualTour?: VirtualTourData;
+  withdrawalMetadata?: ListingWithdrawalMetadata;
 }
 
 interface FirestoreInquiryChatDoc {
@@ -236,6 +288,8 @@ interface FirestoreInquiryChatDoc {
   initiatedBy?: string | null;
   rejectedBy?: string | null;
   rejections?: string[];
+  assignedBrokerId?: string;
+  brokerId?: string;
 }
 
 interface FirestoreUserDoc {
@@ -383,13 +437,45 @@ function toMillis(value: unknown): number {
 function getBrokerPropertyStageLabel(stage: BrokerPropertyDealStage): string {
   if (stage === "showing_scheduled") return "Επίσκεψη";
   if (stage === "offer_made") return "Προσφορά";
+  if (stage === "negotiation_agreement") return "Υπό διαπραγμάτευση / Προσύμφωνο";
   if (stage === "deal_closed") return "Ολοκληρώθηκε";
   if (stage === "lost") return "Χάθηκε";
   return "Lead";
 }
 
+function getBrokerPropertyStagePercent(stage: BrokerPropertyDealStage): number {
+  if (stage === "deal_closed") return 100;
+  if (stage === "negotiation_agreement") return 90;
+  if (stage === "offer_made") return 60;
+  if (stage === "showing_scheduled") return 40;
+  if (stage === "lost") return 0;
+  return 10;
+}
+
+function apartmentToListingFormData(data: FirestoreApartmentDoc): ListingFormData {
+  const extraInformation = data.extraInformation ?? {};
+  return {
+    city: data.city,
+    area: data.area,
+    latitude: data.latitude,
+    longitude: data.longitude,
+    rent: data.rent ?? data.price,
+    size: data.size ?? data.sqft,
+    floor: data.floor,
+    bedrooms: data.rooms,
+    bathrooms: extraInformation.bathrooms,
+    tags: data.tags,
+    amenities: data.amenities,
+    propertyType: data.propertyType,
+    propertyCategory: data.propertyCategory,
+    furnishedStatus: data.furnishedStatus,
+    heatingSystem: extraInformation.heatingSystem,
+  };
+}
+
 function getBrokerPropertyStageTone(stage: BrokerPropertyDealStage, colors: ThemeColors): { backgroundColor: string } {
   if (stage === "lost" || stage === "showing_scheduled") return { backgroundColor: colors.surfaceTertiary };
+  if (stage === "negotiation_agreement") return { backgroundColor: "rgba(234,179,8,0.18)" };
   return { backgroundColor: colors.brandTertiary };
 }
 
@@ -600,8 +686,14 @@ export default function ApartmentDetailScreen() {
   const [selectedDealClientId, setSelectedDealClientId] = useState<string | null>(null);
   const [isSubmittingCloseDeal, setIsSubmittingCloseDeal] = useState(false);
   const [showReopenDealConfirm, setShowReopenDealConfirm] = useState(false);
-  const [apartmentStatus, setApartmentStatus] = useState<"active" | "closed_deal">("active");
+  const [apartmentStatus, setApartmentStatus] = useState<"active" | "under_negotiation" | "withdrawn" | "rented" | "sold" | "closed_deal">("active");
+  const [withdrawalMetadata, setWithdrawalMetadata] = useState<ListingWithdrawalMetadata | undefined>(apt?.withdrawalMetadata);
   const [rentedToUserId, setRentedToUserId] = useState<string | null>(null);
+  const [showExactAddress, setShowExactAddress] = useState(apt?.showExactAddress !== false);
+  const [brokerSelectorVisible, setBrokerSelectorVisible] = useState(false);
+  const [brokerSelectorLoading, setBrokerSelectorLoading] = useState(false);
+  const [brokerSelectorItems, setBrokerSelectorItems] = useState<BrokerSelectorItem[]>([]);
+  const [coManagingBrokers, setCoManagingBrokers] = useState<BrokerSelectorItem[]>([]);
 
   const [dbImages, setDbImages] = useState<string[]>([]);
   const [files2d3d, setFiles2d3d] = useState<string[]>([]);
@@ -620,23 +712,31 @@ export default function ApartmentDetailScreen() {
   const [checkingVisibility, setCheckingVisibility] = useState(() => Boolean(apt?.id && auth.userId && !auth.isGuest));
   const [isListingExcluded, setIsListingExcluded] = useState(false);
   const [showPhoneNumber, setShowPhoneNumber] = useState(false);
+  const [hidePhoneFromBrokers, setHidePhoneFromBrokers] = useState(false);
   const [hostPhoneNumber, setHostPhoneNumber] = useState("");
   const [resolvedHostId, setResolvedHostId] = useState<string | null>(apt?.hostId || apt?.ownerId || null);
   const [hostUserData, setHostUserData] = useState<FirestoreUserDoc | null>(null);
   const [hostProfileLoaded, setHostProfileLoaded] = useState(false);
   const [resolvedAssignedBrokerIds, setResolvedAssignedBrokerIds] = useState<string[]>(apt?.assignedBrokerIds || []);
+  const [resolvedAgencyId, setResolvedAgencyId] = useState(apt?.agencyId || "");
+  const [resolvedOpenHouseConfig, setResolvedOpenHouseConfig] = useState<OpenHouseConfig | undefined>(apt?.openHouseConfig);
   const [approvedClientPrice, setApprovedClientPrice] = useState<number | null>(null);
   const [isOffMarketListing, setIsOffMarketListing] = useState(apt?.isOffMarket === true);
   const [offMarketAccessUserIds, setOffMarketAccessUserIds] = useState<string[]>(apt?.offMarketAccessUserIds || []);
   const [resolvedWatermarkConfig, setResolvedWatermarkConfig] = useState<WatermarkConfig | undefined>(apt?.watermarkConfig);
+  const [resolvedVirtualTour, setResolvedVirtualTour] = useState<VirtualTourData | undefined>(apt?.virtualTour);
+  const [isVirtualTourVisible, setIsVirtualTourVisible] = useState(false);
   const offMarketGuardShown = useRef(false);
 
   const [clientPool, setClientPool] = useState<BrokerClientWithFilters[]>([]);
   const [loadingClients, setLoadingClients] = useState(false);
   const [brokerPropertyDealLeads, setBrokerPropertyDealLeads] = useState<BrokerPropertyDealLead[]>([]);
   const [loadingBrokerPropertyDealLeads, setLoadingBrokerPropertyDealLeads] = useState(false);
+  const [brokerDealsForStrategy, setBrokerDealsForStrategy] = useState<BrokerDeal[]>([]);
+  const [strategyInsights, setStrategyInsights] = useState<Map<string, StrategyClientInsight>>(new Map());
   const [hostInquiringClients, setHostInquiringClients] = useState<HostInquiringClient[]>([]);
   const [loadingHostInquiringClients, setLoadingHostInquiringClients] = useState(false);
+  const [ownerBrokerLeadGroups, setOwnerBrokerLeadGroups] = useState<OwnerBrokerLeadGroup[]>([]);
   const [isClientsSectionOpen, setIsClientsSectionOpen] = useState(false);
   const [clientsSectionY, setClientsSectionY] = useState<number | null>(null);
   const [viewerLookingForRoommate, setViewerLookingForRoommate] = useState(false);
@@ -649,6 +749,18 @@ export default function ApartmentDetailScreen() {
   const [newInteractionClientId, setNewInteractionClientId] = useState("");
   const [newInteractionNote, setNewInteractionNote] = useState("");
   const [isSavingInteraction, setIsSavingInteraction] = useState(false);
+  const [userRating, setUserRating] = useState<number | null>(null);
+  const [ratingDraft, setRatingDraft] = useState(8);
+  const [isRatingModalVisible, setIsRatingModalVisible] = useState(false);
+  const [isSavingRating, setIsSavingRating] = useState(false);
+  const pendingCallRef = useRef<PendingCallDetails | null>(null);
+  const [isCallFeedbackModalVisible, setIsCallFeedbackModalVisible] = useState(false);
+  const [isSavingCallFeedback, setIsSavingCallFeedback] = useState(false);
+  const [keySafeLocation, setKeySafeLocation] = useState(apt?.keySafeLocation || "");
+  const [keySafeLogs, setKeySafeLogs] = useState<KeySafeLogEntry[]>(apt?.keySafeLogs || []);
+  const [keySafeWorking, setKeySafeWorking] = useState(false);
+  const [assignmentSetupVisible, setAssignmentSetupVisible] = useState(false);
+  const [contractDraft, setContractDraft] = useState<ContractDraftContext | null>(null);
 
   const isListingOwner = useMemo(() => {
     if (!apt || !auth.userId) return false;
@@ -656,13 +768,166 @@ export default function ApartmentDetailScreen() {
     const isAssigned = resolvedAssignedBrokerIds.includes(auth.userId);
     return isDirectOwner || (auth.isBroker && isAssigned);
   }, [apt, auth.isBroker, auth.userId, resolvedAssignedBrokerIds]);
+  const canManageKeySafe = Boolean(auth.isBroker && auth.agencyId && resolvedAgencyId === auth.agencyId && apt?.id);
+  const crossBrokerListingBrokerId = resolvedAssignedBrokerIds.find((brokerId) => brokerId !== auth.userId)
+    || (hostUserData?.is_broker === true && resolvedHostId !== auth.userId ? resolvedHostId : null);
+  const canScheduleCrossBrokerVisit = Boolean(auth.isBroker && auth.userId && auth.agencyId && resolvedAgencyId === auth.agencyId && crossBrokerListingBrokerId && crossBrokerListingBrokerId !== auth.userId && auth.userId !== (apt?.hostId || apt?.ownerId));
+  const canScanOpenHouse = Boolean(auth.isBroker && auth.userId && resolvedOpenHouseConfig?.isOpenHouseActive && resolvedOpenHouseConfig.attendingBrokerIds.includes(auth.userId));
+  const canManageOpenHouse = Boolean(auth.isBroker && auth.userId && auth.agencyId && resolvedAgencyId === auth.agencyId && isListingOwner);
+  const canCreateAssignmentOrder = Boolean(auth.isBroker && auth.userId && apt?.id && isListingOwner && auth.agencyId && resolvedAgencyId === auth.agencyId && resolvedHostId && resolvedHostId !== auth.userId);
+  const [crossBrokerVisitVisible, setCrossBrokerVisitVisible] = useState(false);
+  const [openHouseScannerVisible, setOpenHouseScannerVisible] = useState(false);
+  const activeKeySafeLog = keySafeLogs.find((log) => !log.returnedAt);
+
+  const handleCheckoutKeys = useCallback(async () => {
+    if (!canManageKeySafe || !apt?.id || !auth.userId || keySafeWorking || activeKeySafeLog) return;
+    setKeySafeWorking(true);
+    try {
+      const entry = await checkoutKeySafe({ apartmentId: apt.id, brokerId: auth.userId, brokerName: auth.user?.name?.trim() || "Μεσίτης" });
+      setKeySafeLogs((previous) => [...previous, entry]);
+    } catch (error) {
+      Alert.alert("Η παραλαβή απέτυχε", error instanceof Error ? error.message : "Δοκιμάστε ξανά.");
+    } finally {
+      setKeySafeWorking(false);
+    }
+  }, [activeKeySafeLog, apt?.id, auth.user?.name, auth.userId, canManageKeySafe, keySafeWorking]);
+
+  const handleReturnKeys = useCallback(async () => {
+    if (!canManageKeySafe || !apt?.id || !auth.userId || keySafeWorking || !activeKeySafeLog || activeKeySafeLog.brokerId !== auth.userId) return;
+    setKeySafeWorking(true);
+    try {
+      await returnKeySafe({ apartmentId: apt.id, brokerId: auth.userId });
+      setKeySafeLogs((previous) => previous.map((log) => log.id === activeKeySafeLog.id ? { ...log, returnedAt: Date.now() } : log));
+    } catch (error) {
+      Alert.alert("Η επιστροφή απέτυχε", error instanceof Error ? error.message : "Δοκιμάστε ξανά.");
+    } finally {
+      setKeySafeWorking(false);
+    }
+  }, [activeKeySafeLog, apt?.id, auth.userId, canManageKeySafe, keySafeWorking]);
+
+  const handleToggleOpenHouse = useCallback(async () => {
+    if (!canManageOpenHouse || !apt?.id || !auth.userId || !resolvedAgencyId) return;
+    const nextConfig: OpenHouseConfig = resolvedOpenHouseConfig?.isOpenHouseActive
+      ? { ...(resolvedOpenHouseConfig ?? { date: new Date().toISOString(), attendingBrokerIds: [auth.userId] }), isOpenHouseActive: false }
+      : { isOpenHouseActive: true, date: new Date().toISOString(), attendingBrokerIds: Array.from(new Set([...resolvedAssignedBrokerIds, auth.userId])) };
+    try {
+      await updateOpenHouseConfig(apt.id, nextConfig);
+      setResolvedOpenHouseConfig(nextConfig);
+    } catch (error) {
+      Alert.alert("Η αλλαγή Open House απέτυχε", error instanceof Error ? error.message : "Δοκιμάστε ξανά.");
+    }
+  }, [apt?.id, auth.userId, canManageOpenHouse, resolvedAgencyId, resolvedAssignedBrokerIds, resolvedOpenHouseConfig]);
   const isStrictHostOwner = !!apt?.hostId && !!auth.userId && auth.userId === apt.hostId;
   const isBrokerListing = hostUserData?.is_broker === true;
   const hostNotLookingForRoommate = hostUserData?.notLookingForRoommate === true || hostUserData?.not_looking_for_roommate === true;
   const hostLookingForRoommate = hostUserData ? !hostNotLookingForRoommate : false;
   const hasAssignedBrokers = resolvedAssignedBrokerIds.length > 0;
+  const isOwnerView = Boolean(auth.userId && apt?.hostId === auth.userId);
+  const isReadOnlyWithdrawnCoBroker = Boolean(
+    auth.isBroker &&
+    auth.userId &&
+    resolvedAssignedBrokerIds.includes(auth.userId) &&
+    !isOwnerView &&
+    ["withdrawn", "rented", "sold", "closed_deal"].includes(apartmentStatus) &&
+    withdrawalMetadata?.withdrawnByUserId !== auth.userId,
+  );
+
+  const openAssignmentSetup = useCallback(() => {
+    if (!canCreateAssignmentOrder) return;
+    setAssignmentSetupVisible(true);
+  }, [canCreateAssignmentOrder]);
+
+  const startAssignmentContract = useCallback((values: { mode: "simple" | "exclusive"; commissionRatePercentage: number }) => {
+    if (!apt?.id || !auth.userId || !resolvedHostId || !resolvedAgencyId) return;
+    setAssignmentSetupVisible(false);
+    const apartmentAddress = apt.exactAddress || apt.address || [apt.area, apt.city].filter(Boolean).join(", ");
+    setContractDraft({
+      agencyId: resolvedAgencyId,
+      createdByUserId: auth.userId,
+      contractType: "property_assignment",
+      title: t("esign.assignmentOrder"),
+      brokerId: auth.userId,
+      ownerId: resolvedHostId,
+      apartmentId: apt.id,
+      apartmentAddress,
+      participantIds: [
+        { id: auth.userId, role: "broker" },
+        { id: resolvedHostId, role: "owner" },
+      ],
+      contractPayload: {
+        assignmentMode: values.mode,
+        commissionRatePercentage: values.commissionRatePercentage,
+        monthlyRentOrPrice: apt.rent,
+        commissionAmountCalculated: apt.rent * values.commissionRatePercentage / 100,
+      },
+    });
+  }, [apt, auth.userId, resolvedAgencyId, resolvedHostId]);
+
+  const handleAssignmentCreated = useCallback(async (createdContract: DigitalContractDocument) => {
+    if (!auth.userId || !resolvedHostId || !apt?.id) return;
+    try {
+      const chatRoomId = await getOrCreateHostChat({
+        currentUserId: auth.userId,
+        hostId: resolvedHostId,
+        apartmentId: apt.id,
+        apartmentTitle: apt.title,
+      });
+      await sendContractChatRequest({ chatRoomId, senderId: auth.userId, contract: createdContract });
+      setActionModal({ title: t("esign.remoteRequestSentTitle"), description: t("esign.remoteRequestSentDescription") });
+    } catch (error) {
+      console.warn("[ApartmentDetail] Failed to dispatch assignment signature request", error);
+    }
+  }, [apt?.id, apt?.title, auth.userId, resolvedHostId]);
+
+  const loadBrokerSelectorItems = useCallback(async () => {
+    if (resolvedAssignedBrokerIds.length < 2) return;
+    setBrokerSelectorLoading(true);
+    try {
+      const brokers = await Promise.all(resolvedAssignedBrokerIds.map(async (brokerId): Promise<BrokerSelectorItem | null> => {
+        const snapshot = await getDoc(doc(db, "users", brokerId));
+        if (!snapshot.exists()) return null;
+        const data = snapshot.data() as FirestoreUserDoc & { agencyName?: string; rating?: number };
+        return { id: brokerId, name: data.name?.trim() || t("common.values.unknown"), avatar: data.photoUrl || data.avatar || data.photos?.[0] || "", agencyName: data.agencyName, rating: typeof data.rating === "number" ? data.rating : undefined };
+      }));
+      setBrokerSelectorItems(brokers.filter((broker): broker is BrokerSelectorItem => broker !== null));
+      setBrokerSelectorVisible(true);
+    } finally {
+      setBrokerSelectorLoading(false);
+    }
+  }, [resolvedAssignedBrokerIds]);
+
+  useEffect(() => {
+    if (resolvedAssignedBrokerIds.length < 2) {
+      setCoManagingBrokers([]);
+      return;
+    }
+    let active = true;
+    void Promise.all(resolvedAssignedBrokerIds.map(async (brokerId): Promise<BrokerSelectorItem | null> => {
+      const snapshot = await getDoc(doc(db, "users", brokerId));
+      if (!snapshot.exists()) return null;
+      const data = snapshot.data() as FirestoreUserDoc & { agencyName?: string; rating?: number };
+      return {
+        id: brokerId,
+        name: data.name?.trim() || t("common.values.unknown"),
+        avatar: data.photoUrl || data.avatar || data.photos?.[0] || "",
+        agencyName: data.agencyName,
+        rating: typeof data.rating === "number" ? data.rating : undefined,
+      } satisfies BrokerSelectorItem;
+    })).then((brokers) => {
+      if (active) setCoManagingBrokers(brokers.filter((broker): broker is BrokerSelectorItem => broker !== null));
+    }).catch(() => {
+      if (active) setCoManagingBrokers([]);
+    });
+    return () => { active = false; };
+  }, [resolvedAssignedBrokerIds]);
   const isListingEligible = hostProfileLoaded && (isBrokerListing || hostNotLookingForRoommate || hasAssignedBrokers);
   const canViewerSeeSection = viewerProfileLoaded && !isListingOwner && !auth.isBroker && !auth.notLookingForRoommate && viewerLookingForRoommate && isListingEligible;
+  const canRateApartment = Boolean(apt?.id && auth.userId && !auth.isGuest && !auth.isBroker && !isListingOwner);
+  const shouldShowPhoneButton = useMemo(() => {
+    if (!showPhoneNumber || !hostPhoneNumber) return false;
+    if (hidePhoneFromBrokers && auth.isBroker) return false;
+    return true;
+  }, [auth.isBroker, hidePhoneFromBrokers, hostPhoneNumber, showPhoneNumber]);
   const canViewLikedUsers = canViewerSeeSection;
   const currentApartmentId = apt?.id;
   const listingOwnerIds = useMemo(
@@ -678,6 +943,55 @@ export default function ApartmentDetailScreen() {
     });
     return Array.from(clients.entries()).map(([id, name]) => ({ id, name }));
   }, [brokerPropertyDealLeads, hostInquiringClients, interactions]);
+
+  useEffect(() => {
+    if (!canRateApartment || !auth.userId || !currentApartmentId) {
+      setUserRating(null);
+      return;
+    }
+    void getDoc(doc(db, "apartments", currentApartmentId, "ratings", auth.userId)).then((snapshot) => {
+      const score = snapshot.exists() ? Number(snapshot.data().score) : NaN;
+      const normalized = Number.isInteger(score) && score >= 1 && score <= 10 ? score : null;
+      setUserRating(normalized);
+      if (normalized) setRatingDraft(normalized);
+    }).catch(() => setUserRating(null));
+  }, [auth.userId, canRateApartment, currentApartmentId]);
+
+  const handleSaveRating = useCallback(async () => {
+    if (!canRateApartment || !auth.userId || !currentApartmentId || isSavingRating) return;
+    setIsSavingRating(true);
+    const score = Math.min(10, Math.max(1, Math.round(ratingDraft)));
+    try {
+      await setDoc(doc(db, "apartments", currentApartmentId, "ratings", auth.userId), {
+        apartmentId: currentApartmentId,
+        clientId: auth.userId,
+        clientName: auth.user?.name || "Πελάτης",
+        score,
+        updatedAt: Date.now(),
+      });
+      const relationshipSnapshot = await getDocs(query(
+        collection(db, "brokerClientProfiles"),
+        where("clientId", "==", auth.userId),
+      )).catch(() => null);
+      const relationship = relationshipSnapshot?.docs.find((snapshot) => {
+        const apartmentIds = snapshot.data().apartmentIds;
+        return Array.isArray(apartmentIds) && apartmentIds.includes(currentApartmentId);
+      });
+      if (relationship) {
+        await setDoc(doc(db, "brokerClientProfiles", relationship.id, "propertyRatings", currentApartmentId), {
+          apartmentId: currentApartmentId,
+          score,
+          updatedAt: Date.now(),
+        }, { merge: true });
+      }
+      setUserRating(score);
+      setIsRatingModalVisible(false);
+    } catch (error) {
+      console.error("[ApartmentDetail] Failed to save apartment rating:", error);
+    } finally {
+      setIsSavingRating(false);
+    }
+  }, [auth.user?.name, auth.userId, canRateApartment, currentApartmentId, isSavingRating, ratingDraft]);
 
   const interactionMetrics = useMemo(() => {
     const filteredByClient = selectedClientFilter === "all"
@@ -784,6 +1098,7 @@ export default function ApartmentDetailScreen() {
   useEffect(() => {
     if (!auth.isBroker || !isListingOwner || !auth.userId || !currentApartmentId) {
       setBrokerPropertyDealLeads([]);
+      setBrokerDealsForStrategy([]);
       setLoadingBrokerPropertyDealLeads(false);
       return;
     }
@@ -805,6 +1120,7 @@ export default function ApartmentDetailScreen() {
             ),
           ),
         ]);
+        if (mounted) setBrokerDealsForStrategy(deals);
         const propertyDeals = Array.from(
           new Map(
             deals
@@ -850,6 +1166,8 @@ export default function ApartmentDetailScreen() {
             getDoc(doc(db, "brokerClientProfiles", `${currentUserId}_${deal.clientId}`)),
             getDoc(doc(db, "users", deal.clientId)),
           ]);
+          const ratingSnap = await getDoc(doc(db, "apartments", apartmentId, "ratings", deal.clientId)).catch(() => null);
+          const ratingValue = ratingSnap?.exists() ? Number(ratingSnap.data().score) : NaN;
           const profile = profileSnap.exists() ? profileSnap.data() as { clientName?: string; clientAvatar?: string; chatRoomId?: string } : {};
           const user = userSnap.exists() ? userSnap.data() as FirestoreUserDoc : {};
           const photos = Array.isArray(user.photos) ? user.photos : [];
@@ -862,6 +1180,7 @@ export default function ApartmentDetailScreen() {
             chatRoomId: chat?.chatRoomId || profile.chatRoomId || "",
             messageCount: chat?.messageCount || 0,
             lastMessageText: chat?.lastMessageText || "",
+            rating: Number.isInteger(ratingValue) && ratingValue >= 1 && ratingValue <= 10 ? ratingValue : undefined,
           } satisfies BrokerPropertyDealLead;
         }));
 
@@ -878,8 +1197,73 @@ export default function ApartmentDetailScreen() {
   }, [auth.isBroker, auth.userId, currentApartmentId, isListingOwner, listingOwnerIds]);
 
   useEffect(() => {
+    if (!auth.isBroker || !isListingOwner || !auth.userId || !currentApartmentId || brokerDealsForStrategy.length === 0) {
+      setStrategyInsights(new Map());
+      return;
+    }
+
+    let mounted = true;
+    const currentApartmentIdValue = currentApartmentId;
+    void (async () => {
+      const dealsByClient = new Map<string, BrokerDeal[]>();
+      brokerDealsForStrategy.forEach((deal) => {
+        if (deal.role === "owner" || deal.pipelineStage === "lost") return;
+        const clientDeals = dealsByClient.get(deal.clientId) ?? [];
+        clientDeals.push(deal);
+        dealsByClient.set(deal.clientId, clientDeals);
+      });
+
+      const apartmentIds = new Set(brokerDealsForStrategy.map((deal) => deal.apartmentId).filter(Boolean));
+      apartmentIds.add(currentApartmentIdValue);
+      const apartmentSnapshots = await Promise.all(Array.from(apartmentIds).map(async (apartmentId) => {
+        const snapshot = await getDoc(doc(db, "apartments", apartmentId));
+        return [apartmentId, snapshot.exists() ? snapshot.data() as FirestoreApartmentDoc : null] as const;
+      }));
+      const apartmentsById = new Map(apartmentSnapshots);
+      const filterByClient = new Map(clientPool.map((client) => [client.clientUserId, client.filterSet]));
+
+      const contexts: ClientDealContext[] = await Promise.all(Array.from(dealsByClient.entries()).map(async ([clientId, clientDeals]) => {
+        let filterSet = filterByClient.get(clientId) ?? null;
+        if (!filterSet) {
+          const filterSnapshot = await getDocs(collection(db, "users", clientId, "savedFilterSets"));
+          const latest = filterSnapshot.docs.sort((first, second) => toMillis(second.data().updatedAt) - toMillis(first.data().updatedAt))[0];
+          filterSet = latest ? latest.data() as FilterSetPayload : null;
+        }
+        const profileSnapshot = await getDoc(doc(db, "brokerClientProfiles", `${auth.userId}_${clientId}`));
+        const profileData = profileSnapshot.exists() ? profileSnapshot.data() : {};
+        const currentDeal = clientDeals.find((deal) => deal.apartmentId === currentApartmentIdValue);
+        const currentListing = apartmentsById.get(currentApartmentIdValue);
+        const currentApartmentScore = filterSet && currentListing ? calculateTenantCompatibilityScore(apartmentToListingFormData(currentListing), filterSet) : 0;
+        const portfolioInteractions = clientDeals
+          .filter((deal) => deal.apartmentId !== currentApartmentIdValue && apartmentsById.get(deal.apartmentId))
+          .map((deal) => ({
+            apartmentId: deal.apartmentId,
+            apartmentTitle: deal.apartmentTitle ?? apartmentsById.get(deal.apartmentId)?.title ?? "Ακίνητο",
+            compatibilityScore: filterSet ? calculateTenantCompatibilityScore(apartmentToListingFormData(apartmentsById.get(deal.apartmentId)!), filterSet) : 0,
+            stagePercent: getBrokerPropertyStagePercent(deal.pipelineStage),
+          }));
+        return {
+          clientId,
+          clientName: typeof profileData.clientName === "string" ? profileData.clientName : clientId,
+          createdAt: toMillis(profileData.createdAt) || toMillis(currentDeal?.createdAt),
+          currentApartmentScore,
+          currentApartmentStagePercent: currentDeal ? getBrokerPropertyStagePercent(currentDeal.pipelineStage) : 0,
+          portfolioInteractions,
+        };
+      }));
+
+      if (mounted) setStrategyInsights(evaluateCompetingClientsStrategy(contexts, currentApartmentIdValue));
+    })().catch(() => {
+      if (mounted) setStrategyInsights(new Map());
+    });
+
+    return () => { mounted = false; };
+  }, [auth.isBroker, auth.userId, brokerDealsForStrategy, clientPool, currentApartmentId, isListingOwner]);
+
+  useEffect(() => {
     if (auth.isBroker || !isListingOwner || !auth.userId || !currentApartmentId) {
       setHostInquiringClients([]);
+      setOwnerBrokerLeadGroups([]);
       setLoadingHostInquiringClients(false);
       return;
     }
@@ -891,7 +1275,7 @@ export default function ApartmentDetailScreen() {
 
     void (async () => {
       try {
-        const [chatsSnap, hostProfile, hostQuizSnap, excludedUserIds] = await Promise.all([
+        const [chatsSnap, hostProfile, hostQuizSnap, excludedUserIds, brokerProfilesSnap] = await Promise.all([
           getDocs(
             query(
               collection(db, "chats"),
@@ -902,7 +1286,21 @@ export default function ApartmentDetailScreen() {
           getUserProfile(currentUserId),
           getDoc(doc(db, "quiz_answers", currentUserId)).catch(() => null),
           getExcludedUserIds(currentUserId),
+          getDocs(query(collection(db, "brokerClientProfiles"), where("listingOwnerId", "==", currentUserId), where("apartmentIds", "array-contains", apartmentId))).catch(() => null),
         ]);
+
+        const attributionByClient = new Map<string, { brokerId: string; brokerName: string; brokerAvatar: string }>();
+        if (brokerProfilesSnap) {
+          await Promise.all(brokerProfilesSnap.docs.map(async (profileSnapshot) => {
+            const profileData = profileSnapshot.data();
+            const clientId = typeof profileData.clientId === "string" ? profileData.clientId : typeof profileData.clientUserId === "string" ? profileData.clientUserId : "";
+            const brokerId = typeof profileData.brokerId === "string" ? profileData.brokerId : "";
+            if (!clientId || !brokerId) return;
+            const brokerSnapshot = await getDoc(doc(db, "users", brokerId));
+            const brokerData = brokerSnapshot.exists() ? brokerSnapshot.data() : {};
+            attributionByClient.set(clientId, { brokerId, brokerName: typeof brokerData.name === "string" ? brokerData.name : "Μεσίτης", brokerAvatar: typeof brokerData.photoUrl === "string" ? brokerData.photoUrl : "" });
+          }));
+        }
 
         const hostDataSnap = await getDoc(doc(db, "users", currentUserId));
         const hostData = hostDataSnap.exists() ? hostDataSnap.data() as FirestoreUserDoc : null;
@@ -930,6 +1328,8 @@ export default function ApartmentDetailScreen() {
               getDoc(doc(db, "users", clientId)),
               getDoc(doc(db, "quiz_answers", clientId)).catch(() => null),
             ]);
+            const ratingSnap = await getDoc(doc(db, "apartments", apartmentId, "ratings", clientId)).catch(() => null);
+            const ratingValue = ratingSnap?.exists() ? Number(ratingSnap.data().score) : NaN;
             if (!clientUserSnap.exists()) return null;
 
             const clientData = clientUserSnap.data() as FirestoreUserDoc;
@@ -945,22 +1345,58 @@ export default function ApartmentDetailScreen() {
               compatibilityScore = calculateMatchScore(hostMatchProfile, clientMatchProfile);
             }
 
+            const attribution = attributionByClient.get(clientId) ?? ((chatData.brokerId || chatData.assignedBrokerId) ? { brokerId: chatData.brokerId || chatData.assignedBrokerId || "", brokerName: "Μεσίτης", brokerAvatar: "" } : undefined);
             return {
               id: clientId,
               name: clientData.name?.trim() || t("common.values.unknown"),
               avatar: clientData.photoUrl || clientData.avatar || clientData.photos?.[0] || "",
               chatRoomId: chatDoc.id,
               compatibilityScore,
+              rating: Number.isInteger(ratingValue) && ratingValue >= 1 && ratingValue <= 10 ? ratingValue : undefined,
+              managingBrokerId: attribution?.brokerId,
+              managingBrokerName: attribution?.brokerName,
+              managingBrokerAvatar: attribution?.brokerAvatar,
             } satisfies HostInquiringClient;
           }),
         );
 
+        const clientsById = new Map<string, HostInquiringClient>();
+        clients.forEach((client) => {
+          if (client) clientsById.set(client.id, client);
+        });
+        if (brokerProfilesSnap) {
+          await Promise.all(brokerProfilesSnap.docs.map(async (profileSnapshot) => {
+            const profileData = profileSnapshot.data();
+            const clientId = typeof profileData.clientId === "string" ? profileData.clientId : typeof profileData.clientUserId === "string" ? profileData.clientUserId : "";
+            if (!clientId || clientsById.has(clientId) || profileData.pipelineStage === "closed_lost") return;
+            const clientSnapshot = await getDoc(doc(db, "users", clientId));
+            if (!clientSnapshot.exists()) return;
+            const clientData = clientSnapshot.data() as FirestoreUserDoc;
+            const attribution = attributionByClient.get(clientId);
+            clientsById.set(clientId, {
+              id: clientId,
+              name: typeof clientData.name === "string" ? clientData.name.trim() : t("common.values.unknown"),
+              avatar: typeof clientData.photoUrl === "string" ? clientData.photoUrl : typeof clientData.avatar === "string" ? clientData.avatar : "",
+              chatRoomId: typeof profileData.chatRoomId === "string" ? profileData.chatRoomId : "",
+              compatibilityScore: null,
+              managingBrokerId: attribution?.brokerId,
+              managingBrokerName: attribution?.brokerName,
+              managingBrokerAvatar: attribution?.brokerAvatar,
+            });
+          }));
+        }
+
         if (active) {
-          const uniqueClients = new Map<string, HostInquiringClient>();
-          clients.forEach((client) => {
-            if (client) uniqueClients.set(client.id, client);
-          });
+          const uniqueClients = clientsById;
           setHostInquiringClients(Array.from(uniqueClients.values()));
+          const groups = new Map<string, OwnerBrokerLeadGroup>();
+          uniqueClients.forEach((client) => {
+            const brokerId = client.managingBrokerId ?? currentUserId;
+            const existing = groups.get(brokerId) ?? { brokerId, brokerName: client.managingBrokerName ?? hostData?.name ?? "Ιδιοκτήτης", brokerAvatar: client.managingBrokerAvatar ?? hostData?.photoUrl ?? "", leads: [] };
+            existing.leads.push(client);
+            groups.set(brokerId, existing);
+          });
+          setOwnerBrokerLeadGroups(Array.from(groups.values()));
         }
       } catch (error) {
         console.warn("[ApartmentDetail] Failed to load host clients:", error);
@@ -1055,6 +1491,8 @@ export default function ApartmentDetailScreen() {
     let mounted = true;
     setResolvedHostId(apt.hostId || apt.ownerId || null);
     setResolvedAssignedBrokerIds(Array.isArray(apt.assignedBrokerIds) ? apt.assignedBrokerIds : []);
+    setResolvedAgencyId(apt.agencyId || "");
+    setResolvedOpenHouseConfig(apt.openHouseConfig);
     setHostUserData(null);
     setHostProfileLoaded(false);
 
@@ -1070,7 +1508,12 @@ export default function ApartmentDetailScreen() {
         setIsOffMarketListing(docData.isOffMarket === true);
         setOffMarketAccessUserIds(Array.isArray(docData.offMarketAccessUserIds) ? docData.offMarketAccessUserIds : []);
         setResolvedWatermarkConfig(docData.watermarkConfig);
+        setResolvedVirtualTour(docData.virtualTour);
         setResolvedAssignedBrokerIds(Array.isArray(docData.assignedBrokerIds) ? docData.assignedBrokerIds : []);
+        setResolvedAgencyId(typeof docData.agencyId === "string" ? docData.agencyId : apt?.agencyId || "");
+        setResolvedOpenHouseConfig(docData.openHouseConfig);
+        setKeySafeLocation(typeof docData.keySafeLocation === "string" ? docData.keySafeLocation : "");
+        setKeySafeLogs(Array.isArray(docData.keySafeLogs) ? docData.keySafeLogs : []);
         setFiles2d3d(Array.isArray(docData.files2d3d) ? docData.files2d3d.filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0) : []);
         const imgs = Array.isArray(docData.images)
           ? docData.images.filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0)
@@ -1078,12 +1521,15 @@ export default function ApartmentDetailScreen() {
 
         setDbImages(imgs);
         setShowPhoneNumber(docData.showPhoneNumber === true);
+        setHidePhoneFromBrokers(docData.hidePhoneFromBrokers === true);
+        setShowExactAddress(docData.showExactAddress !== false);
         setResolvedHostId(docData.hostId || docData.ownerId || apt?.hostId || apt?.ownerId || null);
         setResolvedExtraDetails(normalizeExtraDetailsMap(docData.extraDetails));
         setResolvedExtraInformation(normalizeExtraInformation(docData.extraInformation));
         setPublishedAtMillis(toMillis(docData.publishedAt) || toMillis(docData.createdAt) || null);
         setUpdatedAtMillis(toMillis(docData.updatedAt) || null);
-        setApartmentStatus(docData.status === "closed_deal" ? "closed_deal" : "active");
+        setApartmentStatus(docData.status === "closed_deal" ? "closed_deal" : docData.status === "withdrawn" ? "withdrawn" : docData.status === "rented" ? "rented" : docData.status === "sold" ? "sold" : docData.status === "under_negotiation" ? "under_negotiation" : "active");
+        setWithdrawalMetadata(docData.withdrawalMetadata);
         setRentedToUserId(typeof docData.rentedToUserId === "string" ? docData.rentedToUserId : null);
 
         if (docData.description || docData.about) {
@@ -1129,9 +1575,23 @@ export default function ApartmentDetailScreen() {
   }, [apt?.id]);
 
   useEffect(() => {
-    setApartmentStatus(apt?.status === "closed_deal" ? "closed_deal" : "active");
+    const apartmentId = apt?.id;
+    if (!apartmentId) return;
+    return onSnapshot(doc(db, "apartments", apartmentId), (snapshot) => {
+      if (!snapshot.exists()) return;
+      const data = snapshot.data() as FirestoreApartmentDoc;
+      setKeySafeLocation(typeof data.keySafeLocation === "string" ? data.keySafeLocation : "");
+      setKeySafeLogs(Array.isArray(data.keySafeLogs) ? data.keySafeLogs : []);
+      setResolvedOpenHouseConfig(data.openHouseConfig);
+      setResolvedAssignedBrokerIds(Array.isArray(data.assignedBrokerIds) ? data.assignedBrokerIds : []);
+    });
+  }, [apt?.id]);
+
+  useEffect(() => {
+    setApartmentStatus(apt?.status === "closed_deal" ? "closed_deal" : apt?.status === "withdrawn" ? "withdrawn" : apt?.status === "rented" ? "rented" : apt?.status === "sold" ? "sold" : apt?.status === "under_negotiation" ? "under_negotiation" : "active");
+    setWithdrawalMetadata(apt?.withdrawalMetadata);
     setRentedToUserId(typeof apt?.rentedToUserId === "string" ? apt.rentedToUserId : null);
-  }, [apt?.rentedToUserId, apt?.status]);
+  }, [apt?.rentedToUserId, apt?.status, apt?.withdrawalMetadata]);
 
   useEffect(() => {
     if (!resolvedHostId) {
@@ -1581,6 +2041,98 @@ export default function ApartmentDetailScreen() {
     [apt?.image, dbImages, files2d3d],
   );
 
+  useEffect(() => {
+    let mounted = true;
+    const restorePendingCall = async () => {
+      const pendingCall = await getPendingCallInteraction();
+      if (!pendingCall) return;
+      if (Date.now() - pendingCall.timestamp >= PENDING_CALL_MAX_AGE_MS) {
+        await clearPendingCallInteraction();
+        return;
+      }
+      if (mounted) {
+        pendingCallRef.current = { ...pendingCall, startedAt: pendingCall.timestamp };
+        setIsCallFeedbackModalVisible(true);
+      }
+    };
+    void restorePendingCall();
+
+    const subscription = AppState.addEventListener("change", (nextAppState) => {
+      if (nextAppState !== "active" || isCallFeedbackModalVisible) return;
+      void restorePendingCall();
+    });
+
+    return () => {
+      mounted = false;
+      subscription.remove();
+    };
+  }, [isCallFeedbackModalVisible]);
+
+  const handleCallFeedbackSubmit = useCallback(async (feedbackText: string) => {
+    const pendingCall = pendingCallRef.current;
+    if (!pendingCall || !auth.userId || isSavingCallFeedback) return;
+
+    setIsSavingCallFeedback(true);
+    try {
+      const clientName = auth.user?.name || "Πελάτης";
+      const profileRef = doc(db, "brokerClientProfiles", `${pendingCall.brokerId}_${auth.userId}`);
+      const profileSnapshot = await getDoc(profileRef);
+      if (!profileSnapshot.exists()) {
+        await setDoc(profileRef, {
+          brokerId: pendingCall.brokerId,
+          clientId: auth.userId,
+          clientUserId: auth.userId,
+          clientName,
+          role: "client",
+          pipelineStage: "new_lead",
+          leadReadiness: "warm",
+          chatRoomId: [auth.userId, pendingCall.brokerId].sort().join("_"),
+          source: "phone_call",
+          apartmentId: pendingCall.apartmentId,
+          apartmentIds: [pendingCall.apartmentId],
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        });
+      } else {
+        await upsertBrokerClientProfile({
+          brokerId: pendingCall.brokerId,
+          clientId: auth.userId,
+          clientName,
+          role: "client",
+          chatRoomId: [auth.userId, pendingCall.brokerId].sort().join("_"),
+          apartmentId: pendingCall.apartmentId,
+          apartmentTitle: pendingCall.apartmentTitle,
+          pipelineStage: "new_lead",
+        });
+      }
+
+      await addPropertyInteraction({
+        apartmentId: pendingCall.apartmentId,
+        apartmentTitle: pendingCall.apartmentTitle,
+        clientId: auth.userId,
+        clientName,
+        brokerId: pendingCall.brokerId,
+        type: "call",
+        note: feedbackText.trim() || t("apartmentDetail.callInteractionNote"),
+        loggedByUserId: auth.userId,
+      });
+      pendingCallRef.current = null;
+      await clearPendingCallInteraction();
+      setIsCallFeedbackModalVisible(false);
+    } catch (error) {
+      Alert.alert(t("apartmentDetail.callFeedbackSaveFailedTitle"), t("apartmentDetail.callFeedbackSaveFailedMessage"));
+      console.error("[ApartmentDetail] Failed to save call feedback:", error);
+    } finally {
+      setIsSavingCallFeedback(false);
+    }
+  }, [auth.user?.name, auth.userId, isSavingCallFeedback]);
+
+  const handleCallNotPlaced = useCallback(() => {
+    pendingCallRef.current = null;
+    void clearPendingCallInteraction();
+    setIsCallFeedbackModalVisible(false);
+  }, []);
+
   if (!apt) {
     return (
       <View style={[styles.container, styles.center]}>
@@ -1637,6 +2189,7 @@ export default function ApartmentDetailScreen() {
   })();
 
   const images = allGalleryPhotos;
+  const virtualTour = resolvedVirtualTour ?? apt.virtualTour;
 
   const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const page = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
@@ -1648,21 +2201,38 @@ export default function ApartmentDetailScreen() {
     Linking.openURL(`mailto:${CONTACT_EMAIL}?subject=${subject}`);
   };
 
-  const callHostPhone = () => {
+  const callHostPhone = async () => {
     if (!hostPhoneNumber) return;
 
     const fullPhoneNumber = `+30${hostPhoneNumber.replace(/[^0-9]/g, "")}`;
-    Linking.openURL(`tel:${fullPhoneNumber}`).catch((err) => {
+    const brokerId = apt?.hostId || apt?.assignedBrokerIds?.[0] || resolvedHostId;
+    if (!auth.isBroker && auth.userId && brokerId && brokerId !== auth.userId) {
+      const pendingCall = {
+        apartmentId: apt?.id ?? "",
+        apartmentTitle: apt?.title ?? "Διαμέρισμα",
+        brokerId,
+        brokerName: hostUserData?.name || "Μεσίτης",
+        startedAt: Date.now(),
+      };
+      pendingCallRef.current = pendingCall;
+      await persistPendingCallInteraction({ ...pendingCall, timestamp: pendingCall.startedAt });
+    }
+    void Linking.openURL(`tel:${fullPhoneNumber}`).catch((err) => {
       console.error("Failed to open phone dialer:", err);
     });
   };
 
   const startHostChat = async () => {
     const currentUid = auth.userId;
-    let hostId = apt?.hostId || apt?.ownerId || null;
+    let hostId = resolvedAssignedBrokerIds.length === 1 ? resolvedAssignedBrokerIds[0] : apt?.hostId || apt?.ownerId || null;
 
     if (!currentUid) {
       router.push("/auth-landing");
+      return;
+    }
+
+    if (resolvedAssignedBrokerIds.length > 1) {
+      await loadBrokerSelectorItems();
       return;
     }
 
@@ -1708,6 +2278,17 @@ export default function ApartmentDetailScreen() {
         title: t("apartmentDetail.chatUnavailableTitle"),
         description: t("apartmentDetail.chatUnavailableMessage"),
       });
+    }
+  };
+
+  const startChatWithBroker = async (broker: BrokerSelectorItem) => {
+    if (!auth.userId || !apt?.id || broker.id === auth.userId) return;
+    try {
+      const chatRoomId = await getOrCreateHostChat({ currentUserId: auth.userId, hostId: broker.id, apartmentId: apt.id, apartmentTitle: apt.title });
+      setBrokerSelectorVisible(false);
+      router.push({ pathname: "/chat/[id]", params: { id: broker.id, targetUserId: broker.id, apartmentId: apt.id, chatRoomId } });
+    } catch {
+      setActionModal({ title: t("apartmentDetail.chatUnavailableTitle"), description: t("apartmentDetail.chatUnavailableMessage") });
     }
   };
 
@@ -1929,9 +2510,18 @@ export default function ApartmentDetailScreen() {
 
     setIsSubmittingCloseDeal(true);
     try {
+      const isOffPlatform = selectedDealClientId === "other";
+      const selectedClient = closeDealClientOptions.find((client) => client.id === selectedDealClientId);
       await updateDoc(doc(db, "apartments", apt.id), {
         status: "closed_deal",
-        rentedToUserId: selectedDealClientId,
+        isOffMarket: true,
+        withdrawalMetadata: {
+          withdrawnByUserId: auth.userId,
+          withdrawnByRole: "owner",
+          reason: "deal_closed",
+          withdrawnAt: Date.now(),
+        },
+        ...(isOffPlatform ? { closedOffPlatform: true, rentedToUserId: null } : { rentedToUserId: selectedDealClientId, closedOffPlatform: false }),
         rentedAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
@@ -1940,12 +2530,27 @@ export default function ApartmentDetailScreen() {
         apartmentId: apt.id,
         hostUserId: auth.userId,
         rentedToUserId: selectedDealClientId,
+        closedOffPlatform: isOffPlatform,
         closedAt: serverTimestamp(),
         source: "apartment_detail",
       });
 
       setApartmentStatus("closed_deal");
-      setRentedToUserId(selectedDealClientId);
+      setWithdrawalMetadata({ withdrawnByUserId: auth.userId, withdrawnByRole: "owner", reason: "deal_closed", withdrawnAt: Date.now() });
+      setRentedToUserId(isOffPlatform ? null : selectedDealClientId);
+      await settleClosedDeal({
+        apartmentId: apt.id,
+        apartmentTitle: apt.title,
+        dealAmount: apt.rent,
+        commissionRate: typeof apt.commissionRate === "number" ? apt.commissionRate : undefined,
+        brokerId: auth.userId,
+        brokerName: auth.user?.name || "Μεσίτης",
+        clientId: isOffPlatform ? "off_platform" : selectedDealClientId,
+        clientName: isOffPlatform ? "Εκτός εφαρμογής" : selectedClient?.name || "Πελάτης",
+        ownerId: apt.ownerId && apt.ownerId !== auth.userId ? apt.ownerId : undefined,
+        listingBrokerId: apt.assignedBrokerIds?.[0] || auth.userId,
+        buyerBrokerId: auth.userId,
+      });
       setCloseDealModalVisible(false);
       setActionModal({
         title: "Η συμφωνία κατοχυρώθηκε!",
@@ -1971,10 +2576,12 @@ export default function ApartmentDetailScreen() {
         status: "active",
         rentedToUserId: null,
         rentedAt: null,
+        withdrawalMetadata: null,
         updatedAt: serverTimestamp(),
       });
 
       setApartmentStatus("active");
+      setWithdrawalMetadata(undefined);
       setRentedToUserId(null);
       setActionModal({
         title: "Η αγγελία ενεργοποιήθηκε ξανά",
@@ -2001,6 +2608,16 @@ export default function ApartmentDetailScreen() {
       >
         <Ionicons name="chevron-back" size={22} color={colors.onSurface} />
       </Pressable>
+            {canCreateAssignmentOrder ? (
+              <Pressable
+                style={styles.contractEntry}
+                onPress={openAssignmentSetup}
+                testID="apartment-detail-assignment-contract"
+              >
+                <Ionicons name="document-text-outline" size={19} color={colors.onBrand} />
+                <Text style={styles.contractEntryText}>{t("esign.signAssignmentOrder")}</Text>
+              </Pressable>
+            ) : null}
 
       {!auth.isGuest ? (
         <Pressable
@@ -2017,6 +2634,7 @@ export default function ApartmentDetailScreen() {
           }
           hitSlop={10}
           testID="apartment-detail-note"
+          disabled={isReadOnlyWithdrawnCoBroker}
         >
           <Ionicons name="journal-outline" size={20} color={colors.onSurface} />
         </Pressable>
@@ -2025,6 +2643,7 @@ export default function ApartmentDetailScreen() {
       <ScrollView
         ref={pageScrollRef}
         style={styles.scroll}
+        pointerEvents={isReadOnlyWithdrawnCoBroker ? "none" : "auto"}
         contentContainerStyle={{ paddingBottom: 100 + insets.bottom }}
         showsVerticalScrollIndicator={false}
       >
@@ -2034,7 +2653,7 @@ export default function ApartmentDetailScreen() {
             <Text style={styles.clientOnlyBannerText}>Αποκλειστική Προεπισκόπηση (Client-only view)</Text>
           </View>
         ) : null}
-        <View style={[styles.carouselWrap, images.length === 0 && styles.carouselWrapPlaceholder]}>
+        <View style={[styles.carouselWrap, images.length === 0 && styles.carouselWrapPlaceholder, isReadOnlyWithdrawnCoBroker && styles.withdrawnContentDimmed]}>
           {images.length > 0 ? (
             <>
               <ScrollView
@@ -2093,11 +2712,28 @@ export default function ApartmentDetailScreen() {
               </>
             )}
           </View>
+          {isReadOnlyWithdrawnCoBroker ? (
+            <View style={styles.withdrawnBannerOverlay} testID="apartment-detail-withdrawn-banner">
+              <Ionicons name="information-circle-outline" size={16} color="#FFFFFF" />
+              <Text style={styles.withdrawnBannerText}>{t("apartments.withdrawnByOtherBrokerBanner")}</Text>
+            </View>
+          ) : null}
         </View>
 
-        <View style={styles.infoBlock}>
+        <View style={[styles.infoBlock, isReadOnlyWithdrawnCoBroker && styles.withdrawnContentDimmed]}>
           <View style={styles.titleRow}>
-            <Text style={styles.aptTitle}>{apt.title || t("createListing.listingTitle", { area: apt.area })}</Text>
+            <View style={{ flex: 1, gap: spacing.xs }}>
+              <Text style={styles.aptTitle}>{apt.title || t("createListing.listingTitle", { area: apt.area })}</Text>
+              {apartmentStatus === "under_negotiation" ? <Text style={{ alignSelf: "flex-start", borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 4, backgroundColor: "rgba(234,179,8,0.18)", color: "#A16207", fontFamily: fonts.semibold, fontSize: fontSize.xs }}>«Υπό Διαπραγμάτευση / Προσύμφωνο»</Text> : null}
+              {["withdrawn", "rented", "sold", "closed_deal"].includes(apartmentStatus) ? <Text style={styles.lifecycleStatusBadge}>{apartmentStatus === "rented" ? "Ενοικιάστηκε" : apartmentStatus === "sold" ? "Πουλήθηκε" : "Αποσύρθηκε"}</Text> : null}
+            </View>
+
+            {coManagingBrokers.length > 1 ? (
+              <View style={styles.coManagingBanner} testID="apartment-detail-co-managing-brokers">
+                <View style={styles.coManagingAvatarRow}>{coManagingBrokers.map((broker) => broker.avatar ? <Image key={broker.id} source={{ uri: broker.avatar }} style={styles.coManagingAvatar} /> : <View key={broker.id} style={[styles.coManagingAvatar, styles.coManagingAvatarFallback]}><Ionicons name="person-outline" size={14} color={colors.onSurfaceTertiary} /></View>)}</View>
+                <Text style={styles.coManagingText} numberOfLines={2}>Συνδιαχείριση: {coManagingBrokers.map((broker) => broker.name).join(" & ")}</Text>
+              </View>
+            ) : null}
 
             {isListingOwner ? (
               <View style={styles.titleActions}>
@@ -2108,6 +2744,7 @@ export default function ApartmentDetailScreen() {
                       apartmentStatus === "closed_deal" ? styles.dealActionBtnClosed : styles.dealActionBtnActive,
                     ]}
                     onPress={() => {
+                      if (isReadOnlyWithdrawnCoBroker) return;
                       if (apartmentStatus === "closed_deal") {
                         setShowReopenDealConfirm(true);
                       } else {
@@ -2116,6 +2753,7 @@ export default function ApartmentDetailScreen() {
                     }}
                     testID={`apartment-detail-close-deal-btn-${apt.id}`}
                     hitSlop={8}
+                    disabled={isReadOnlyWithdrawnCoBroker}
                   >
                     {apartmentStatus === "closed_deal" ? (
                       <Ionicons name="eye-outline" size={20} color={colors.onSurfaceTertiary} />
@@ -2129,6 +2767,7 @@ export default function ApartmentDetailScreen() {
                   onPress={handleToggleAndScrollToClients}
                   testID={`apartment-detail-inquiries-btn-${apt.id}`}
                   hitSlop={8}
+                  disabled={isReadOnlyWithdrawnCoBroker}
                 >
                   <Ionicons name="chatbubbles-outline" size={18} color={colors.onSurface} />
                 </Pressable>
@@ -2137,6 +2776,7 @@ export default function ApartmentDetailScreen() {
                   onPress={() => setDeleteModalVisible(true)}
                   testID={`apartment-detail-delete-${apt.id}`}
                   hitSlop={8}
+                  disabled={isReadOnlyWithdrawnCoBroker}
                 >
                   <Ionicons name="trash-outline" size={20} color={colors.onSurface} />
                 </Pressable>
@@ -2149,7 +2789,7 @@ export default function ApartmentDetailScreen() {
                     onPress={handleToggleLikedUsersSection}
                     testID={`apartment-detail-liked-users-toggle-${apt.id}`}
                   >
-                    <Text style={styles.doubleHeartText}>💕</Text>
+                    <Ionicons name="heart-circle-outline" size={22} color={colors.onSurface} />
                   </Pressable>
                 )}
                 <Pressable
@@ -2174,6 +2814,28 @@ export default function ApartmentDetailScreen() {
             <Ionicons name="location-outline" size={16} color={colors.onSurfaceTertiary} />
             <Text style={styles.locText}>{apt.area}, {apt.city}</Text>
           </View>
+
+          {virtualTour?.enabled && virtualTour.scenes.length > 0 ? (
+            <Pressable style={styles.virtualTourEntry} onPress={() => setIsVirtualTourVisible(true)} testID="apartment-detail-virtual-tour-button">
+              <Ionicons name="cube-outline" size={18} color={colors.onBrand} />
+              <Text style={styles.virtualTourEntryText}>360° Virtual Tour</Text>
+              <Ionicons name="chevron-forward" size={17} color={colors.onBrand} />
+            </Pressable>
+          ) : null}
+
+          {canScanOpenHouse ? (
+            <Pressable style={styles.openHouseEntry} onPress={() => setOpenHouseScannerVisible(true)} testID="apartment-detail-open-house-scanner">
+              <Ionicons name="qr-code-outline" size={18} color={colors.onBrand} />
+              <View style={styles.openHouseEntryCopy}><Text style={styles.openHouseEntryTitle}>Open House</Text><Text style={styles.openHouseEntrySubtitle}>Καταχώριση νέου επισκέπτη</Text></View>
+              <Ionicons name="chevron-forward" size={17} color={colors.onBrand} />
+            </Pressable>
+          ) : null}
+          {canManageOpenHouse ? (
+            <Pressable style={styles.openHouseManageEntry} onPress={() => void handleToggleOpenHouse()} testID="apartment-detail-open-house-toggle">
+              <Ionicons name={resolvedOpenHouseConfig?.isOpenHouseActive ? "stop-circle-outline" : "play-circle-outline"} size={18} color={colors.brand} />
+              <Text style={styles.openHouseManageText}>{resolvedOpenHouseConfig?.isOpenHouseActive ? "Απενεργοποίηση Open House" : "Ενεργοποίηση Open House"}</Text>
+            </Pressable>
+          ) : null}
 
           <View style={styles.statsRow}>
             <View style={styles.statPill}>
@@ -2327,8 +2989,9 @@ export default function ApartmentDetailScreen() {
                   setAddInteractionModalVisible(true);
                 }}
                 hitSlop={8}
+                  disabled={isReadOnlyWithdrawnCoBroker}
                 accessibilityRole="button"
-                accessibilityLabel="Προσθήκη αλληλεπίδρασης"
+                accessibilityLabel={t("apartmentDetail.addInteractionLabel")}
                 testID="apartment-detail-add-interaction-btn"
               >
                 <Ionicons color={colors.onBrand} name="add" size={20} />
@@ -2481,8 +3144,10 @@ export default function ApartmentDetailScreen() {
                 brokerPropertyDealLeads.map((client) => {
                   const hasChat = Boolean(client.chatRoomId) && (client.messageCount > 0 || Boolean(client.lastMessageText.trim()));
                   const stageTone = getBrokerPropertyStageTone(client.pipelineStage, colors);
+                  const strategyInsight = strategyInsights.get(client.id);
                   return (
                     <View key={client.id} style={styles.clientLeadRow} testID={`apartment-detail-crm-client-${client.id}`}>
+                    <View style={styles.clientLeadMain}>
                     <View style={styles.clientInfoWrap}>
                       {client.avatar ? (
                         <Image source={{ uri: client.avatar }} style={styles.clientAvatar} contentFit="cover" />
@@ -2493,10 +3158,21 @@ export default function ApartmentDetailScreen() {
                         )}
                         <View style={styles.clientInlineMetaRow}>
                         <Text style={styles.clientName} numberOfLines={1}>{client.name}</Text>
+                        {client.rating ? <View style={[styles.crmRatingBadge, { backgroundColor: client.rating >= 8 ? "rgba(16,185,129,0.14)" : client.rating >= 5 ? "rgba(245,158,11,0.14)" : "rgba(239,68,68,0.14)" }]}><Ionicons color="#F59E0B" name="star" size={13} /><Text style={[styles.crmRatingText, { color: client.rating >= 8 ? "#059669" : client.rating >= 5 ? "#B45309" : "#DC2626" }]}>{`${client.rating}/10`}</Text></View> : <Text style={styles.crmNoRatingText}>Χωρίς βαθμολογία</Text>}
                         <View style={[styles.stagePill, { backgroundColor: stageTone.backgroundColor }]}>
                           <Text style={styles.stagePillText}>{getBrokerPropertyStageLabel(client.pipelineStage)}</Text>
                         </View>
                       </View>
+                    </View>
+                    {strategyInsight ? (
+                      <View style={[styles.advisoryContainer, strategyInsight.recommendationType === "PRIORITY_TARGET" ? styles.advisoryPriority : styles.advisoryCrossSell]} testID={`apartment-detail-strategy-${client.id}`}>
+                        <View style={styles.advisoryHeader}>
+                          <Ionicons name={strategyInsight.recommendationType === "PRIORITY_TARGET" ? "flag-outline" : "swap-horizontal-outline"} size={14} color={strategyInsight.recommendationType === "PRIORITY_TARGET" ? "#059669" : "#2563EB"} />
+                          <Text style={[styles.advisoryBadgeText, { color: strategyInsight.recommendationType === "PRIORITY_TARGET" ? "#059669" : "#2563EB" }]}>{strategyInsight.badgeLabel}</Text>
+                        </View>
+                        <Text style={styles.advisoryDescription}>{strategyInsight.advisoryText}</Text>
+                      </View>
+                    ) : null}
                     </View>
                     <View style={styles.crmActionButtonsRow}>
                       {hasChat ? (
@@ -2532,35 +3208,26 @@ export default function ApartmentDetailScreen() {
                   <Text style={styles.crmEmptyStateText}>Δεν υπάρχουν ακόμη ενδιαφερόμενοι πελάτες για αυτό το ακίνητο</Text>
                 </View>
               ) : (
-                hostInquiringClients.map((client) => (
-                  <View key={client.id} style={styles.clientLeadRow} testID={`host-client-row-${client.id}`}>
-                    <View style={styles.clientInfoWrap}>
-                      {client.avatar ? (
-                        <Image source={{ uri: client.avatar }} style={styles.clientAvatar} contentFit="cover" />
-                      ) : (
-                        <View style={[styles.clientAvatar, styles.clientAvatarFallback]}>
-                          <Ionicons color={colors.onSurfaceTertiary} name="person-outline" size={18} />
-                        </View>
-                      )}
-                      <Text numberOfLines={1} style={styles.clientName}>{client.name}</Text>
+                ownerBrokerLeadGroups.map((group) => (
+                  <View key={group.brokerId} style={styles.brokerLeadsGroupContainer} testID={`owner-crm-broker-group-${group.brokerId}`}>
+                    <View style={styles.brokerHeaderRow}>
+                      {group.brokerAvatar ? <Image source={{ uri: group.brokerAvatar }} style={styles.brokerGroupAvatar} contentFit="cover" /> : <View style={[styles.brokerGroupAvatar, styles.clientAvatarFallback]}><Ionicons name="person-outline" size={14} color={colors.onSurfaceTertiary} /></View>}
+                      <Text style={styles.brokerNameText} numberOfLines={1}>{group.brokerName}</Text>
+                      <View style={styles.activeLeadsBadge}><Text style={styles.activeLeadsBadgeText}>{`${group.leads.length} ${t("crm.activeLeads")}`}</Text></View>
                     </View>
-                    <View style={styles.crmActionButtonsRow}>
-                      {client.compatibilityScore != null ? (
-                        <View style={styles.matchBadge} testID={`host-client-match-${client.id}`}>
-                          <Ionicons color={colors.brand} name="sparkles" size={12} />
-                          <Text style={styles.matchBadgeText}>{`${client.compatibilityScore}%`}</Text>
+                    {group.leads.map((client) => (
+                      <View key={client.id} style={styles.clientLeadRow} testID={`host-client-row-${client.id}`}>
+                        <View style={styles.clientInfoWrap}>
+                          {client.avatar ? <Image source={{ uri: client.avatar }} style={styles.clientAvatar} contentFit="cover" /> : <View style={[styles.clientAvatar, styles.clientAvatarFallback]}><Ionicons color={colors.onSurfaceTertiary} name="person-outline" size={18} /></View>}
+                          <View style={styles.clientTextMeta}><Text numberOfLines={1} style={styles.clientName}>{client.name}</Text><Text style={styles.managedByText}>{t("crm.managedByBroker", { brokerName: group.brokerName })}</Text></View>
                         </View>
-                      ) : null}
-                      <Pressable
-                        style={[styles.crmActionBtn, styles.crmActionBtnActive]}
-                        onPress={() => router.push({ pathname: "/chat/[id]", params: { id: client.id, chatRoomId: client.chatRoomId } })}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Άνοιγμα συνομιλίας με ${client.name}`}
-                        testID={`host-client-chat-btn-${client.id}`}
-                      >
-                        <Ionicons color={colors.brand} name="chatbubble-ellipses-outline" size={18} />
-                      </Pressable>
-                    </View>
+                        <View style={styles.crmActionButtonsRow}>
+                          {client.rating ? <View style={styles.crmRatingBadge}><Ionicons color="#F59E0B" name="star" size={13} /><Text style={styles.crmRatingText}>{`${client.rating}/10`}</Text></View> : <Text style={styles.crmNoRatingText}>Χωρίς βαθμολογία</Text>}
+                          {client.compatibilityScore != null ? <View style={styles.matchBadge} testID={`host-client-match-${client.id}`}><Ionicons color={colors.brand} name="sparkles" size={12} /><Text style={styles.matchBadgeText}>{`${client.compatibilityScore}%`}</Text></View> : null}
+                          <Pressable style={[styles.crmActionBtn, styles.crmActionBtnActive]} onPress={() => router.push({ pathname: "/chat/[id]", params: { id: client.id, chatRoomId: client.chatRoomId } })} accessibilityRole="button" accessibilityLabel={`Άνοιγμα συνομιλίας με ${client.name}`} testID={`host-client-chat-btn-${client.id}`}><Ionicons color={colors.brand} name="chatbubble-ellipses-outline" size={18} /></Pressable>
+                        </View>
+                      </View>
+                    ))}
                   </View>
                 ))
               )
@@ -2725,22 +3392,22 @@ export default function ApartmentDetailScreen() {
             latitude={apt.latitude}
             longitude={apt.longitude}
             cityCoordinates={cityCoordinates}
-            hasExactLocation={apt.hasExactLocation === true}
+            hasExactLocation={apt.hasExactLocation === true && showExactAddress}
             height={300}
           />
           <View style={styles.locationMetaRow}>
             <Ionicons
-              name={apt.hasExactLocation ? "location-sharp" : "map-outline"}
+              name={apt.hasExactLocation && showExactAddress ? "location-sharp" : "map-outline"}
               size={16}
               color={colors.onSurfaceTertiary}
             />
             <Text style={styles.locationMetaText} numberOfLines={2}>
-              {apt.hasExactLocation && apt.address ? apt.address : `${apt.area}, ${apt.city}`}
+              {showExactAddress && apt.address ? apt.address : `${apt.area}, ${apt.city}`}
             </Text>
           </View>
         </View>
 
-        {showPhoneNumber && hostPhoneNumber.length > 0 ? (
+        {shouldShowPhoneButton ? (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Στοιχεία Επικοινωνίας</Text>
             <Pressable style={styles.phoneContactCard} onPress={callHostPhone} testID="apartment-detail-phone-contact">
@@ -2781,72 +3448,72 @@ export default function ApartmentDetailScreen() {
                 ) : null}
 
                 <View style={styles.extraInformationRow}>
-                  <Text style={styles.extraInformationLabel}>🛋️ Living Rooms</Text>
+                  <View style={styles.infoLabelRow}><Ionicons name="home-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Living Rooms</Text></View>
                   <Text style={styles.extraInformationValue}>{displayExtraInformation?.livingRooms}</Text>
                 </View>
                 <View style={styles.extraInformationRow}>
-                  <Text style={styles.extraInformationLabel}>🚿 Bathrooms</Text>
+                  <View style={styles.infoLabelRow}><Ionicons name="water-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Bathrooms</Text></View>
                   <Text style={styles.extraInformationValue}>{displayExtraInformation?.bathrooms}</Text>
                 </View>
                 <View style={styles.extraInformationRow}>
-                  <Text style={styles.extraInformationLabel}>🍳 Kitchens</Text>
+                  <View style={styles.infoLabelRow}><Ionicons name="restaurant-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Kitchens</Text></View>
                   <Text style={styles.extraInformationValue}>{displayExtraInformation?.kitchens}</Text>
                 </View>
                 {displayExtraInformation?.buildYear ? (
                   <View style={styles.extraInformationRow}>
-                    <Text style={styles.extraInformationLabel}>🏗️ Construction Year</Text>
+                    <View style={styles.infoLabelRow}><Ionicons name="business-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Construction Year</Text></View>
                     <Text style={styles.extraInformationValue}>{displayExtraInformation.buildYear}</Text>
                   </View>
                 ) : null}
                 {displayExtraInformation?.renovationYear ? (
                   <View style={styles.extraInformationRow}>
-                    <Text style={styles.extraInformationLabel}>🔨 Renovation Year</Text>
+                    <View style={styles.infoLabelRow}><Ionicons name="hammer-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Renovation Year</Text></View>
                     <Text style={styles.extraInformationValue}>{displayExtraInformation.renovationYear}</Text>
                   </View>
                 ) : null}
                 {typeof displayExtraInformation?.commonExpenses === "number" ? (
                   <View style={styles.extraInformationRow}>
-                    <Text style={styles.extraInformationLabel}>💶 Monthly Common Expenses</Text>
+                    <View style={styles.infoLabelRow}><Ionicons name="cash-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Monthly Common Expenses</Text></View>
                     <Text style={styles.extraInformationValue}>{`${displayExtraInformation.commonExpenses}${CURRENCY}`}</Text>
                   </View>
                 ) : null}
                 <View style={styles.extraInformationRow}>
-                  <Text style={styles.extraInformationLabel}>🪜 Levels</Text>
+                  <View style={styles.infoLabelRow}><Ionicons name="layers-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Levels</Text></View>
                   <Text style={styles.extraInformationValue}>{displayExtraInformation?.levels}</Text>
                 </View>
                 {displayExtraInformation?.heatingSystem ? (
                   <View style={styles.extraInformationRow}>
-                    <Text style={styles.extraInformationLabel}>🪟 Heating System</Text>
+                    <View style={styles.infoLabelRow}><Ionicons name="thermometer-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Heating System</Text></View>
                     <Text style={styles.extraInformationValue}>{displayExtraInformation.heatingSystem}</Text>
                   </View>
                 ) : null}
                 {displayExtraInformation?.energyClass ? (
                   <View style={styles.extraInformationRow}>
-                    <Text style={styles.extraInformationLabel}>⚡ Energy Class</Text>
+                    <View style={styles.infoLabelRow}><Ionicons name="flash-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Energy Class</Text></View>
                     <Text style={styles.extraInformationValue}>{displayExtraInformation.energyClass}</Text>
                   </View>
                 ) : null}
                 {displayExtraInformation?.windowFrames ? (
                   <View style={styles.extraInformationRow}>
-                    <Text style={styles.extraInformationLabel}>🪟 Window Frames</Text>
+                    <View style={styles.infoLabelRow}><Ionicons name="grid-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Window Frames</Text></View>
                     <Text style={styles.extraInformationValue}>{displayExtraInformation.windowFrames}</Text>
                   </View>
                 ) : null}
                 {extraInformationAvailabilityText ? (
                   <View style={styles.extraInformationRow}>
-                    <Text style={styles.extraInformationLabel}>📅 Availability Status</Text>
+                    <View style={styles.infoLabelRow}><Ionicons name="calendar-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Availability Status</Text></View>
                     <Text style={styles.extraInformationValue}>{extraInformationAvailabilityText}</Text>
                   </View>
                 ) : null}
                 {publishedAtMillis ? (
                   <View style={styles.extraInformationRow}>
-                    <Text style={styles.extraInformationLabel}>🕒 Ημερομηνία δημοσίευσης</Text>
+                    <View style={styles.infoLabelRow}><Ionicons name="time-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Ημερομηνία δημοσίευσης</Text></View>
                     <Text style={styles.extraInformationValue}>{formatDateTime(publishedAtMillis)}</Text>
                   </View>
                 ) : null}
                 {updatedAtMillis ? (
                   <View style={styles.extraInformationRow}>
-                    <Text style={styles.extraInformationLabel}>🕒 Τελευταία τροποποίηση</Text>
+                    <View style={styles.infoLabelRow}><Ionicons name="time-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Τελευταία τροποποίηση</Text></View>
                     <Text style={styles.extraInformationValue}>{formatDateTime(updatedAtMillis)}</Text>
                   </View>
                 ) : null}
@@ -2854,11 +3521,42 @@ export default function ApartmentDetailScreen() {
             ) : null}
           </View>
         ) : null}
+
+        {canManageKeySafe ? (
+          <View style={styles.section} testID="apartment-detail-key-safe-section">
+            <View style={styles.keySafeHeaderRow}>
+              <View style={styles.sectionHeadingRow}>
+                <Ionicons name="key-outline" size={20} color={colors.brand} />
+                <Text style={styles.sectionTitle}>Διαχείριση Κλειδιών Γραφείου</Text>
+              </View>
+              <Text style={styles.keySafeLocation}>{keySafeLocation || "Δεν έχει οριστεί θέση"}</Text>
+            </View>
+            <View style={[styles.keySafeStatus, activeKeySafeLog ? styles.keySafeStatusOut : styles.keySafeStatusIn]}>
+              <Ionicons name={activeKeySafeLog ? "log-out-outline" : "checkmark-circle-outline"} size={18} color={activeKeySafeLog ? colors.warning : colors.success} />
+              <Text style={[styles.keySafeStatusText, { color: activeKeySafeLog ? colors.warning : colors.success }]}>{activeKeySafeLog ? `Παραλήφθηκε από ${activeKeySafeLog.brokerName}` : "Στο Γραφείο"}</Text>
+            </View>
+            <View style={styles.keySafeActions}>
+              <Pressable style={[styles.keySafeButton, activeKeySafeLog && styles.keySafeButtonDisabled]} onPress={() => void handleCheckoutKeys()} disabled={keySafeWorking || !!activeKeySafeLog} testID="key-safe-checkout-button"><Ionicons name="log-out-outline" size={17} color={activeKeySafeLog ? colors.onSurfaceTertiary : colors.onBrand} /><Text style={[styles.keySafeButtonText, activeKeySafeLog && styles.keySafeButtonTextDisabled]}>Παραλαβή Κλειδιών</Text></Pressable>
+              <Pressable style={[styles.keySafeButton, (!activeKeySafeLog || activeKeySafeLog.brokerId !== auth.userId) && styles.keySafeButtonDisabled]} onPress={() => void handleReturnKeys()} disabled={keySafeWorking || !activeKeySafeLog || activeKeySafeLog.brokerId !== auth.userId} testID="key-safe-return-button"><Ionicons name="log-in-outline" size={17} color={!activeKeySafeLog || activeKeySafeLog.brokerId !== auth.userId ? colors.onSurfaceTertiary : colors.onBrand} /><Text style={[styles.keySafeButtonText, (!activeKeySafeLog || activeKeySafeLog.brokerId !== auth.userId) && styles.keySafeButtonTextDisabled]}>Επιστροφή Κλειδιών</Text></Pressable>
+            </View>
+            {keySafeLogs.slice(-10).reverse().map((log) => <View key={log.id} style={styles.keySafeLogRow}><View style={styles.keySafeLogCopy}><Text style={styles.keySafeLogName}>{log.brokerName}</Text><Text style={styles.keySafeLogDate}>Παραλαβή: {new Date(log.checkedOutAt).toLocaleString("el-GR")}</Text></View><Text style={styles.keySafeLogDate}>{log.returnedAt ? `Επιστροφή: ${new Date(log.returnedAt).toLocaleString("el-GR")}` : "Ενεργό"}</Text></View>)}
+          </View>
+        ) : null}
       </ScrollView>
 
+      {canRateApartment ? <Pressable style={[styles.ratingFab, { bottom: insets.bottom + 76 }, userRating ? styles.ratingFabActive : null]} onPress={() => { setRatingDraft(userRating ?? 8); setIsRatingModalVisible(true); }} hitSlop={6} testID="apartment-rating-fab" accessibilityLabel={t("apartmentDetail.rateLabel")}>
+        <Ionicons name={userRating ? "star" : "star-outline"} size={22} color={userRating ? "#F59E0B" : colors.onBrand} />
+        {userRating ? <Text style={styles.ratingFabText}>{userRating}</Text> : null}
+      </Pressable> : null}
+
       <View style={[styles.footer, { paddingBottom: spacing.lg + insets.bottom }]}>
+        {canScheduleCrossBrokerVisit ? (
+          <Pressable style={styles.crossBrokerVisitButton} onPress={() => setCrossBrokerVisitVisible(true)} testID="apartment-detail-cross-broker-visit">
+            <Ionicons name="calendar-outline" size={20} color={colors.onBrand} />
+            <Text style={styles.contactBtnText}>Κλείσε επίσκεψη για πελάτη</Text>
+          </Pressable>
+        ) : null}
         <Pressable
-          style={({ pressed }) => [styles.contactBtn, pressed && styles.contactBtnPressed]}
           onPress={
             isListingOwner
               ? handleEditListing
@@ -2866,6 +3564,8 @@ export default function ApartmentDetailScreen() {
                 ? () => router.push("/auth-landing")
                 : startHostChat
           }
+                  disabled={isReadOnlyWithdrawnCoBroker}
+                  style={({ pressed }) => [styles.contactBtn, pressed && styles.contactBtnPressed, isReadOnlyWithdrawnCoBroker && styles.withdrawnActionDisabled]}
           testID={isListingOwner ? "apartment-detail-edit" : "apartment-detail-contact"}
         >
           <Ionicons name={isListingOwner ? "create-outline" : "mail-outline"} size={20} color={colors.onBrand} />
@@ -2878,6 +3578,75 @@ export default function ApartmentDetailScreen() {
           </Text>
         </Pressable>
       </View>
+
+      <ApartmentRatingModal
+        visible={isRatingModalVisible}
+        score={ratingDraft}
+        saving={isSavingRating}
+        onClose={() => setIsRatingModalVisible(false)}
+        onScoreChange={setRatingDraft}
+        onSave={() => void handleSaveRating()}
+      />
+
+      <VirtualTourViewerModal visible={isVirtualTourVisible} tourData={virtualTour ?? null} onClose={() => setIsVirtualTourVisible(false)} />
+
+      <CallFeedbackModal
+        visible={isCallFeedbackModalVisible}
+        pendingCall={pendingCallRef.current}
+        isSubmitting={isSavingCallFeedback}
+        onSubmit={(text) => void handleCallFeedbackSubmit(text)}
+        onCallNotPlaced={handleCallNotPlaced}
+      />
+
+      <BrokerSelectorPopover
+        visible={brokerSelectorVisible}
+        brokers={brokerSelectorItems}
+        loading={brokerSelectorLoading}
+        onClose={() => setBrokerSelectorVisible(false)}
+        onSelect={(broker) => void startChatWithBroker(broker)}
+      />
+
+      <CrossBrokerVisitModal
+        visible={crossBrokerVisitVisible}
+        agencyId={resolvedAgencyId}
+        brokerId={auth.userId ?? ""}
+        listingBrokerId={crossBrokerListingBrokerId ?? ""}
+        apartmentId={apt.id}
+        apartmentTitle={apt.title}
+        apartmentAddress={apt.address || `${apt.area}, ${apt.city}`}
+        apartmentPrice={apt.rent}
+        onClose={() => setCrossBrokerVisitVisible(false)}
+        onCreated={() => {
+          setCrossBrokerVisitVisible(false);
+          setActionModal({ title: "Η επίσκεψη προγραμματίστηκε", description: "Η επίσκεψη καταχωρίστηκε στα ημερολόγια και των δύο μεσιτών." });
+        }}
+      />
+
+      <OpenHouseScannerModal
+        visible={openHouseScannerVisible}
+        agencyId={resolvedAgencyId}
+        apartmentId={apt.id}
+        apartmentTitle={apt.title}
+        brokerId={auth.userId ?? ""}
+        onClose={() => setOpenHouseScannerVisible(false)}
+        onRegistered={() => setActionModal({ title: "Ο επισκέπτης καταχωρίστηκε", description: "Το lead προστέθηκε στο CRM του γραφείου." })}
+      />
+
+      <PropertyAssignmentSetupModal
+        visible={assignmentSetupVisible}
+        apartmentTitle={apt.title}
+        defaultCommissionRate={apt.commissionRate}
+        onClose={() => setAssignmentSetupVisible(false)}
+        onContinue={startAssignmentContract}
+      />
+
+      <SignContractModal
+        visible={contractDraft !== null}
+        draft={contractDraft ?? undefined}
+        signerId={auth.userId ?? ""}
+        onCreated={handleAssignmentCreated}
+        onClose={() => setContractDraft(null)}
+      />
 
       <CenteredActionModal
         visible={deleteModalVisible}
@@ -3034,7 +3803,7 @@ export default function ApartmentDetailScreen() {
                 value={newInteractionNote}
                 onChangeText={setNewInteractionNote}
                 style={styles.interactionNoteInput}
-                placeholder="Προσθέστε λεπτομέρειες..."
+                placeholder={t("apartmentDetail.interactionNotePlaceholder")}
                 placeholderTextColor={colors.onSurfaceTertiary}
                 multiline
                 textAlignVertical="top"
@@ -3329,6 +4098,28 @@ function createStyles(colors: ThemeColors) {
       borderColor: colors.border,
       backgroundColor: colors.surfaceSecondary,
     },
+    withdrawnContentDimmed: {
+      opacity: 0.65,
+    },
+    withdrawnBannerOverlay: {
+      position: "absolute",
+      top: spacing.md,
+      left: spacing.md,
+      right: spacing.md,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: spacing.sm,
+      borderRadius: radius.md,
+      backgroundColor: "rgba(20, 35, 40, 0.88)",
+    },
+    withdrawnBannerText: {
+      flex: 1,
+      fontFamily: fonts.bold,
+      fontSize: fontSize.xs,
+      color: "#FFFFFF",
+    },
     carouselWrapPlaceholder: {
       height: 280,
       justifyContent: "center",
@@ -3474,6 +4265,16 @@ function createStyles(colors: ThemeColors) {
       borderWidth: 1,
       borderColor: colors.border,
     },
+    lifecycleStatusBadge: {
+      alignSelf: "flex-start",
+      borderRadius: radius.pill,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 4,
+      backgroundColor: "rgba(100, 116, 139, 0.16)",
+      color: colors.onSurfaceTertiary,
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.xs,
+    },
     titleActionBtnActive: {
       backgroundColor: colors.brandTertiary,
       borderColor: colors.brand,
@@ -3511,6 +4312,14 @@ function createStyles(colors: ThemeColors) {
     },
     locRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
     locText: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary },
+    virtualTourEntry: { minHeight: 44, marginTop: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.md, flexDirection: "row", alignItems: "center", gap: spacing.sm, backgroundColor: colors.brand },
+    openHouseEntry: { minHeight: 52, marginTop: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.md, flexDirection: "row", alignItems: "center", gap: spacing.sm, backgroundColor: colors.brandSecondary },
+    openHouseEntryCopy: { flex: 1, gap: 2 },
+    openHouseEntryTitle: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onBrand },
+    openHouseEntrySubtitle: { fontFamily: fonts.regular, fontSize: fontSize.xs, color: colors.onBrand },
+    openHouseManageEntry: { minHeight: 42, marginTop: spacing.sm, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.brand, flexDirection: "row", alignItems: "center", gap: spacing.sm },
+    openHouseManageText: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.brand },
+    virtualTourEntryText: { flex: 1, fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onBrand },
     statsRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.xs },
     statPill: {
       flexDirection: "row",
@@ -3533,6 +4342,26 @@ function createStyles(colors: ThemeColors) {
       fontSize: fontSize.lg,
       color: colors.onSurface,
     },
+    keySafeHeaderRow: { gap: spacing.xs },
+    keySafeLocation: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
+    keySafeStatus: { minHeight: 40, flexDirection: "row", alignItems: "center", gap: spacing.xs, borderRadius: radius.md, paddingHorizontal: spacing.md },
+    keySafeStatusIn: { backgroundColor: "rgba(16,185,129,0.12)" },
+    keySafeStatusOut: { backgroundColor: "rgba(245,158,11,0.14)" },
+    keySafeStatusText: { fontFamily: fonts.semibold, fontSize: fontSize.sm },
+    keySafeActions: { flexDirection: "row", gap: spacing.sm },
+    keySafeButton: { flex: 1, minHeight: 42, borderRadius: radius.md, backgroundColor: colors.brand, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.xs, paddingHorizontal: spacing.xs },
+    keySafeButtonDisabled: { backgroundColor: colors.surfaceTertiary },
+    keySafeButtonText: { fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.onBrand, textAlign: "center" },
+    keySafeButtonTextDisabled: { color: colors.onSurfaceTertiary },
+    keySafeLogRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.sm, paddingVertical: spacing.xs, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+    keySafeLogCopy: { flex: 1, gap: 2 },
+    keySafeLogName: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface },
+    keySafeLogDate: { fontFamily: fonts.regular, fontSize: fontSize.xs, color: colors.onSurfaceTertiary, textAlign: "right" },
+    coManagingBanner: { marginTop: spacing.sm, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceSecondary, flexDirection: "row", alignItems: "center", gap: spacing.sm },
+    coManagingAvatarRow: { flexDirection: "row", alignItems: "center" },
+    coManagingAvatar: { width: 30, height: 30, borderRadius: radius.pill, borderWidth: 2, borderColor: colors.surface, marginLeft: -5, backgroundColor: colors.surfaceTertiary },
+    coManagingAvatarFallback: { alignItems: "center", justifyContent: "center" },
+    coManagingText: { flex: 1, fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface },
     crmSectionContainer: {
       marginHorizontal: spacing.lg,
       marginTop: spacing.lg,
@@ -3547,6 +4376,60 @@ function createStyles(colors: ThemeColors) {
     clientsContentWrap: {
       gap: spacing.sm,
     },
+    contractEntry: {
+      minHeight: 46,
+      borderRadius: radius.pill,
+      backgroundColor: colors.brand,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: spacing.xs,
+      paddingHorizontal: spacing.md,
+    },
+    contractEntryText: {
+      fontFamily: fonts.bold,
+      fontSize: fontSize.sm,
+      color: colors.onBrand,
+      textAlign: "center",
+    },
+    brokerLeadsGroupContainer: {
+      gap: spacing.xs,
+      marginBottom: spacing.sm,
+    },
+    brokerHeaderRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      paddingHorizontal: spacing.xs,
+      paddingVertical: spacing.xs,
+    },
+    brokerGroupAvatar: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+    },
+    brokerNameText: {
+      flex: 1,
+      fontFamily: fonts.bold,
+      fontSize: fontSize.sm,
+      color: colors.onSurface,
+    },
+    activeLeadsBadge: {
+      borderRadius: radius.pill,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 4,
+      backgroundColor: colors.brandTertiary,
+    },
+    activeLeadsBadgeText: {
+      fontFamily: fonts.bold,
+      fontSize: fontSize.xs,
+      color: colors.brand,
+    },
+    managedByText: {
+      fontFamily: fonts.regular,
+      fontSize: fontSize.xs,
+      color: colors.onSurfaceTertiary,
+    },
     clientLeadRow: {
       flexDirection: "row",
       alignItems: "center",
@@ -3558,6 +4441,11 @@ function createStyles(colors: ThemeColors) {
       padding: spacing.sm,
       marginVertical: spacing.sm,
       gap: spacing.sm,
+    },
+    clientLeadMain: {
+      flex: 1,
+      minWidth: 0,
+      gap: spacing.xs,
     },
     clientInfoWrap: {
       flexDirection: "row",
@@ -3600,6 +4488,37 @@ function createStyles(colors: ThemeColors) {
       alignItems: "center",
       gap: spacing.xs,
     },
+    advisoryContainer: {
+      marginTop: 8,
+      padding: 10,
+      borderRadius: 8,
+      borderWidth: 1,
+      gap: 4,
+    },
+    advisoryPriority: {
+      backgroundColor: "rgba(5, 150, 105, 0.08)",
+      borderColor: "rgba(5, 150, 105, 0.28)",
+    },
+    advisoryCrossSell: {
+      backgroundColor: "rgba(37, 99, 235, 0.08)",
+      borderColor: "rgba(37, 99, 235, 0.28)",
+    },
+    advisoryHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+    },
+    advisoryBadgeText: {
+      fontFamily: fonts.bold,
+      fontSize: 12,
+      flexShrink: 1,
+    },
+    advisoryDescription: {
+      fontFamily: fonts.regular,
+      fontSize: 11.5,
+      color: colors.onSurfaceTertiary,
+      lineHeight: 16,
+    },
     crmActionBtn: {
       width: 36,
       height: 36,
@@ -3614,6 +4533,9 @@ function createStyles(colors: ThemeColors) {
       backgroundColor: colors.brandTertiary,
       borderColor: colors.brand,
     },
+    crmRatingBadge: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 7, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: "rgba(245,158,11,0.12)", borderWidth: 1, borderColor: "rgba(245,158,11,0.35)" },
+    crmRatingText: { fontFamily: fonts.bold, fontSize: 11, color: "#F59E0B" },
+    crmNoRatingText: { fontFamily: fonts.regular, fontSize: 10, color: colors.onSurfaceTertiary },
     crmEmptyState: {
       padding: spacing.md,
       borderRadius: radius.md,
@@ -4267,9 +5189,14 @@ function createStyles(colors: ThemeColors) {
       gap: spacing.md,
       flexWrap: "wrap",
     },
-    extraInformationLabel: {
+    infoLabelRow: {
       flex: 1,
       minWidth: 180,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+    },
+    extraInformationLabel: {
       fontFamily: fonts.semibold,
       fontSize: fontSize.base,
       color: colors.onSurface,
@@ -4387,12 +5314,26 @@ function createStyles(colors: ThemeColors) {
     justifyContent: "center",
     gap: spacing.sm,
   },
+    crossBrokerVisitButton: {
+    minHeight: 50,
+    marginBottom: spacing.sm,
+    borderRadius: radius.pill,
+    backgroundColor: colors.brandSecondary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+  },
     contactBtnPressed: { opacity: 0.88 },
+    withdrawnActionDisabled: { opacity: 0.65 },
     contactBtnText: {
     fontFamily: fonts.displayExtra,
     fontSize: fontSize.lg,
     color: colors.onBrand,
   },
+    ratingFab: { position: "absolute", right: 18, bottom: 84, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, backgroundColor: colors.brand, paddingHorizontal: 14, paddingVertical: 10, borderRadius: radius.pill, elevation: 6, shadowColor: "#000", shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.25, shadowRadius: 6, zIndex: 99 },
+    ratingFabActive: { backgroundColor: colors.surfaceSecondary, borderWidth: 1.5, borderColor: "#F59E0B" },
+    ratingFabText: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: "#F59E0B" },
 
     errorText: {
     fontFamily: fonts.semibold,

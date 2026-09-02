@@ -37,19 +37,19 @@ export default function PriceProposalModal({
     <Modal transparent animationType="fade" visible={visible} onRequestClose={() => { if (!isSubmitting) onClose(); }}>
       <View style={styles.backdrop}>
         <View style={styles.card}>
-          <Text style={styles.title}>Υπόβαλλε πρόταση τιμής στον αγγελιοδότη</Text>
+          <Text style={styles.title}>{t("chat.priceProposal.title")}</Text>
           <TextInput
             style={styles.input}
             value={input}
             onChangeText={setInput}
-            placeholder="0"
+            placeholder={t("chat.priceProposal.placeholder")}
             placeholderTextColor={colors.onSurfaceTertiary}
             keyboardType="numeric"
             editable={!isSubmitting}
             testID="chat-price-proposal-input"
           />
           <Text style={styles.hint}>
-            {`Η πρόταση τιμής θα ήταν καλό να μην είναι λιγότερο από ${minRecommendedPrice.toFixed(0)}€ (${hostDiscountPercentage}% κάτω)`}
+            {t("chat.priceProposal.hint", { minPrice: minRecommendedPrice.toFixed(0), discount: hostDiscountPercentage })}
           </Text>
           <View style={styles.actions}>
             <Pressable style={styles.cancel} onPress={onClose} disabled={isSubmitting} testID="chat-price-proposal-cancel">

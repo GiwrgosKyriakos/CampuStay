@@ -41,6 +41,7 @@ export interface Apartment {
 
 export interface FirestoreApartmentNoteDoc {
   apartmentId: string;
+  title?: string;
   text: string;
   apartmentData: Apartment;
   orderIndex: number;
@@ -50,6 +51,7 @@ export interface FirestoreApartmentNoteDoc {
 
 type FirestoreApartmentNoteReadDoc = {
   apartmentId?: string;
+  title?: string;
   text?: string;
   apartmentData?: Apartment;
   orderIndex?: number;
@@ -91,6 +93,7 @@ export async function saveApartmentNote(
   apartmentId: string,
   text: string,
   apartmentData: Apartment,
+  title?: string,
 ): Promise<void> {
   const noteRef = doc(db, "users", userId, "apartmentNotes", apartmentId);
   const existingSnap = await getDoc(noteRef);
@@ -108,6 +111,7 @@ export async function saveApartmentNote(
 
   const payload: Record<string, unknown> = {
     apartmentId,
+    ...(title?.trim() ? { title: title.trim() } : {}),
     text,
     apartmentData: normalizeApartmentData(apartmentId, apartmentData),
     orderIndex,
@@ -119,13 +123,18 @@ export async function saveApartmentNote(
 }
 
 export async function getApartmentNote(userId: string, apartmentId: string): Promise<string | null> {
+  const details = await getApartmentNoteDetails(userId, apartmentId);
+  return details?.text ?? null;
+}
+
+export async function getApartmentNoteDetails(userId: string, apartmentId: string): Promise<{ title?: string; text: string } | null> {
   const noteRef = doc(db, "users", userId, "apartmentNotes", apartmentId);
   const noteSnap = await getDoc(noteRef);
   if (!noteSnap.exists()) return null;
 
   const data = noteSnap.data() as FirestoreApartmentNoteReadDoc;
   if (typeof data.text !== "string") return null;
-  return data.text;
+  return { title: typeof data.title === "string" ? data.title : undefined, text: data.text };
 }
 
 export async function getUserApartmentNotes(
@@ -141,6 +150,7 @@ export async function getUserApartmentNotes(
 
     return {
       id: apartmentId,
+      title: typeof data.title === "string" ? data.title : undefined,
       text: typeof data.text === "string" ? data.text : "",
       apartmentData,
       orderIndex: typeof data.orderIndex === "number" ? data.orderIndex : index,

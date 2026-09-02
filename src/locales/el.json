@@ -13,11 +13,18 @@
       "reset": "Επαναφορά",
       "openSettings": "Άνοιγμα Ρυθμίσεων",
       "add": "Προσθήκη",
+      "ok": "OK",
+      "close": "Κλείσιμο",
+      "yes": "Ναι",
+      "more": "Περισσότερα",
       "startOver": "Ξεκίνα από την αρχή",
       "accept": "Αποδοχή",
       "reject": "Απόρριψη",
       "unblock": "Κατάργηση αποκλεισμού",
-      "loading": "Φόρτωση..."
+      "save": "Αποθήκευση",
+      "saving": "Αποθήκευση...",
+      "loading": "Φόρτωση...",
+      "continue": "Συνέχεια"
     },
     "labels": {
       "termsOfService": "Όροι Χρήσης",
@@ -83,11 +90,94 @@
       "tryAgain": "Παρακαλώ δοκίμασε ξανά."
     }
   },
+  "voice": {
+    "start": "Έναρξη υπαγόρευσης",
+    "stop": "Διακοπή υπαγόρευσης",
+    "errors": {
+      "permissionDenied": "Δεν επιτράπηκε η πρόσβαση στο μικρόφωνο.",
+      "unavailable": "Η αναγνώριση ομιλίας δεν είναι διαθέσιμη στη συσκευή.",
+      "startFailed": "Δεν ήταν δυνατή η έναρξη υπαγόρευσης.",
+      "generic": "Παρουσιάστηκε σφάλμα αναγνώρισης ομιλίας."
+    }
+  },
+  "addressSearch": {
+    "title": "Αναζήτηση διεύθυνσης",
+    "noResults": "Δεν βρέθηκαν αποτελέσματα",
+    "tryDifferent": "Δοκίμασε διαφορετική οδό, περιοχή ή πόλη."
+  },
+  "map": {
+    "approximateArea": "Ενδεικτική περιοχή"
+  },
+  "ai": {
+    "cmaTitle": "AI Εκτίμηση & Συγκριτική Ανάλυση (CMA)",
+    "generateCma": "Υπολογισμός Εκτίμησης Αξίας",
+    "aiCopywriterTitle": "AI Βοηθός Συγγραφής Περιγραφής",
+    "generateCopy": "Δημιουργία με AI",
+    "applyToDescription": "Εφαρμογή στην Αγγελία",
+    "sentimentTitle": "Ανάλυση Συναισθήματος Υποδείξεων",
+    "ownerReportTitle": "Αναφορά Δραστηριότητας Ιδιοκτήτη",
+    "sendReportToOwner": "Αποστολή Αναφοράς στον Ιδιοκτήτη",
+    "mapLayers": "Επίπεδα Χάρτη & Υποδομές",
+    "metroLayer": "Σταθμοί Μετρό / ΜΜΜ",
+    "schoolsLayer": "Σχολεία / Πανεπιστήμια",
+    "heatmapPrice": "Χάρτης Θερμότητας (€/τ.μ.)"
+  },
+  "feed": {
+    "reelsTitle": "Reels Ακινήτων",
+    "viewDetails": "Προβολή Ακινήτου",
+    "unmuteHint": "Πατήστε για ήχο",
+    "noReelsAvailable": "Δεν υπάρχουν διαθέσιμα reels αυτή τη στιγμή.",
+    "uploadReel": "Ανέβασμα Video Reel (9:16)",
+    "aiCopywriterButton": "✨ AI Βοηθός Περιγραφής"
+  },
   "tabs": {
     "roommates": "Συγκάτοικοι",
     "matches": "Ταιριάσματα",
     "apartments": "Διαμερίσματα",
     "profile": "Προφίλ"
+  },
+  "manualClient": {
+    "title": "Νέος πελάτης",
+    "brokerRole": "Μεσίτης",
+    "labels": {
+      "fullName": "Ονοματεπώνυμο",
+      "city": "Πόλη"
+    },
+    "placeholders": {
+      "fullName": "π.χ. Μαρία Παπαδοπούλου",
+      "city": "π.χ. Αθήνα"
+    },
+    "errors": {
+      "missingDetails": "Συμπληρώστε όνομα και πόλη.",
+      "createFailed": "Δεν ήταν δυνατή η δημιουργία του πελάτη. Δοκιμάστε ξανά."
+    }
+  },
+  "assignClientEmail": {
+    "title": "Προσθήκη email",
+    "description": "Ο πελάτης θα μπορεί να διεκδικήσει τον λογαριασμό του με αυτό το email.",
+    "emailPlaceholder": "email@example.com",
+    "errors": {
+      "invalidEmail": "Πληκτρολογήστε έγκυρο email.",
+      "saveFailed": "Δεν ήταν δυνατή η αποθήκευση του email."
+    }
+  },
+  "apartmentRating": {
+    "title": "Αξιολόγησή μου",
+    "descriptors": {
+      "excellent": "Εξαιρετικό",
+      "good": "Καλό",
+      "average": "Μέτριο",
+      "needsImprovement": "Χρειάζεται βελτίωση"
+    },
+    "save": "Αποθήκευση αξιολόγησης"
+  },
+  "callFeedback": {
+    "title": "Πώς πήγε η τηλεφωνική επικοινωνία;",
+    "description": "Αφήστε ένα σύντομο σχόλιο για την κλήση σας. Οι παρατηρήσεις σας βοηθούν στην καλύτερη και πιο εξατομικευμένη εξυπηρέτησή σας.",
+    "placeholder": "π.χ. Ζήτησα πληροφορίες για τα κοινόχρηστα",
+    "wordCount": "{{count}} λέξεις",
+    "submit": "Αποθήκευση Σχολίου",
+    "notPlaced": "Δεν πραγματοποιήθηκε κλήση"
   },
   "host-inbox": {
       "title": "Εισερχόμενα αιτήματα",
@@ -95,7 +185,14 @@
       "emptyTitle": "Δεν υπάρχουν αιτήματα ή μηνύματα ακόμα ως ιδιοκτήτης",
       "emptySub": "Όταν οι επισκέπτες επικοινωνούν μαζί σου για τις καταχωρίσεις σου, αυτές οι συνομιλίες θα εμφανίζονται εδώ.",
       "blockedBadge": "Αποκλεισμένο",
-      "blockedUnavailable": "Μη διαθέσιμο λόγω αποκλεισμού"
+      "blockedUnavailable": "Μη διαθέσιμο λόγω αποκλεισμού",
+      "roleLegendLabel": "Υπόμνημα ρόλων",
+      "searchLabel": "Αναζήτηση",
+      "searchPlaceholder": "Αναζήτηση με όνομα ή τίτλο...",
+      "clientRole": "Πελάτης / Ενοικιαστής",
+      "ownerRole": "Ιδιοκτήτης Ακινήτου",
+      "noSearchResults": "Δεν βρέθηκαν αποτελέσματα",
+      "tryDifferentSearch": "Δοκιμάστε διαφορετικούς όρους αναζήτησης"
   },
   "auth": {
     "landing": {
@@ -210,10 +307,38 @@
     "mailSubject": "Σχόλιο/ Πρόταση για το CampuStay",
     "alerts": {
       "successTitle": "Ευχαριστούμε!",
+      "successDescription": "Το σχόλιο / η πρότασή σας υποβλήθηκε με επιτυχία και θα βοηθήσει στη βελτίωση του CampuStay.",
+      "successAction": "Τέλεια",
       "successMessage": "Το σχόλιό σας στάλθηκε με επιτυχία.",
       "errorTitle": "Σφάλμα",
+      "errorDescription": "Δεν ήταν δυνατή η αποστολή. Παρακαλούμε δοκιμάστε ξανά σε λίγο.",
       "emptyMessage": "Παρακαλούμε γράψτε πρώτα το σχόλιό σας.",
       "sendFailedMessage": "Δεν ήταν δυνατή η αποστολή. Προσπαθήστε ξανά."
+    }
+  },
+  "aboutUs": {
+    "title": "Σχετικά με εμάς",
+    "heroTitle": "Μια πιο απλή εμπειρία αναζήτησης στέγης.",
+    "heroSubtitle": "Χτίζουμε μια πλατφόρμα που βοηθά τους φοιτητές να βρίσκουν πιο γρήγορα το σωστό μέρος για να μείνουν.",
+    "linkLabel": "Σχετικά με εμάς / About Us",
+    "vision": {
+      "title": "Όραμά μας",
+      "point1": "Η εύρεση φοιτητικής στέγης και ο κατάλληλος συγκάτοικος είναι από τις πιο σημαντικές αποφάσεις της φοιτητικής ζωής.",
+      "point2": "Συχνά η διαδικασία αυτή συνοδεύεται από άγχος, αβεβαιότητα και έλλειψη διαφάνειας.",
+      "point3": "Στόχος μας είναι να κάνουμε τη φοιτητική στέγαση και τη συγκατοίκηση πιο απλή, ασφαλή και άμεση, συνδέοντας φοιτητές, συγκατοίκους και ιδιοκτήτες.",
+      "highlight": "Καλή αναζήτηση & καλή διαμονή!"
+    },
+    "about": {
+      "title": "Σχετικά με το CampuStay",
+      "body": "Το CampuStay είναι η εξειδικευμένη πλατφόρμα φοιτητικής στέγης και εύρεσης συγκατοίκου. Σχεδιάστηκε με γνώμονα τις ανάγκες των νέων φοιτητών, συνδυάζοντας την αναζήτηση διαμερισμάτων με έναν προηγμένο αλγόριθμο συμβατότητας συγκατοίκων."
+    },
+    "features": {
+      "title": "Τι μπορείς να κάνεις στο CampuStay",
+      "item1": "Βρες το ιδανικό φοιτητικό σπίτι με βάση το πανεπιστήμιο, την περιοχή και το budget σου.",
+      "item2": "Ανακάλυψε συμβατούς συγκατοίκους μέσω του Compatibility Quiz και των αμοιβαίων matches.",
+      "item3": "Επικοινώνησε άμεσα & με ασφάλεια με ιδιοκτήτες και υποψήφιους συγκατοίκους μέσω του ενσωματωμένου chat.",
+      "item4": "Αποθήκευσε αγαπημένες αγγελίες και προφίλ για να τα βρίσκεις ανά πάσα στιγμή.",
+      "item5": "Εξατομίκευσε την αναζήτησή σου ώστε να βλέπεις τις επιλογές που ταιριάζουν πραγματικά στις συνήθειές σου."
     }
   },
   "editProfile": {
@@ -351,12 +476,82 @@
       "matches": "Matches",
       "hostInbox": "Host Inbox"
     },
+    "actions": {
+      "proposePrice": "Πρότεινε τιμή",
+      "requestVisit": "Ζήτα επίσκεψη"
+    },
+    "message": {
+      "filterCriteriaTag": "Κριτήρια Αναζήτησης / Set Φίλτρων",
+      "allApartments": "Όλα τα διαμερίσματα",
+      "viewDetails": "Πατήστε για προβολή λεπτομερειών",
+      "propertyList": "Λίστα ακινήτων",
+      "proposedProperties": "{{count}} προτεινόμενα ακίνητα",
+      "viewList": "Προβολή Λίστας",
+      "listingNote": "Σημείωση Αγγελίας"
+    },
     "blockModal": {
       "title": "Είσαι σίγουρος ότι θέλεις να αποκλείσεις αυτόν τον χρήστη;",
       "blockOnly": "Αποκλεισμός",
       "blockAndReport": "Αποκλεισμός & Αναφορά",
       "reportReasonPlaceholder": "Περιέγραψε γιατί κάνεις αναφορά για αυτόν τον χρήστη",
       "submitBlockAndReport": "Υποβολή αποκλεισμού & αναφοράς"
+    },
+    "priceProposal": {
+      "title": "Υπόβαλλε πρόταση τιμής στον αγγελιοδότη",
+      "placeholder": "0",
+      "hint": "Η πρόταση τιμής θα ήταν καλό να μην είναι λιγότερο από {{minPrice}}€ ({{discount}}% κάτω)"
+    },
+    "searchHistory": {
+      "title": "Ιστορικό αναζητήσεων",
+      "description": "Επιλέξτε όσα θέλετε να μοιραστείτε με τον μεσίτη.",
+      "empty": "Δεν υπάρχουν αποθηκευμένες αναζητήσεις.",
+      "savedCriteria": "Αποθηκευμένα κριτήρια",
+      "recentSearch": "Πρόσφατη αναζήτηση",
+      "criteria": "Κριτήρια",
+      "budget": "{{minimum}} - {{maximum}} €",
+      "share": "Διαμοιρασμός ({{count}})"
+    },
+    "filterSetDetails": {
+      "title": "Κριτήρια Αναζήτησης",
+      "allAreas": "Όλες οι περιοχές",
+      "apply": "Εφαρμογή στην Αναζήτηση",
+      "labels": {
+        "title": "Τίτλος",
+        "rent": "Ενοίκιο",
+        "pricePerSqm": "Τιμή / τ.μ.",
+        "areaCity": "Περιοχή / Πόλη",
+        "size": "Εμβαδόν",
+        "pets": "Κατοικίδια",
+        "metro": "Μετρό",
+        "sort": "Ταξινόμηση"
+      },
+      "sort": {
+        "newest": "Πιο πρόσφατα",
+        "oldest": "Πιο παλιά",
+        "priceAsc": "Αύξουσα τιμή",
+        "priceDesc": "Φθίνουσα τιμή",
+        "sizeAsc": "Αύξον εμβαδόν",
+        "sizeDesc": "Φθίνουσα εμβαδόν",
+        "priceSqmAsc": "Αύξουσα τιμή/τ.μ.",
+        "priceSqmDesc": "Φθίνουσα τιμή/τ.μ."
+      }
+    },
+    "visitRequest": {
+      "title": "Ζήτα επίσκεψη",
+      "selectProperty": "Επιλέξτε ακίνητο",
+      "noProperties": "Δεν βρέθηκαν διαθέσιμα ακίνητα.",
+      "hour": "Ώρα",
+      "minutes": "Λεπτά",
+      "unavailableTime": "Μη διαθέσιμη ώρα",
+      "weekdays": {
+        "mon": "Δε",
+        "tue": "Τρ",
+        "wed": "Τε",
+        "thu": "Πε",
+        "fri": "Πα",
+        "sat": "Σα",
+        "sun": "Κυ"
+      }
     }
   },
   "chatList": {
@@ -416,6 +611,8 @@
     "ageRange": "Εύρος ηλικίας",
     "minimumAge": "Ελάχιστη ηλικία",
     "maximumAge": "Μέγιστη ηλικία",
+    "from": "Από",
+    "to": "Έως",
     "maxBudget": "Μέγιστος προϋπολογισμός",
     "budget": "Προϋπολογισμός",
     "showRoommates": "Εμφάνιση",
@@ -424,14 +621,147 @@
       "female": "Γυναίκα",
       "male": "Άνδρας",
       "nonBinary": "Μη δυαδικό"
+    },
+    "hardCriteria": {
+      "title": "My Hard Criteria",
+      "description": "Επιλέξτε τα απολύτως απαραίτητα.",
+      "selectedDescription": "Επιλέξτε τα κριτήρια που είναι απολύτως απαραίτητα για εσάς.",
+      "options": {
+        "rent": "Τιμή / Budget",
+        "size": "Εμβαδόν (τ.μ.)",
+        "floor": "Όροφος",
+        "propertyType": "Τύπος Ακινήτου",
+        "bedrooms": "Υπνοδωμάτια",
+        "bathrooms": "Μπάνια",
+        "furnished": "Επίπλωση",
+        "heating": "Τύπος Θέρμανσης",
+        "petFriendly": "Κατοικίδια (Pet-friendly)",
+        "nearMetro": "Κοντά σε Μετρό",
+        "amenities": "Παροχές (Amenities)"
+      }
+    }
+  },
+  "calendar": {
+    "title": "Ημερολόγιο",
+    "schedule": "Πρόγραμμα {{date}}",
+    "noScheduledNotes": "Δεν υπάρχουν προγραμματισμένες σημειώσεις.",
+    "visit": "Επίσκεψη",
+    "phone": "Τηλέφωνο",
+    "noTime": "Χωρίς ώρα",
+    "brokerFeedbackPrompt": "Σημείωση εκτίμησης & feedback για την υπόδειξη στο {{title}}.",
+    "clientFeedbackPrompt": "Αξιολογήστε την επίσκεψή σας στο {{title}} για καλύτερη εξυπηρέτηση.",
+    "recordFeedback": "Καταγραφή Feedback",
+    "rateVisit": "Αξιολόγηση",
+    "apartment": "διαμέρισμα",
+    "selectMonth": "Επιλογή μήνα",
+    "weekdays": { "mon": "Δε", "tue": "Τρ", "wed": "Τε", "thu": "Πε", "fri": "Πα", "sat": "Σα", "sun": "Κυ" },
+    "noteModal": {
+      "editTitle": "Επεξεργασία Σημείωσης",
+      "newTitle": "Νέα Σημείωση",
+      "titleLabel": "Τίτλος",
+      "titlePlaceholder": "π.χ. Σημείωση Επίσκεψης",
+      "titleCounter": "{{words}}/{{maxWords}} λέξεις · {{characters}}/{{maxCharacters}} χαρακτήρες",
+      "titleInvalid": "Ο τίτλος δεν μπορεί να ξεπερνά τις 10 λέξεις ή τους 60 χαρακτήρες.",
+      "timeLabel": "Ώρα",
+      "noTime": "Χωρίς ώρα",
+      "apartmentLabel": "Διαμέρισμα",
+      "clientLabel": "Πελάτης",
+      "noSelection": "Χωρίς επιλογή",
+      "noClients": "Δεν υπάρχουν διαθέσιμοι πελάτες για το επιλεγμένο διαμέρισμα.",
+      "categoryLabel": "Σκοπός Ραντεβού",
+      "reminderTitle": "Λήψη Push Notification για αυτή τη σημείωση",
+      "reminderDescription": "Θα ειδοποιηθείτε πριν από την προγραμματισμένη ώρα.",
+      "notesLabel": "Σημειώσεις",
+      "notesPlaceholder": "Γράψτε επιπλέον λεπτομέρειες...",
+      "bodyInvalid": "Έχετε υπερβεί το μέγιστο όριο λέξεων",
+      "bodyCounter": "{{words}}/{{maxWords}} λέξεις",
+      "update": "Ενημέρωση",
+      "note": "σημείωση",
+      "unknownError": "Προέκυψε άγνωστο σφάλμα.",
+      "categories": {
+        "visit": "Επίσκεψη",
+        "keys": "Κλειδιά από ιδιοκτήτη",
+        "message": "Μήνυμα",
+        "phone": "Τηλέφωνο",
+        "offerReview": "Αξιολόγηση προσφοράς",
+        "dealConfirmation": "Επιβεβαίωση συμφωνίας",
+        "other": "Άλλο"
+      },
+      "reminders": {
+        "15Minutes": "15 λεπτά πριν",
+        "30Minutes": "30 λεπτά πριν",
+        "1Hour": "1 ώρα πριν",
+        "2Hours": "2 ώρες πριν",
+        "1Day": "1 ημέρα πριν"
+      }
+    },
+    "postVisit": {
+      "clientTitle": "Αξιολόγηση Επίσκεψης",
+      "brokerTitle": "Καταγραφή Feedback",
+      "apartmentFallback": "Διαμέρισμα",
+      "quickRating": "Γρήγορη αξιολόγηση",
+      "notesLabel": "Παρατηρήσεις",
+      "clientNotesPlaceholder": "Τι ξεχώρισε από την επίσκεψη;",
+      "secondVisitQuestion": "Ενδιαφέρεστε για 2η επίσκεψη;",
+      "maybe": "Ίσως",
+      "brokerNotesLabel": "Σημείωση εκτίμησης υπόδειξης",
+      "brokerNotesPlaceholder": "Καταγράψτε την αντίδραση και την εκτίμησή σας...",
+      "oralOfferQuestion": "Υπέβαλε ο πελάτης προφορική προσφορά;",
+      "offerAmountPlaceholder": "Ποσό προσφοράς (€)",
+      "discountWarningTitle": "Προσφορά κάτω από το προβλεπόμενο όριο",
+      "discountWarningDescription": "Η προσφορά (€{{offer}}) αντιστοιχεί σε έκπτωση {{discount}}%, υπερβαίνοντας το μέγιστο όριο έκπτωσης ({{maxDiscount}}% / ελάχιστο: €{{minimum}}) που έχει οριστεί.",
+      "nextStep": "Επόμενο βήμα",
+      "saveFailed": "Δεν ήταν δυνατή η αποθήκευση.",
+      "ratings": { "price": "Τιμή", "layout": "Διαρρύθμιση", "condition": "Κατάσταση" },
+      "tags": {
+        "largeBalcony": "🟢 Μεγάλο μπαλκόνι",
+        "bright": "🟢 Φωτεινό",
+        "goodLocation": "🟢 Καλή τοποθεσία",
+        "smallLivingRoom": "🔴 Μικρό σαλόνι",
+        "smallBathroom": "🔴 Μικρό μπάνιο",
+        "needsRenovation": "🔴 Χρειάζεται ανακαίνιση",
+        "tooExpensive": "🔴 Υπερβολική τιμή"
+      },
+      "followUp": {
+        "secondVisit": "2η επίσκεψη",
+        "contractPreparation": "Προετοιμασία συμβολαίου",
+        "dealClosed": "Κλεισμένη συμφωνία",
+        "noNextStep": "Χωρίς επόμενο βήμα"
+      }
     }
   },
   "apartmentNote": {
     "userNotice": "Οι σημειώσεις σας είναι προσωπικές, δεν δημοσιεύονται πουθενά και έχετε πρόσβαση μόνο εσείς, εκτός αν επιλέξετε να τις μοιραστείτε.",
-    "brokerPrivateNotice": "Private Log / Εσωτερική σημείωση: Μόνο για την ομάδα του γραφείου"
+    "brokerPrivateNotice": "Private Log / Εσωτερική σημείωση: Μόνο για την ομάδα του γραφείου",
+    "missingApartment": "Δεν βρέθηκαν δεδομένα διαμερίσματος.",
+    "defaultTitle": "Σημείωση Ακινήτου",
+    "shortTitle": "Σημείωση",
+    "titlePlaceholder": "Τίτλος σημείωσης",
+    "bodyPlaceholder": "Γράψτε τη σημείωσή σας για αυτό το διαμέρισμα...",
+    "counter": "{{words}}/{{maxWords}} λέξεις · {{characters}}/{{maxCharacters}} χαρακτήρες",
+    "titleInvalid": "Ο τίτλος δεν μπορεί να ξεπερνά τις 10 λέξεις ή τους 60 χαρακτήρες.",
+    "bodyInvalid": "Έχετε υπερβεί το μέγιστο όριο λέξεων",
+    "saved": "Η σημείωση αποθηκεύτηκε",
+    "unsavedTitle": "Αποχώρηση χωρίς αποθήκευση;",
+    "unsavedDescription": "Είστε σίγουροι ότι θέλετε να αποχωρήσετε χωρίς να αποθηκεύσετε τις αλλαγές σας;",
+    "leave": "Αποχώρηση",
+    "shareTitle": "Κοινοποίηση Διαμερίσματος",
+    "shareDescription": "Επιλέξτε συνομιλία για κοινοποίηση",
+    "noActiveChats": "Δεν έχετε ενεργές συνομιλίες με συγκατοίκους ακόμα"
+  },
+  "filterSetVersion": {
+    "petFriendly": "Κατάλληλο για κατοικίδια",
+    "nearMetro": "Κοντά σε μετρό",
+    "sort": "Ταξινόμηση",
+    "version": "Έκδοση {{version}}",
+    "share": "Κοινοποίηση",
+    "selectBroker": "Επιλογή μεσίτη"
   },
   "apartments": {
     "title": "Διαμερίσματα",
+    "withdrawnByOtherBrokerBanner": "Αποσύρθηκε από άλλον μεσίτη που διαχειριζόταν το ακίνητο",
+    "selectManagingBrokerTitle": "Επιλέξτε μεσίτη που διαχειρίζεται το ακίνητο",
+    "selectManagingBrokerSubtitle": "Το ακίνητο διαχειρίζεται από πολλαπλούς μεσίτες του γραφείου. Επιλέξτε με ποιον επιθυμείτε να επικοινωνήσετε.",
     "subtitle": "Διαθέσιμα σπίτια στην πόλη σπουδών σου",
     "showFilters": "Εμφάνιση Φίλτρων",
     "hideFilters": "Απόκρυψη Φίλτρων",
@@ -447,6 +777,25 @@
     "preferences": "Προτιμήσεις",
     "petFriendly": "Κατάλληλο για κατοικίδια",
     "nearMetro": "Κοντά στο Μετρό",
+    "searchPlaceholder": "Αναζήτηση τίτλου, περιοχής, amenities...",
+    "noRecentSearches": "Δεν υπάρχουν πρόσφατες αναζητήσεις",
+    "sort": "Ταξινόμηση",
+    "mapArea": "Περιοχή στο Χάρτη",
+    "customPolygon": "Προσαρμοσμένο Πολύγωνο ({{count}} σημεία)",
+    "drawPolygon": "Σχεδιασμός πολυγώνου στο χάρτη",
+    "showOnly": "Show only",
+    "agency": "Μεσιτικό γραφείο",
+    "broker": "Μεσίτης",
+    "list": "Λίστα",
+    "showOwnListings": "Εμφάνιση των δικών μου καταχωρίσεων στο All",
+    "filterSetTitle": "Τίτλος set φίλτρων",
+    "filterSetPlaceholder": "π.χ. 2άρι κέντρο φοιτητικό (έως 40 χαρ.)",
+    "saveFilterSet": "Αποθήκευση Set",
+    "pricePerSqm": "Τιμή ανά τ.μ. (€/m²)",
+    "fromPricePerSqm": "Από (€/m²)",
+    "toPricePerSqm": "Έως (€/m²)",
+    "propertyFeatures": "Χαρακτηριστικά ακινήτου",
+    "accessibility": { "toggleMap": "Εναλλαγή Χάρτη", "filters": "Φίλτρα" },
     "likeUpdateTitle": "Δεν ήταν δυνατή η ενημέρωση του like",
     "likeUpdateMessage": "Δοκιμάστε ξανά.",
     "unknownListing": "Καταχώριση διαμερίσματος",
@@ -506,6 +855,12 @@
     "deleteChatTitle": "Διαγραφή συνομιλίας",
     "deleteChatMessage": "Είσαι σίγουρος ότι θέλεις να διαγράψεις αυτή τη συνομιλία;",
     "deleteChatFailedMessage": "Δεν ήταν δυνατή η διαγραφή της συνομιλίας. Παρακαλώ δοκίμασε ξανά.",
+    "callInteractionNote": "Τηλεφωνική επικοινωνία από αγγελία",
+    "callFeedbackSaveFailedTitle": "Δεν ήταν δυνατή η αποθήκευση",
+    "callFeedbackSaveFailedMessage": "Παρακαλούμε δοκιμάστε ξανά.",
+    "addInteractionLabel": "Προσθήκη αλληλεπίδρασης",
+    "rateLabel": "Αξιολόγηση Ακινήτου",
+    "interactionNotePlaceholder": "Προσθέστε λεπτομέρειες...",
     "amenities": {
       "wifi": "Περιλαμβάνεται Wi-Fi",
       "ac": "Κλιματισμός",
@@ -529,6 +884,27 @@
     "areaPlaceholder": "Περιοχή / Γειτονιά",
     "size": "Μέγεθος",
     "sizePlaceholder": "Τετραγωνικά μέτρα (τ.μ.)",
+    "detailsPlaceholder": "Γράψε λεπτομέρειες για το σπίτι, τους κανόνες ή τι αναζητάς...",
+    "maxOfferDiscountPlaceholder": "π.χ. 10",
+    "addressPlaceholder": "Οδός, αριθμός, περιοχή (προαιρετικό)",
+    "categoryPlaceholder": "Επιλέξτε κατηγορία",
+    "propertyTypePlaceholder": "Επιλέξτε είδος",
+    "floorPlaceholder": "Επιλέξτε όροφο",
+    "roomsPlaceholder": "π.χ. 2",
+    "orientationPlaceholder": "Επιλέξτε προσανατολισμό",
+    "sceneTitlePlaceholder": "Όνομα χώρου",
+    "heatingPlaceholder": "Επιλέξτε σύστημα θέρμανσης",
+    "energyClassPlaceholder": "Επιλέξτε ενεργειακή κλάση",
+    "windowFramesPlaceholder": "π.χ. Αλουμινίου, Συνθετικά (PVC), Ξύλινα",
+    "datePlaceholder": "Επιλέξτε ημερομηνία",
+    "squareMetersPlaceholder": "τ.μ.",
+    "finalPricePlaceholder": "Τελική τιμή (€)",
+    "ownerNamePlaceholder": "π.χ. Γιώργος Παπαδόπουλος",
+    "ownerMotivationPlaceholder": "Επιλέξτε κίνητρο",
+    "ownerPhonePlaceholder": "π.χ. 6912345678",
+    "ownerMotivationDetailsPlaceholder": "Προσδιορίστε το κίνητρο του ιδιοκτήτη...",
+    "ownerExpectedPricePlaceholder": "π.χ. 550",
+    "searchCompatibleClientsLabel": "Αναζήτηση συμβατών πελατών",
     "amenitiesTitle": "Παροχές & Προτιμήσεις",
     "selectedAmenities": "Επιλεγμένα: {{value}}",
     "selectedAmenitiesEmpty": "Δεν έχουν επιλεγεί παροχές ακόμη",
@@ -539,6 +915,8 @@
       "addPhotoMessage": "Επίλεξε από πού θα πάρεις τη φωτογραφία της καταχώρισής σου.",
       "takePhoto": "Λήψη Φωτογραφίας",
       "chooseLibrary": "Επιλογή από Βιβλιοθήκη",
+      "permissionTitle": "Απαιτείται Άδεια",
+      "permissionMessage": "Χρειάζεται πρόσβαση στη συλλογή φωτογραφιών για την επισύναψη αρχείων 2D/3D.",
       "missingDetailsTitle": "Λείπουν στοιχεία",
       "missingDetailsMessage": "Συμπλήρωσε Μηνιαίο Ενοίκιο, Πόλη, Περιοχή και Μέγεθος πριν από τη δημοσίευση.",
       "signInRequiredTitle": "Απαιτείται σύνδεση",
@@ -566,7 +944,39 @@
     },
     "listingTitle": "Διαμέρισμα στην περιοχή {{area}}"
   },
+  "analytics": {
+    "title": "Αναφορές & Στατιστικά",
+    "realizedRevenue": "Πραγματοποιηθέντα Έσοδα",
+    "weightedForecast": "Πρόβλεψη Εσόδων Pipeline",
+    "daysOnMarket": "Μέσος Χρόνος στην Αγορά",
+    "winRate": "Ποσοστό Κλεισίματος",
+    "leadSources": "Πηγές Προέλευσης Πελατών",
+    "marketingRoi": "Απόδοση Marketing (ROI)",
+    "agentProductivity": "Παραγωγικότητα Συνεργατών",
+    "lostDealsTitle": "Ανάλυση Χαμένων Συμφωνιών",
+    "roommatesMarket": "Δυναμική Αγοράς Συγκατοίκησης",
+    "supplyDemand": "Προσφορά & Ζήτηση ανά Περιοχή",
+    "highDemandAlert": "Υψηλή Ζήτηση (Έλλειψη Δωματίων)"
+  },
   "agency": {
+    "poolTab": "Pool Ακινήτων",
+    "directManage": "Αναλαμβάνω τη διαχείριση",
+    "directManageSubtitle": "Απευθείας ανάθεση σε εσάς & προσθήκη ιδιοκτήτη στους πελάτες σας",
+    "publishToPool": "Προσθήκη στο Apartment Pool",
+    "publishToPoolSubtitle": "Διάθεση στο κοινό pool του γραφείου χωρίς ανάθεση",
+    "claimListing": "Ανάληψη Ακινήτου",
+    "claimPending": "Σε διαπραγμάτευση ανάθεσης",
+    "notAvailable": "Μη διαθέσιμο προς ανάθεση",
+    "keySafeTitle": "Διαχείριση Κλειδιών Γραφείου",
+    "checkOutKeys": "Παραλαβή Κλειδιών",
+    "returnKeys": "Επιστροφή Κλειδιών",
+    "keysInOffice": "Στο Γραφείο",
+    "keysWith": "Παραλήφθηκαν από {{name}}",
+    "coveringBroker": "Κάλυψη Ραντεβού",
+    "colleagues": "Συνεργάτες",
+    "coManagedProperty": "Κοινό Ακίνητο: {{title}}",
+    "settlementsTitle": "Εκκαθαρίσεις & Τιμολόγια",
+    "issueInvoice": "Έκδοση Τιμολογίου & Εκκαθάριση",
     "onboarding": {
       "registerAgencyCta": "Είστε σε μεσιτικό γραφείο; Εγγραφείτε ως μεσιτικό γραφείο εδώ",
       "agencyNameLabel": "Όνομα Μεσιτικού Γραφείου",
@@ -585,6 +995,8 @@
       "subtitle": "Ολοκληρώστε τα στοιχεία του μεσιτικού γραφείου σας.",
       "passwordProtected": "Προστατευμένο με κωδικό",
       "agencyLabel": "Μεσιτικό γραφείο",
+      "agencyNamePlaceholder": "π.χ. RE/MAX Central",
+      "agencyCodePlaceholder": "Πληκτρολογήστε κωδικό",
       "displayNamePlaceholder": "Το ονοματεπώνυμό σας",
       "selectAgency": "Επιλέξτε μεσιτικό γραφείο"
     },
@@ -617,6 +1029,27 @@
       "pendingRequests": "Αιτήματα συνεργατών",
       "agencyLogo": "Λογότυπο γραφείου",
       "agencyNameFallback": "Μεσιτικό γραφείο"
+    },
+    "picker": {
+      "agencyFallback": "Μεσιτικό Γραφείο",
+      "clearFilter": "Καθαρισμός φίλτρου γραφείου",
+      "empty": "Δεν βρέθηκαν μεσιτικά γραφεία.",
+      "activeListings": "{{count}} ενεργές αγγελίες",
+      "brokerFallback": "Μεσίτης",
+      "proposedProperties": "Προτεινόμενα Ακίνητα",
+      "noProposalLists": "Δεν υπάρχουν διαθέσιμες λίστες προτάσεων από μεσίτες.",
+      "propertyCount": "{{count}} ακίνητα",
+      "sentBy": "Απεστάλη από: {{name}}"
+    }
+  },
+  "crm": {
+    "activeLeads": "ενεργοί πελάτες",
+    "managedByBroker": "Υπό διαχείριση από: %{brokerName}",
+    "strategy": {
+      "priorityBadge": "🎯 Στρατηγική Προτεραιότητα Ανάθεσης",
+      "crossSellBadge": "🔄 Ευελιξία & Δυνατότητα Cross-Selling",
+      "priorityDesc": "Ο πελάτης παρουσιάζει μοναδική συμβατότητα αποκλειστικά με αυτό το ακίνητο (καμία άλλη εναλλακτική >85% στο χαρτοφυλάκιο). Προτείνεται προτεραιοποίηση για τη μεγιστοποίηση των πιθανοτήτων επιτυχούς συμφωνίας.",
+      "crossSellDesc": "Ο πελάτης διατηρεί υψηλή συμβατότητα (>85%) και ενεργό ενδιαφέρον σε %{count} ακόμη ακίνητά σας (%{titles}). Υψηλή πιθανότητα ικανοποίησης μέσω εναλλακτικής υπόδειξης."
     }
   },
   "brokerClient": {
@@ -724,6 +1157,82 @@
       "q13": { "question": "Ποια είναι η κατάσταση ή η προτίμησή σου σχετικά με τα κατοικίδια στο σπίτι;", "options": ["Έχω κατοικίδιο ή σίγουρα θέλω να αποκτήσω", "Δεν έχω, αλλά τα κατοικίδια μου είναι απόλυτα εντάξει", "Αυστηρά χωρίς κατοικίδια"] },
       "q14": { "question": "Ποια είναι η προτίμησή σου σχετικά με την κατανάλωση αλκοόλ μέσα στο διαμέρισμα;", "options": ["Μου αρέσει να πίνω συχνά στο σπίτι", "Πίνω μόνο περιστασιακά τα Σαββατοκύριακα", "Δεν πίνω ή προτιμώ ένα σπίτι χωρίς αλκοόλ"] },
       "q15": { "question": "Πόσο συχνά σκοπεύεις να χρησιμοποιείς την κουζίνα για να μαγειρεύεις;", "options": ["Μαγειρεύω κάθε μέρα", "Μερικές φορές την εβδομάδα", "Σπάνια, κυρίως παραγγέλνω ή τρώω στη σχολή"] }
+    }
+  },
+  "esign": {
+    "title": "Ψηφιακές Υπογραφές & Εντολές",
+    "viewingOrder": "Εντολή Υπόδειξης Ακινήτου",
+    "assignmentOrder": "Εντολή Ανάθεσης Ακινήτου",
+    "roommateAgreement": "Συμφωνητικό Συγκατοίκησης",
+    "holdingDeposit": "Επιβεβαίωση Κράτησης & Προκαταβολής",
+    "signViewingOrder": "Υπογραφή Εντολής Υπόδειξης",
+    "signAssignmentOrder": "Έκδοση & Υπογραφή Εντολής Ανάθεσης",
+    "chooseContract": "Επιλέξτε ψηφιακό έγγραφο",
+    "roommateAgreementDescription": "Δημιουργήστε ένα συμφωνητικό για κάθε συγκάτοικο της συνομιλίας.",
+    "holdingDepositDescription": "Επιβεβαιώστε την κράτηση επίσκεψης και την προκαταβολή.",
+    "tapToSign": "Πατήστε για έλεγχο και υπογραφή",
+    "assignmentSetupTitle": "Προετοιμασία εντολής ανάθεσης",
+    "assignmentModeLabel": "Τύπος ανάθεσης",
+    "assignmentSimple": "Απλή",
+    "assignmentExclusive": "Αποκλειστική",
+    "commissionRateLabel": "Ποσοστό προμήθειας",
+    "assignmentRateError": "Εισάγετε ποσοστό προμήθειας μεταξύ 0 και 100%.",
+    "startSigning": "Έναρξη υπογραφής",
+    "remoteRequestSentTitle": "Το αίτημα υπογραφής στάλθηκε",
+    "remoteRequestSentDescription": "Ο ιδιοκτήτης μπορεί να ανοίξει το αίτημα από τη συνομιλία του ακινήτου και να υπογράψει απομακρυσμένα.",
+    "signNow": "Υπογραφή Τώρα",
+    "signOnScreen": "Υπογράψτε στο παρακάτω πλαίσιο",
+    "clearSignature": "Καθαρισμός",
+    "undoSignature": "Αναίρεση",
+    "confirmSignature": "Επιβεβαίωση",
+    "reviewTitle": "Έλεγχος και επιβεβαίωση εγγράφου",
+    "verifyIdentityHint": "Επιβεβαιώστε το ΑΦΜ και τον αριθμό ταυτότητας ή διαβατηρίου πριν την υπογραφή.",
+    "alreadySigned": "Ο συγκεκριμένος υπογράφων έχει ήδη ολοκληρώσει την υπογραφή του. Επιλέξτε άλλο εκκρεμές μέρος ή κλείστε το έγγραφο.",
+    "afmLabel": "ΑΦΜ",
+    "afmPlaceholder": "Εισάγετε ΑΦΜ",
+    "idCardLabel": "ΑΔΤ / Διαβατήριο",
+    "idCardPlaceholder": "Εισάγετε αριθμό ταυτότητας ή διαβατηρίου",
+    "holdingDepositAmountLabel": "Ποσό προκαταβολής",
+    "holdingDepositAmountPlaceholder": "Εισάγετε ποσό σε EUR",
+    "houseRulesLabel": "Κανόνες συγκατοίκησης",
+    "houseRulesPlaceholder": "Γράψτε τους συμφωνημένους κανόνες του σπιτιού...",
+    "idVerificationTitle": "Φωτογράφιση Αστυνομικής Ταυτότητας",
+    "idVerificationSubtitle": "Φωτογραφίστε την ταυτότητα ή το διαβατήριο για νομική κατοχύρωση (eIDAS)",
+    "idFront": "Μπροστινή πλευρά",
+    "idBack": "Πίσω πλευρά",
+    "cameraPermission": "Απαιτείται πρόσβαση στην κάμερα για τη φωτογράφιση του εγγράφου ταυτοποίησης.",
+    "openCamera": "Άνοιγμα κάμερας",
+    "otpTitle": "Επαλήθευση ταυτότητας με SMS",
+    "requireOtp": "Απαίτηση SMS OTP",
+    "otpOptional": "Προαιρετική ενισχυμένη επαλήθευση για απομακρυσμένη υπογραφή.",
+    "sendOtp": "Αποστολή Κωδικού SMS",
+    "otpPlaceholder": "Εισάγετε τον 6ψήφιο κωδικό",
+    "verifyOtp": "Επαλήθευση κωδικού",
+    "otpSent": "Ο κωδικός επαλήθευσης στάλθηκε στο τηλέφωνο του υπογράφοντος.",
+    "otpVerified": "Η επαλήθευση τηλεφώνου ολοκληρώθηκε.",
+    "otpSkipped": "Η επαλήθευση SMS είναι προαιρετική για την υπογραφή με φυσική παρουσία.",
+    "debugOtp": "Κωδικός ανάπτυξης: {{code}}",
+    "gpsCaptured": "Καταγράφηκε τοποθεσία: {{lat}}, {{lng}} (Ακρίβεια: ±{{acc}}m)",
+    "capturingGps": "Καταγραφή τοποθεσίας...",
+    "gpsPending": "Απαιτείται καταγραφή τοποθεσίας πριν την υπογραφή.",
+    "stepProgress": "Βήμα {{step}} από {{total}}",
+    "finalize": "Οριστικοποίηση υπογραφής",
+    "signatureRecorded": "Η υπογραφή σας καταχωρίστηκε. Τα υπόλοιπα μέρη μπορούν πλέον να υπογράψουν.",
+    "contractSignedSuccess": "Το έγγραφο υπογράφηκε επιτυχώς και απεστάλη στα emails των συμβαλλομένων.",
+    "shareViaWhatsApp": "Κοινοποίηση μέσω WhatsApp",
+    "vatIncluded": "πλέον ΦΠΑ 24%",
+    "errors": {
+      "initialization": "Δεν ήταν δυνατή η προετοιμασία του εγγράφου υπογραφής.",
+      "cameraCapture": "Δεν ήταν δυνατή η λήψη της φωτογραφίας ταυτοποίησης.",
+      "cameraUpload": "Δεν ήταν δυνατή η μεταφόρτωση της φωτογραφίας ταυτοποίησης.",
+      "locationPermission": "Απαιτείται άδεια τοποθεσίας για τα στοιχεία της υπογραφής.",
+      "locationCapture": "Δεν ήταν δυνατή η καταγραφή της τοποθεσίας υπογραφής.",
+      "emptySignature": "Υπογράψτε στο πλαίσιο πριν την επιβεβαίωση.",
+      "otpSend": "Δεν ήταν δυνατή η αποστολή του κωδικού SMS.",
+      "otpVerify": "Δεν ήταν δυνατή η επαλήθευση του κωδικού SMS.",
+      "payload": "Δεν ήταν δυνατή η αποθήκευση των στοιχείων του εγγράφου.",
+      "finalize": "Δεν ήταν δυνατή η οριστικοποίηση του εγγράφου.",
+      "whatsapp": "Δεν ήταν δυνατό το άνοιγμα του WhatsApp."
     }
   }
 }

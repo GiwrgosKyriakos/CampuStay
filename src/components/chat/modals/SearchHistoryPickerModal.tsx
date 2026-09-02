@@ -7,6 +7,7 @@ import { db } from "@/src/config/firebase";
 import { useTheme } from "@/src/context/ThemeContext";
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
 import type { FilterSetMessageData } from "@/src/components/chat/modals/types";
+import { getCurrentLocale, t } from "@/src/locales";
 
 export interface SharedSearchHistoryItem {
   id: string;
@@ -42,7 +43,7 @@ function describeCriteria(data: FilterSetMessageData): { city?: string; budget?:
   const city = data.cityQuery?.trim() || undefined;
   const minimum = data.rentMin?.trim();
   const maximum = data.rentMax?.trim();
-  const budget = minimum || maximum ? `${minimum || "0"} - ${maximum || "∞"} €` : undefined;
+  const budget = minimum || maximum ? t("chat.searchHistory.budget", { minimum: minimum || "0", maximum: maximum || "∞" }) : undefined;
   return { city, budget };
 }
 
@@ -76,7 +77,7 @@ export default function SearchHistoryPickerModal({ visible, userId, onClose, onC
           return {
             id: `criteria:${savedDoc.id}`,
             kind: "criteria",
-            label: data.title?.trim() || "Αποθηκευμένα κριτήρια",
+            label: data.title?.trim() || t("chat.searchHistory.savedCriteria"),
             city: criteria.city,
             budget: criteria.budget,
             createdAtMillis: timestampToMillis(data.updatedAt),
@@ -123,18 +124,18 @@ export default function SearchHistoryPickerModal({ visible, userId, onClose, onC
           <View style={styles.header}>
             <View style={styles.titleWrap}>
               <Ionicons name="search-outline" size={21} color={colors.brand} />
-              <Text style={styles.title}>Ιστορικό αναζητήσεων</Text>
+              <Text style={styles.title}>{t("chat.searchHistory.title")}</Text>
             </View>
             <Pressable onPress={onClose} hitSlop={8} testID="search-history-picker-close">
               <Ionicons name="close-circle-outline" size={24} color={colors.onSurfaceTertiary} />
             </Pressable>
           </View>
-          <Text style={styles.subtitle}>Επιλέξτε όσα θέλετε να μοιραστείτε με τον μεσίτη.</Text>
+          <Text style={styles.subtitle}>{t("chat.searchHistory.description")}</Text>
           {loading ? (
             <View style={styles.loading}><ActivityIndicator color={colors.brand} /></View>
           ) : (
             <ScrollView style={styles.list} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false}>
-              {items.length === 0 ? <Text style={styles.emptyText}>Δεν υπάρχουν αποθηκευμένες αναζητήσεις.</Text> : items.map((item) => {
+              {items.length === 0 ? <Text style={styles.emptyText}>{t("chat.searchHistory.empty")}</Text> : items.map((item) => {
                 const selected = selectedIds.has(item.id);
                 return (
                   <Pressable key={item.id} style={[styles.item, selected && styles.itemSelected]} onPress={() => toggleItem(item.id)} testID={`search-history-item-${item.id}`}>
@@ -145,8 +146,8 @@ export default function SearchHistoryPickerModal({ visible, userId, onClose, onC
                         {item.kind === "query" ? <Ionicons name="search-outline" size={13} color={colors.onSurfaceTertiary} /> : <Ionicons name="options-outline" size={13} color={colors.onSurfaceTertiary} />}
                         {item.city ? <Text style={styles.metaText}>{item.city}</Text> : null}
                         {item.budget ? <Text style={styles.metaText}>{item.budget}</Text> : null}
-                        {!item.city && !item.budget ? <Text style={styles.metaText}>{item.kind === "query" ? "Πρόσφατη αναζήτηση" : "Κριτήρια"}</Text> : null}
-                        {item.createdAtMillis > 0 ? <Text style={styles.metaText}>{new Date(item.createdAtMillis).toLocaleDateString("el-GR")}</Text> : null}
+                        {!item.city && !item.budget ? <Text style={styles.metaText}>{item.kind === "query" ? t("chat.searchHistory.recentSearch") : t("chat.searchHistory.criteria")}</Text> : null}
+                        {item.createdAtMillis > 0 ? <Text style={styles.metaText}>{new Date(item.createdAtMillis).toLocaleDateString(getCurrentLocale())}</Text> : null}
                       </View>
                     </View>
                   </Pressable>
@@ -155,10 +156,10 @@ export default function SearchHistoryPickerModal({ visible, userId, onClose, onC
             </ScrollView>
           )}
           <View style={styles.actions}>
-            <Pressable style={styles.cancelButton} onPress={onClose} testID="search-history-picker-cancel"><Text style={styles.cancelText}>Ακύρωση</Text></Pressable>
+            <Pressable style={styles.cancelButton} onPress={onClose} testID="search-history-picker-cancel"><Text style={styles.cancelText}>{t("common.actions.cancel")}</Text></Pressable>
             <Pressable style={[styles.confirmButton, selectedIds.size === 0 && styles.confirmButtonDisabled]} onPress={handleConfirm} disabled={selectedIds.size === 0} testID="search-history-picker-confirm">
               <Ionicons name="share-outline" size={17} color={colors.onBrand} />
-              <Text style={styles.confirmText}>Διαμοιρασμός ({selectedIds.size})</Text>
+              <Text style={styles.confirmText}>{t("chat.searchHistory.share", { count: selectedIds.size })}</Text>
             </Pressable>
           </View>
         </View>

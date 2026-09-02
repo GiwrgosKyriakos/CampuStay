@@ -25,6 +25,21 @@ In the output, you'll find options to open the app in a
 
 You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
 
+## Contract signing providers
+
+The e-signature flow uses callable Functions for SMS verification and completion archiving. Configure these Functions environment variables before deploying the production flow:
+
+```text
+TWILIO_ACCOUNT_SID
+TWILIO_AUTH_TOKEN
+TWILIO_FROM_NUMBER
+RESEND_API_KEY
+RESEND_FROM_EMAIL
+SIGNING_OTP_SECRET
+```
+
+`SIGNING_OTP_ALLOW_DEBUG=true` is intended only for local development. It returns the generated OTP in the callable response instead of sending an SMS. The production Functions must be deployed after building `functions/src`; the client cannot finalize a contract by writing `status: "signed"` directly.
+
 ## Get a fresh project
 
 When you're ready, run:

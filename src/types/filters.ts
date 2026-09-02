@@ -1,5 +1,18 @@
 import type { LatLng } from "@/src/utils/geometry";
 
+export type HardCriteriaKey =
+  | "rent"
+  | "size"
+  | "floor"
+  | "propertyType"
+  | "bedrooms"
+  | "bathrooms"
+  | "furnished"
+  | "heating"
+  | "petFriendly"
+  | "nearMetro"
+  | "amenities";
+
 export interface FilterSetPayload {
   title?: string;
   rentMin?: string;
@@ -33,4 +46,12 @@ export interface FilterSetPayload {
   selectedAmenities?: string[];
   version?: number;
   updatedAt?: number;
+  origin?: "client_created" | "broker_created";
+  brokerModCount?: number;
+  lastModifiedByBrokerId?: string;
+  lastModifiedByBrokerName?: string;
+  lastModifiedAt?: number;
+  isSharedWithClient?: boolean;
+  sharedByBrokerId?: string;
+  userHardCriteria?: HardCriteriaKey[];
 }

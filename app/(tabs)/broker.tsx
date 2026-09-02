@@ -14,9 +14,12 @@ import BrokerHubSkeleton from "@/src/components/skeletons/BrokerHubSkeleton";
 import { t } from "@/src/locales";
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
 import type { LeadReadinessKey } from "../broker-client-detail";
+import type { HardCriteriaKey } from "@/src/types/filters";
 import { getPipelineStageConfig, type PipelineStageKey } from "@/src/constants/pipeline";
 import { isBrokerOrAgencyUser } from "@/src/utils/roles";
 import { getBrokerDeals } from "@/src/api/brokerClientProfiles";
+import AddManualClientModal from "@/src/components/AddManualClientModal";
+import LeadsPoolSection from "@/src/components/LeadsPoolSection";
 
 export interface BrokerApartment {
   id: string;
@@ -64,6 +67,7 @@ export interface FilterSetPayload {
   nearMetro?: boolean;
   sortBy?: string;
   summary?: string;
+  userHardCriteria?: HardCriteriaKey[];
 }
 
 export interface BrokerClientLead {
@@ -106,9 +110,10 @@ function mapApartment(id: string, data: Record<string, unknown>): BrokerApartmen
   };
 }
 
-function getDealPipelinePercentage(stage: "liked" | "lead" | "showing_scheduled" | "offer_made" | "deal_closed" | "lost"): number {
+function getDealPipelinePercentage(stage: "liked" | "lead" | "showing_scheduled" | "offer_made" | "negotiation_agreement" | "deal_closed" | "lost"): number {
   if (stage === "showing_scheduled") return 40;
   if (stage === "offer_made") return 60;
+  if (stage === "negotiation_agreement") return 90;
   if (stage === "deal_closed") return 100;
   return stage === "lost" ? 0 : 10;
 }
@@ -124,6 +129,8 @@ export default function BrokerHubScreen() {
   const [clients, setClients] = useState<BrokerClientLead[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isMoneyModeActive, setIsMoneyModeActive] = useState(false);
+  const [isAddClientModalVisible, setIsAddClientModalVisible] = useState(false);
+  const [clientDataRefreshToken, setClientDataRefreshToken] = useState(0);
   const swipeX = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -252,7 +259,7 @@ export default function BrokerHubScreen() {
     };
     void loadBrokerData();
     return () => { active = false; };
-  }, [auth.userId]);
+  }, [auth.userId, clientDataRefreshToken]);
 
   const { clientsExpectedRevenue, ownersExpectedRevenue, totalExpectedRevenue } = useMemo(() => {
     const clientsExpectedRevenue = clients.reduce((total, client) => total + client.weightedShare, 0);
@@ -362,6 +369,15 @@ export default function BrokerHubScreen() {
           <Text style={styles.brokerTitle}>Broker<Text style={styles.brokerTitleAccent}>Tab</Text></Text>
           <View style={styles.headerActionsRow}>
           <Pressable
+            style={styles.addClientIconButton}
+            onPress={() => setIsAddClientModalVisible(true)}
+            testID="broker-quick-add-client-btn"
+            accessibilityLabel="Χειροκίνητη προσθήκη πελάτη"
+            hitSlop={8}
+          >
+            <Ionicons color={colors.onBrand} name="add" size={22} />
+          </Pressable>
+          <Pressable
             style={[styles.headerIconButton, isMoneyModeActive && { backgroundColor: colors.brand, borderColor: colors.brand }]}
             onPress={() => setIsMoneyModeActive((previous) => !previous)}
             testID="broker-money-mode-toggle"
@@ -410,9 +426,18 @@ export default function BrokerHubScreen() {
       ) : null}
       {isLoading ? <BrokerHubSkeleton cardCount={6} /> : (
         <Animated.View style={[styles.contentArea, { transform: [{ translateX: swipeX }] }]} {...contentPanResponder.panHandlers}>
-          {clientsActive ? <FlatList data={clients} testID="broker-clients-list" keyExtractor={(item) => item.clientUserId} ListEmptyComponent={<Text style={styles.emptyStateSubtitle}>{t("brokerHub.noClients")}</Text>} renderItem={renderClientItem} /> : <FlatList data={owners} testID="broker-owners-list" keyExtractor={(item) => item.name} ListEmptyComponent={<Text style={styles.emptyStateSubtitle}>{t("brokerHub.noOwners")}</Text>} renderItem={renderOwnerItem} />}
+          {clientsActive ? <FlatList data={clients} testID="broker-clients-list" keyExtractor={(item) => item.clientUserId} ListHeaderComponent={auth.agencyId && auth.userId ? <View style={styles.leadsPoolWrap}><Text style={styles.leadsPoolTitle}>Αδιάθετα Leads</Text><LeadsPoolSection agencyId={auth.agencyId} brokerId={auth.userId} onChanged={() => setClientDataRefreshToken((previous) => previous + 1)} /></View> : null} ListEmptyComponent={<Text style={styles.emptyStateSubtitle}>{t("brokerHub.noClients")}</Text>} renderItem={renderClientItem} /> : <FlatList data={owners} testID="broker-owners-list" keyExtractor={(item) => item.name} ListEmptyComponent={<Text style={styles.emptyStateSubtitle}>{t("brokerHub.noOwners")}</Text>} renderItem={renderOwnerItem} />}
         </Animated.View>
       )}
+      <AddManualClientModal
+        visible={isAddClientModalVisible}
+        brokerId={auth.userId ?? ""}
+        onClose={() => setIsAddClientModalVisible(false)}
+        onCreated={() => {
+          setSelectedSegment("clients");
+          setClientDataRefreshToken((previous) => previous + 1);
+        }}
+      />
     </View>
   );
 }
@@ -426,6 +451,9 @@ const createOwnerStyles = (colors: ThemeColors) => StyleSheet.create({
 });
 
 const createStyles = (colors: ThemeColors) => StyleSheet.create({
+    addClientIconButton: { width: 40, height: 40, borderRadius: radius.pill, backgroundColor: colors.brand, alignItems: "center", justifyContent: "center", elevation: 3, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 4 },
+  leadsPoolWrap: { gap: spacing.sm, marginBottom: spacing.lg },
+  leadsPoolTitle: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface },
   container: { flex: 1, backgroundColor: colors.surface }, header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.sm }, brand: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface }, brandAccent: { color: colors.brand }, toggleShell: { flexDirection: "row", backgroundColor: colors.surfaceSecondary, borderRadius: radius.pill, padding: 4, marginHorizontal: spacing.lg, marginBottom: spacing.md, gap: 4 }, toggleOption: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: spacing.sm, borderRadius: radius.pill }, toggleOptionActive: { backgroundColor: colors.brand }, toggleText: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface }, toggleTextActive: { color: colors.onBrand }, contentArea: { flex: 1, paddingHorizontal: spacing.lg }, ownerRowCard: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: spacing.md, marginBottom: spacing.sm, borderRadius: radius.lg, backgroundColor: colors.surfaceSecondary, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }, clientRowCard: { flexDirection: "row", alignItems: "center", gap: spacing.sm, padding: spacing.md, marginBottom: spacing.sm, borderRadius: radius.lg, backgroundColor: colors.surfaceSecondary, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border }, rowMain: { flex: 1, gap: spacing.xs }, rowTitle: { flex: 1, fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onSurface }, motivationBadge: { alignSelf: "flex-start", color: colors.onSurfaceTertiary, backgroundColor: colors.surfaceTertiary, borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 3, fontSize: fontSize.sm }, countPill: { alignSelf: "flex-start", color: colors.brand, fontFamily: fonts.semibold, fontSize: fontSize.sm }, clientAvatar: { width: 48, height: 48, borderRadius: radius.pill }, emptyStateSubtitle: { textAlign: "center", color: colors.onSurfaceTertiary, fontFamily: fonts.regular, padding: spacing.xl }, headerBadgesRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs, marginRight: 2 }, badgePill: { width: 28, height: 28, borderRadius: radius.pill, alignItems: "center", justifyContent: "center" },
   clientInfoCol: { flex: 1, gap: 2 }, pipelineBadgeRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs, marginTop: 2, flexWrap: "wrap" }, percentBadgePill: { minHeight: 28, paddingHorizontal: spacing.sm, borderRadius: radius.pill, alignItems: "center", justifyContent: "center" }, percentBadgeText: { fontFamily: fonts.bold, fontSize: fontSize.xs }, activeApartmentSub: { flexShrink: 1, fontFamily: fonts.regular, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
   headerTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 44 }, headerActionsRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs }, brokerTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface }, brokerTitleAccent: { color: colors.brand }, headerIconButton: { width: 38, height: 38, borderRadius: radius.pill, backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" }, settingsIconButton: { width: 40, height: 40, borderRadius: radius.pill, backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" }, clientCard: { borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, padding: spacing.md, marginBottom: spacing.sm, gap: spacing.sm }, clientCardHeader: { flexDirection: "row", alignItems: "center", gap: spacing.sm }, clientAvatarWrap: { width: 42, height: 42, borderRadius: radius.pill, overflow: "hidden" }, clientTextCol: { flex: 1, minWidth: 0 }, clientCardName: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface }, clientCardMeta: { marginTop: 2, fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary }, clientStatusBar: { flexDirection: "row", alignItems: "center", gap: spacing.xs }, statusBadge: { minHeight: 28, minWidth: 28, borderRadius: radius.pill, alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.xs }, statusBadgeText: { fontSize: 14 }, pipelineBadge: { paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.pill, fontFamily: fonts.bold, fontSize: fontSize.xs }, weightedBadge: { paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.pill, fontFamily: fonts.bold, fontSize: fontSize.xs }, revenueOverviewCard: { backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.md, marginHorizontal: spacing.lg, marginBottom: spacing.md, gap: spacing.sm, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 3 }, revenueCardHeader: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.xs, width: "100%" }, revenueCardTitle: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface, textAlign: "center" }, revenueGrandTotalText: { fontFamily: fonts.displayExtra, fontSize: 32, color: colors.brand, textAlign: "center", alignSelf: "center", marginVertical: 4 }, revenueBreakdownPanel: { flexDirection: "row", alignItems: "center", justifyContent: "space-around", backgroundColor: colors.surfaceSecondary, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, paddingVertical: spacing.sm, paddingHorizontal: spacing.md }, breakdownColumn: { alignItems: "center", gap: 2, flex: 1 }, breakdownLabel: { fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.onSurfaceTertiary }, breakdownValue: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onSurface }, breakdownDivider: { width: 1, height: 24, backgroundColor: colors.border },

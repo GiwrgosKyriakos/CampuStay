@@ -13,11 +13,13 @@ export interface UserProfile {
   already_have_apartment_to_share: boolean;
   is_broker?: boolean;
   agencyId?: string | null;
-  agencyRole?: "ceo" | "member" | null;
+  agencyRole?: "ceo" | "member" | "secretary" | null;
   agencyStatus?: "approved" | "pending" | "none";
   agencyRequestedAt?: unknown;
   agencyJoinedAt?: unknown;
   looking_for_apartment: boolean;
+  looking_for_roommate?: boolean;
+  isLookingForRoommate?: boolean;
   not_looking_for_roommate?: boolean;
   university: string | null;
   year_of_study: string | null;
@@ -28,6 +30,7 @@ export interface UserProfile {
   linkedin: string;
   twitter: string;
   phone_number?: string;
+  preferences?: { hideNameInDeck?: boolean; hideInStack?: boolean };
 }
 
 interface FirestoreUserDocument {
@@ -46,11 +49,13 @@ interface FirestoreUserDocument {
   already_have_apartment_to_share?: boolean;
   is_broker?: boolean;
   agencyId?: string | null;
-  agencyRole?: "ceo" | "member" | null;
+  agencyRole?: "ceo" | "member" | "secretary" | null;
   agencyStatus?: "approved" | "pending" | "none";
   agencyRequestedAt?: unknown;
   agencyJoinedAt?: unknown;
   looking_for_apartment?: boolean;
+  looking_for_roommate?: boolean;
+  isLookingForRoommate?: boolean;
   not_looking_for_roommate?: boolean;
   year_of_study?: string | null;
   budget?: number | null;
@@ -60,6 +65,7 @@ interface FirestoreUserDocument {
   linkedin?: string;
   twitter?: string;
   phone_number?: string;
+  preferences?: { hideNameInDeck?: boolean; hideInStack?: boolean };
 }
 
 interface SaveUserProfileOptions {
@@ -90,6 +96,11 @@ function normalizeProfile(docData: Partial<FirestoreUserDocument>): UserProfile 
     agencyRequestedAt: docData.agencyRequestedAt,
     agencyJoinedAt: docData.agencyJoinedAt,
     looking_for_apartment: !!docData.looking_for_apartment,
+    looking_for_roommate: typeof docData.looking_for_roommate === "boolean"
+      ? docData.looking_for_roommate
+      : typeof docData.isLookingForRoommate === "boolean"
+        ? docData.isLookingForRoommate
+      : docData.not_looking_for_roommate !== true,
     not_looking_for_roommate: docData.not_looking_for_roommate === true,
     university: docData.university ?? null,
     year_of_study: yearOfStudy,
@@ -103,6 +114,7 @@ function normalizeProfile(docData: Partial<FirestoreUserDocument>): UserProfile 
       typeof docData.phone_number === "string"
         ? docData.phone_number
         : undefined,
+    preferences: docData.preferences,
   };
 }
 

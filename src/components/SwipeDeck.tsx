@@ -25,6 +25,41 @@ const { width: SCREEN_W } = Dimensions.get("window");
 const SWIPE_THRESHOLD = SCREEN_W * 0.28;
 const OUT_X = SCREEN_W * 1.5;
 
+function getQuizAnswer(answers: Record<string, string>, key: "smoking" | "pets"): string | null {
+  const aliases = key === "smoking" ? ["q7_smoke", "q7"] : ["q8_pets", "q8"];
+  return aliases.map((alias) => answers[alias]?.trim()).find(Boolean) ?? null;
+}
+
+function isSmokerAnswer(answer: string): boolean {
+  const normalized = answer.toLowerCase();
+  return normalized.includes("yes") || normalized.includes("outside") || normalized.includes("καπν") || normalized.includes("έξω");
+}
+
+function isPetFriendlyAnswer(answer: string): boolean {
+  const normalized = answer.toLowerCase();
+  return normalized.includes("yes") || normalized.includes("fine") || normalized.includes("pets are") || normalized.includes("κατοικ") || normalized.includes("ναι");
+}
+
+function QuizCompatibilityBadges({ profileAnswers, currentAnswers, colors, styles }: { profileAnswers: Record<string, string>; currentAnswers: Record<string, string>; colors: ThemeColors; styles: ReturnType<typeof createStyles> }) {
+  const profileSmokingAnswer = getQuizAnswer(profileAnswers, "smoking");
+  const currentSmokingAnswer = getQuizAnswer(currentAnswers, "smoking");
+  const profilePetsAnswer = getQuizAnswer(profileAnswers, "pets");
+  const currentPetsAnswer = getQuizAnswer(currentAnswers, "pets");
+  const profileIsSmoker = profileSmokingAnswer ? isSmokerAnswer(profileSmokingAnswer) : false;
+  const profileIsPetFriendly = profilePetsAnswer ? isPetFriendlyAnswer(profilePetsAnswer) : false;
+  const isMutualSmokingMatch = Boolean(profileSmokingAnswer && currentSmokingAnswer && profileSmokingAnswer === currentSmokingAnswer);
+  const isMutualPetsMatch = Boolean(profilePetsAnswer && currentPetsAnswer && profilePetsAnswer === currentPetsAnswer);
+
+  if (!profileSmokingAnswer && !profilePetsAnswer) return null;
+
+  return (
+    <View style={styles.quizBadgesRow}>
+      {profileSmokingAnswer ? <View style={[styles.quizPillBadge, isMutualSmokingMatch && styles.quizPillBadgeMutualMatch]}><Ionicons name={profileIsSmoker ? "flame-outline" : "ban-outline"} size={12} color={isMutualSmokingMatch ? colors.onBrand : "#FFFFFF"} /><Text style={[styles.quizPillText, isMutualSmokingMatch && styles.quizPillTextMutualMatch]}>{profileIsSmoker ? "Καπνιστής" : "Μη καπνιστής"}</Text></View> : null}
+      {profilePetsAnswer ? <View style={[styles.quizPillBadge, isMutualPetsMatch && styles.quizPillBadgeMutualMatch]}><Ionicons name={profileIsPetFriendly ? "paw-outline" : "ban-outline"} size={12} color={isMutualPetsMatch ? colors.onBrand : "#FFFFFF"} /><Text style={[styles.quizPillText, isMutualPetsMatch && styles.quizPillTextMutualMatch]}>{profileIsPetFriendly ? "Κατοικίδια" : "Όχι κατοικίδια"}</Text></View> : null}
+    </View>
+  );
+}
+
 export interface SwipeDeckHandle {
   swipeRight: () => void;
   swipeLeft: () => void;
@@ -32,6 +67,7 @@ export interface SwipeDeckHandle {
 
 interface Props {
   profiles: RoommateProfile[];
+  currentQuizAnswers?: Record<string, string>;
   currency: string;
   onLike: (p: RoommateProfile) => void;
   onNope: (p: RoommateProfile) => void;
@@ -40,7 +76,7 @@ interface Props {
 }
 
 const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck(
-  { profiles, currency, onLike, onNope, onSwipeAction, onEmptyReset },
+  { profiles, currentQuizAnswers = {}, currency, onLike, onNope, onSwipeAction, onEmptyReset },
   ref,
 ) {
   const { colors } = useTheme();
@@ -57,7 +93,7 @@ const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck(
     });
   }, [profiles]);
 
-  // 🟢 ΑΣΦΑΛΕΙΣ JS ΣΥΝΑΡΤΗΣΕΙΣ ΓΙΑ LOGGING (Εκτελούνται στο JS Thread και διαβάζουν με ασφάλεια το State)
+  // ΑΣΦΑΛΕΙΣ JS ΣΥΝΑΡΤΗΣΕΙΣ ΓΙΑ LOGGING (Εκτελούνται στο JS Thread και διαβάζουν με ασφάλεια το State)
   const logSwipeStart = () => {
     const profileId = cardStack[0]?.id;
     console.log("[SwipeDeck] Swipe started", { profileId });
@@ -148,7 +184,7 @@ const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck(
         runOnJS(logSwipeComplete)("left");
         x.value = withTiming(-OUT_X, { duration: 250 }, () => runOnJS(finish)("left"));
       } else {
-        // 🟢 Ασφαλής κλήση της custom log function αντί για runOnJS(console.log)
+        // Ασφαλής κλήση της custom log function αντί για runOnJS(console.log)
         runOnJS(logSwipeCanceled)(x.value, y.value);
         x.value = withSpring(0);
         y.value = withSpring(0);
@@ -248,6 +284,7 @@ const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck(
             </Text>
           </View>
         </View>
+        <QuizCompatibilityBadges profileAnswers={p.quizAnswers ?? {}} currentAnswers={currentQuizAnswers} colors={colors} styles={styles} />
       </View>
     </View>
   );
@@ -302,6 +339,11 @@ function createStyles(colors: ThemeColors) {
       elevation: 4,
     },
     matchBadgeText: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onSurfaceInverse },
+    quizBadgesRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4, flexWrap: "wrap" },
+    quizPillBadge: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(26, 26, 26, 0.78)", paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.pill, borderWidth: 1, borderColor: "rgba(255, 255, 255, 0.18)" },
+    quizPillBadgeMutualMatch: { backgroundColor: colors.brand, borderColor: colors.brandSecondary },
+    quizPillText: { fontFamily: fonts.bold, fontSize: 10, color: "#FFFFFF" },
+    quizPillTextMutualMatch: { color: colors.onBrand },
     photo: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%" },
     photoFallbackWrap: {
       ...StyleSheet.absoluteFillObject,

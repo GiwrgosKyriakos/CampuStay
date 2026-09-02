@@ -19,6 +19,8 @@ export interface BlockedProfile {
 export interface PrivacyPreferences {
   is_visible: boolean;
   blocked_profiles: BlockedProfile[];
+  hideNameInDeck?: boolean;
+  hideInStack?: boolean;
 }
 
 export interface UserSettings {
@@ -39,6 +41,8 @@ const DEFAULT_NOTIFICATIONS: NotificationPreferences = {
 const DEFAULT_PRIVACY: PrivacyPreferences = {
   is_visible: true,
   blocked_profiles: [],
+  hideNameInDeck: false,
+  hideInStack: false,
 };
 
 type FirestoreUserSettingsDoc = {
@@ -75,6 +79,8 @@ function normalizePrivacy(input?: Partial<PrivacyPreferences>): PrivacyPreferenc
   return {
     is_visible: input?.is_visible ?? DEFAULT_PRIVACY.is_visible,
     blocked_profiles: blockedProfiles,
+    hideNameInDeck: input?.hideNameInDeck ?? DEFAULT_PRIVACY.hideNameInDeck,
+    hideInStack: input?.hideInStack ?? DEFAULT_PRIVACY.hideInStack,
   };
 }
 
@@ -87,7 +93,7 @@ function buildSettings(userId: string, data?: FirestoreUserSettingsDoc): UserSet
 }
 
 export async function getUserSettings(userId: string): Promise<UserSettings> {
-  // 🟢 Διαβάζουμε από τη συλλογή "settings"
+  // Διαβάζουμε από τη συλλογή "settings"
   const settingsRef = doc(db, "settings", userId);
   const snapshot = await getDoc(settingsRef);
   if (!snapshot.exists()) {
@@ -133,7 +139,7 @@ export async function saveUserNotifications(userId: string, notifications: Notif
 
 export async function saveUserPrivacy(userId: string, privacy: PrivacyPreferences): Promise<UserSettings> {
   const settingsRef = doc(db, "settings", userId);
-  const userRef = doc(db, "users", userId); // 🟢 Προσθήκη αναφοράς στο document του χρήστη
+  const userRef = doc(db, "users", userId); // Προσθήκη αναφοράς στο document του χρήστη
   const normPrivacy = normalizePrivacy(privacy);
 
   // 1. Αποθήκευση στη συλλογή "settings"
@@ -146,12 +152,16 @@ export async function saveUserPrivacy(userId: string, privacy: PrivacyPreference
     { merge: true },
   );
 
-  // 2. 🟢 Ενημέρωση του flag is_visible στη συλλογή "users" για άμεσο φιλτράρισμα στο discover
+  // 2. Ενημέρωση του flag is_visible στη συλλογή "users" για άμεσο φιλτράρισμα στο discover
   await setDoc(
     userRef,
     {
       is_visible: normPrivacy.is_visible,
       blockedUserIds: normPrivacy.blocked_profiles.map((profile) => profile.id),
+      preferences: {
+        hideNameInDeck: normPrivacy.hideNameInDeck === true,
+        hideInStack: normPrivacy.hideInStack === true,
+      },
       updatedAt: serverTimestamp(),
     },
     { merge: true },

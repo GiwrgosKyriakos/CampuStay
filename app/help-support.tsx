@@ -131,7 +131,7 @@ export default function HelpSupportScreen() {
               <View style={styles.linkIconWrap}>
                 <Ionicons name="information-circle-outline" size={20} color={colors.onSurface} />
               </View>
-              <Text style={styles.linkLabel}>Σχετικά με εμάς / About Us</Text>
+              <Text style={styles.linkLabel}>{t("aboutUs.linkLabel")}</Text>
               <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
             </Pressable>
 

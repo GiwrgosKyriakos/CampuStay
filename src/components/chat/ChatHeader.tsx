@@ -4,6 +4,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { Pressable, Text, View } from "react-native";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import type { ThemeColors } from "@/src/theme";
+import { t } from "@/src/locales";
+import { isBrokerOrAgencyUser, type UserRoleData } from "@/src/utils/roles";
 
 type ChatHeaderStyles = Record<string, any>;
 
@@ -29,6 +31,9 @@ export interface ChatHeaderProps {
   avatarUri?: string;
   displayName: string;
   displayUniversity: string;
+  recipientProfile?: UserRoleData | null;
+  showRoommateDetails?: boolean;
+  statusLabel?: string;
   hostPhoneNumber: string;
   onProfilePress: () => void;
   profileDisabled: boolean;
@@ -64,6 +69,9 @@ export default function ChatHeader({
   avatarUri,
   displayName,
   displayUniversity,
+  recipientProfile,
+  showRoommateDetails = true,
+  statusLabel = "Ενεργός τώρα",
   hostPhoneNumber,
   onProfilePress,
   profileDisabled,
@@ -76,6 +84,11 @@ export default function ChatHeader({
   onMutualLikes,
   testID,
 }: ChatHeaderProps) {
+  const showRecipientRoommateDetails = !recipientProfile
+    || (!isBrokerOrAgencyUser(recipientProfile)
+      && recipientProfile.looking_for_roommate !== false
+      && recipientProfile.isLookingForRoommate !== false
+      && recipientProfile.not_looking_for_roommate !== true);
   const hasApartment = isHostChat && (hostApartment || apartmentTitle);
 
   return (
@@ -116,10 +129,10 @@ export default function ChatHeader({
       {showHostActionMenu && showHostClientActions && !inputBlocked ? (
         <View style={styles.hostActionMenu} testID="chat-host-actions-menu">
           <Pressable style={styles.hostActionMenuItem} onPress={onPriceProposal} testID="chat-host-action-price-proposal">
-            <Text style={styles.hostActionMenuText}>Πρότεινε τιμή</Text>
+            <Text style={styles.hostActionMenuText}>{t("chat.actions.proposePrice")}</Text>
           </Pressable>
           <Pressable style={styles.hostActionMenuItem} onPress={onVisitRequest} testID="chat-host-action-visit-request">
-            <Text style={styles.hostActionMenuText}>Ζήτα επίσκεψη</Text>
+            <Text style={styles.hostActionMenuText}>{t("chat.actions.requestVisit")}</Text>
           </Pressable>
         </View>
       ) : null}
@@ -143,7 +156,7 @@ export default function ChatHeader({
                 </View>
               ) : null}
             </View>
-            <Text style={styles.headerUni} numberOfLines={1}>{displayUniversity}</Text>
+            <Text style={styles.headerUni} numberOfLines={1}>{showRoommateDetails && showRecipientRoommateDetails ? displayUniversity : statusLabel}</Text>
           </View>
         </Pressable>
         <Pressable style={styles.iconBtn} onPress={onContextMenu} testID="chat-context-menu-button" hitSlop={8}>
@@ -154,7 +167,7 @@ export default function ChatHeader({
         </Pressable>
         {isRoommateChat ? (
           <Pressable style={[styles.iconBtn, showMutualLikes && styles.iconBtnActive]} onPress={onMutualLikes} testID="chat-mutual-likes-toggle" hitSlop={8}>
-            <Text style={[styles.mutualLikesEmoji, showMutualLikes && styles.mutualLikesEmojiActive]}>💕</Text>
+            <Ionicons name="heart-circle-outline" size={22} color={showMutualLikes ? colors.brand : colors.onSurface} />
           </Pressable>
         ) : null}
       </View>

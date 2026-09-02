@@ -55,7 +55,7 @@ export default function ProfileScreen() {
   const [matchCount, setMatchCount] = useState(0);
   const [updatingPhoto, setUpdatingPhoto] = useState(false);
   const [quizAnsweredCount, setQuizAnsweredCount] = useState(0);
-  const [isLoggingOut, setIsLoggingOut] = useState(false); // 🎯 ΠΡΟΣΘΗΚΗ: Κλειδώνει το UI κατά το logout
+  const [isLoggingOut, setIsLoggingOut] = useState(false); // ΠΡΟΣΘΗΚΗ: Κλειδώνει το UI κατά το logout
 
   React.useEffect(() => {
     if (auth.isGuest) {
@@ -124,7 +124,7 @@ export default function ProfileScreen() {
   const visibleNavSettings = auth.isBroker
     ? NAV_SETTINGS.filter((setting) => setting.route !== "/roomie-profile")
     : NAV_SETTINGS;
-  const canManageAgency = profile?.agencyRole === "ceo" && !!profile.agencyId;
+  const canManageAgency = (profile?.agencyRole === "ceo" || profile?.agencyRole === "secretary") && !!profile.agencyId;
   const modeLabels = {
     system: locale === "el" ? "Σύστημα" : "System",
     light: locale === "el" ? "Φωτεινό" : "Light",
@@ -206,7 +206,7 @@ export default function ProfileScreen() {
               onPress={
                 auth.isGuest
                   ? () => {
-                      router.push("/auth-landing"); // 🎯 ΔΙΟΡΘΩΣΗ: Πλοήγηση στην οθόνη εισόδου
+                      router.push("/auth-landing"); // ΔΙΟΡΘΩΣΗ: Πλοήγηση στην οθόνη εισόδου
                     }
                   : updatePhoto
               }
@@ -233,6 +233,19 @@ export default function ProfileScreen() {
             <Text style={styles.subInfoText}>{subInfoParts.join(" · ")}</Text>
           </View>
         </View>
+
+        {(profile?.not_looking_for_roommate === true || notLookingForRoommate) && !auth.isBroker && !auth.isGuest ? (
+          <Pressable onPress={() => router.push("/user-calendar")} style={styles.profileCalendarTile} testID="profile-calendar-tile">
+            <View style={styles.profileCalendarTileIconWrap}>
+              <Ionicons color={colors.brand} name="calendar-outline" size={22} />
+            </View>
+            <View style={styles.profileCalendarTileTextCol}>
+              <Text style={styles.profileCalendarTileTitle}>Ημερολόγιο</Text>
+              <Text style={styles.profileCalendarTileSubtitle}>Προγραμματισμένες επισκέψεις &amp; υπενθυμίσεις</Text>
+            </View>
+            <Ionicons color={colors.onSurfaceTertiary} name="chevron-forward" size={20} />
+          </Pressable>
+        ) : null}
 
         {!auth.isGuest && !auth.isBroker && !notLookingForRoommate ? (
           <View style={styles.statsCard}>
@@ -414,7 +427,7 @@ export default function ProfileScreen() {
               style={styles.logout}
               testID="logout-button"
               onPress={async () => {
-                setIsLoggingOut(true); // 🎯 Ενεργοποιούμε το loading screen αμέσως
+                setIsLoggingOut(true); // Ενεργοποιούμε το loading screen αμέσως
                 await auth.logout();
                 setTimeout(() => {
                   router.replace("/guest"); 
@@ -439,7 +452,7 @@ export default function ProfileScreen() {
             style={styles.guestSignUpButton}
             testID="guest-signup-button"
             onPress={() => {
-              router.push("/auth-landing"); // 🎯 ΔΙΟΡΘΩΣΗ: Πλοήγηση στην οθόνη εισόδου
+              router.push("/auth-landing"); // ΔΙΟΡΘΩΣΗ: Πλοήγηση στην οθόνη εισόδου
             }}
           >
             <Text style={styles.guestSignUpText}>{t("common.cta.signInOrRegister")}</Text>
@@ -447,7 +460,7 @@ export default function ProfileScreen() {
         )}
       </ScrollView>
 
-      {/* 🎯 ΠΡΟΣΘΗΚΗ: Απόλυτο loading overlay που κρύβει το φλασάρισμα των guest στοιχείων */}
+      {/* ΠΡΟΣΘΗΚΗ: Απόλυτο loading overlay που κρύβει το φλασάρισμα των guest στοιχείων */}
       {isLoggingOut && (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator size="large" color={colors.brand} />
@@ -471,6 +484,11 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     justifyContent: "center",
   },
   hero: { alignItems: "center", paddingTop: spacing["3xl"], paddingBottom: spacing.xl, gap: spacing.sm },
+  profileCalendarTile: { flexDirection: "row", alignItems: "center", backgroundColor: colors.surfaceSecondary, padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, marginHorizontal: spacing.lg, marginBottom: spacing.md, gap: spacing.md },
+  profileCalendarTileIconWrap: { width: 44, height: 44, borderRadius: radius.md, backgroundColor: colors.brandTertiary, alignItems: "center", justifyContent: "center" },
+  profileCalendarTileTextCol: { flex: 1, gap: 2 },
+  profileCalendarTileTitle: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface },
+  profileCalendarTileSubtitle: { fontFamily: fonts.regular, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
   avatarWrap: { marginTop: spacing.lg, marginBottom: spacing.sm },
   avatarButton: { alignItems: "center", justifyContent: "center" },
   avatarButtonPressed: { transform: [{ scale: 0.98 }] },

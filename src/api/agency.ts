@@ -32,6 +32,8 @@ export async function notifyCeoOfNewApplicant(
 }
 
 export async function approveAgencyBroker(agencyId: string, brokerId: string): Promise<void> {
+  const applicantSnapshot = await getDoc(doc(db, "users", brokerId));
+  const isSecretary = applicantSnapshot.exists() && applicantSnapshot.data().agencyRole === "secretary";
   await updateDoc(doc(db, "users", brokerId), {
     agencyStatus: "approved",
     agencyJoinedAt: serverTimestamp(),
@@ -39,11 +41,14 @@ export async function approveAgencyBroker(agencyId: string, brokerId: string): P
   await updateDoc(doc(db, "agencies", agencyId), {
     activeBrokerIds: arrayUnion(brokerId),
     pendingBrokerIds: arrayRemove(brokerId),
+    ...(isSecretary ? { pendingSecretaryIds: arrayRemove(brokerId) } : {}),
     updatedAt: serverTimestamp(),
   });
 }
 
 export async function rejectAgencyBroker(agencyId: string, brokerId: string): Promise<void> {
+  const applicantSnapshot = await getDoc(doc(db, "users", brokerId));
+  const isSecretary = applicantSnapshot.exists() && applicantSnapshot.data().agencyRole === "secretary";
   await updateDoc(doc(db, "users", brokerId), {
     agencyStatus: "none",
     agencyId: null,
@@ -52,6 +57,7 @@ export async function rejectAgencyBroker(agencyId: string, brokerId: string): Pr
   });
   await updateDoc(doc(db, "agencies", agencyId), {
     pendingBrokerIds: arrayRemove(brokerId),
+    ...(isSecretary ? { pendingSecretaryIds: arrayRemove(brokerId) } : {}),
     updatedAt: serverTimestamp(),
   });
 }

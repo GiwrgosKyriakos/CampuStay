@@ -3,7 +3,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { BackHandler, Text, View, StyleSheet, Pressable, Modal, ScrollView, ActivityIndicator, DimensionValue } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { runOnJS } from "react-native-reanimated";
 
@@ -16,6 +16,8 @@ import {
   type BrokerNote,
 } from "@/src/api/brokerCalendar";
 import BrokerNoteModal, { type BrokerClientItem, type BrokerListingItem } from "@/src/components/BrokerNoteModal";
+import SignContractModal from "@/src/components/SignContractModal";
+import PostVisitFeedbackModal from "@/src/components/calendar/PostVisitFeedbackModal";
 import CenteredActionModal from "@/src/components/CenteredActionModal";
 import { getBrokerClientProfiles } from "@/src/api/brokerClientProfiles";
 import { db } from "@/src/config/firebase";
@@ -23,6 +25,9 @@ import { useAuth } from "@/src/context/auth";
 import { fontSize, fonts, radius, spacing, type ThemeColors } from "@/src/theme";
 import { useTheme } from "@/src/context/ThemeContext";
 import { t } from "@/src/locales";
+import type { ContractDraftContext } from "@/src/types/esignature";
+import { getCalendarNoteDate } from "@/src/utils/calendarNoteReminders";
+import { cancelScheduledNotification, schedulePostVisitFeedbackReminder } from "@/src/utils/notificationService";
 
 type CalendarViewMode = "month" | "week" | "day";
 const WEEKDAY_LABELS = ["Δευ", "Τρι", "Τετ", "Πεμ", "Παρ", "Σαβ", "Κυρ"] as const;
@@ -249,6 +254,7 @@ function buildMonthWeeks(date: Date): CalendarWeek[] {
 
 function CalendarView({
   colors,
+  userId,
   currentDate,
   calendarViewMode,
   onCalendarViewModeChange,
@@ -256,12 +262,16 @@ function CalendarView({
   onAddNotePress,
   onEditNotePress,
   onToggleNoteDone,
+  onFeedbackSaved,
+  onClientPress,
+  onSignViewingOrder,
   onNavigate,
   bottomInset,
   visibleNotes,
   isLoading,
 }: {
   colors: ThemeColors;
+  userId: string;
   currentDate: Date;
   calendarViewMode: CalendarViewMode;
   onCalendarViewModeChange: (mode: CalendarViewMode) => void;
@@ -269,6 +279,9 @@ function CalendarView({
   onAddNotePress: (selectedDate: string) => void;
   onEditNotePress: (note: BrokerNote) => void;
   onToggleNoteDone: (note: BrokerNote) => void;
+  onFeedbackSaved: (noteId: string) => void;
+  onClientPress: (note: BrokerNote) => void;
+  onSignViewingOrder: (note: BrokerNote) => void;
   onNavigate: (direction: -1 | 1) => void;
   bottomInset: number;
   visibleNotes: BrokerNote[];
@@ -314,6 +327,27 @@ function CalendarView({
   }, [visibleNotes]);
 
   const selectedDayNotes = useMemo(() => notesByDate.get(selectedDayKey) ?? [], [notesByDate, selectedDayKey]);
+  const [feedbackNote, setFeedbackNote] = useState<BrokerNote | null>(null);
+  const pendingFeedbackNotes = useMemo(
+    () => visibleNotes.filter((note) => {
+      if (note.category !== "showing" || !note.apartmentId || note.feedbackSubmittedBy?.[userId]) return false;
+      if (note.done || note.isCompleted) return true;
+      const visitDate = getCalendarNoteDate(note.scheduledDate ?? note.date, note.scheduledTime ?? note.time, note.timestamp);
+      return !!visitDate && currentTime.getTime() >= visitDate.getTime() + 2 * 60 * 60 * 1000;
+    }),
+    [currentTime, userId, visibleNotes],
+  );
+  useEffect(() => {
+    visibleNotes.forEach((note) => {
+      if (note.category !== "showing" || !note.apartmentId || note.feedbackSubmittedBy?.[userId]) return;
+      if (note.done || note.isCompleted) {
+        void cancelScheduledNotification(note.reminderNotificationId);
+        return;
+      }
+      const visitDate = getCalendarNoteDate(note.scheduledDate ?? note.date, note.scheduledTime ?? note.time, note.timestamp);
+      if (visitDate) void schedulePostVisitFeedbackReminder({ noteId: note.id, apartmentTitle: note.apartmentTitle ?? "το διαμέρισμα", scheduledAt: visitDate });
+    });
+  }, [userId, visibleNotes]);
   const nextUpNote = useMemo(() => {
     const currentMinutes = getTimeInMinutes(currentTime);
     const upcomingNotes = visibleNotes
@@ -391,7 +425,8 @@ function CalendarView({
         disabled={isPast}
         onPress={(event) => {
           event.stopPropagation();
-          onEditNotePress(note);
+          if (note.clientId || note.clientProfileId) onClientPress(note);
+          else onEditNotePress(note);
         }}
         style={({ pressed }) => [
           styles.noteCard,
@@ -412,8 +447,25 @@ function CalendarView({
           <Text style={[styles.noteSecondaryText, { color: textColor, textDecorationLine: note.done ? "line-through" : "none" }]}>
             Όνομα πελάτη: {note.clientName || "-"}
           </Text>
+          {note.coveringBrokerId ? <Text style={[styles.coveringNoteBadge, { color: colors.brand }]} numberOfLines={1}>Κάλυψη Ραντεβού για {note.primaryBrokerName || "τον αρχικό μεσίτη"}</Text> : null}
         </View>
-        {renderDoneButton(note, isPast)}
+        <View style={styles.noteCardActions}>
+          {note.apartmentId && note.clientId && (note.category === "showing" || note.category === "visit") ? (
+            <Pressable
+              accessibilityLabel={t("esign.signViewingOrder")}
+              hitSlop={8}
+              onPress={(event) => {
+                event.stopPropagation();
+                onSignViewingOrder(note);
+              }}
+              style={styles.contractIconButton}
+              testID={`calendar-note-sign-viewing-order-${note.id}`}
+            >
+              <Ionicons name="document-text-outline" size={18} color={colors.brand} />
+            </Pressable>
+          ) : null}
+          {renderDoneButton(note, isPast)}
+        </View>
       </Pressable>
     );
   };
@@ -429,7 +481,8 @@ function CalendarView({
         disabled={isPast}
         onPress={(event) => {
           event.stopPropagation();
-          onEditNotePress(note);
+          if (note.clientId || note.clientProfileId) onClientPress(note);
+          else onEditNotePress(note);
         }}
         style={({ pressed }) => [styles.noteCard, styles.compactNoteCard, { width, backgroundColor: note.done ? colors.brandTertiary : noteCategoryColorMap[note.category] ?? colors.surfaceSecondary, borderColor: note.done ? colors.onBrandTertiary : colors.border, opacity: isPast ? 0.6 : pressed ? 0.82 : 1 }]}
       >
@@ -439,8 +492,25 @@ function CalendarView({
           {visibleFields.includes("client") ? <Text style={[styles.noteSecondaryText, compactTextStyle]} numberOfLines={1}>{note.clientName || "-"}</Text> : null}
           {visibleFields.includes("apartmentOrClient") ? <Text style={[styles.noteSecondaryText, compactTextStyle]} numberOfLines={1}>{note.apartmentTitle || note.clientName || "-"}</Text> : null}
           {visibleFields.includes("timeOrTitle") ? <Text style={[styles.notePrimaryText, compactTextStyle]} numberOfLines={1}>{note.time || note.apartmentTitle || "--:--"}</Text> : null}
+          {note.coveringBrokerId && visibleFields.includes("timeOrTitle") ? <Text style={[styles.coveringNoteBadge, { color: colors.brand }]} numberOfLines={1}>Κάλυψη Ραντεβού</Text> : null}
         </View>
-        {renderDoneButton(note, isPast)}
+        <View style={styles.noteCardActions}>
+          {note.apartmentId && note.clientId && (note.category === "showing" || note.category === "visit") ? (
+            <Pressable
+              accessibilityLabel={t("esign.signViewingOrder")}
+              hitSlop={6}
+              onPress={(event) => {
+                event.stopPropagation();
+                onSignViewingOrder(note);
+              }}
+              style={styles.contractIconButton}
+              testID={`calendar-note-sign-viewing-order-compact-${note.id}`}
+            >
+              <Ionicons name="document-text-outline" size={16} color={colors.brand} />
+            </Pressable>
+          ) : null}
+          {renderDoneButton(note, isPast)}
+        </View>
       </Pressable>
     );
   };
@@ -526,7 +596,7 @@ function CalendarView({
         showsVerticalScrollIndicator={false}
       >
         {archiveBanner}
-        {calendarViewMode === "day" ? renderDayAgenda(currentDate, selectedDayNotes, true) : weekAgendaDays.map((cell) => renderDayAgenda(cell.date, notesByDate.get(cell.dateKey) ?? [], false))}
+        {calendarViewMode === "day" ? renderDayAgenda(currentDate, selectedDayNotes, true) : calendarViewMode === "week" ? <View style={[styles.weekNotesContainer, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>{weekAgendaDays.map((cell) => renderDayAgenda(cell.date, notesByDate.get(cell.dateKey) ?? [], false))}</View> : weekAgendaDays.map((cell) => renderDayAgenda(cell.date, notesByDate.get(cell.dateKey) ?? [], false))}
         {calendarViewMode === "week" && weekAgendaDays.length === 0 ? <View style={styles.emptyStateWrap}><Text style={[styles.emptyStateText, { color: colors.onSurfaceTertiary }]}>Δεν υπάρχουν σημειώσεις αυτήν την εβδομάδα.</Text></View> : null}
       </ScrollView>
     );
@@ -660,6 +730,8 @@ function CalendarView({
         ) : null}
         </View>
 
+        {pendingFeedbackNotes.length > 0 ? <View style={[styles.feedbackCallout, { borderColor: colors.brand, backgroundColor: colors.brandTertiary }]} testID="broker-calendar-pending-feedback-callout"><Ionicons name="star-outline" size={22} color={colors.brand} /><View style={styles.feedbackCalloutCopy}><Text style={[styles.feedbackCalloutText, { color: colors.onSurface }]}>Σημείωση εκτίμησης & feedback για την υπόδειξη στο {pendingFeedbackNotes[0].apartmentTitle ?? "διαμέρισμα"}.</Text><Pressable onPress={() => setFeedbackNote(pendingFeedbackNotes[0])} testID="broker-calendar-open-feedback"><Text style={[styles.feedbackCalloutAction, { color: colors.brand }]}>Καταγραφή Feedback</Text></Pressable></View></View> : null}
+
         {calendarViewMode === "month" ? (
           <View style={[styles.todoCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
             <View style={styles.nextUpSection}>
@@ -682,6 +754,7 @@ function CalendarView({
             </View>
           </View>
         ) : null}
+        <PostVisitFeedbackModal visible={feedbackNote !== null} note={feedbackNote} isClient={false} userId={userId} clientName={feedbackNote?.clientName ?? ""} propertyId={feedbackNote?.apartmentId} clientId={feedbackNote?.clientId} profileId={feedbackNote?.brokerId && feedbackNote?.clientId ? `${feedbackNote.brokerId}_${feedbackNote.clientId}` : undefined} listingPrice={feedbackNote?.apartmentPrice} onClose={() => setFeedbackNote(null)} onSaved={() => { if (!feedbackNote) return; onFeedbackSaved(feedbackNote.id); setFeedbackNote(null); }} />
       </View>
     </GestureDetector>
   );
@@ -689,6 +762,7 @@ function CalendarView({
 
 export default function CalendarScreen() {
   const auth = useAuth();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const [calendarViewMode, setCalendarViewMode] = useState<CalendarViewMode>("month");
@@ -715,6 +789,7 @@ export default function CalendarScreen() {
   const yearRange = useMemo(() => Array.from({ length: 9 }, (_, index) => currentYear - 4 + index), [currentYear]);
   const [realListings, setRealListings] = useState<BrokerListingItem[]>([]);
   const [realClients, setRealClients] = useState<BrokerClientItem[]>([]);
+  const [contractDraft, setContractDraft] = useState<ContractDraftContext | null>(null);
   useFocusEffect(
     useCallback(() => {
       setNotesRefreshToken((previous) => previous + 1);
@@ -858,6 +933,41 @@ export default function CalendarScreen() {
     setCompletedNotePendingEdit(null);
   }, []);
 
+  const openViewingOrder = useCallback((context: { apartmentId: string; clientId: string; apartmentTitle?: string; apartmentPrice?: number; clientName?: string; clientProfileId?: string }) => {
+    if (!brokerId || !context.apartmentId || !context.clientId) return;
+    setIsNoteModalVisible(false);
+    setSelectedNoteToEdit(null);
+    setContractDraft({
+      agencyId: auth.agencyId ?? "",
+      createdByUserId: brokerId,
+      contractType: "viewing_order",
+      title: t("esign.viewingOrder"),
+      brokerId,
+      clientId: context.clientId,
+      clientProfileId: context.clientProfileId ?? `${brokerId}_${context.clientId}`,
+      apartmentId: context.apartmentId,
+      participantIds: [
+        { id: brokerId, role: "broker" },
+        { id: context.clientId, role: "client" },
+      ],
+      contractPayload: {
+        ...(typeof context.apartmentPrice === "number" ? { monthlyRentOrPrice: context.apartmentPrice } : {}),
+      },
+    });
+  }, [auth.agencyId, brokerId]);
+
+  const openViewingOrderFromNote = useCallback((note: BrokerNote) => {
+    if (!note.apartmentId || !note.clientId) return;
+    openViewingOrder({
+      apartmentId: note.apartmentId,
+      clientId: note.clientId,
+      apartmentTitle: note.apartmentTitle,
+      apartmentPrice: note.apartmentPrice,
+      clientName: note.clientName,
+      clientProfileId: note.clientProfileId,
+    });
+  }, [openViewingOrder]);
+
   const handleNoteMutation = useCallback(() => {
     setNotesRefreshToken((prev) => prev + 1);
     setSelectedNoteToEdit(null);
@@ -957,6 +1067,7 @@ export default function CalendarScreen() {
         </View>
         <CalendarView
           colors={colors}
+          userId={brokerId}
           currentDate={currentDate}
           calendarViewMode={calendarViewMode}
           onCalendarViewModeChange={setCalendarViewMode}
@@ -964,6 +1075,13 @@ export default function CalendarScreen() {
           onAddNotePress={openCreateNoteModal}
           onEditNotePress={openEditNoteModal}
           onToggleNoteDone={handleToggleNoteDone}
+          onFeedbackSaved={(noteId) => setVisibleNotes((current) => current.map((note) => note.id === noteId ? { ...note, feedbackSubmittedBy: { ...(note.feedbackSubmittedBy ?? {}), [brokerId]: true } } : note))}
+          onClientPress={(note) => {
+            const clientId = note.clientId ?? (note.clientProfileId?.includes("_") ? note.clientProfileId.split("_").slice(1).join("_") : undefined);
+            if (!clientId) return;
+            router.push({ pathname: "/broker-client-detail", params: { profileId: note.clientProfileId ?? `${brokerId}_${clientId}`, clientUserId: clientId } });
+          }}
+          onSignViewingOrder={openViewingOrderFromNote}
           onNavigate={(direction) => setCurrentDate((previous) => shiftDateByCalendarView(previous, calendarViewMode, direction))}
           bottomInset={insets.bottom}
           visibleNotes={visibleNotes}
@@ -1072,6 +1190,13 @@ export default function CalendarScreen() {
         onSaved={handleNoteMutation}
         onUpdated={handleNoteMutation}
         onDeleted={handleNoteMutation}
+        onSignViewingOrder={openViewingOrder}
+      />
+      <SignContractModal
+        visible={contractDraft !== null}
+        draft={contractDraft ?? undefined}
+        signerId={brokerId}
+        onClose={() => setContractDraft(null)}
       />
     </View>
   );
@@ -1191,6 +1316,19 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     width: "100%",
   },
+  feedbackCallout: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: "transparent",
+    backgroundColor: "transparent",
+  },
+  feedbackCalloutCopy: { flex: 1, gap: spacing.xs },
+  feedbackCalloutText: { fontFamily: fonts.semibold, fontSize: fontSize.sm },
+  feedbackCalloutAction: { alignSelf: "flex-start", fontFamily: fonts.bold, fontSize: fontSize.sm },
   calendarHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1313,6 +1451,16 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     overflow: "hidden",
   },
+  weekNotesContainer: {
+    alignSelf: "stretch",
+    backgroundColor: "transparent",
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: "transparent",
+    padding: spacing.md,
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
   archiveBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -1332,6 +1480,21 @@ const styles = StyleSheet.create({
   },
   noteDetails: {
     flex: 1,
+  },
+  noteCardActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  contractIconButton: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "rgba(7,64,76,0.2)",
   },
   doneButton: {
     width: 32,
@@ -1384,6 +1547,7 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     marginTop: 2,
   },
+  coveringNoteBadge: { fontFamily: fonts.semibold, fontSize: fontSize.xs, marginTop: 3 },
   emptyStateWrap: {
     minHeight: 56,
     alignItems: "center",

@@ -9,6 +9,7 @@ import { useAuth } from "@/src/context/auth";
 import { useTheme } from "@/src/context/ThemeContext";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import { fonts, fontSize, radius, spacing } from "@/src/theme";
+import { t } from "@/src/locales";
 
 export interface ReceivedProposalList {
   id: string;
@@ -57,7 +58,7 @@ export default function ProposalListsPickerModal({ visible, selectedListId, onSe
               const userSnapshot = await getDoc(doc(db, "users", senderId));
               const userData = userSnapshot.exists() ? userSnapshot.data() as Record<string, unknown> : {};
               broker = {
-                name: typeof userData.name === "string" && userData.name.trim() ? userData.name.trim() : "Μεσίτης",
+                name: typeof userData.name === "string" && userData.name.trim() ? userData.name.trim() : t("agency.picker.brokerFallback"),
                 avatar: typeof userData.photoUrl === "string" ? userData.photoUrl : Array.isArray(userData.photos) ? String(userData.photos[0] ?? "") : "",
               };
               brokerCache.set(senderId, broker);
@@ -66,7 +67,7 @@ export default function ProposalListsPickerModal({ visible, selectedListId, onSe
             const createdAt = data.createdAt as { toMillis?: () => number } | undefined;
             listItems.push({
               id: typeof data.listId === "string" ? data.listId : messageDoc.id,
-              title: typeof data.listTitle === "string" ? data.listTitle : "Προτεινόμενα Ακίνητα",
+              title: typeof data.listTitle === "string" ? data.listTitle : t("agency.picker.proposedProperties"),
               apartmentIds,
               brokerId: senderId,
               brokerName: broker.name,
@@ -93,7 +94,7 @@ export default function ProposalListsPickerModal({ visible, selectedListId, onSe
   return (
     <View style={styles.content}>
       {loading ? <ActivityIndicator color={colors.brand} style={styles.loading} /> : lists.length === 0 ? (
-        <Text style={[styles.emptyText, { color: colors.onSurfaceTertiary }]}>Δεν υπάρχουν διαθέσιμες λίστες προτάσεων από μεσίτες.</Text>
+        <Text style={[styles.emptyText, { color: colors.onSurfaceTertiary }]}>{t("agency.picker.noProposalLists")}</Text>
       ) : (
         <FlatList
             data={lists}
@@ -106,11 +107,11 @@ export default function ProposalListsPickerModal({ visible, selectedListId, onSe
                   <View style={styles.listCardHeader}>
                     <Ionicons color={colors.brand} name="folder-open-outline" size={20} />
                     <Text style={[styles.listCardTitle, { color: colors.onSurface }]} numberOfLines={1}>{item.title}</Text>
-                    <View style={[styles.countPill, { backgroundColor: colors.brandTertiary }]}><Text style={[styles.countText, { color: colors.brand }]}>{`${item.apartmentIds.length} ακίνητα`}</Text></View>
+                    <View style={[styles.countPill, { backgroundColor: colors.brandTertiary }]}><Text style={[styles.countText, { color: colors.brand }]}>{t("agency.picker.propertyCount", { count: item.apartmentIds.length })}</Text></View>
                   </View>
                   <View style={styles.brokerRow}>
                     {item.brokerAvatar ? <Image source={{ uri: item.brokerAvatar }} style={styles.brokerAvatar} contentFit="cover" /> : <DefaultProfileAvatar size={24} iconSize={12} />}
-                    <Text style={[styles.brokerNameText, { color: colors.onSurfaceTertiary }]}>{`Απεστάλη από: ${item.brokerName}`}</Text>
+                    <Text style={[styles.brokerNameText, { color: colors.onSurfaceTertiary }]}>{t("agency.picker.sentBy", { name: item.brokerName })}</Text>
                   </View>
                 </Pressable>
               );

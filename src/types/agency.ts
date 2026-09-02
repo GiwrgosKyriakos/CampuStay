@@ -8,6 +8,7 @@ export interface RealEstateAgency {
   logoUrl?: string | null;
   activeBrokerIds: string[];
   pendingBrokerIds: string[];
+  pendingSecretaryIds?: string[];
   createdAt: unknown;
   updatedAt: unknown;
 }

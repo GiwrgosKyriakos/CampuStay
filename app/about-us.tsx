@@ -5,20 +5,21 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { useTheme } from "@/src/context/ThemeContext";
+import { t } from "@/src/locales";
 import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
 
 const VISION_POINTS = [
-  "Η εύρεση φοιτητικής στέγης και ο κατάλληλος συγκάτοικος είναι από τις πιο σημαντικές αποφάσεις της φοιτητικής ζωής.",
-  "Συχνά η διαδικασία αυτή συνοδεύεται από άγχος, αβεβαιότητα και έλλειψη διαφάνειας.",
-  "Στόχος μας είναι να κάνουμε τη φοιτητική στέγαση και τη συγκατοίκηση πιο απλή, ασφαλή και άμεση, συνδέοντας φοιτητές, συγκατοίκους και ιδιοκτήτες.",
+  "aboutUs.vision.point1",
+  "aboutUs.vision.point2",
+  "aboutUs.vision.point3",
 ];
 
 const FEATURES = [
-  "Βρες το ιδανικό φοιτητικό σπίτι με βάση το πανεπιστήμιο, την περιοχή και το budget σου.",
-  "Ανακάλυψε συμβατούς συγκατοίκους μέσω του Compatibility Quiz και των αμοιβαίων matches.",
-  "Επικοινώνησε άμεσα & με ασφάλεια με ιδιοκτήτες και υποψήφιους συγκατοίκους μέσω του ενσωματωμένου chat.",
-  "Αποθήκευσε αγαπημένες αγγελίες και προφίλ για να τα βρίσκεις ανά πάσα στιγμή.",
-  "Εξατομίκευσε την αναζήτησή σου ώστε να βλέπεις τις επιλογές που ταιριάζουν πραγματικά στις συνήθειές σου.",
+  "aboutUs.features.item1",
+  "aboutUs.features.item2",
+  "aboutUs.features.item3",
+  "aboutUs.features.item4",
+  "aboutUs.features.item5",
 ];
 
 export default function AboutUsScreen() {
@@ -38,7 +39,7 @@ export default function AboutUsScreen() {
         >
           <Ionicons name="close" size={24} color={colors.onSurface} />
         </Pressable>
-        <Text style={styles.headerTitle}>About Us</Text>
+        <Text style={styles.headerTitle}>{t("aboutUs.title")}</Text>
         <View style={styles.headerSpacer} />
       </View>
 
@@ -50,37 +51,35 @@ export default function AboutUsScreen() {
       >
         <View style={styles.heroCard}>
           <Text style={styles.kicker}>CampuStay</Text>
-          <Text style={styles.heroTitle}>Μια πιο απλή εμπειρία αναζήτησης στέγης.</Text>
+          <Text style={styles.heroTitle}>{t("aboutUs.heroTitle")}</Text>
           <Text style={styles.heroSubtitle}>
-            Χτίζουμε μια πλατφόρμα που βοηθά τους φοιτητές να βρίσκουν πιο γρήγορα το σωστό μέρος για να μείνουν.
+            {t("aboutUs.heroSubtitle")}
           </Text>
         </View>
 
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Όραμά μας</Text>
+          <Text style={styles.sectionTitle}>{t("aboutUs.vision.title")}</Text>
           {VISION_POINTS.map((point) => (
             <Text key={point} style={styles.paragraph}>
-              • {point}
+              • {t(point)}
             </Text>
           ))}
-          <Text style={styles.highlight}>Καλή αναζήτηση &amp; καλή διαμονή!</Text>
+          <Text style={styles.highlight}>{t("aboutUs.vision.highlight")}</Text>
         </View>
 
         <View style={styles.sectionCard}>
-        <Text style={styles.sectionTitle}>Σχετικά με το CampuStay</Text>
+        <Text style={styles.sectionTitle}>{t("aboutUs.about.title")}</Text>
         <Text style={styles.paragraph}>
-            To CampuStay είναι η εξειδικευμένη πλατφόρμα φοιτητικής στέγης και εύρεσης συγκατοίκου.
-            Σχεδιάστηκε με γνώμονα τις ανάγκες των νέων φοιτητών, συνδυάζοντας την αναζήτηση διαμερισμάτων
-            με έναν προηγμένο αλγόριθμο συμβατότητας συγκατοίκων.
+          {t("aboutUs.about.body")}
         </Text>
         </View>
 
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>Τι μπορείς να κάνεις στο CampuStay</Text>
+          <Text style={styles.sectionTitle}>{t("aboutUs.features.title")}</Text>
           {FEATURES.map((feature) => (
             <View key={feature} style={styles.bulletRow}>
               <View style={styles.bulletDot} />
-              <Text style={styles.bulletText}>{feature}</Text>
+              <Text style={styles.bulletText}>{t(feature)}</Text>
             </View>
           ))}
         </View>

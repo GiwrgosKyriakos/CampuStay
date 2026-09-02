@@ -13,11 +13,18 @@
       "reset": "Reset",
       "openSettings": "Open Settings",
       "add": "Add",
+      "ok": "OK",
+      "close": "Close",
+      "yes": "Yes",
+      "more": "More",
       "startOver": "Start over",
       "accept": "Accept",
       "reject": "Reject",
       "unblock": "Unblock",
-      "loading": "Loading..."
+      "save": "Save",
+      "saving": "Saving...",
+      "loading": "Loading...",
+      "continue": "Continue"
     },
     "labels": {
       "termsOfService": "Terms of Service",
@@ -83,13 +90,103 @@
       "tryAgain": "Please try again."
     }
   },
+  "voice": {
+    "start": "Start dictation",
+    "stop": "Stop dictation",
+    "errors": {
+      "permissionDenied": "Microphone access was not granted.",
+      "unavailable": "Speech recognition is not available on this device.",
+      "startFailed": "Dictation could not be started.",
+      "generic": "A speech recognition error occurred."
+    }
+  },
+  "addressSearch": {
+    "title": "Search address",
+    "noResults": "No results found",
+    "tryDifferent": "Try a different street, area, or city."
+  },
+  "map": {
+    "approximateArea": "Approximate area"
+  },
+  "ai": {
+    "cmaTitle": "AI Comparative Market Analysis (CMA)",
+    "generateCma": "Calculate Valuation",
+    "aiCopywriterTitle": "AI Listing Copywriter",
+    "generateCopy": "Generate with AI",
+    "applyToDescription": "Apply to Listing",
+    "sentimentTitle": "Showing Feedback Sentiment",
+    "ownerReportTitle": "Owner Activity Report",
+    "sendReportToOwner": "Send Report to Owner",
+    "mapLayers": "Map Layers & Amenities",
+    "metroLayer": "Metro & Transit",
+    "schoolsLayer": "Schools & Universities",
+    "heatmapPrice": "Price/sq.m Heatmap"
+  },
+  "feed": {
+    "reelsTitle": "Property Reels",
+    "viewDetails": "View Property",
+    "unmuteHint": "Tap for sound",
+    "noReelsAvailable": "No reels available at the moment.",
+    "uploadReel": "Upload Video Reel (9:16)",
+    "aiCopywriterButton": "✨ AI Listing Helper"
+  },
   "host-inbox": {
       "title": "Incoming Requests",
       "subtitle": "Host Inbox",
       "emptyTitle": "No inquiries or messages yet as a host",
       "emptySub": "When guests contact you about your listings, those conversations will appear here.",
       "blockedBadge": "Blocked",
-      "blockedUnavailable": "Unavailable due to block"
+      "blockedUnavailable": "Unavailable due to block",
+      "roleLegendLabel": "Role legend",
+      "searchLabel": "Search",
+      "searchPlaceholder": "Search by name or title...",
+      "clientRole": "Client / Tenant",
+      "ownerRole": "Property owner",
+      "noSearchResults": "No results found",
+      "tryDifferentSearch": "Try different search terms"
+  },
+  "manualClient": {
+    "title": "New client",
+    "brokerRole": "Broker",
+    "labels": {
+      "fullName": "Full name",
+      "city": "City"
+    },
+    "placeholders": {
+      "fullName": "e.g. Maria Papadopoulou",
+      "city": "e.g. Athens"
+    },
+    "errors": {
+      "missingDetails": "Please enter a name and city.",
+      "createFailed": "The client could not be created. Please try again."
+    }
+  },
+  "assignClientEmail": {
+    "title": "Add email",
+    "description": "The client will be able to claim their account with this email.",
+    "emailPlaceholder": "email@example.com",
+    "errors": {
+      "invalidEmail": "Please enter a valid email.",
+      "saveFailed": "The email could not be saved."
+    }
+  },
+  "apartmentRating": {
+    "title": "My rating",
+    "descriptors": {
+      "excellent": "Excellent",
+      "good": "Good",
+      "average": "Average",
+      "needsImprovement": "Needs improvement"
+    },
+    "save": "Save rating"
+  },
+  "callFeedback": {
+    "title": "How did the phone call go?",
+    "description": "Leave a short note about your call. Your observations help us provide better, more personalized service.",
+    "placeholder": "e.g. I asked for information about shared building expenses",
+    "wordCount": "{{count}} words",
+    "submit": "Save comment",
+    "notPlaced": "Call was not made"
   },
   "tabs": {
     "roommates": "Roommates",
@@ -210,10 +307,38 @@
     "mailSubject": "Σχόλιο/ Πρόταση για το CampuStay",
     "alerts": {
       "successTitle": "Thank you!",
+      "successDescription": "Your comment or suggestion was submitted successfully and will help improve CampuStay.",
+      "successAction": "Great",
       "successMessage": "Your feedback was sent successfully.",
       "errorTitle": "Error",
+      "errorDescription": "Unable to send your feedback. Please try again shortly.",
       "emptyMessage": "Please write your feedback first.",
       "sendFailedMessage": "Unable to send your feedback. Please try again."
+    }
+  },
+  "aboutUs": {
+    "title": "About Us",
+    "heroTitle": "A simpler way to find your next home.",
+    "heroSubtitle": "We are building a platform that helps students find the right place to live, faster.",
+    "linkLabel": "About Us",
+    "vision": {
+      "title": "Our vision",
+      "point1": "Finding student housing and the right roommate is one of the most important decisions of student life.",
+      "point2": "The process is often accompanied by stress, uncertainty, and a lack of transparency.",
+      "point3": "Our goal is to make student housing and shared living simpler, safer, and more direct by connecting students, roommates, and hosts.",
+      "highlight": "Happy searching and happy living!"
+    },
+    "about": {
+      "title": "About CampuStay",
+      "body": "CampuStay is a dedicated platform for student housing and roommate matching. It was designed around the needs of students, combining apartment search with an advanced roommate compatibility algorithm."
+    },
+    "features": {
+      "title": "What you can do on CampuStay",
+      "item1": "Find the ideal student home based on your university, area, and budget.",
+      "item2": "Discover compatible roommates through the Compatibility Quiz and mutual matches.",
+      "item3": "Connect directly and safely with hosts and potential roommates through the built-in chat.",
+      "item4": "Save favorite listings and profiles so you can find them anytime.",
+      "item5": "Personalize your search to see options that genuinely fit your habits."
     }
   },
   "editProfile": {
@@ -351,12 +476,82 @@
       "matches": "Matches",
       "hostInbox": "Host Inbox"
     },
+    "actions": {
+      "proposePrice": "Propose price",
+      "requestVisit": "Request a visit"
+    },
+    "message": {
+      "filterCriteriaTag": "Search Criteria / Filter Set",
+      "allApartments": "All apartments",
+      "viewDetails": "Tap to view details",
+      "propertyList": "Property list",
+      "proposedProperties": "{{count}} proposed properties",
+      "viewList": "View list",
+      "listingNote": "Listing note"
+    },
     "blockModal": {
       "title": "Are you sure you want to block this user?",
       "blockOnly": "Block",
       "blockAndReport": "Block & Report",
       "reportReasonPlaceholder": "Describe why you are reporting this user",
       "submitBlockAndReport": "Submit Block & Report"
+    },
+    "priceProposal": {
+      "title": "Submit a price proposal to the listing host",
+      "placeholder": "0",
+      "hint": "The price proposal should not be lower than {{minPrice}}€ ({{discount}}% below)"
+    },
+    "searchHistory": {
+      "title": "Search history",
+      "description": "Select the items you want to share with the broker.",
+      "empty": "There are no saved searches.",
+      "savedCriteria": "Saved criteria",
+      "recentSearch": "Recent search",
+      "criteria": "Criteria",
+      "budget": "{{minimum}} - {{maximum}} €",
+      "share": "Share ({{count}})"
+    },
+    "filterSetDetails": {
+      "title": "Search Criteria",
+      "allAreas": "All areas",
+      "apply": "Apply to Search",
+      "labels": {
+        "title": "Title",
+        "rent": "Rent",
+        "pricePerSqm": "Price / sq.m.",
+        "areaCity": "Area / City",
+        "size": "Size",
+        "pets": "Pets",
+        "metro": "Metro",
+        "sort": "Sort"
+      },
+      "sort": {
+        "newest": "Newest",
+        "oldest": "Oldest",
+        "priceAsc": "Price ascending",
+        "priceDesc": "Price descending",
+        "sizeAsc": "Size ascending",
+        "sizeDesc": "Size descending",
+        "priceSqmAsc": "Price/sq.m. ascending",
+        "priceSqmDesc": "Price/sq.m. descending"
+      }
+    },
+    "visitRequest": {
+      "title": "Request a visit",
+      "selectProperty": "Select a property",
+      "noProperties": "No available properties found.",
+      "hour": "Hour",
+      "minutes": "Minutes",
+      "unavailableTime": "Unavailable time",
+      "weekdays": {
+        "mon": "Mo",
+        "tue": "Tu",
+        "wed": "We",
+        "thu": "Th",
+        "fri": "Fr",
+        "sat": "Sa",
+        "sun": "Su"
+      }
     }
   },
   "chatList": {
@@ -416,6 +611,8 @@
     "ageRange": "Age range",
     "minimumAge": "Minimum age",
     "maximumAge": "Maximum age",
+    "from": "From",
+    "to": "To",
     "maxBudget": "Max budget",
     "budget": "Budget",
     "showRoommates": "Show roommates",
@@ -424,14 +621,147 @@
       "female": "Female",
       "male": "Male",
       "nonBinary": "Non-binary"
+    },
+    "hardCriteria": {
+      "title": "My Hard Criteria",
+      "description": "Select the criteria that are absolutely essential.",
+      "selectedDescription": "Select the criteria that are absolutely essential for you.",
+      "options": {
+        "rent": "Price / Budget",
+        "size": "Area (sq.m.)",
+        "floor": "Floor",
+        "propertyType": "Property type",
+        "bedrooms": "Bedrooms",
+        "bathrooms": "Bathrooms",
+        "furnished": "Furnished",
+        "heating": "Heating type",
+        "petFriendly": "Pets (pet-friendly)",
+        "nearMetro": "Near metro",
+        "amenities": "Amenities"
+      }
+    }
+  },
+  "calendar": {
+    "title": "Calendar",
+    "schedule": "Schedule for {{date}}",
+    "noScheduledNotes": "No scheduled notes.",
+    "visit": "Visit",
+    "phone": "Phone",
+    "noTime": "No time",
+    "brokerFeedbackPrompt": "Visit assessment feedback for {{title}}.",
+    "clientFeedbackPrompt": "Rate your visit to {{title}} for better service.",
+    "recordFeedback": "Record feedback",
+    "rateVisit": "Rate visit",
+    "apartment": "the apartment",
+    "selectMonth": "Select month",
+    "weekdays": { "mon": "Mo", "tue": "Tu", "wed": "We", "thu": "Th", "fri": "Fr", "sat": "Sa", "sun": "Su" },
+    "noteModal": {
+      "editTitle": "Edit Note",
+      "newTitle": "New Note",
+      "titleLabel": "Title",
+      "titlePlaceholder": "e.g. Visit note",
+      "titleCounter": "{{words}}/{{maxWords}} words · {{characters}}/{{maxCharacters}} characters",
+      "titleInvalid": "The title cannot exceed 10 words or 60 characters.",
+      "timeLabel": "Time",
+      "noTime": "No time",
+      "apartmentLabel": "Apartment",
+      "clientLabel": "Client",
+      "noSelection": "No selection",
+      "noClients": "No clients are available for the selected apartment.",
+      "categoryLabel": "Appointment purpose",
+      "reminderTitle": "Receive a push notification for this note",
+      "reminderDescription": "You will be notified before the scheduled time.",
+      "notesLabel": "Notes",
+      "notesPlaceholder": "Write additional details...",
+      "bodyInvalid": "You have exceeded the maximum word limit",
+      "bodyCounter": "{{words}}/{{maxWords}} words",
+      "update": "Update",
+      "note": "note",
+      "unknownError": "An unknown error occurred.",
+      "categories": {
+        "visit": "Visit",
+        "keys": "Keys from host",
+        "message": "Message",
+        "phone": "Phone",
+        "offerReview": "Offer review",
+        "dealConfirmation": "Deal confirmation",
+        "other": "Other"
+      },
+      "reminders": {
+        "15Minutes": "15 minutes before",
+        "30Minutes": "30 minutes before",
+        "1Hour": "1 hour before",
+        "2Hours": "2 hours before",
+        "1Day": "1 day before"
+      }
+    },
+    "postVisit": {
+      "clientTitle": "Visit rating",
+      "brokerTitle": "Record feedback",
+      "apartmentFallback": "Apartment",
+      "quickRating": "Quick rating",
+      "notesLabel": "Notes",
+      "clientNotesPlaceholder": "What stood out from the visit?",
+      "secondVisitQuestion": "Would you like a second visit?",
+      "maybe": "Maybe",
+      "brokerNotesLabel": "Visit assessment note",
+      "brokerNotesPlaceholder": "Record the client's reaction and your assessment...",
+      "oralOfferQuestion": "Did the client make a verbal offer?",
+      "offerAmountPlaceholder": "Offer amount (€)",
+      "discountWarningTitle": "Offer is below the allowed threshold",
+      "discountWarningDescription": "The offer (€{{offer}}) represents a {{discount}}% discount, exceeding the maximum discount ({{maxDiscount}}% / minimum: €{{minimum}}) that was set.",
+      "nextStep": "Next step",
+      "saveFailed": "Unable to save.",
+      "ratings": { "price": "Price", "layout": "Layout", "condition": "Condition" },
+      "tags": {
+        "largeBalcony": "🟢 Large balcony",
+        "bright": "🟢 Bright",
+        "goodLocation": "🟢 Good location",
+        "smallLivingRoom": "🔴 Small living room",
+        "smallBathroom": "🔴 Small bathroom",
+        "needsRenovation": "🔴 Needs renovation",
+        "tooExpensive": "🔴 Too expensive"
+      },
+      "followUp": {
+        "secondVisit": "Second visit",
+        "contractPreparation": "Contract preparation",
+        "dealClosed": "Deal closed",
+        "noNextStep": "No next step"
+      }
     }
   },
   "apartmentNote": {
     "userNotice": "Your notes are private, are not published anywhere, and are accessible only to you unless you choose to share them.",
-    "brokerPrivateNotice": "Private Log / Internal Note: Office team only"
+    "brokerPrivateNotice": "Private Log / Internal Note: Office team only",
+    "missingApartment": "Apartment data was not found.",
+    "defaultTitle": "Apartment Note",
+    "shortTitle": "Note",
+    "titlePlaceholder": "Note title",
+    "bodyPlaceholder": "Write your note about this apartment...",
+    "counter": "{{words}}/{{maxWords}} words · {{characters}}/{{maxCharacters}} characters",
+    "titleInvalid": "The title cannot exceed 10 words or 60 characters.",
+    "bodyInvalid": "You have exceeded the maximum word limit",
+    "saved": "Note saved",
+    "unsavedTitle": "Leave without saving?",
+    "unsavedDescription": "Are you sure you want to leave without saving your changes?",
+    "leave": "Leave",
+    "shareTitle": "Share Apartment",
+    "shareDescription": "Select a conversation to share with",
+    "noActiveChats": "You do not have any active roommate conversations yet"
+  },
+  "filterSetVersion": {
+    "petFriendly": "Pet-friendly",
+    "nearMetro": "Near metro",
+    "sort": "Sort",
+    "version": "Version {{version}}",
+    "share": "Share",
+    "selectBroker": "Select broker"
   },
   "apartments": {
     "title": "Apartments",
+    "withdrawnByOtherBrokerBanner": "Withdrawn by another broker managing this property",
+    "selectManagingBrokerTitle": "Select a broker managing this property",
+    "selectManagingBrokerSubtitle": "This property is managed by multiple brokers. Choose who you would like to contact.",
     "subtitle": "Available homes in your study city",
     "showFilters": "Show Filters",
     "hideFilters": "Hide Filters",
@@ -447,6 +777,25 @@
     "preferences": "Preferences",
     "petFriendly": "Pet-friendly",
     "nearMetro": "Near Metro",
+    "searchPlaceholder": "Search title, area, amenities...",
+    "noRecentSearches": "No recent searches",
+    "sort": "Sort",
+    "mapArea": "Area on map",
+    "customPolygon": "Custom polygon ({{count}} points)",
+    "drawPolygon": "Draw polygon on map",
+    "showOnly": "Show only",
+    "agency": "Real estate agency",
+    "broker": "Broker",
+    "list": "List",
+    "showOwnListings": "Show my listings in All",
+    "filterSetTitle": "Filter set title",
+    "filterSetPlaceholder": "e.g. Student two-bedroom near center (up to 40 chars)",
+    "saveFilterSet": "Save set",
+    "pricePerSqm": "Price per sq.m. (€/m²)",
+    "fromPricePerSqm": "From (€/m²)",
+    "toPricePerSqm": "To (€/m²)",
+    "propertyFeatures": "Property features",
+    "accessibility": { "toggleMap": "Toggle map", "filters": "Filters" },
     "likeUpdateTitle": "Could not update like",
     "likeUpdateMessage": "Please try again.",
     "unknownListing": "Apartment listing",
@@ -506,6 +855,12 @@
     "deleteChatTitle": "Delete chat",
     "deleteChatMessage": "Are you sure you want to delete this chat?",
     "deleteChatFailedMessage": "Could not delete this chat. Please try again.",
+    "callInteractionNote": "Phone contact from listing",
+    "callFeedbackSaveFailedTitle": "Unable to save",
+    "callFeedbackSaveFailedMessage": "Please try again.",
+    "addInteractionLabel": "Add interaction",
+    "rateLabel": "Rate property",
+    "interactionNotePlaceholder": "Add details...",
     "amenities": {
       "wifi": "Wi-Fi Included",
       "ac": "Air Conditioning",
@@ -529,6 +884,27 @@
     "areaPlaceholder": "Area / Neighborhood",
     "size": "Size",
     "sizePlaceholder": "Square meters (sq.m.)",
+    "detailsPlaceholder": "Write details about the home, house rules, or what you are looking for...",
+    "maxOfferDiscountPlaceholder": "e.g. 10",
+    "addressPlaceholder": "Street, number, area (optional)",
+    "categoryPlaceholder": "Select category",
+    "propertyTypePlaceholder": "Select type",
+    "floorPlaceholder": "Select floor",
+    "roomsPlaceholder": "e.g. 2",
+    "orientationPlaceholder": "Select orientation",
+    "sceneTitlePlaceholder": "Room name",
+    "heatingPlaceholder": "Select heating system",
+    "energyClassPlaceholder": "Select energy class",
+    "windowFramesPlaceholder": "e.g. Aluminum, PVC, Wooden",
+    "datePlaceholder": "Select date",
+    "squareMetersPlaceholder": "sq.m.",
+    "finalPricePlaceholder": "Final price (€)",
+    "ownerNamePlaceholder": "e.g. George Papadopoulos",
+    "ownerMotivationPlaceholder": "Select motivation",
+    "ownerPhonePlaceholder": "e.g. 6912345678",
+    "ownerMotivationDetailsPlaceholder": "Describe the owner's motivation...",
+    "ownerExpectedPricePlaceholder": "e.g. 550",
+    "searchCompatibleClientsLabel": "Search compatible clients",
     "amenitiesTitle": "Amenities & Preferences",
     "selectedAmenities": "Selected: {{value}}",
     "selectedAmenitiesEmpty": "No amenities selected yet",
@@ -539,6 +915,8 @@
       "addPhotoMessage": "Choose where to get your listing image.",
       "takePhoto": "Take Photo",
       "chooseLibrary": "Choose from Library",
+      "permissionTitle": "Permission required",
+      "permissionMessage": "Photo library access is needed to attach 2D/3D files.",
       "missingDetailsTitle": "Missing details",
       "missingDetailsMessage": "Please complete Monthly Rent, City, Area, and Size before publishing.",
       "signInRequiredTitle": "Sign in required",
@@ -566,7 +944,39 @@
     },
     "listingTitle": "{{area}} apartment"
   },
+  "analytics": {
+    "title": "Reports & Analytics",
+    "realizedRevenue": "Realized Revenue",
+    "weightedForecast": "Weighted Pipeline Forecast",
+    "daysOnMarket": "Average Days on Market",
+    "winRate": "Win Rate",
+    "leadSources": "Lead Acquisition Sources",
+    "marketingRoi": "Marketing ROI",
+    "agentProductivity": "Agent Productivity",
+    "lostDealsTitle": "Lost Deals Analysis",
+    "roommatesMarket": "Roommates Market Intelligence",
+    "supplyDemand": "Supply & Demand by Area",
+    "highDemandAlert": "High Demand (Room Shortage)"
+  },
   "agency": {
+    "poolTab": "Property Pool",
+    "directManage": "Manage Directly",
+    "directManageSubtitle": "Direct assignment to you & owner added to your clients",
+    "publishToPool": "Add to Apartment Pool",
+    "publishToPoolSubtitle": "Publish to agency pool without assignment",
+    "claimListing": "Claim Listing",
+    "claimPending": "Claim in negotiation",
+    "notAvailable": "Unavailable for assignment",
+    "keySafeTitle": "Office Key Safe Management",
+    "checkOutKeys": "Check Out Keys",
+    "returnKeys": "Return Keys",
+    "keysInOffice": "In Office",
+    "keysWith": "Checked out by {{name}}",
+    "coveringBroker": "Substitute Showing",
+    "colleagues": "Colleagues",
+    "coManagedProperty": "Co-Managed: {{title}}",
+    "settlementsTitle": "Settlements & Invoicing",
+    "issueInvoice": "Issue Invoice & Settle",
     "onboarding": {
       "registerAgencyCta": "Part of a real estate agency? Register as an agency here",
       "agencyNameLabel": "Real Estate Agency Name",
@@ -585,6 +995,8 @@
       "subtitle": "Complete your real estate agency details.",
       "passwordProtected": "Password protected",
       "agencyLabel": "Real estate agency",
+      "agencyNamePlaceholder": "e.g. RE/MAX Central",
+      "agencyCodePlaceholder": "Enter passcode",
       "displayNamePlaceholder": "Your full name",
       "selectAgency": "Select an agency"
     },
@@ -617,6 +1029,27 @@
       "pendingRequests": "Broker requests",
       "agencyLogo": "Agency logo",
       "agencyNameFallback": "Real estate agency"
+    },
+    "picker": {
+      "agencyFallback": "Real estate agency",
+      "clearFilter": "Clear agency filter",
+      "empty": "No real estate agencies found.",
+      "activeListings": "{{count}} active listings",
+      "brokerFallback": "Broker",
+      "proposedProperties": "Proposed properties",
+      "noProposalLists": "No proposal lists from brokers are available.",
+      "propertyCount": "{{count}} properties",
+      "sentBy": "Sent by: {{name}}"
+    }
+  },
+  "crm": {
+    "activeLeads": "active leads",
+    "managedByBroker": "Managed by: %{brokerName}",
+    "strategy": {
+      "priorityBadge": "🎯 Strategic Allocation Priority",
+      "crossSellBadge": "🔄 Cross-Selling Flexibility",
+      "priorityDesc": "This client has unique compatibility strictly with this listing (no other >85% match in portfolio). Prioritizing this deal maximizes overall portfolio conversion.",
+      "crossSellDesc": "Client maintains high compatibility (>85%) across %{count} other active listings (%{titles}). High potential to satisfy through alternative showings."
     }
   },
   "brokerClient": {
@@ -724,6 +1157,82 @@
       "q13": { "question": "What is your situation or preference regarding pets in the house?", "options": ["I have a pet or definitely want to get one", "I don't have one, but pets are totally fine with me", "Strictly no pets allowed"] },
       "q14": { "question": "What is your preference regarding alcohol consumption inside the apartment?", "options": ["I enjoy drinking frequently at home", "I only drink occasionally on weekends", "I don't drink or prefer an alcohol-free home"] },
       "q15": { "question": "How often do you plan on using the kitchen to cook your meals?", "options": ["I cook every single day", "A few times a week", "Rarely, I mostly order out or eat on campus"] }
+    }
+  },
+  "esign": {
+    "title": "Digital Signatures & Contracts",
+    "viewingOrder": "Property Viewing Order",
+    "assignmentOrder": "Property Assignment Agreement",
+    "roommateAgreement": "Roommate Living Agreement",
+    "holdingDeposit": "Holding Deposit & Viewing Confirmation",
+    "signViewingOrder": "Sign viewing order",
+    "signAssignmentOrder": "Issue & sign assignment order",
+    "chooseContract": "Choose a digital document",
+    "roommateAgreementDescription": "Create one agreement for every roommate in this conversation.",
+    "holdingDepositDescription": "Confirm a viewing reservation and holding deposit.",
+    "tapToSign": "Tap to review and sign",
+    "assignmentSetupTitle": "Prepare assignment order",
+    "assignmentModeLabel": "Assignment type",
+    "assignmentSimple": "Simple",
+    "assignmentExclusive": "Exclusive",
+    "commissionRateLabel": "Commission rate",
+    "assignmentRateError": "Enter a commission rate between 0 and 100%.",
+    "startSigning": "Start signing",
+    "remoteRequestSentTitle": "Signature request sent",
+    "remoteRequestSentDescription": "The owner can open the request from the property chat and sign remotely.",
+    "signNow": "Sign Now",
+    "signOnScreen": "Sign inside the box below",
+    "clearSignature": "Clear",
+    "undoSignature": "Undo",
+    "confirmSignature": "Confirm",
+    "reviewTitle": "Review and verify the document",
+    "verifyIdentityHint": "Confirm your tax number and ID or passport number before signing.",
+    "alreadySigned": "This signer has already completed their signature. Select another pending signer or close the document.",
+    "afmLabel": "Greek tax number (AFM)",
+    "afmPlaceholder": "Enter AFM",
+    "idCardLabel": "ID / Passport number",
+    "idCardPlaceholder": "Enter ID or passport number",
+    "holdingDepositAmountLabel": "Holding deposit amount",
+    "holdingDepositAmountPlaceholder": "Enter amount in EUR",
+    "houseRulesLabel": "House rules",
+    "houseRulesPlaceholder": "Write the agreed house rules...",
+    "idVerificationTitle": "National ID Photo Capture",
+    "idVerificationSubtitle": "Capture ID or passport for legal eIDAS compliance",
+    "idFront": "Front",
+    "idBack": "Back",
+    "cameraPermission": "Camera access is required to capture the identity document.",
+    "openCamera": "Open camera",
+    "otpTitle": "SMS identity verification",
+    "requireOtp": "Require SMS OTP",
+    "otpOptional": "Optional advanced verification for remote signing.",
+    "sendOtp": "Send SMS OTP Code",
+    "otpPlaceholder": "Enter the 6-digit code",
+    "verifyOtp": "Verify code",
+    "otpSent": "A verification code was sent to the signer's phone.",
+    "otpVerified": "Phone verification completed.",
+    "otpSkipped": "SMS verification is optional for in-person signing.",
+    "debugOtp": "Development code: {{code}}",
+    "gpsCaptured": "Location captured: {{lat}}, {{lng}} (Accuracy: ±{{acc}}m)",
+    "capturingGps": "Capturing location...",
+    "gpsPending": "Location evidence is required before signing.",
+    "stepProgress": "Step {{step}} of {{total}}",
+    "finalize": "Finalize signature",
+    "signatureRecorded": "Your signature was recorded. The remaining parties can now sign.",
+    "contractSignedSuccess": "Document signed successfully and dispatched to all parties via email.",
+    "shareViaWhatsApp": "Share via WhatsApp",
+    "vatIncluded": "plus 24% VAT",
+    "errors": {
+      "initialization": "The signing document could not be prepared.",
+      "cameraCapture": "The identity photo could not be captured.",
+      "cameraUpload": "The identity photo could not be uploaded.",
+      "locationPermission": "Location permission is required for the signature evidence.",
+      "locationCapture": "The signing location could not be captured.",
+      "emptySignature": "Please sign inside the box before confirming.",
+      "otpSend": "The SMS code could not be sent.",
+      "otpVerify": "The SMS code could not be verified.",
+      "payload": "The contract details could not be saved.",
+      "finalize": "The document could not be finalized.",
+      "whatsapp": "WhatsApp could not be opened."
     }
   }
 }

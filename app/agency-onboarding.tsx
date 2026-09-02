@@ -13,7 +13,7 @@ import { useTheme } from "@/src/context/ThemeContext";
 import { t } from "@/src/locales";
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
 
-type AgencyRole = "ceo" | "member";
+type AgencyRole = "ceo" | "member" | "secretary";
 type Agency = { id: string; name: string; nameLower: string; passcode: string; ceoId: string };
 
 export default function AgencyOnboardingScreen() {
@@ -55,14 +55,19 @@ export default function AgencyOnboardingScreen() {
   }, [agencyName, agencies, role]);
 
   const selectedAgency = agencies.find((agency) => agency.nameLower === agencyName.trim().toLowerCase());
+  const secretariatSuffix = "$csb$sec";
+  const isSecretariatInvite = agencyCode.trim().toLowerCase().includes(secretariatSuffix);
+  const secretariatMarkerIndex = agencyCode.toLowerCase().indexOf(secretariatSuffix);
+  const secretariatCode = secretariatMarkerIndex >= 0 ? agencyCode.slice(0, secretariatMarkerIndex).trim() : agencyCode.trim();
+  const joinedAgency = selectedAgency ?? agencies.find((agency) => agency.passcode === secretariatCode);
 
   const submit = async () => {
     setError("");
-    if (!email || !password || !displayName.trim() || !agencyName.trim() || !agencyCode.trim()) {
+    if (!email || !password || (!isSecretariatInvite && !displayName.trim()) || !agencyName.trim() || !agencyCode.trim()) {
       setError(t("agency.onboarding.requiredFields"));
       return;
     }
-    if (role === "member" && (!selectedAgency || selectedAgency.passcode !== agencyCode.trim())) {
+    if (role === "member" && !isSecretariatInvite && (!selectedAgency || selectedAgency.passcode !== agencyCode.trim())) {
       setError(t("agency.onboarding.invalidPasscode"));
       return;
     }
@@ -71,7 +76,7 @@ export default function AgencyOnboardingScreen() {
     try {
       const credential = await createUserWithEmailAndPassword(firebaseAuth, email.trim(), password);
       await updateProfile(credential.user, { displayName: displayName.trim() });
-      if (role === "ceo") {
+      if (role === "ceo" && !isSecretariatInvite) {
         const agencyRef = doc(collection(db, "agencies"));
         await setDoc(agencyRef, {
           id: agencyRef.id, name: agencyName.trim(), nameLower: agencyName.trim().toLowerCase(), passcode: agencyCode.trim(),
@@ -81,6 +86,28 @@ export default function AgencyOnboardingScreen() {
         await setDoc(doc(db, "users", credential.user.uid), {
           name: displayName.trim(), email: email.trim(), is_broker: true, agencyId: agencyRef.id, agencyRole: "ceo", agencyStatus: "approved", agencyJoinedAt: serverTimestamp(), needsProfileSetup: true, updatedAt: serverTimestamp(),
         }, { merge: true });
+      } else if (isSecretariatInvite) {
+        if (!joinedAgency || joinedAgency.passcode !== secretariatCode) {
+          throw new Error("invalid-secretariat-code");
+        }
+        const secretariatName = `Γραμματεία ${joinedAgency.name}`;
+        await updateProfile(credential.user, { displayName: secretariatName });
+        await setDoc(doc(db, "users", credential.user.uid), {
+          name: secretariatName,
+          email: email.trim(),
+          is_broker: true,
+          agencyId: joinedAgency.id,
+          agencyRole: "secretary",
+          agencyStatus: "pending",
+          agencyRequestedAt: serverTimestamp(),
+          needsProfileSetup: true,
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+        await updateDoc(doc(db, "agencies", joinedAgency.id), {
+          pendingSecretaryIds: arrayUnion(credential.user.uid),
+          updatedAt: serverTimestamp(),
+        });
+        await notifyCeoOfNewApplicant(joinedAgency.id, secretariatName, email.trim());
       } else {
         await setDoc(doc(db, "users", credential.user.uid), {
           name: displayName.trim(), email: email.trim(), is_broker: true, agencyId: selectedAgency!.id, agencyRole: "member", agencyStatus: "pending", agencyRequestedAt: serverTimestamp(), needsProfileSetup: true, updatedAt: serverTimestamp(),
@@ -104,10 +131,10 @@ export default function AgencyOnboardingScreen() {
         <Text style={styles.subtitle}>{t("agency.onboarding.subtitle")}</Text>
         <View style={styles.badges}><Text style={styles.badge}>{email}</Text><Text style={styles.badge}>{t("agency.onboarding.passwordProtected")}</Text></View>
         <Text style={styles.label}>{role === "ceo" ? t("agency.onboarding.agencyNameLabel") : t("agency.onboarding.agencyLabel")}</Text>
-        <View style={styles.inputWrapper}><Ionicons name="business-outline" size={20} color={colors.onSurfaceTertiary} /><TextInput style={styles.input} value={agencyName} onChangeText={(value) => { setAgencyName(value); setError(""); }} placeholder="π.χ. RE/MAX Central" placeholderTextColor={colors.onSurfaceTertiary} /><Pressable onPress={() => setModalVisible(true)}><Ionicons name="chevron-down" size={22} color={colors.onSurfaceTertiary} /></Pressable></View>
+        <View style={styles.inputWrapper}><Ionicons name="business-outline" size={20} color={colors.onSurfaceTertiary} /><TextInput style={styles.input} value={agencyName} onChangeText={(value) => { setAgencyName(value); setError(""); }} placeholder={t("agency.onboarding.agencyNamePlaceholder")} placeholderTextColor={colors.onSurfaceTertiary} /><Pressable onPress={() => setModalVisible(true)}><Ionicons name="chevron-down" size={22} color={colors.onSurfaceTertiary} /></Pressable></View>
         {noMatch ? <Text style={styles.noMatch}>{t("agency.onboarding.agencyNotFound")}</Text> : null}
         <Text style={styles.label}>{t("agency.onboarding.agencyCodeLabel")}</Text>
-        <View style={styles.inputWrapper}><Ionicons name="key-outline" size={20} color={colors.onSurfaceTertiary} /><TextInput style={styles.input} value={agencyCode} onChangeText={setAgencyCode} secureTextEntry={role === "member"} placeholder="Πληκτρολογήστε κωδικό" placeholderTextColor={colors.onSurfaceTertiary} /></View>
+        <View style={styles.inputWrapper}><Ionicons name="key-outline" size={20} color={colors.onSurfaceTertiary} /><TextInput style={styles.input} value={agencyCode} onChangeText={setAgencyCode} secureTextEntry={role === "member"} placeholder={t("agency.onboarding.agencyCodePlaceholder")} placeholderTextColor={colors.onSurfaceTertiary} /></View>
         <Text style={styles.label}>{t("agency.onboarding.displayNameLabel")}</Text><View style={styles.inputWrapper}><Ionicons name="person-outline" size={20} color={colors.onSurfaceTertiary} /><TextInput style={styles.input} value={displayName} onChangeText={setDisplayName} placeholder={t("agency.onboarding.displayNamePlaceholder")} placeholderTextColor={colors.onSurfaceTertiary} /></View>
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <View style={styles.info}><Ionicons name="information-circle-outline" size={22} color={colors.brand} /><Text style={styles.infoText}>{t("agency.onboarding.googleAuthNotice")}</Text></View>

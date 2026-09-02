@@ -1,4 +1,4 @@
-import type { FilterSetPayload } from "@/src/types/filters";
+import type { FilterSetPayload, HardCriteriaKey } from "@/src/types/filters";
 import { normalizeCity } from "@/src/utils/cityNormalization";
 
 export interface ListingFormData {
@@ -15,6 +15,10 @@ export interface ListingFormData {
   amenities?: string[];
   propertyType?: string;
   propertyCategory?: string;
+  bedrooms?: number | string;
+  bathrooms?: number | string;
+  furnishedStatus?: string;
+  heatingSystem?: string;
 }
 
 export interface CompatibilityResult {
@@ -90,6 +94,93 @@ function rangePoints(value: number | null, minimum?: string, maximum?: string): 
 
 function includesTag(tags: string[], terms: string[]): boolean {
   return tags.some((tag) => terms.some((term) => normalizeText(tag).includes(term)));
+}
+
+function matchesConfiguredList(value: string | number | undefined, options?: string[]): boolean {
+  if (!options || options.length === 0) return true;
+  return options.some((option) => textsMatch(value, option));
+}
+
+function matchesAnyAmenity(tags: string[], options?: string[]): boolean {
+  if (!options || options.length === 0) return true;
+  return options.every((option) => tags.some((tag) => textsMatch(tag, option)));
+}
+
+export function evaluateUserHardCriteriaMatch(
+  apartment: ListingFormData,
+  filterSet: FilterSetPayload,
+): { passes: boolean; failedCriteria: HardCriteriaKey[] } {
+  const hardCriteria = filterSet.userHardCriteria ?? [];
+  const failedCriteria: HardCriteriaKey[] = [];
+  const rent = parseNumber(apartment.rent);
+  const size = parseNumber(apartment.size);
+  const bedrooms = parseNumber(apartment.bedrooms);
+  const bathrooms = parseNumber(apartment.bathrooms);
+  const tags = [...(apartment.tags ?? []), ...(apartment.amenities ?? [])];
+
+  for (const criterion of hardCriteria) {
+    switch (criterion) {
+      case "rent": {
+        const minimum = parseNumber(filterSet.rentMin);
+        const maximum = parseNumber(filterSet.rentMax);
+        if ((minimum !== null && (rent === null || rent < minimum)) || (maximum !== null && (rent === null || rent > maximum))) failedCriteria.push(criterion);
+        break;
+      }
+      case "size": {
+        const minimum = parseNumber(filterSet.sizeMin);
+        const maximum = parseNumber(filterSet.sizeMax);
+        if ((minimum !== null && (size === null || size < minimum)) || (maximum !== null && (size === null || size > maximum))) failedCriteria.push(criterion);
+        break;
+      }
+      case "floor":
+        if (filterSet.floors?.length && !matchesConfiguredList(apartment.floor, filterSet.floors)) failedCriteria.push(criterion);
+        break;
+      case "propertyType":
+        if (filterSet.propertyTypes?.length && !matchesConfiguredList(apartment.propertyType, filterSet.propertyTypes)) failedCriteria.push(criterion);
+        break;
+      case "bedrooms": {
+        const minimum = parseNumber(filterSet.bedroomsMin);
+        if (minimum !== null && (bedrooms === null || bedrooms < minimum)) failedCriteria.push(criterion);
+        break;
+      }
+      case "bathrooms": {
+        const minimum = parseNumber(filterSet.bathroomsMin);
+        if (minimum !== null && (bathrooms === null || bathrooms < minimum)) failedCriteria.push(criterion);
+        break;
+      }
+      case "furnished":
+        if (filterSet.furnishedStatus && filterSet.furnishedStatus !== "all" && !matchesConfiguredList(apartment.furnishedStatus, [filterSet.furnishedStatus]) && !includesTag(tags, ["furnish"])) failedCriteria.push(criterion);
+        break;
+      case "heating":
+        if (filterSet.heatingTypes?.length && !matchesConfiguredList(apartment.heatingSystem, filterSet.heatingTypes)) failedCriteria.push(criterion);
+        break;
+      case "petFriendly":
+        if (filterSet.petFriendly === true && !apartment.petFriendly && !includesTag(tags, ["pet", "κατοικ"])) failedCriteria.push(criterion);
+        break;
+      case "nearMetro":
+        if (filterSet.nearMetro === true && !apartment.nearMetro && !includesTag(tags, ["metro", "μετρο"])) failedCriteria.push(criterion);
+        break;
+      case "amenities":
+        if (!matchesAnyAmenity(tags, filterSet.selectedAmenities)) failedCriteria.push(criterion);
+        break;
+    }
+  }
+
+  return { passes: failedCriteria.length === 0, failedCriteria };
+}
+
+export function calculateSuggestedApartments<T extends ListingFormData>(
+  apartments: T[],
+  filterSet: FilterSetPayload,
+): { apartment: T; score: number; failedCriteria: HardCriteriaKey[] }[] {
+  return apartments
+    .map((apartment) => {
+      const score = calculateTenantCompatibilityScore(apartment, filterSet);
+      const hardMatch = evaluateUserHardCriteriaMatch(apartment, filterSet);
+      return { apartment, score: Math.round(score), failedCriteria: hardMatch.failedCriteria };
+    })
+    .filter((result) => result.failedCriteria.length === 0 || result.score >= 90)
+    .sort((left, right) => right.score - left.score);
 }
 
 function rangeMatches(value: number | null, minimum?: string, maximum?: string): "exact" | "tolerance" | null {

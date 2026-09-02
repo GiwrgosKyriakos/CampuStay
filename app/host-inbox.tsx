@@ -18,6 +18,8 @@ import { getBlockRelationshipState } from "@/src/api/chat";
 import { syncBrokerClientProfile } from "@/src/api/brokerClientProfiles";
 import { isBrokerOrAgencyUser } from "@/src/utils/roles";
 import InboxSkeleton from "@/src/components/skeletons/InboxSkeleton";
+import AgencyColleaguesModal from "@/src/components/AgencyColleaguesModal";
+import { createOrGetColleagueChat } from "@/src/api/agencyCollaboration";
 
 interface FirestoreUserDoc {
   name?: string | null;
@@ -32,7 +34,7 @@ interface FirestoreUserDoc {
 
 interface FirestoreHostChatDoc {
   users?: string[];
-  type?: "roommate" | "host" | string;
+  type?: "roommate" | "host" | "colleague" | string;
   clearedAt?: Record<string, unknown>;
   deletedUsers?: Record<string, boolean>;
   apartmentTitle?: string;
@@ -44,6 +46,28 @@ interface FirestoreHostChatDoc {
   lastMessageTimestamp?: { toMillis?: () => number } | number | null;
   updatedAt?: { toMillis?: () => number } | number | null;
   createdAt?: { toMillis?: () => number } | number | null;
+}
+
+interface FirestoreInboxMessageDoc {
+  text?: string;
+  type?: string;
+  requestedDate?: string;
+  metadata?: { appointmentDate?: string };
+  senderId?: string;
+  isRead?: boolean;
+}
+
+function formatInboxMessage(data: FirestoreInboxMessageDoc): string {
+  const appointmentDate = data.metadata?.appointmentDate ?? data.requestedDate;
+  switch (data.type) {
+    case "filter_share":
+    case "filter_set_share": return "Διαμοιρασμός Φίλτρων Αναζήτησης";
+    case "assignment_request": return "Νέα Ανάθεση Ακινήτου";
+    case "visit_confirmed": return `Επιβεβαιωμένη Υπόδειξη: ${appointmentDate ? new Date(appointmentDate).toLocaleDateString("el-GR") : ""}`;
+    case "visit_rescheduled": return "Αλλαγή Ραντεβού Υπόδειξης";
+    case "visit_cancelled": return "Ακύρωση Ραντεβού Υπόδειξης";
+    default: return data.text?.trim() || "";
+  }
 }
 
 interface HostInboxItem {
@@ -61,7 +85,7 @@ interface HostInboxItem {
   sortKey: number;
   brokerChatRole?: "client" | "owner";
   apartmentImage: string;
-  // 🎯 ΠΡΟΣΘΗΚΗ: Flags για το blocking
+  // ΠΡΟΣΘΗΚΗ: Flags για το blocking
   isBlocker?: boolean;
   isBlocked?: boolean;
 }
@@ -156,6 +180,7 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
   const [acceptingChatId, setAcceptingChatId] = useState<string | null>(null);
   const [infoOpen, setInfoOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [colleaguesVisible, setColleaguesVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const canSeeBrokerRoleMetadata = auth.isBroker === true || isBrokerOrAgencyUser(auth.user as Parameters<typeof isBrokerOrAgencyUser>[0]);
   const locallyDeletedChatIdsRef = useRef(new Set<string>());
@@ -219,7 +244,8 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
             const approvedDocs = snapshot.docs.filter((chatDoc) => {
               const chatData = chatDoc.data() as FirestoreHostChatDoc;
               const isHostChat = chatData.type === "host" || !!chatData.apartmentId;
-              if (!isHostChat) return false;
+              const isColleagueChat = chatData.type === "colleague";
+              if (!isHostChat && !isColleagueChat) return false;
               if (chatData.initiatedBy === currentUid) return false;
 
               const isExplicitlyDeleted = isDeletedForUser(chatData, currentUid);
@@ -246,6 +272,7 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
               approvedDocs.map(async (chatDoc) => {
                 try {
                   const chatData = chatDoc.data() as FirestoreHostChatDoc;
+                  const isColleagueChat = chatData.type === "colleague";
                   const users = Array.isArray(chatData.users) ? chatData.users : [];
                   const customerId = users.find((uid) => uid !== currentUid) || "";
                   
@@ -253,7 +280,7 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
 
                   const customerSnap = await getDoc(doc(db, "users", customerId));
                   const customerData = customerSnap.exists() ? (customerSnap.data() as FirestoreUserDoc) : null;
-                  if (isBrokerOrAgencyUser(customerData) && chatData.brokerChatRole !== "client" && !chatData.apartmentId) {
+                  if (!isColleagueChat && isBrokerOrAgencyUser(customerData) && chatData.brokerChatRole !== "client" && !chatData.apartmentId) {
                     return null;
                   }
                   
@@ -265,15 +292,15 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
                       query(collection(db, "chats", chatDoc.id, "messages"), orderBy("createdAt", "desc"), limit(1))
                     );
                     if (!lastMsgSnap.empty) {
-                      const lastMsg = lastMsgSnap.docs[0].data();
-                      lastMessageText = lastMsg.text || "";
+                      const lastMsg = lastMsgSnap.docs[0].data() as FirestoreInboxMessageDoc;
+                      lastMessageText = formatInboxMessage(lastMsg);
                       isUnread = lastMsg.senderId === customerId && lastMsg.isRead === false;
                     }
                   } catch (msgError) {
                     console.log(`[HostInbox] Σφάλμα ανάγνωσης μηνυμάτων για chat ${chatDoc.id}:`, msgError);
                   }
 
-                  const apartmentTitle = chatData.apartmentTitle?.trim() || "Apartment";
+                  const apartmentTitle = isColleagueChat ? "Συνεργάτης" : chatData.apartmentTitle?.trim() || "Apartment";
                   const brokerChatRole = chatData.brokerChatRole === "client" || chatData.brokerChatRole === "owner"
                     ? chatData.brokerChatRole
                     : undefined;
@@ -489,11 +516,21 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
               testID="host-inbox-info-toggle"
               hitSlop={8}
               accessibilityRole="button"
-              accessibilityLabel="Υπόμνημα ρόλων"
+              accessibilityLabel={t("host-inbox.roleLegendLabel")}
             >
               <Ionicons name={infoOpen ? "information-circle" : "information-circle-outline"} size={20} color={infoOpen ? colors.brand : colors.onSurface} />
             </Pressable>
           ) : null}
+          <Pressable
+            onPress={() => setColleaguesVisible(true)}
+            style={styles.headerActionBtn}
+            testID="host-inbox-colleagues-toggle"
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Συνεργάτες"
+          >
+            <Ionicons name="people-outline" size={20} color={colors.onSurface} />
+          </Pressable>
           <Pressable
             onPress={() => {
               setSearchOpen((prev) => {
@@ -506,7 +543,7 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
             testID="host-inbox-search-toggle"
             hitSlop={8}
             accessibilityRole="button"
-            accessibilityLabel="Αναζήτηση"
+            accessibilityLabel={t("host-inbox.searchLabel")}
           >
             <Ionicons name={searchOpen ? "search" : "search-outline"} size={20} color={searchOpen ? colors.brand : colors.onSurface} />
           </Pressable>
@@ -520,7 +557,7 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
             <TextInput
               value={searchQuery}
               onChangeText={setSearchQuery}
-              placeholder="Αναζήτηση με όνομα ή τίτλο..."
+              placeholder={t("host-inbox.searchPlaceholder")}
               placeholderTextColor={colors.onSurfaceTertiary}
               style={styles.searchInput}
               autoCorrect={false}
@@ -540,12 +577,12 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
         <View style={styles.legendContainer} testID="host-inbox-role-legend">
           <View style={styles.legendItem}>
             <Text style={styles.clientBadge}>C</Text>
-            <Text style={styles.legendText}>Πελάτης / Ενοικιαστής</Text>
+            <Text style={styles.legendText}>{t("host-inbox.clientRole")}</Text>
           </View>
           <View style={styles.legendDivider} />
           <View style={styles.legendItem}>
             <Text style={styles.ownerBadge}>O</Text>
-            <Text style={styles.legendText}>Ιδιοκτήτης Ακινήτου</Text>
+            <Text style={styles.legendText}>{t("host-inbox.ownerRole")}</Text>
           </View>
         </View>
       ) : null}
@@ -566,8 +603,8 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
           <View style={styles.searchEmptyIconWrap}>
             <Ionicons name="search-outline" size={30} color={colors.onSurfaceTertiary} />
           </View>
-          <Text style={styles.emptyTitle}>Δεν βρέθηκαν αποτελέσματα</Text>
-          <Text style={styles.emptySub}>Δοκιμάστε διαφορετικούς όρους αναζήτησης</Text>
+          <Text style={styles.emptyTitle}>{t("host-inbox.noSearchResults")}</Text>
+          <Text style={styles.emptySub}>{t("host-inbox.tryDifferentSearch")}</Text>
         </View>
       ) : (
         <ScrollView
@@ -578,7 +615,7 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
         >
           {filteredItems.map((item) => {
             
-            // 🎯 ΔΙΟΡΘΩΣΗ: Δυναμική αλλαγή ονόματος και avatar βάσει block state
+            // ΔΙΟΡΘΩΣΗ: Δυναμική αλλαγή ονόματος και avatar βάσει block state
             let customerName = item.customerName;
             let hasAvatar = !!item.customerAvatar;
 
@@ -740,6 +777,20 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
           </View>
         </View>
       </Modal>
+
+      <AgencyColleaguesModal
+        visible={colleaguesVisible}
+        agencyId={auth.agencyId ?? ""}
+        currentUserId={auth.userId ?? ""}
+        onClose={() => setColleaguesVisible(false)}
+        onSelect={(colleague) => {
+          if (!auth.userId) return;
+          setColleaguesVisible(false);
+          void createOrGetColleagueChat({ currentUserId: auth.userId, colleagueId: colleague.id }).then((chatRoomId) => {
+            router.push({ pathname: "/chat/[id]", params: { id: colleague.id, chatRoomId } });
+          });
+        }}
+      />
     </View>
   );
 }

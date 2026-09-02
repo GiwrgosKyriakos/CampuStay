@@ -126,10 +126,10 @@ async function getPotentialCandidateRecords(userId: string, currentCity?: string
     const uid = u.id;
     if (!uid || uid === userId || swipedTo.has(uid) || chattedWith.has(uid) || likedYou.has(uid)) return;
 
-    // 🟢 Ενημερωμένος τύπος με υποστήριξη για is_visible στη ρίζα του user document
+    // Ενημερωμένος τύπος με υποστήριξη για is_visible στη ρίζα του user document
     const data = u.data() as FirestoreUserDoc & { is_visible?: boolean; privacy?: { is_visible?: boolean } };
     
-    // 🟢 Έλεγχος αν η ορατότητα είναι απενεργοποιημένη
+    // Έλεγχος αν η ορατότητα είναι απενεργοποιημένη
     if (data.is_visible === false || data.privacy?.is_visible === false) return;
     if (isBrokerOrAgencyUser(data) && data.looking_for_roommate !== true) return;
 
@@ -215,7 +215,7 @@ export async function postSwipe(
       { merge: true },
     );
 
-    // 🟢 ΑΠΟΣΤΟΛΗ PUSH NOTIFICATION ΟΤΑΝ Ο ΧΡΗΣΤΗΣ Α ΚΑΝΕΙ LIKE ΣΤΟΝ ΧΡΗΣΤΗ Β
+    // ΑΠΟΣΤΟΛΗ PUSH NOTIFICATION ΟΤΑΝ Ο ΧΡΗΣΤΗΣ Α ΚΑΝΕΙ LIKE ΣΤΟΝ ΧΡΗΣΤΗ Β
     try {
       const targetUserSnap = await getDoc(doc(db, "users", targetId));
       if (targetUserSnap.exists()) {
@@ -231,7 +231,7 @@ export async function postSwipe(
 
           await sendPushNotification(
             pushToken,
-            "Έχεις νέο match! 🎉",
+            "Έχεις νέο match!",
             `Έχεις νέο match: ${senderName}`,
             { chatRoomId, senderId: userId, type: "match" }
           );

@@ -1,10 +1,10 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, TextInput, Modal } from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, TextInput, Modal, Switch } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { addDoc, collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, where } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 
 import { db } from "@/src/config/firebase";
 import { useAuth } from "@/src/context/auth";
@@ -13,9 +13,10 @@ import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme"
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import CenteredActionModal from "@/src/components/CenteredActionModal";
 import { type LossReasonKey, type PipelineStageKey } from "@/src/constants/pipeline";
+import type { LostDealReason } from "@/src/types/analytics";
 import type { BrokerApartment } from "./(tabs)/broker";
-import type { FilterSetPayload } from "@/src/types/filters";
-import { calculateTenantCompatibilityScore, getCompatibilityDetails, type ListingFormData } from "@/src/utils/compatibilityScore";
+import type { FilterSetPayload, HardCriteriaKey } from "@/src/types/filters";
+import { calculateSuggestedApartments, calculateTenantCompatibilityScore, getCompatibilityDetails, type ListingFormData } from "@/src/utils/compatibilityScore";
 import { t } from "@/src/locales";
 import {
   addPropertyInteraction,
@@ -24,6 +25,13 @@ import {
   type PropertyInteraction,
 } from "@/src/api/propertyInteractions";
 import { getBrokerClientDeals, upsertBrokerClientProfile } from "@/src/api/brokerClientProfiles";
+import { BrokerModificationBadge } from "@/src/components/BrokerModificationBadge";
+import AssignClientEmailModal from "@/src/components/AssignClientEmailModal";
+import { settleClosedDeal } from "@/src/utils/dealAutomations";
+import { calculateDynamicDealStage } from "@/src/utils/dealPipeline";
+import ClientCalendarNotesModal from "@/src/components/calendar/ClientCalendarNotesModal";
+import CloseLostDealModal from "@/src/components/CloseLostDealModal";
+import { recordLostDeal } from "@/src/api/lostDeals";
 
 export interface BrokerPropertyList {
   id: string;
@@ -41,13 +49,213 @@ type SharedSearchFilterSet = {
   data: FilterSetPayload;
 };
 
+export interface BrokerClientFilterSet {
+  id: string;
+  clientUserId?: string;
+  title: string;
+  origin: "client_created" | "broker_created";
+  version: number;
+  brokerModCount: number;
+  lastModifiedByBrokerId?: string;
+  lastModifiedByBrokerName?: string;
+  lastModifiedAt: number;
+  isSharedWithClient: boolean;
+  userHardCriteria?: HardCriteriaKey[];
+  updatedAt?: number;
+  cityQuery?: string;
+  rentMin?: number;
+  rentMax?: number;
+  sizeMin?: number;
+  sizeMax?: number;
+  propertyTypes?: string[];
+  propertyCategories?: string[];
+  bedroomsMin?: number;
+  bathroomsMin?: number;
+  floors?: string[];
+  furnishedStatus?: string;
+  heatingTypes?: string[];
+  petFriendly?: boolean;
+  nearMetro?: boolean;
+  selectedAmenities?: string[];
+  showMatchScore?: boolean;
+  minSqmPrice?: number;
+  maxSqmPrice?: number;
+  sortBy?: string;
+  summary?: string;
+  energyClasses?: string[];
+  constructionYearMin?: number;
+  renovationYearMin?: number;
+  polygonCoordinates?: FilterSetPayload["polygonCoordinates"];
+}
+
+type FilterSetForm = {
+  title: string;
+  cityQuery: string;
+  rentMin: string;
+  rentMax: string;
+  sizeMin: string;
+  sizeMax: string;
+  bedroomsMin: string;
+  bathroomsMin: string;
+  propertyTypes: string;
+  propertyCategories: string;
+  floors: string;
+  furnishedStatus: string;
+  heatingTypes: string;
+  selectedAmenities: string;
+  petFriendly: boolean;
+  nearMetro: boolean;
+  showMatchScore: boolean;
+};
+
+const EMPTY_FILTER_SET_FORM: FilterSetForm = {
+  title: "",
+  cityQuery: "",
+  rentMin: "",
+  rentMax: "",
+  sizeMin: "",
+  sizeMax: "",
+  bedroomsMin: "",
+  bathroomsMin: "",
+  propertyTypes: "",
+  propertyCategories: "",
+  floors: "",
+  furnishedStatus: "all",
+  heatingTypes: "",
+  selectedAmenities: "",
+  petFriendly: false,
+  nearMetro: false,
+  showMatchScore: false,
+};
+
+function numberOrUndefined(value: string): number | undefined {
+  const parsed = Number(value.replace(/[^0-9.]/g, ""));
+  return value.trim() && Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function listOrUndefined(value: string): string[] | undefined {
+  const list = value.split(",").map((item) => item.trim()).filter(Boolean);
+  return list.length > 0 ? list : undefined;
+}
+
+function formFromFilterSet(filterSet: BrokerClientFilterSet): FilterSetForm {
+  return {
+    title: filterSet.title,
+    cityQuery: filterSet.cityQuery || "",
+    rentMin: filterSet.rentMin == null ? "" : String(filterSet.rentMin),
+    rentMax: filterSet.rentMax == null ? "" : String(filterSet.rentMax),
+    sizeMin: filterSet.sizeMin == null ? "" : String(filterSet.sizeMin),
+    sizeMax: filterSet.sizeMax == null ? "" : String(filterSet.sizeMax),
+    bedroomsMin: filterSet.bedroomsMin == null ? "" : String(filterSet.bedroomsMin),
+    bathroomsMin: filterSet.bathroomsMin == null ? "" : String(filterSet.bathroomsMin),
+    propertyTypes: filterSet.propertyTypes?.join(", ") || "",
+    propertyCategories: filterSet.propertyCategories?.join(", ") || "",
+    floors: filterSet.floors?.join(", ") || "",
+    furnishedStatus: filterSet.furnishedStatus || "all",
+    heatingTypes: filterSet.heatingTypes?.join(", ") || "",
+    selectedAmenities: filterSet.selectedAmenities?.join(", ") || "",
+    petFriendly: filterSet.petFriendly === true,
+    nearMetro: filterSet.nearMetro === true,
+    showMatchScore: filterSet.showMatchScore === true,
+  };
+}
+
+function formToFilterFields(form: FilterSetForm): Partial<BrokerClientFilterSet> {
+  const fields: Partial<BrokerClientFilterSet> = {
+    cityQuery: form.cityQuery.trim() || undefined,
+    rentMin: numberOrUndefined(form.rentMin),
+    rentMax: numberOrUndefined(form.rentMax),
+    sizeMin: numberOrUndefined(form.sizeMin),
+    sizeMax: numberOrUndefined(form.sizeMax),
+    bedroomsMin: numberOrUndefined(form.bedroomsMin),
+    bathroomsMin: numberOrUndefined(form.bathroomsMin),
+    propertyTypes: listOrUndefined(form.propertyTypes),
+    propertyCategories: listOrUndefined(form.propertyCategories),
+    floors: listOrUndefined(form.floors),
+    furnishedStatus: form.furnishedStatus || "all",
+    heatingTypes: listOrUndefined(form.heatingTypes),
+    selectedAmenities: listOrUndefined(form.selectedAmenities),
+    petFriendly: form.petFriendly,
+    nearMetro: form.nearMetro,
+    showMatchScore: form.showMatchScore,
+  };
+  return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined)) as Partial<BrokerClientFilterSet>;
+}
+
+function storedNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) return Number(value);
+  return undefined;
+}
+
+function mapStoredFilterSet(id: string, raw: Record<string, unknown>, origin: BrokerClientFilterSet["origin"], sharedDefault: boolean): BrokerClientFilterSet {
+  return {
+    ...raw,
+    id,
+    title: typeof raw.title === "string" && raw.title.trim() ? raw.title : "Κριτήρια Αναζήτησης",
+    origin: raw.origin === "broker_created" || raw.origin === "client_created" ? raw.origin : origin,
+    version: storedNumber(raw.version) || 1,
+    brokerModCount: storedNumber(raw.brokerModCount) || 0,
+    lastModifiedAt: storedNumber(raw.lastModifiedAt) || storedNumber(raw.updatedAt) || storedNumber(raw.createdAt) || 0,
+    isSharedWithClient: typeof raw.isSharedWithClient === "boolean" ? raw.isSharedWithClient : sharedDefault,
+    rentMin: storedNumber(raw.rentMin),
+    rentMax: storedNumber(raw.rentMax),
+    sizeMin: storedNumber(raw.sizeMin),
+    sizeMax: storedNumber(raw.sizeMax),
+    bedroomsMin: storedNumber(raw.bedroomsMin),
+    bathroomsMin: storedNumber(raw.bathroomsMin),
+    minSqmPrice: storedNumber(raw.minSqmPrice),
+    maxSqmPrice: storedNumber(raw.maxSqmPrice),
+    constructionYearMin: storedNumber(raw.constructionYearMin),
+    renovationYearMin: storedNumber(raw.renovationYearMin),
+  };
+}
+
+function apartmentToListingData(apartment: ListingFormData): ListingFormData {
+  const extraInformation = (apartment as ListingFormData & { extraInformation?: { bathrooms?: unknown; heatingSystem?: unknown } }).extraInformation;
+  return {
+    city: apartment.city,
+    area: apartment.area,
+    latitude: typeof apartment.latitude === "number" ? apartment.latitude : undefined,
+    longitude: typeof apartment.longitude === "number" ? apartment.longitude : undefined,
+    rent: apartment.rent,
+    size: apartment.size,
+    floor: typeof apartment.floor === "string" || typeof apartment.floor === "number" ? apartment.floor : undefined,
+    bedrooms: apartment.bedrooms,
+    bathrooms: typeof extraInformation?.bathrooms === "number" ? extraInformation.bathrooms : undefined,
+    furnishedStatus: apartment.tags?.includes("furnished") ? "furnished" : undefined,
+    heatingSystem: typeof extraInformation?.heatingSystem === "string" ? extraInformation.heatingSystem : undefined,
+    petFriendly: apartment.tags?.includes("pet_friendly"),
+    nearMetro: apartment.tags?.includes("near_metro"),
+    tags: apartment.tags,
+    amenities: Array.isArray(apartment.amenities) ? apartment.amenities.filter((item): item is string => typeof item === "string") : undefined,
+    propertyType: typeof apartment.propertyType === "string" ? apartment.propertyType : undefined,
+    propertyCategory: typeof apartment.propertyCategory === "string" ? apartment.propertyCategory : undefined,
+  };
+}
+
 export type LeadReadinessKey = "hot" | "warm" | "cold";
 type ClientDetailSubView = "default" | "deal_stage" | "lead_readiness" | "purchasing_power";
 
+const HARD_CRITERIA_LABELS: Record<HardCriteriaKey, string> = {
+  rent: "Τιμή",
+  size: "Εμβαδόν",
+  floor: "Όροφος",
+  propertyType: "Τύπος Ακινήτου",
+  bedrooms: "Υπνοδωμάτια",
+  bathrooms: "Μπάνια",
+  furnished: "Επίπλωση",
+  heating: "Θέρμανση",
+  petFriendly: "Κατοικίδια",
+  nearMetro: "Μετρό",
+  amenities: "Παροχές",
+};
+
 const CLEAN_PIPELINE_STAGES = [
   { key: "new_lead", label: "Νέο Lead", percentage: 10, probability: 0.1 },
-  { key: "showing_scheduled", label: "Προγραμματισμένη Υπόδειξη", percentage: 40, probability: 0.4 },
-  { key: "offer_made", label: "Κατάθεση Προσφοράς", percentage: 60, probability: 0.6 },
+  { key: "showing_scheduled", label: "Πραγματοποίηση Υπόδειξης", percentage: 35, probability: 0.35 },
+  { key: "offer_made", label: "Κατάθεση Προσφοράς", percentage: 65, probability: 0.65 },
+  { key: "negotiation_agreement", label: "Υπό Διαπραγμάτευση / Προσύμφωνο", percentage: 90, probability: 0.9 },
   { key: "closed_won", label: "Ολοκλήρωση Συμφωνίας", percentage: 100, probability: 1 },
   { key: "closed_lost", label: "Χάθηκε / Ακυρώθηκε", percentage: 0, probability: 0 },
 ] as const;
@@ -65,6 +273,7 @@ export interface ClientInteractedPropertyDeal {
   pipelineStage: CleanPipelineStageKey;
   interactionType: "liked" | "chat" | "both";
   dealCommission: number;
+  clientRating?: number;
 }
 
 function normalizePipelineStage(value: unknown): CleanPipelineStageKey {
@@ -78,9 +287,10 @@ function normalizePipelineStage(value: unknown): CleanPipelineStageKey {
     case "showing_scheduled":
       return "showing_scheduled";
     case "offer":
-    case "negotiation_agreement":
     case "offer_made":
       return "offer_made";
+    case "negotiation_agreement":
+      return "negotiation_agreement";
     case "deal_closed":
     case "closed_won":
       return "closed_won";
@@ -96,6 +306,7 @@ function getPropertyDealStageTone(stage: CleanPipelineStageKey, colors: ThemeCol
   if (stage === "closed_won") return { backgroundColor: "rgba(16,185,129,0.14)", textColor: "#059669" };
   if (stage === "closed_lost") return { backgroundColor: "rgba(239,68,68,0.12)", textColor: "#DC2626" };
   if (stage === "offer_made") return { backgroundColor: "rgba(245,158,11,0.14)", textColor: "#D97706" };
+  if (stage === "negotiation_agreement") return { backgroundColor: "rgba(234,179,8,0.18)", textColor: "#A16207" };
   if (stage === "showing_scheduled") return { backgroundColor: colors.brandTertiary, textColor: colors.brand };
   return { backgroundColor: colors.surfaceTertiary, textColor: colors.onSurface };
 }
@@ -172,8 +383,11 @@ export interface ClientPurchasingPowerData {
 }
 
 export default function BrokerClientDetailScreen() {
-  const insets = useSafeAreaInsets(); const router = useRouter(); const auth = useAuth(); const params = useLocalSearchParams<{ clientUserId?: string; clientName?: string; clientAvatar?: string; chatRoomId?: string; sharedFilterSet?: string }>(); const { colors } = useTheme(); const styles = useMemo(() => createStyles(colors), [colors]);
+  const insets = useSafeAreaInsets(); const router = useRouter(); const auth = useAuth(); const params = useLocalSearchParams<{ clientUserId?: string; profileId?: string; clientName?: string; clientAvatar?: string; chatRoomId?: string; sharedFilterSet?: string; scrollTo?: string }>(); const { colors } = useTheme(); const styles = useMemo(() => createStyles(colors), [colors]);
+  const scrollViewRef = useRef<ScrollView>(null);
+  const [suggestedSectionY, setSuggestedSectionY] = useState(0);
   const [brokerManagedApartments, setBrokerManagedApartments] = useState<BrokerApartment[]>([]); const [loading, setLoading] = useState(true);
+  const resolvedClientUserId = params.clientUserId || (params.profileId?.includes("_") ? params.profileId.split("_").slice(1).join("_") : undefined);
   const [activeSubView, setActiveSubView] = useState<ClientDetailSubView>("default");
   const [cashOnHand, setCashOnHand] = useState("");
   const [approvedMortgage, setApprovedMortgage] = useState("");
@@ -185,10 +399,7 @@ export default function BrokerClientDetailScreen() {
   const [leadReadiness, setLeadReadiness] = useState<LeadReadinessKey | null>(null);
   const [activeApartmentId, setActiveApartmentId] = useState<string | null>(null);
   const [isLossModalVisible, setIsLossModalVisible] = useState(false);
-  const [lossReason, setLossReason] = useState<LossReasonKey>("high_price");
-  const [lossCustomReason, setLossCustomReason] = useState("");
-  const [lossApartmentId, setLossApartmentId] = useState<string | undefined>();
-  const [lossApartmentTitle, setLossApartmentTitle] = useState<string | undefined>();
+  const [pendingLostDeal, setPendingLostDeal] = useState<{ apartmentId: string; apartmentTitle: string; stageBeforeLoss: number; potentialRevenueLoss: number } | null>(null);
   const [expandedScoreListingId, setExpandedScoreListingId] = useState<string | null>(null);
   const [isCreatingList, setIsCreatingList] = useState(false);
   const [selectedApartmentIds, setSelectedApartmentIds] = useState<Set<string>>(new Set());
@@ -211,42 +422,61 @@ export default function BrokerClientDetailScreen() {
   const [sharedSearchQueries, setSharedSearchQueries] = useState<string[]>([]);
   const [sharedSearchFilterSets, setSharedSearchFilterSets] = useState<SharedSearchFilterSet[]>([]);
   const [selectedFilterSetId, setSelectedFilterSetId] = useState<string | null>(null);
+  const [filterSets, setFilterSets] = useState<BrokerClientFilterSet[]>([]);
+  const [editingFilterSet, setEditingFilterSet] = useState<BrokerClientFilterSet | null>(null);
+  const [isNewFilterSetModalOpen, setIsNewFilterSetModalOpen] = useState(false);
+  const [filterSetForm, setFilterSetForm] = useState<FilterSetForm>(EMPTY_FILTER_SET_FORM);
+  const [savingFilterSet, setSavingFilterSet] = useState(false);
+  const [isManualClient, setIsManualClient] = useState(false);
+  const [isAddEmailModalOpen, setIsAddEmailModalOpen] = useState(false);
+  const [calendarNotesVisible, setCalendarNotesVisible] = useState(false);
+  const profileId = auth.userId && params.clientUserId ? `${auth.userId}_${params.clientUserId}` : null;
   const filters = useMemo<FilterSetPayload | null>(() => { try { return params.sharedFilterSet ? JSON.parse(params.sharedFilterSet) as FilterSetPayload : null; } catch { return null; } }, [params.sharedFilterSet]);
   const activeFilterSet = useMemo(
-    () => sharedSearchFilterSets.find((filterSet) => filterSet.id === selectedFilterSetId)?.data ?? filters,
-    [filters, selectedFilterSetId, sharedSearchFilterSets],
+    () => {
+      const brokerSet = filterSets.find((filterSet) => filterSet.id === selectedFilterSetId);
+      if (brokerSet) {
+        return {
+          ...brokerSet,
+          rentMin: brokerSet.rentMin == null ? undefined : String(brokerSet.rentMin),
+          rentMax: brokerSet.rentMax == null ? undefined : String(brokerSet.rentMax),
+          sizeMin: brokerSet.sizeMin == null ? undefined : String(brokerSet.sizeMin),
+          sizeMax: brokerSet.sizeMax == null ? undefined : String(brokerSet.sizeMax),
+          bedroomsMin: brokerSet.bedroomsMin == null ? undefined : String(brokerSet.bedroomsMin),
+          bathroomsMin: brokerSet.bathroomsMin == null ? undefined : String(brokerSet.bathroomsMin),
+        } as FilterSetPayload;
+      }
+      return sharedSearchFilterSets.find((filterSet) => filterSet.id === selectedFilterSetId)?.data ?? filters;
+    },
+    [filterSets, filters, selectedFilterSetId, sharedSearchFilterSets],
   );
   const rankedPortfolio = useMemo(() => {
     const normalizedCity = activeFilterSet?.cityQuery?.trim().toLocaleLowerCase() || "";
-    const filterWithBudget = activeFilterSet as (FilterSetPayload & { budget?: number | string }) | null;
-    const maximumRent = Number(filterWithBudget?.rentMax ?? filterWithBudget?.budget ?? Number.POSITIVE_INFINITY);
-    return brokerManagedApartments
+    const cityMatches = brokerManagedApartments
       .filter((apartment) => {
         if (!activeFilterSet) return true;
-        const cityMatches = !normalizedCity || apartment.city.trim().toLocaleLowerCase() === normalizedCity;
-        const budgetMatches = !Number.isFinite(maximumRent) || apartment.rent <= maximumRent;
-        return cityMatches && budgetMatches;
-      })
-      .map((apartment) => {
-        const listingData: ListingFormData = {
-          city: apartment.city,
-          area: apartment.area,
-          latitude: typeof apartment.latitude === "number" ? apartment.latitude : undefined,
-          longitude: typeof apartment.longitude === "number" ? apartment.longitude : undefined,
-          rent: apartment.rent,
-          size: apartment.size,
-          floor: typeof apartment.floor === "string" || typeof apartment.floor === "number" ? apartment.floor : undefined,
-          petFriendly: apartment.tags?.includes("pet_friendly") || false,
-          nearMetro: apartment.tags?.includes("near_metro") || false,
-          tags: apartment.tags,
-          amenities: Array.isArray(apartment.amenities) ? apartment.amenities.filter((item): item is string => typeof item === "string") : undefined,
-          propertyType: typeof apartment.propertyType === "string" ? apartment.propertyType : undefined,
-          propertyCategory: typeof apartment.propertyCategory === "string" ? apartment.propertyCategory : undefined,
-        };
-        const scoreBreakdown = getCompatibilityDetails(listingData, activeFilterSet);
-        return { ...apartment, compatibilityScore: scoreBreakdown.score, scoreBreakdown };
-      })
-      .sort((first, second) => second.compatibilityScore - first.compatibilityScore);
+        return !normalizedCity || apartment.city.trim().toLocaleLowerCase() === normalizedCity;
+      });
+    if (!activeFilterSet) {
+      return cityMatches.map((apartment) => {
+        const listingData = apartmentToListingData(apartment);
+        const scoreBreakdown = getCompatibilityDetails(listingData, null);
+        return { ...apartment, compatibilityScore: scoreBreakdown.score, scoreBreakdown, failedHardCriteria: [] as HardCriteriaKey[] };
+      });
+    }
+    const suggestions = calculateSuggestedApartments(cityMatches.map((apartment) => ({
+      ...apartment,
+      ...apartmentToListingData({
+        ...apartment,
+        bedrooms: typeof apartment.rooms === "number" ? apartment.rooms : undefined,
+      }),
+    })), activeFilterSet);
+    return suggestions.map((suggestion) => {
+      const apartment = suggestion.apartment;
+      const listingData = apartmentToListingData(apartment);
+      const scoreBreakdown = getCompatibilityDetails(listingData, activeFilterSet);
+      return { ...apartment, compatibilityScore: suggestion.score, scoreBreakdown, failedHardCriteria: suggestion.failedCriteria };
+    });
   }, [activeFilterSet, brokerManagedApartments]);
   const availableApartmentOptions = useMemo(() => {
     const apartmentMap = new Map<string, string>();
@@ -258,6 +488,10 @@ export default function BrokerClientDetailScreen() {
     });
     return Array.from(apartmentMap.entries()).map(([id, title]) => ({ id, title }));
   }, [brokerManagedApartments, interactions]);
+  const calendarListingOptions = useMemo(
+    () => brokerManagedApartments.map((apartment) => ({ id: apartment.id, title: apartment.title, price: apartment.rent })),
+    [brokerManagedApartments],
+  );
   const interactionMetrics = useMemo(() => {
     const filteredByApartment = selectedApartmentFilter === "all"
       ? interactions
@@ -277,22 +511,63 @@ export default function BrokerClientDetailScreen() {
     }),
     [interactions, selectedApartmentFilter, selectedTypeFilter],
   );
+  const loadFilterSets = useCallback(async () => {
+    if (!profileId || !params.clientUserId) {
+      setFilterSets([]);
+      return;
+    }
+    try {
+      const [clientSnapshot, brokerSnapshot] = await Promise.all([
+        getDocs(collection(db, "users", params.clientUserId!, "savedFilterSets")),
+        getDocs(collection(db, "brokerClientProfiles", profileId, "savedFilterSets")),
+      ]);
+      const byId = new Map<string, BrokerClientFilterSet>();
+      clientSnapshot.docs.forEach((filterDoc) => {
+        byId.set(filterDoc.id, mapStoredFilterSet(filterDoc.id, filterDoc.data(), "client_created", true));
+      });
+      sharedSearchFilterSets.forEach((filterSet) => {
+        byId.set(filterSet.id, mapStoredFilterSet(filterSet.id, { ...filterSet.data, title: filterSet.title }, "client_created", true));
+      });
+      brokerSnapshot.docs.forEach((filterDoc) => {
+        byId.set(filterDoc.id, mapStoredFilterSet(filterDoc.id, filterDoc.data(), "broker_created", false));
+      });
+      setFilterSets(Array.from(byId.values()).sort((first, second) => second.lastModifiedAt - first.lastModifiedAt));
+    } catch (error) {
+      console.error("[BrokerClientDetail] Error loading filter sets:", error);
+      setFilterSets([]);
+    }
+  }, [resolvedClientUserId, profileId, sharedSearchFilterSets]);
+
   useEffect(() => {
-    if (!auth.userId || !params.clientUserId) {
+    if (!resolvedClientUserId) {
+      setIsManualClient(false);
+      return;
+    }
+    void getDoc(doc(db, "users", resolvedClientUserId)).then((snapshot) => {
+      setIsManualClient(snapshot.exists() && snapshot.data().is_manual_client === true);
+    }).catch(() => setIsManualClient(false));
+  }, [resolvedClientUserId]);
+
+  useEffect(() => {
+    void loadFilterSets();
+  }, [loadFilterSets]);
+
+  useEffect(() => {
+    if (!auth.userId || !resolvedClientUserId) {
       setSavedPropertyLists([]);
       return;
     }
     let active = true;
     void (async () => {
       try {
-        const snapshot = await getDocs(collection(db, "brokerClientProfiles", `${auth.userId}_${params.clientUserId}`, "propertyLists"));
+        const snapshot = await getDocs(collection(db, "brokerClientProfiles", `${auth.userId}_${resolvedClientUserId}`, "propertyLists"));
         if (!active) return;
         const lists = snapshot.docs.map((item) => {
           const data = item.data() as Partial<BrokerPropertyList>;
           return {
             id: item.id,
             brokerId: data.brokerId || auth.userId!,
-            clientUserId: data.clientUserId || params.clientUserId!,
+            clientUserId: data.clientUserId || resolvedClientUserId,
             title: data.title || t("brokerClient.listNameModalTitle"),
             apartmentIds: Array.isArray(data.apartmentIds) ? data.apartmentIds.filter((id): id is string => typeof id === "string") : [],
             createdAt: typeof data.createdAt === "number" ? data.createdAt : 0,
@@ -318,10 +593,10 @@ export default function BrokerClientDetailScreen() {
       }
     })();
     return () => { active = false; };
-  }, [auth.userId, params.chatRoomId, params.clientUserId]);
+  }, [auth.userId, params.chatRoomId, resolvedClientUserId]);
   useEffect(() => { let active = true; if (!auth.userId) return; void Promise.all([getDocs(query(collection(db, "apartments"), where("hostId", "==", auth.userId))), getDocs(query(collection(db, "apartments"), where("assignedBrokerIds", "array-contains", auth.userId)))]).then(([ownedSnapshot, assignedSnapshot]) => { const listingDocs = new Map(ownedSnapshot.docs.map((item) => [item.id, item])); assignedSnapshot.docs.forEach((item) => listingDocs.set(item.id, item)); const mapped = Array.from(listingDocs.values()).map((item) => { const data = item.data() as Record<string, unknown>; return { ...data, id: item.id, title: String(data.title ?? "Ακίνητο"), rent: Number(data.rent ?? data.price ?? 0), city: String(data.city ?? ""), area: String(data.area ?? ""), size: Number(data.size ?? 0), image: String(data.image ?? data.imageUrl ?? ""), tags: Array.isArray(data.tags) ? data.tags.map(String) : [] } as BrokerApartment; }); if (active) setBrokerManagedApartments(mapped); }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, [auth.userId]);
   useEffect(() => {
-    if (!params.clientUserId) {
+    if (!resolvedClientUserId) {
       setInteractions([]);
       setSelectedApartmentFilter("all");
       setSelectedTypeFilter("all");
@@ -330,10 +605,15 @@ export default function BrokerClientDetailScreen() {
 
     setSelectedApartmentFilter("all");
     setSelectedTypeFilter("all");
-    return subscribeClientInteractions(params.clientUserId, setInteractions);
-  }, [params.clientUserId]);
+    return subscribeClientInteractions(resolvedClientUserId, setInteractions);
+  }, [resolvedClientUserId]);
   useEffect(() => {
-    if (!auth.userId || !params.clientUserId || brokerManagedApartments.length === 0) {
+    if (params.scrollTo !== "suggested_properties" || suggestedSectionY <= 0) return;
+    const timer = setTimeout(() => scrollViewRef.current?.scrollTo({ y: Math.max(0, suggestedSectionY - 20), animated: true }), 350);
+    return () => clearTimeout(timer);
+  }, [params.scrollTo, suggestedSectionY]);
+  useEffect(() => {
+    if (!auth.userId || !resolvedClientUserId || brokerManagedApartments.length === 0) {
       setClientPropertyDeals([]);
       setLoadingPropertyDeals(false);
       return;
@@ -344,9 +624,9 @@ export default function BrokerClientDetailScreen() {
     void (async () => {
       try {
         const [deals, likesSnapshot, chatsSnapshot] = await Promise.all([
-          getBrokerClientDeals(auth.userId!, params.clientUserId!),
-          getDocs(query(collection(db, "liked_apartments"), where("userId", "==", params.clientUserId))),
-          getDocs(query(collection(db, "chats"), where("users", "array-contains", params.clientUserId), where("type", "==", "host"))),
+          getBrokerClientDeals(auth.userId!, resolvedClientUserId),
+          getDocs(query(collection(db, "liked_apartments"), where("userId", "==", resolvedClientUserId))),
+          getDocs(query(collection(db, "chats"), where("users", "array-contains", resolvedClientUserId), where("type", "==", "host"))),
         ]);
 
         const likedApartmentIds = new Set(
@@ -361,10 +641,27 @@ export default function BrokerClientDetailScreen() {
         );
         const apartmentById = new Map(brokerManagedApartments.map((apartment) => [apartment.id, apartment]));
         const dealByApartmentId = new Map(deals.map((deal) => [deal.apartmentId, deal]));
+        const actionByApartmentId = new Map<string, { hasPriceProposal: boolean; hasVisitRequest: boolean; isVisitCompleted: boolean; proposalTimestamp?: number; visitCompletedTimestamp?: number }>();
+        await Promise.all(chatsSnapshot.docs.map(async (chatSnapshot) => {
+          const chatData = chatSnapshot.data();
+          const chatApartmentId = typeof chatData.apartmentId === "string" ? chatData.apartmentId : undefined;
+          if (!chatApartmentId) return;
+          const messages = await getDocs(collection(db, "chats", chatSnapshot.id, "messages"));
+          const proposal = messages.docs.map((message) => message.data()).find((message) => message.type === "price_proposal");
+          const visitRequest = messages.docs.map((message) => message.data()).find((message) => message.type === "visit_request");
+          const visitCompleted = chatData.visitCompleted === true;
+          actionByApartmentId.set(chatApartmentId, {
+            hasPriceProposal: !!proposal,
+            hasVisitRequest: !!visitRequest,
+            isVisitCompleted: visitCompleted,
+            proposalTimestamp: proposal?.createdAt?.toMillis?.() ?? (typeof proposal?.createdAt === "number" ? proposal.createdAt : undefined),
+            visitCompletedTimestamp: visitCompleted ? (typeof chatData.visitCompletedAt === "number" ? chatData.visitCompletedAt : undefined) : undefined,
+          });
+        }));
         const interactedApartmentIds = new Set([...likedApartmentIds, ...chattedApartmentIds]);
         const rows: ClientInteractedPropertyDeal[] = [];
 
-        interactedApartmentIds.forEach((apartmentId) => {
+        for (const apartmentId of interactedApartmentIds) {
           const apartment = apartmentById.get(apartmentId);
           if (!apartment) return;
 
@@ -385,6 +682,19 @@ export default function BrokerClientDetailScreen() {
             propertyType: typeof apartment.propertyType === "string" ? apartment.propertyType : undefined,
             propertyCategory: typeof apartment.propertyCategory === "string" ? apartment.propertyCategory : undefined,
           };
+          const dealStage = dealByApartmentId.get(apartmentId)?.pipelineStage;
+          const action = actionByApartmentId.get(apartmentId) ?? { hasPriceProposal: false, hasVisitRequest: false, isVisitCompleted: false };
+          const dynamicStage = calculateDynamicDealStage({
+            isLead: true,
+            hasVisitRequest: action.hasVisitRequest || dealStage === "showing_scheduled",
+            isVisitCompleted: action.isVisitCompleted || dealStage === "showing_scheduled" && false,
+            hasPriceProposal: action.hasPriceProposal || dealStage === "offer_made",
+            isUnderNegotiation: dealStage === "negotiation_agreement",
+            isDealClosed: dealStage === "deal_closed",
+            proposalTimestamp: action.proposalTimestamp,
+            visitCompletedTimestamp: action.visitCompletedTimestamp,
+          });
+          const dynamicStageKey = dynamicStage.stagePercent === 100 ? "closed_won" : dynamicStage.stagePercent === 90 ? "negotiation_agreement" : dynamicStage.stagePercent === 65 ? "offer_made" : dynamicStage.stagePercent === 35 ? "showing_scheduled" : normalizePipelineStage(dealStage);
           rows.push({
             apartmentId,
             title: apartment.title,
@@ -393,11 +703,16 @@ export default function BrokerClientDetailScreen() {
             area: apartment.area,
             city: apartment.city,
             compatibilityScore: filters ? calculateTenantCompatibilityScore(listingData, filters) : 0,
-            pipelineStage: normalizePipelineStage(dealByApartmentId.get(apartmentId)?.pipelineStage),
+            pipelineStage: dynamicStageKey,
             interactionType: isLiked && isChatted ? "both" : isLiked ? "liked" : "chat",
             dealCommission: apartment.rent,
+            clientRating: await (async () => {
+              const ratingSnapshot = await getDoc(doc(db, "apartments", apartmentId, "ratings", resolvedClientUserId)).catch(() => null);
+              const score = ratingSnapshot?.exists() ? Number(ratingSnapshot.data().score) : NaN;
+              return Number.isInteger(score) && score >= 1 && score <= 10 ? score : undefined;
+            })(),
           });
-        });
+        }
 
         if (active) setClientPropertyDeals(rows);
       } catch (error) {
@@ -411,7 +726,7 @@ export default function BrokerClientDetailScreen() {
     return () => {
       active = false;
     };
-  }, [auth.userId, brokerManagedApartments, filters, params.clientUserId]);
+  }, [auth.userId, brokerManagedApartments, filters, resolvedClientUserId]);
   useEffect(() => {
     if (!auth.userId || !params.clientUserId) return;
     let active = true;
@@ -428,10 +743,6 @@ export default function BrokerClientDetailScreen() {
         setLeadReadiness(data.leadReadiness ?? null);
         setActiveApartmentId(data.activeApartmentId ?? null);
         setStageUpdatedAt(typeof data.stageUpdatedAt === "number" ? data.stageUpdatedAt : Date.now());
-        setLossReason(data.lossReason ?? "high_price");
-        setLossCustomReason(data.lossCustomReason ?? "");
-        setLossApartmentId(data.lossApartmentId);
-        setLossApartmentTitle(data.lossApartmentTitle);
         setSharedSearchQueries(Array.isArray(data.sharedSearchQueries) ? data.sharedSearchQueries.filter((query): query is string => typeof query === "string" && query.trim().length > 0) : []);
         setSharedSearchFilterSets(Array.isArray(data.sharedSearchFilterSets) ? data.sharedSearchFilterSets.filter((filterSet): filterSet is SharedSearchFilterSet => Boolean(filterSet && typeof filterSet.id === "string" && typeof filterSet.title === "string" && filterSet.data && typeof filterSet.data === "object")) : []);
       } catch (error) {
@@ -440,16 +751,6 @@ export default function BrokerClientDetailScreen() {
     })();
     return () => { active = false; };
   }, [auth.userId, params.clientUserId]);
-
-  useEffect(() => {
-    if (!params.chatRoomId) return;
-    void getDoc(doc(db, "chats", params.chatRoomId)).then((snapshot) => {
-      if (!snapshot.exists()) return;
-      const data = snapshot.data() as { apartmentId?: unknown; apartmentTitle?: unknown };
-      setLossApartmentId(typeof data.apartmentId === "string" ? data.apartmentId : undefined);
-      setLossApartmentTitle(typeof data.apartmentTitle === "string" ? data.apartmentTitle : undefined);
-    }).catch((error) => console.warn("[BrokerClientDetail] Could not load chat metadata for loss report:", error));
-  }, [params.chatRoomId]);
 
   const currentStageConfig = CLEAN_PIPELINE_STAGES.find((stage) => stage.key === pipelineStage) ?? CLEAN_PIPELINE_STAGES[0];
   const selectedReadinessOption = LEAD_READINESS_OPTIONS.find((option) => option.key === leadReadiness);
@@ -463,6 +764,18 @@ export default function BrokerClientDetailScreen() {
     if (!auth.userId || !params.clientUserId) return;
     const apartment = brokerManagedApartments.find((item) => item.id === apartmentId);
     const previousStage = clientPropertyDeals.find((item) => item.apartmentId === apartmentId)?.pipelineStage;
+    if (nextStage === "closed_lost") {
+      const previousStageConfig = CLEAN_PIPELINE_STAGES.find((stage) => stage.key === previousStage);
+      setPendingLostDeal({
+        apartmentId,
+        apartmentTitle: apartment?.title || "Ακίνητο",
+        stageBeforeLoss: previousStageConfig?.percentage ?? 0,
+        potentialRevenueLoss: apartment?.rent ?? 0,
+      });
+      setIsLossModalVisible(true);
+      setEditingDealStageAptId(null);
+      return;
+    }
     setClientPropertyDeals((previous) => previous.map((item) => item.apartmentId === apartmentId ? { ...item, pipelineStage: nextStage } : item));
     setEditingDealStageAptId(null);
 
@@ -477,6 +790,33 @@ export default function BrokerClientDetailScreen() {
         rent: apartment?.rent,
         pipelineStage: nextStage,
       });
+      if (nextStage === "negotiation_agreement" && apartmentId) {
+        await updateDoc(doc(db, "apartments", apartmentId), {
+          status: "under_negotiation",
+          isOffMarket: true,
+          withdrawnReason: "preliminary_agreement",
+        });
+      }
+      if (nextStage === "closed_won" && previousStage !== "closed_won" && apartment) {
+        await updateDoc(doc(db, "apartments", apartmentId), {
+          status: "closed_deal",
+          isOffMarket: true,
+        });
+        const apartmentRecord = apartment as BrokerApartment & { ownerId?: string; commissionRate?: number };
+        await settleClosedDeal({
+          apartmentId,
+          apartmentTitle: apartment.title,
+          dealAmount: apartment.rent,
+          commissionRate: apartmentRecord.commissionRate,
+          brokerId: auth.userId,
+          brokerName: auth.user?.name || "Μεσίτης",
+          clientId: params.clientUserId,
+          clientName: params.clientName || t("brokerClient.clientFallback"),
+          ownerId: apartmentRecord.ownerId,
+          listingBrokerId: Array.isArray(apartmentRecord.assignedBrokerIds) ? apartmentRecord.assignedBrokerIds[0] : undefined,
+          buyerBrokerId: auth.userId,
+        });
+      }
     } catch (error) {
       console.error("[BrokerClientDetail] Failed to update property deal stage:", error);
       if (previousStage) {
@@ -499,20 +839,34 @@ export default function BrokerClientDetailScreen() {
     }
   };
 
-  const handleSaveLossReport = async () => {
-    if (!auth.userId || !params.clientUserId) return;
+  const handleConfirmLostDeal = async (reason: LostDealReason) => {
+    if (!auth.userId || !params.clientUserId || !pendingLostDeal) return;
+    const lostDeal = pendingLostDeal;
     try {
       await setDoc(doc(db, "brokerClientProfiles", `${auth.userId}_${params.clientUserId}`), {
-        lossReason,
-        ...(lossReason === "other" && lossCustomReason.trim() ? { lossCustomReason: lossCustomReason.trim() } : { lossCustomReason: null }),
-        lossApartmentId: lossApartmentId ?? null,
-        lossApartmentTitle: lossApartmentTitle ?? null,
+        pipelineStage: "closed_lost",
+        lossReason: reason,
+        lossApartmentId: lostDeal.apartmentId,
+        lossApartmentTitle: lostDeal.apartmentTitle,
         lossReportedAt: Date.now(),
+        stageUpdatedAt: Date.now(),
         updatedAt: Date.now(),
       }, { merge: true });
+      await recordLostDeal({
+        agencyId: auth.agencyId || "",
+        dealId: `${lostDeal.apartmentId}_${params.clientUserId}`,
+        apartmentId: lostDeal.apartmentId,
+        brokerId: auth.userId,
+        clientId: params.clientUserId,
+        reason,
+        stageBeforeLoss: lostDeal.stageBeforeLoss,
+        potentialRevenueLoss: lostDeal.potentialRevenueLoss,
+      });
+      setClientPropertyDeals((previous) => previous.map((item) => item.apartmentId === lostDeal.apartmentId ? { ...item, pipelineStage: "closed_lost" } : item));
+      setPendingLostDeal(null);
       setIsLossModalVisible(false);
     } catch (error) {
-      console.error("[BrokerClientDetail] Error saving closed-lost analysis:", error);
+      console.error("[BrokerClientDetail] Error saving lost deal:", error);
     }
   };
 
@@ -619,6 +973,92 @@ export default function BrokerClientDetailScreen() {
       });
     }
   };
+  const handleSaveFilterSet = async (formData: Partial<BrokerClientFilterSet>, isExisting: boolean) => {
+    if (!profileId || !auth.userId || savingFilterSet) return;
+    setSavingFilterSet(true);
+    const now = Date.now();
+    const brokerName = auth.user?.name?.trim() || "Μεσίτης";
+    try {
+      if (isExisting && editingFilterSet) {
+        const updatedSet: Partial<BrokerClientFilterSet> = {
+          ...formData,
+          clientUserId: params.clientUserId,
+          title: editingFilterSet.title,
+          origin: "broker_created",
+          version: (editingFilterSet.version || 1) + 1,
+          brokerModCount: (editingFilterSet.brokerModCount || 0) + 1,
+          lastModifiedByBrokerId: auth.userId,
+          lastModifiedByBrokerName: brokerName,
+          lastModifiedAt: now,
+          isSharedWithClient: false,
+          updatedAt: now,
+        };
+        await setDoc(doc(db, "brokerClientProfiles", profileId, "savedFilterSets", editingFilterSet.id), updatedSet, { merge: true });
+      } else {
+        const newSetId = `broker_fs_${Date.now()}`;
+        const newSet: BrokerClientFilterSet = {
+          ...(formData as Omit<BrokerClientFilterSet, "id" | "title" | "origin" | "version" | "brokerModCount" | "lastModifiedAt" | "isSharedWithClient">),
+          id: newSetId,
+          clientUserId: params.clientUserId,
+          title: formData.title?.trim() || "Προτεινόμενα Κριτήρια",
+          origin: "broker_created",
+          version: 1,
+          brokerModCount: 1,
+          lastModifiedByBrokerId: auth.userId,
+          lastModifiedByBrokerName: brokerName,
+          lastModifiedAt: now,
+          isSharedWithClient: false,
+        };
+        await setDoc(doc(db, "brokerClientProfiles", profileId, "savedFilterSets", newSetId), newSet);
+      }
+      setEditingFilterSet(null);
+      setIsNewFilterSetModalOpen(false);
+      await loadFilterSets();
+    } catch (error) {
+      console.error("[BrokerClientDetail] Error saving filter set:", error);
+    } finally {
+      setSavingFilterSet(false);
+    }
+  };
+  const handleShareFilterSetToChat = async (filterSet: BrokerClientFilterSet) => {
+    if (!params.chatRoomId || !params.clientUserId || !auth.userId || !profileId || !filterSet.id) return;
+    try {
+      const sharedAt = Date.now();
+      const filterSetData = { ...filterSet, sharedAt };
+      await addDoc(collection(db, "chats", params.chatRoomId, "messages"), {
+        senderId: auth.userId,
+        receiverId: params.clientUserId,
+        type: "filter_set_share",
+        filterSetId: filterSet.id,
+        filterSetData,
+        text: `[Κριτήρια Αναζήτησης: ${filterSet.title}]`,
+        createdAt: serverTimestamp(),
+        isRead: false,
+      });
+      await setDoc(doc(db, "users", params.clientUserId, "savedFilterSets", filterSet.id), {
+        ...filterSetData,
+        clientUserId: params.clientUserId,
+        isSharedWithClient: true,
+        sharedByBrokerId: auth.userId,
+      }, { merge: true });
+      await updateDoc(doc(db, "brokerClientProfiles", profileId, "savedFilterSets", filterSet.id), { isSharedWithClient: true });
+      setFilterSets((previous) => previous.map((item) => item.id === filterSet.id ? { ...item, isSharedWithClient: true } : item));
+      setShareFeedbackModal({ visible: true, title: "Το set κοινοποιήθηκε!", description: `Τα κριτήρια «${filterSet.title}» στάλθηκαν στη συνομιλία με τον πελάτη.` });
+    } catch (error) {
+      console.error("[BrokerClientDetail] Failed to share filter set:", error);
+      setShareFeedbackModal({ visible: true, title: "Αποτυχία κοινοποίησης", description: "Δεν ήταν δυνατή η αποστολή των κριτηρίων στη συνομιλία." });
+    }
+  };
+  const openNewFilterSet = () => {
+    setEditingFilterSet(null);
+    setFilterSetForm(EMPTY_FILTER_SET_FORM);
+    setIsNewFilterSetModalOpen(true);
+  };
+  const openFilterSetEditor = (filterSet: BrokerClientFilterSet) => {
+    setEditingFilterSet(filterSet);
+    setFilterSetForm(formFromFilterSet(filterSet));
+    setIsNewFilterSetModalOpen(true);
+  };
   const handleSaveInteraction = async () => {
     if (!auth.userId || !params.clientUserId || !newInteractionApartmentId || !newInteractionNote.trim() || isSavingInteraction) return;
     const apartment = availableApartmentOptions.find((item) => item.id === newInteractionApartmentId);
@@ -657,12 +1097,33 @@ export default function BrokerClientDetailScreen() {
       </Pressable>
       <Text numberOfLines={1} style={styles.headerTitle}>{t("brokerClient.headerTitle")}</Text>
       <View style={styles.headerActionsGroup}>
+        {resolvedClientUserId ? (
+          <Pressable
+            style={styles.headerActionBtn}
+            onPress={() => setCalendarNotesVisible(true)}
+            accessibilityLabel="Σημειώσεις Ημερολογίου"
+            testID="broker-client-calendar-notes"
+          >
+            <Ionicons name="calendar-outline" size={18} color={colors.onSurface} />
+          </Pressable>
+        ) : null}
         <Pressable
           style={[styles.headerActionBtn, activeSubView === "deal_stage" && styles.headerActionBtnActive]}
           onPress={() => setActiveSubView((previous) => previous === "deal_stage" ? "default" : "deal_stage")}
           hitSlop={6}
           testID="broker-client-toggle-deal-stage"
         >
+
+        {resolvedClientUserId && auth.userId ? (
+          <ClientCalendarNotesModal
+            visible={calendarNotesVisible}
+            clientId={resolvedClientUserId}
+            clientName={params.clientName ?? "Πελάτης"}
+            brokerId={auth.userId}
+            listings={calendarListingOptions}
+            onClose={() => setCalendarNotesVisible(false)}
+          />
+        ) : null}
           <Ionicons color={activeSubView === "deal_stage" ? colors.onBrand : colors.onSurface} name="trending-up-outline" size={18} />
         </Pressable>
         <Pressable
@@ -683,7 +1144,7 @@ export default function BrokerClientDetailScreen() {
         </Pressable>
       </View>
     </View>
-    <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    <ScrollView ref={scrollViewRef} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <View style={styles.profileCard}>
         {params.clientAvatar ? <Image source={{ uri: params.clientAvatar }} style={styles.avatar} /> : <DefaultProfileAvatar size={64} iconSize={28} />}
         <Text numberOfLines={1} style={styles.clientName}>{params.clientName || t("brokerClient.clientFallback")}</Text>
@@ -691,6 +1152,7 @@ export default function BrokerClientDetailScreen() {
           <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.onBrand} />
           <Text style={styles.chatButtonText}>{t("brokerClient.goToChat")}</Text>
         </Pressable>
+        {isManualClient ? <Pressable style={styles.addClientEmailButton} onPress={() => setIsAddEmailModalOpen(true)} testID="broker-client-add-email"><Ionicons name="mail-outline" size={16} color={colors.brand} /><Text style={styles.addClientEmailText}>Προσθήκη email</Text></Pressable> : null}
         <View style={styles.singleLineStatusRow}>
           <View style={[styles.statusPillItem, styles.statusPillFlex]}>
             <Ionicons color={colors.brand} name="layers-outline" size={13} />
@@ -737,6 +1199,7 @@ export default function BrokerClientDetailScreen() {
                         <Text numberOfLines={1} style={styles.propertyDealTitle}>{item.title}</Text>
                         <Text numberOfLines={1} style={styles.propertyDealSubtitle}>{`${item.area}, ${item.city} · €${item.rent}/mo`}</Text>
                       </View>
+                      {item.clientRating ? <View style={styles.dealRatingPill}><Ionicons color="#F59E0B" name="star" size={12} /><Text style={styles.dealRatingPillText}>{`${item.clientRating}/10`}</Text></View> : null}
                       <View style={styles.interactionTypeBadge}>
                         <Ionicons color={item.interactionType === "liked" ? "#EF4444" : colors.brand} name={item.interactionType === "liked" ? "heart" : item.interactionType === "chat" ? "chatbubble-ellipses" : "heart-circle"} size={12} />
                         <Text style={styles.interactionTypeBadgeText}>{item.interactionType === "both" ? "Like & Chat" : item.interactionType === "liked" ? "Like" : "Chat"}</Text>
@@ -923,7 +1386,13 @@ export default function BrokerClientDetailScreen() {
         </View>
       </View>
       <View style={styles.searchCriteriaContainer}>
-        <Text style={styles.sectionTitle}>Κριτήρια Αναζήτησης</Text>
+        <View style={styles.filterSetsHeaderRow}>
+          <Text style={styles.sectionTitle}>Κριτήρια Αναζήτησης</Text>
+          <Pressable onPress={openNewFilterSet} hitSlop={6} style={styles.addFilterSetBtn} testID="broker-client-new-filter-set">
+            <Ionicons color={colors.onBrand} name="add" size={16} />
+            <Text style={styles.addFilterSetBtnText}>Νέο Set</Text>
+          </Pressable>
+        </View>
         {sharedSearchQueries.length > 0 ? (
           <View style={styles.sharedSearchesRow}>
             {sharedSearchQueries.map((query) => (
@@ -944,31 +1413,60 @@ export default function BrokerClientDetailScreen() {
               {[`${filters.rentMin || "0"} - ${filters.rentMax || "∞"} €`, `${filters.sizeMin || "0"} - ${filters.sizeMax || "∞"} m²`, `${filters.minSqmPrice || "0"} - ${filters.maxSqmPrice || "∞"} €/m²`, filters.cityQuery || "Όλες οι περιοχές", `Κατοικίδια: ${filters.petFriendly ? "Ναι" : "Όχι"}`, `Μετρό: ${filters.nearMetro ? "Ναι" : "Όχι"}`].map((chip) => <Text key={chip} style={styles.criteriaChip}>{chip}</Text>)}
             </View>
             {filters.summary ? <Text style={styles.body}>{filters.summary}</Text> : null}
+            {filters.userHardCriteria?.length ? <View style={styles.hardCriteriaGroup}>
+              <Text style={styles.hardCriteriaGroupTitle}>Μη Διαπραγματεύσιμα (Hard Criteria)</Text>
+              <View style={styles.hardCriteriaBadgeRow}>{filters.userHardCriteria.map((criterion) => <Text key={criterion} style={styles.hardCriteriaBadge}>{HARD_CRITERIA_LABELS[criterion]}</Text>)}</View>
+            </View> : null}
           </View>
         ) : null}
-        {sharedSearchFilterSets.map((filterSet) => {
+        {filterSets.map((filterSet) => {
           const isSelected = selectedFilterSetId === filterSet.id;
-          const city = filterSet.data.cityQuery || "Όλες οι περιοχές";
-          const budget = filterSet.data.rentMax ? `έως ${filterSet.data.rentMax} €` : "χωρίς όριο τιμής";
+          const city = filterSet.cityQuery || "Όλες οι περιοχές";
+          const budget = filterSet.rentMax != null ? `έως ${filterSet.rentMax} €` : "χωρίς όριο τιμής";
           return (
-            <Pressable key={filterSet.id} style={[styles.sharedFilterSetCard, isSelected && styles.sharedFilterSetCardActive]} onPress={() => setSelectedFilterSetId(isSelected ? null : filterSet.id)} testID={`broker-client-filter-set-${filterSet.id}`}>
-              <Ionicons color={isSelected ? colors.brand : colors.onSurfaceTertiary} name={isSelected ? "checkmark-circle" : "options-outline"} size={20} />
-              <View style={styles.sharedFilterSetTextCol}>
-                <Text style={styles.sharedFilterSetTitle} numberOfLines={1}>{filterSet.title}</Text>
-                <Text style={styles.sharedFilterSetMeta}>{`${city} · ${budget}`}</Text>
+            <View key={filterSet.id} style={[styles.sharedFilterSetCard, isSelected && styles.sharedFilterSetCardActive]}>
+              <Pressable style={styles.filterSetCardMain} onPress={() => setSelectedFilterSetId(isSelected ? null : filterSet.id)} testID={`broker-client-filter-set-${filterSet.id}`}>
+                <Ionicons color={isSelected ? colors.brand : colors.onSurfaceTertiary} name={isSelected ? "checkmark-circle" : "options-outline"} size={20} />
+                <View style={styles.sharedFilterSetTextCol}>
+                  <Text style={styles.sharedFilterSetTitle} numberOfLines={1}>{filterSet.title}</Text>
+                  <Text style={styles.sharedFilterSetMeta}>{`${city} · ${budget}`}</Text>
+                </View>
+              </Pressable>
+              {filterSet.userHardCriteria?.length ? <View style={styles.hardCriteriaGroup}>
+                <Text style={styles.hardCriteriaGroupTitle}>Μη Διαπραγματεύσιμα (Hard Criteria)</Text>
+                <View style={styles.hardCriteriaBadgeRow}>
+                  {filterSet.userHardCriteria.map((criterion) => <Text key={criterion} style={styles.hardCriteriaBadge}>{HARD_CRITERIA_LABELS[criterion]}</Text>)}
+                </View>
+              </View> : null}
+              <View style={styles.filterSetActionsRow}>
+                <Pressable onPress={() => openFilterSetEditor(filterSet)} hitSlop={6} style={styles.iconActionBtn} testID={`broker-client-edit-filter-set-${filterSet.id}`}>
+                  <Ionicons color={colors.onSurface} name="pencil-outline" size={16} />
+                </Pressable>
+                {!filterSet.isSharedWithClient ? (
+                  <Pressable onPress={() => void handleShareFilterSetToChat(filterSet)} hitSlop={6} style={styles.shareDraftBtn} testID={`broker-client-share-filter-set-${filterSet.id}`}>
+                    <Ionicons color={colors.onBrand} name="paper-plane-outline" size={13} />
+                    <Text style={styles.shareDraftBtnText}>Κοινοποίηση στο Chat</Text>
+                  </Pressable>
+                ) : (
+                  <View style={styles.sharedBadge}>
+                    <Ionicons color={colors.brand} name="checkmark-done" size={14} />
+                    <Text style={styles.sharedBadgeText}>Κοινοποιήθηκε</Text>
+                  </View>
+                )}
               </View>
+              <BrokerModificationBadge modCount={filterSet.brokerModCount} brokerName={filterSet.lastModifiedByBrokerName} modifiedAt={filterSet.lastModifiedAt} />
               {isSelected ? <Text style={styles.activeFilterLabel}>Ενεργό</Text> : null}
-            </Pressable>
+            </View>
           );
         })}
-        {!filters && sharedSearchQueries.length === 0 && sharedSearchFilterSets.length === 0 ? (
+        {!filters && sharedSearchQueries.length === 0 && filterSets.length === 0 ? (
           <View style={styles.emptyFilterBox} testID="broker-client-empty-filters">
             <Ionicons color={colors.onSurfaceTertiary} name="search-outline" size={22} />
             <Text style={styles.emptyFilterText}>Δεν υπάρχει διαμοιρασμένο ιστορικό αναζητήσεων για αυτόν τον πελάτη.</Text>
           </View>
         ) : null}
       </View>
-      <View style={styles.proposalsContainer}>
+      <View style={styles.proposalsContainer} onLayout={(event) => setSuggestedSectionY(event.nativeEvent.layout.y)} testID="broker-client-suggested-properties">
         <View style={styles.proposalsHeaderRow}>
           <Text numberOfLines={2} style={styles.proposalsHeaderTitle}>Προτεινόμενα Ακίνητα από το Χαρτοφυλάκιο</Text>
           <Pressable onPress={() => { setIsCreatingList((previous) => !previous); setSelectedApartmentIds(new Set()); }} hitSlop={8} style={styles.proposalsAddBtn} testID="broker-client-add-proposal-btn">
@@ -977,7 +1475,7 @@ export default function BrokerClientDetailScreen() {
           </Pressable>
         </View>
         {savedPropertyLists.map((list) => <View key={list.id} style={styles.savedListCard}><View style={styles.savedListIconWrap}><Ionicons color={colors.brand} name="list" size={20} /></View><View style={styles.savedListTextCol}><Text numberOfLines={1} style={styles.savedListTitle}>{list.title}</Text><Text style={styles.savedListSub}>{list.apartmentIds.length} ακίνητα</Text></View><View style={list.hasClientInteracted ? styles.seenBadgePill : styles.unseenBadgePill}>{list.hasClientInteracted ? <Ionicons color={colors.brand} name="checkmark-done" size={14} /> : <Ionicons color={colors.onSurfaceTertiary} name="time-outline" size={13} />}<Text style={list.hasClientInteracted ? styles.seenBadgeText : styles.unseenBadgeText}>{list.hasClientInteracted ? "Προβλήθηκε" : "Σε αναμονή"}</Text></View><Pressable onPress={() => void handleSendListToChat(list)} hitSlop={8} style={styles.sendListChatBtn} testID={`send-list-btn-${list.id}`}><Ionicons color={colors.onBrand} name="paper-plane-outline" size={18} /></Pressable></View>)}
-        {loading ? <ActivityIndicator color={colors.brand} /> : rankedPortfolio.map((apartment) => <View key={apartment.id} style={styles.portfolioItemContainer} testID={`broker-matched-apartment-${apartment.id}`}><Pressable style={styles.portfolioCardMain} onPress={() => router.push({ pathname: "/apartment-detail", params: { data: JSON.stringify(apartment) } } as never)}><View>{apartment.image ? <Image source={{ uri: apartment.image }} contentFit="cover" style={styles.portfolioThumb} /> : <View style={[styles.portfolioThumb, styles.portfolioThumbPlaceholder]}><Ionicons color={colors.onSurfaceTertiary} name="home-outline" size={20} /></View>}</View><View style={styles.portfolioTextColumn}><Text numberOfLines={1} style={styles.portfolioTitle}>{apartment.title}</Text><Text style={styles.portfolioSubtitle}>{apartment.area}, {apartment.city} · {apartment.rent}€ · {apartment.size}m²</Text></View><View style={styles.scoreActionRow}><View style={styles.compatibilityBadge}><Text style={styles.compatibilityBadgeText}>{apartment.compatibilityScore}% Match</Text></View><Pressable onPress={() => setExpandedScoreListingId((previous) => previous === apartment.id ? null : apartment.id)} hitSlop={8} style={styles.infoIconButton} testID={`toggle-score-info-${apartment.id}`}><Ionicons color={expandedScoreListingId === apartment.id ? colors.brand : colors.onSurfaceTertiary} name={expandedScoreListingId === apartment.id ? "information-circle" : "information-circle-outline"} size={20} /></Pressable></View>{isCreatingList && <Pressable onPress={() => setSelectedApartmentIds((previous) => { const next = new Set(previous); if (next.has(apartment.id)) next.delete(apartment.id); else next.add(apartment.id); return next; })} hitSlop={8} style={styles.selectionDotBtn} testID={`select-apartment-${apartment.id}`}><Ionicons color={selectedApartmentIds.has(apartment.id) ? colors.brand : colors.onSurfaceTertiary} name={selectedApartmentIds.has(apartment.id) ? "checkmark-circle" : "ellipse-outline"} size={24} /></Pressable>}</Pressable>{expandedScoreListingId === apartment.id ? <View style={styles.justificationBox} testID={`score-justification-${apartment.id}`}><Text style={styles.justificationMainTitle}>Αιτιολόγηση Σκορ Συμβατότητας ({apartment.compatibilityScore}%)</Text><View style={styles.criteriaGroup}><View style={styles.groupHeaderRow}><Ionicons color="#EF4444" name="shield-checkmark" size={14} /><Text style={styles.hardGroupTitle}>Πολύ σημαντικό (Βασικά Κριτήρια):</Text></View>{apartment.scoreBreakdown.hardMet.length ? apartment.scoreBreakdown.hardMet.map((item, index) => <View key={`${apartment.id}-hard-${index}`} style={styles.bulletRow}><Text style={styles.bulletDot}>•</Text><Text style={styles.criteriaItemText}>{item}</Text></View>) : <Text style={styles.emptyCriteriaText}>Δεν πληρούνται βασικά κριτήρια.</Text>}</View><View style={styles.criteriaGroup}><View style={styles.groupHeaderRow}><Ionicons color="#10B981" name="checkmark-circle-outline" size={14} /><Text style={styles.softGroupTitle}>Σημαντικό (Επιπλέον Προτιμήσεις):</Text></View>{apartment.scoreBreakdown.softMet.length ? apartment.scoreBreakdown.softMet.map((item, index) => <View key={`${apartment.id}-soft-${index}`} style={styles.bulletRow}><Text style={styles.bulletDot}>•</Text><Text style={styles.criteriaItemText}>{item}</Text></View>) : <Text style={styles.emptyCriteriaText}>Δεν έχουν οριστεί ή δεν πληρούνται επιπλέον προτιμήσεις.</Text>}</View></View> : null}</View>)}
+        {loading ? <ActivityIndicator color={colors.brand} /> : rankedPortfolio.map((apartment) => <View key={apartment.id} style={styles.portfolioItemContainer} testID={`broker-matched-apartment-${apartment.id}`}><Pressable style={styles.portfolioCardMain} onPress={() => router.push({ pathname: "/apartment-detail", params: { data: JSON.stringify(apartment) } } as never)}><View>{apartment.image ? <Image source={{ uri: apartment.image }} contentFit="cover" style={styles.portfolioThumb} /> : <View style={[styles.portfolioThumb, styles.portfolioThumbPlaceholder]}><Ionicons color={colors.onSurfaceTertiary} name="home-outline" size={20} /></View>}</View><View style={styles.portfolioTextColumn}><Text numberOfLines={1} style={styles.portfolioTitle}>{apartment.title}</Text><Text style={styles.portfolioSubtitle}>{apartment.area}, {apartment.city} · {apartment.rent}€ · {apartment.size}m²</Text></View><View style={styles.scoreActionRow}><View style={styles.compatibilityBadge}><Text style={styles.compatibilityBadgeText}>{apartment.compatibilityScore}% Match</Text></View><Pressable onPress={() => setExpandedScoreListingId((previous) => previous === apartment.id ? null : apartment.id)} hitSlop={8} style={styles.infoIconButton} testID={`toggle-score-info-${apartment.id}`}><Ionicons color={expandedScoreListingId === apartment.id ? colors.brand : colors.onSurfaceTertiary} name={expandedScoreListingId === apartment.id ? "information-circle" : "information-circle-outline"} size={20} /></Pressable></View>{apartment.failedHardCriteria?.length ? <View style={styles.hardOverridePill}><Text style={styles.hardOverrideText}>{`⚠ ${apartment.compatibilityScore}% Match (Εξαίρεση: ${apartment.failedHardCriteria.map((criterion) => HARD_CRITERIA_LABELS[criterion]).join(", ")})`}</Text></View> : null}{isCreatingList && <Pressable onPress={() => setSelectedApartmentIds((previous) => { const next = new Set(previous); if (next.has(apartment.id)) next.delete(apartment.id); else next.add(apartment.id); return next; })} hitSlop={8} style={styles.selectionDotBtn} testID={`select-apartment-${apartment.id}`}><Ionicons color={selectedApartmentIds.has(apartment.id) ? colors.brand : colors.onSurfaceTertiary} name={selectedApartmentIds.has(apartment.id) ? "checkmark-circle" : "ellipse-outline"} size={24} /></Pressable>}</Pressable>{expandedScoreListingId === apartment.id ? <View style={styles.justificationBox} testID={`score-justification-${apartment.id}`}><Text style={styles.justificationMainTitle}>Αιτιολόγηση Σκορ Συμβατότητας ({apartment.compatibilityScore}%)</Text><View style={styles.criteriaGroup}><View style={styles.groupHeaderRow}><Ionicons color="#EF4444" name="shield-checkmark" size={14} /><Text style={styles.hardGroupTitle}>Πολύ σημαντικό (Βασικά Κριτήρια):</Text></View>{apartment.scoreBreakdown.hardMet.length ? apartment.scoreBreakdown.hardMet.map((item, index) => <View key={`${apartment.id}-hard-${index}`} style={styles.bulletRow}><Text style={styles.bulletDot}>•</Text><Text style={styles.criteriaItemText}>{item}</Text></View>) : <Text style={styles.emptyCriteriaText}>Δεν πληρούνται βασικά κριτήρια.</Text>}</View><View style={styles.criteriaGroup}><View style={styles.groupHeaderRow}><Ionicons color="#10B981" name="checkmark-circle-outline" size={14} /><Text style={styles.softGroupTitle}>Σημαντικό (Επιπλέον Προτιμήσεις):</Text></View>{apartment.scoreBreakdown.softMet.length ? apartment.scoreBreakdown.softMet.map((item, index) => <View key={`${apartment.id}-soft-${index}`} style={styles.bulletRow}><Text style={styles.bulletDot}>•</Text><Text style={styles.criteriaItemText}>{item}</Text></View>) : <Text style={styles.emptyCriteriaText}>Δεν έχουν οριστεί ή δεν πληρούνται επιπλέον προτιμήσεις.</Text>}</View></View> : null}</View>)}
         {isCreatingList && <Pressable disabled={selectedApartmentIds.size === 0} onPress={() => { setNewListName(`Προτάσεις (${selectedApartmentIds.size})`); setIsNameListModalVisible(true); }} style={[styles.createListSubmitBtn, selectedApartmentIds.size === 0 && styles.createListSubmitBtnDisabled]} testID="submit-create-property-list"><Ionicons color={colors.onBrand} name="bookmark-outline" size={18} /><Text style={styles.createListSubmitBtnText}>{`Δημιουργία λίστας (${selectedApartmentIds.size})`}</Text></Pressable>}
         {!loading && rankedPortfolio.length === 0 ? <Text style={styles.emptyHint}>Δεν βρέθηκαν διαθέσιμα ακίνητα στο χαρτοφυλάκιό σας που να πληρούν όλα τα κριτήρια.</Text> : null}
       </View>
@@ -1034,8 +1532,32 @@ export default function BrokerClientDetailScreen() {
         </Pressable>
       </Pressable>
     </Modal>
-    <Modal visible={isLossModalVisible} transparent animationType="fade" onRequestClose={() => setIsLossModalVisible(false)}><Pressable style={styles.modalBackdrop} onPress={() => setIsLossModalVisible(false)}><Pressable style={styles.stageModal} onPress={(event) => event.stopPropagation()}><Text style={styles.modalTitle}>Γιατί χάθηκε η συμφωνία;</Text>{([{ key: "high_price", label: "Υψηλή τιμή" }, { key: "loan_rejected", label: "Απόρριψη δανείου από τράπεζα" }, { key: "chose_another_property", label: "Προτίμησε άλλο ακίνητο" }, { key: "owner_withdrew", label: "Υπαναχώρηση ιδιοκτήτη" }, { key: "other", label: "Άλλο" }] as const).map((reason) => <Pressable key={reason.key} style={styles.stageOption} onPress={() => setLossReason(reason.key)} testID={`broker-loss-reason-${reason.key}`}><Text style={styles.stageOptionLabel}>{reason.label}</Text><Ionicons name={lossReason === reason.key ? "checkmark-circle" : "ellipse-outline"} size={21} color={lossReason === reason.key ? colors.brand : colors.onSurfaceTertiary} /></Pressable>)}{lossReason === "other" ? <TextInput value={lossCustomReason} onChangeText={setLossCustomReason} placeholder="Περιγράψτε τον λόγο" placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} testID="broker-loss-custom-reason" /> : null}<Pressable style={styles.purchasingPowerSaveButton} onPress={() => void handleSaveLossReport()} testID="broker-loss-confirm"><Text style={styles.purchasingPowerSaveText}>Αποθήκευση λόγου</Text></Pressable></Pressable></Pressable></Modal>
+    <CloseLostDealModal
+      visible={isLossModalVisible}
+      apartmentTitle={pendingLostDeal?.apartmentTitle ?? "Ακίνητο"}
+      onClose={() => {
+        setIsLossModalVisible(false);
+        setPendingLostDeal(null);
+      }}
+      onConfirm={(reason) => void handleConfirmLostDeal(reason)}
+    />
     <Modal visible={isNameListModalVisible} transparent animationType="fade" onRequestClose={() => setIsNameListModalVisible(false)}><Pressable style={styles.modalBackdrop} onPress={() => setIsNameListModalVisible(false)}><Pressable style={styles.stageModal} onPress={(event) => event.stopPropagation()}><Text style={styles.modalTitle}>Όνομα λίστας ακινήτων</Text><TextInput value={newListName} onChangeText={setNewListName} autoFocus placeholder="π.χ. Επιλογές για τον πελάτη" placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} testID="property-list-name-input" /><Pressable style={styles.purchasingPowerSaveButton} onPress={() => void handleSavePropertyList()} disabled={savingList} testID="save-property-list"><Ionicons name="save-outline" size={18} color={colors.onBrand} /><Text style={styles.purchasingPowerSaveText}>{savingList ? "Αποθήκευση..." : "Αποθήκευση λίστας"}</Text></Pressable></Pressable></Pressable></Modal>
+    <BrokerFilterSetEditorModal
+      visible={isNewFilterSetModalOpen}
+      draft={editingFilterSet}
+      form={filterSetForm}
+      editing={!!editingFilterSet}
+      saving={savingFilterSet}
+      onClose={() => { if (!savingFilterSet) setIsNewFilterSetModalOpen(false); }}
+      onChange={(patch) => setFilterSetForm((previous) => ({ ...previous, ...patch }))}
+      onSave={() => void handleSaveFilterSet({ ...formToFilterFields(filterSetForm), title: filterSetForm.title }, !!editingFilterSet)}
+    />
+    <AssignClientEmailModal
+      visible={isAddEmailModalOpen}
+      brokerId={auth.userId ?? ""}
+      clientUserId={params.clientUserId ?? ""}
+      onClose={() => setIsAddEmailModalOpen(false)}
+    />
     <CenteredActionModal
       visible={!!shareFeedbackModal?.visible}
       title={shareFeedbackModal?.title ?? ""}
@@ -1051,7 +1573,80 @@ export default function BrokerClientDetailScreen() {
   </View>;
 }
 
+interface BrokerFilterSetEditorModalProps {
+  visible: boolean;
+  draft: BrokerClientFilterSet | null;
+  form: FilterSetForm;
+  editing: boolean;
+  saving: boolean;
+  onClose: () => void;
+  onChange: (patch: Partial<FilterSetForm>) => void;
+  onSave: () => void;
+}
+
+function BrokerFilterSetEditorModal({ visible, draft, form, editing, saving, onClose, onChange, onSave }: BrokerFilterSetEditorModalProps) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const fields: [keyof Pick<FilterSetForm, "cityQuery" | "rentMin" | "rentMax" | "sizeMin" | "sizeMax" | "bedroomsMin" | "bathroomsMin" | "propertyTypes" | "propertyCategories" | "floors" | "heatingTypes" | "selectedAmenities">, string, string][] = [
+    ["cityQuery", "Πόλη / περιοχή", "π.χ. Αθήνα"],
+    ["rentMin", "Ελάχιστο ενοίκιο", "0"],
+    ["rentMax", "Μέγιστο ενοίκιο", "2000"],
+    ["sizeMin", "Ελάχιστο εμβαδόν", ""],
+    ["sizeMax", "Μέγιστο εμβαδόν", ""],
+    ["bedroomsMin", "Ελάχιστα υπνοδωμάτια", ""],
+    ["bathroomsMin", "Ελάχιστα μπάνια", ""],
+    ["propertyTypes", "Τύποι ακινήτων", "Διαχωρίστε με κόμμα"],
+    ["propertyCategories", "Κατηγορίες", "Διαχωρίστε με κόμμα"],
+    ["floors", "Όροφοι", "Διαχωρίστε με κόμμα"],
+    ["heatingTypes", "Θέρμανση", "Διαχωρίστε με κόμμα"],
+    ["selectedAmenities", "Παροχές", "Διαχωρίστε με κόμμα"],
+  ];
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.filterSetEditorModal} testID="broker-filter-set-editor-modal">
+          <View style={styles.interactionModalHeader}>
+            <Text style={styles.modalTitle}>{editing ? "Επεξεργασία Set" : "Νέο Set Κριτηρίων"}</Text>
+            <Pressable onPress={onClose} disabled={saving} hitSlop={8} testID="broker-filter-set-editor-close">
+              <Ionicons name="close" size={24} color={colors.onSurface} />
+            </Pressable>
+          </View>
+          <ScrollView style={styles.interactionModalScroll} contentContainerStyle={styles.filterSetEditorContent} keyboardShouldPersistTaps="handled">
+            <Text style={styles.fieldLabel}>Τίτλος</Text>
+            <TextInput value={form.title} onChangeText={(value) => onChange({ title: value })} editable={!editing} placeholder="π.χ. Κριτήρια για κέντρο" placeholderTextColor={colors.onSurfaceTertiary} style={[styles.input, editing && styles.disabledInput]} testID="broker-filter-set-title-input" />
+            {fields.map(([key, label, placeholder]) => (
+              <View key={key}>
+                <Text style={styles.fieldLabel}>{label}</Text>
+                <TextInput value={form[key]} onChangeText={(value) => onChange({ [key]: value } as Partial<FilterSetForm>)} keyboardType={key.includes("Min") || key.includes("Max") ? "number-pad" : "default"} placeholder={placeholder} placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} testID={`broker-filter-set-${key}-input`} />
+              </View>
+            ))}
+            <View style={styles.switchRow}><Text style={styles.fieldLabel}>Επιπλωμένο</Text><Switch value={form.furnishedStatus === "furnished"} onValueChange={(value) => onChange({ furnishedStatus: value ? "furnished" : "unfurnished" })} /></View>
+            <View style={styles.switchRow}><Text style={styles.fieldLabel}>Κατοικίδια</Text><Switch value={form.petFriendly} onValueChange={(value) => onChange({ petFriendly: value })} /></View>
+            <View style={styles.switchRow}><Text style={styles.fieldLabel}>Κοντά σε μετρό</Text><Switch value={form.nearMetro} onValueChange={(value) => onChange({ nearMetro: value })} /></View>
+            <View style={styles.switchRow}><Text style={styles.fieldLabel}>Εμφάνιση match score</Text><Switch value={form.showMatchScore} onValueChange={(value) => onChange({ showMatchScore: value })} /></View>
+            {editing && draft ? <BrokerModificationBadge modCount={draft.brokerModCount} brokerName={draft.lastModifiedByBrokerName} modifiedAt={draft.lastModifiedAt} /> : null}
+          </ScrollView>
+          <View style={styles.interactionModalActions}>
+            <Pressable style={styles.modalCancelButton} onPress={onClose} disabled={saving}><Text style={styles.modalCancelText}>Ακύρωση</Text></Pressable>
+            <Pressable style={styles.interactionSaveButton} onPress={onSave} disabled={saving} testID="broker-filter-set-save">
+              {saving ? <ActivityIndicator size="small" color={colors.onBrand} /> : <Ionicons name="save-outline" size={18} color={colors.onBrand} />}
+              <Text style={styles.interactionSaveText}>{saving ? "Αποθήκευση..." : "Αποθήκευση"}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 const createStyles = (colors: ThemeColors) => StyleSheet.create({
+  hardCriteriaGroup: { gap: spacing.xs },
+    hardCriteriaGroupTitle: { fontFamily: fonts.bold, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
+    hardCriteriaBadgeRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs },
+    hardCriteriaBadge: { paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.pill, backgroundColor: colors.brandTertiary, color: colors.brand, fontFamily: fonts.bold, fontSize: fontSize.xs },
+    hardOverridePill: { alignSelf: "flex-start", maxWidth: "100%", marginHorizontal: spacing.sm, marginBottom: spacing.xs, paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.pill, backgroundColor: "rgba(245, 158, 11, 0.14)", borderWidth: 1, borderColor: "rgba(245, 158, 11, 0.32)" },
+    hardOverrideText: { fontFamily: fonts.semibold, fontSize: fontSize.xs, color: "#B45309" },
   container: { flex: 1, backgroundColor: colors.surface },
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: spacing.lg, paddingBottom: spacing.sm },
   headerBackBtn: { width: 36, height: 36, borderRadius: radius.pill, alignItems: "center", justifyContent: "center" },
@@ -1075,6 +1670,8 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   clientName: { fontFamily: fonts.bold, fontSize: fontSize.xl, color: colors.onSurface, textAlign: "center" },
   chatButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.xs, backgroundColor: colors.brand, paddingVertical: spacing.sm, paddingHorizontal: spacing.lg, borderRadius: radius.pill, width: "100%", marginTop: spacing.md, marginBottom: spacing.md },
   chatButtonText: { fontFamily: fonts.semibold, color: colors.onBrand },
+  addClientEmailButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.xs, paddingVertical: spacing.sm, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.brand, backgroundColor: colors.brandTertiary, marginBottom: spacing.md },
+  addClientEmailText: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.brand },
   singleLineStatusRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.xs, width: "100%" },
   statusPillItem: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, backgroundColor: colors.surfaceTertiary },
   statusPillFlex: { flex: 1, justifyContent: "center", minWidth: 0 },
@@ -1089,6 +1686,8 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   propertyDealTopRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, width: "100%" },
   propertyDealThumb: { width: 48, height: 48, borderRadius: radius.md, backgroundColor: colors.surfaceTertiary, alignItems: "center", justifyContent: "center" },
   propertyDealMetaCol: { flex: 1, gap: 2, minWidth: 0 },
+  dealRatingPill: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: "rgba(245,158,11,0.12)", borderWidth: 1, borderColor: "rgba(245,158,11,0.35)" },
+  dealRatingPillText: { fontFamily: fonts.bold, fontSize: 11, color: "#F59E0B" },
   propertyDealTitle: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface },
   propertyDealSubtitle: { fontFamily: fonts.regular, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
   matchBadgePill: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: spacing.sm, paddingVertical: 5, borderRadius: radius.pill, backgroundColor: colors.brandTertiary },
@@ -1145,7 +1744,11 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   logNoteText: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurface, lineHeight: 18 },
   emptyLogText: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary, textAlign: "center", paddingVertical: spacing.md },
   interactionModal: { width: "100%", maxHeight: "88%", padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, gap: spacing.md },
+  filterSetEditorModal: { width: "100%", maxHeight: "92%", padding: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, gap: spacing.md },
+  filterSetEditorContent: { gap: spacing.xs, paddingBottom: spacing.xs },
+  disabledInput: { opacity: 0.6 },
   interactionModalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
+  switchRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   interactionModalScroll: { flexShrink: 1 },
   interactionModalContent: { gap: spacing.sm, paddingBottom: spacing.xs },
   interactionModalLabel: { marginTop: spacing.xs, fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface },
@@ -1187,6 +1790,9 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   purchasingPowerSuccess: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.xs, paddingTop: spacing.xs },
   purchasingPowerSuccessText: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.success },
   searchCriteriaContainer: { marginHorizontal: spacing.lg, marginTop: spacing.md, gap: spacing.sm },
+  filterSetsHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
+  addFilterSetBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, backgroundColor: colors.brand },
+  addFilterSetBtnText: { fontFamily: fonts.bold, fontSize: fontSize.xs, color: colors.onBrand },
   proposalsContainer: { marginHorizontal: spacing.lg, marginTop: spacing.md, gap: spacing.sm },
   sectionTitle: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface },
   emptyFilterBox: { padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center", gap: spacing.xs },
@@ -1195,8 +1801,15 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   sharedSearchChip: { flexDirection: "row", alignItems: "center", gap: spacing.xs, maxWidth: "100%", paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.pill, backgroundColor: colors.brandTertiary },
   sharedSearchChipText: { flexShrink: 1, fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.brand },
   criteriaHeaderRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
-  sharedFilterSetCard: { flexDirection: "row", alignItems: "center", gap: spacing.sm, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceSecondary },
+  sharedFilterSetCard: { gap: spacing.xs, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceSecondary },
   sharedFilterSetCardActive: { borderColor: colors.brand, backgroundColor: colors.brandTertiary },
+  filterSetCardMain: { flexDirection: "row", alignItems: "center", gap: spacing.sm, flex: 1, minWidth: 0 },
+  filterSetActionsRow: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: spacing.xs },
+  iconActionBtn: { width: 30, height: 30, alignItems: "center", justifyContent: "center", borderRadius: radius.pill, backgroundColor: colors.surface },
+  shareDraftBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: spacing.sm, paddingVertical: 5, borderRadius: radius.pill, backgroundColor: colors.brand },
+  shareDraftBtnText: { fontFamily: fonts.bold, fontSize: fontSize.xs, color: colors.onBrand },
+  sharedBadge: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: spacing.sm, paddingVertical: 5, borderRadius: radius.pill, backgroundColor: colors.brandTertiary },
+  sharedBadgeText: { fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.brand },
   sharedFilterSetTextCol: { flex: 1, minWidth: 0, gap: 2 },
   sharedFilterSetTitle: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onSurface },
   sharedFilterSetMeta: { fontFamily: fonts.regular, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },

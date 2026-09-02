@@ -11,9 +11,11 @@ import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme"
 import type { RoommateProfile } from "@/src/data/profiles";
 import SwipeDeck, { SwipeDeckHandle } from "@/src/components/SwipeDeck";
 import FilterSheet, { Filters, DEFAULT_FILTERS } from "@/src/components/FilterSheet";
+import CalendarScheduleView from "@/src/components/calendar/CalendarScheduleView";
+import CalendarNoteModal from "@/src/components/calendar/CalendarNoteModal";
 import { getUserId } from "@/src/utils/userId";
 import { getCandidateMatchRecords, postSwipe, resetDislikedSwipes } from "@/src/api/discover";
-import { getUserProfile } from "@/src/api/userProfile";
+import { getUserProfile, type UserProfile } from "@/src/api/userProfile";
 import { useAuth } from "@/src/context/auth";
 import { db, firebaseAuth } from "@/src/config/firebase";
 import { t } from "@/src/locales";
@@ -80,10 +82,11 @@ function toMatchProfile(
   };
 }
 
-function toScoredCandidate(candidate: RoommateProfile, matchScore: number): RoommateProfile {
+function toScoredCandidate(candidate: RoommateProfile, matchScore: number, quizAnswers?: Record<string, string>): RoommateProfile {
   return {
     ...candidate,
     matchScore,
+    quizAnswers,
   };
 }
 
@@ -106,6 +109,12 @@ export default function RoommatesScreen() {
   });
   const [loading, setLoading] = useState(() => !memoryCandidatesCache || memoryCandidatesCache.data.length === 0);
   const [quizAnsweredCount, setQuizAnsweredCount] = useState(0);
+  const [currentQuizAnswers, setCurrentQuizAnswers] = useState<Record<string, string>>({});
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [activeView, setActiveView] = useState<"deck" | "calendar">("deck");
+  const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
+  const [calendarNoteDate, setCalendarNoteDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [calendarRefreshToken, setCalendarRefreshToken] = useState(0);
   const actionTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 useEffect(() => {
@@ -157,10 +166,12 @@ useEffect(() => {
         auth.isGuest ? Promise.resolve(null) : getUserProfile(userId).catch(() => null),
         auth.isGuest ? Promise.resolve(null) : getDoc(doc(db, "quiz_answers", userId)).catch(() => null),
       ]);
+      setUserProfile(profile);
 
       const candidateRecords = await getCandidateMatchRecords(userId, profile?.city ?? null).catch(() => []);
 
       const quizData = quizSnap?.exists() ? (quizSnap.data() as { answers?: Record<string, string> }) : null;
+      setCurrentQuizAnswers(quizData?.answers ?? {});
       const currentMatchProfile = toMatchProfile(userId, profile ?? {}, quizData?.answers ?? {});
 
       const scoredCandidates = candidateRecords
@@ -168,7 +179,7 @@ useEffect(() => {
           const candidateMatchProfile = toMatchProfile(candidateProfile.id, candidateProfile, quizAnswers);
           const matchScore = calculateMatchScore(currentMatchProfile, candidateMatchProfile);
 
-          return toScoredCandidate(candidateProfile, matchScore);
+          return toScoredCandidate(candidateProfile, matchScore, quizAnswers);
         })
         .sort((left, right) => (right.matchScore ?? 0) - (left.matchScore ?? 0));
 
@@ -231,19 +242,25 @@ useEffect(() => {
               (filters.gender === "nonBinary" && p.gender === "Non-binary")) &&
             p.age >= filters.ageMin &&
             p.age <= filters.ageMax &&
+            p.budget >= filters.budgetMin &&
             p.budget <= filters.budgetMax,
         )
         .sort((left, right) => (right.matchScore ?? 0) - (left.matchScore ?? 0)),
     [candidates, filters],
   );
 
-  const deckKey = `${filters.gender}-${filters.ageMin}-${filters.ageMax}-${filters.budgetMax}-${candidates.length}`;
+  const deckKey = `${filters.gender}-${filters.ageMin}-${filters.ageMax}-${filters.budgetMin}-${filters.budgetMax}-${candidates.length}`;
 
   const openSheet = useCallback(() => setSheetVisible(true), []);
   const closeSheet = useCallback(() => setSheetVisible(false), []);
   const handleFiltersChange = useCallback((nextFilters: Filters) => {
     setFilters(nextFilters);
   }, []);
+  const canUseCalendar = !auth.isGuest && !auth.isBroker && userProfile?.not_looking_for_roommate !== true;
+
+  useEffect(() => {
+    if (!canUseCalendar) setActiveView("deck");
+  }, [canUseCalendar]);
 
   const onLike = useCallback((p: RoommateProfile) => {
     console.log("[Roommates] Swipe right received", { profileId: p.id, isGuest: auth.isGuest });
@@ -336,56 +353,71 @@ useEffect(() => {
               {t("common.brandPrefix")}<Text style={styles.brandAccent}>{t("common.brandSuffix")}</Text>
             </Text>
           </View>
-          {quizAnsweredCount === 0 && (
-            <Pressable
-              style={styles.quizPill}
-              onPress={() => router.push("/roomie-profile")}
-              testID="roommates-quiz-pill"
-            >
-              <Text style={styles.quizPillText}>{t("roommates.quiz")}</Text>
-            </Pressable>
-          )}
+          <View style={styles.headerActionsRow}>
+            {canUseCalendar ? (
+              <Pressable
+                style={[styles.iconBtn, activeView === "calendar" && styles.iconBtnActive]}
+                onPress={() => setActiveView((previous) => previous === "calendar" ? "deck" : "calendar")}
+                hitSlop={8}
+                testID="roommates-calendar-toggle-btn"
+                accessibilityLabel="Εναλλαγή Ημερολογίου"
+              >
+                <Ionicons name={activeView === "calendar" ? "calendar" : "calendar-outline"} size={22} color={activeView === "calendar" ? colors.onBrand : colors.onSurface} />
+              </Pressable>
+            ) : null}
+            {quizAnsweredCount === 0 ? (
+              <Pressable style={styles.quizPill} onPress={() => router.push("/roomie-profile")} testID="roommates-quiz-pill">
+                <Text style={styles.quizPillText}>{t("roommates.quiz")}</Text>
+              </Pressable>
+            ) : null}
+          </View>
         </View>
         <Pressable style={styles.filterPill} onPress={openSheet} testID="filter-open-button">
           <Text style={styles.filterText}>{t("roommates.preferences")}</Text>
         </Pressable>
       </View>
 
-      <View style={styles.deckArea}>
-        {loading ? (
-          <View style={styles.center} testID="deck-loading">
-            <ActivityIndicator size="large" color={colors.brand} />
-          </View>
-        ) : (
-          <SwipeDeck
-            key={deckKey}
-            ref={deckRef}
-            profiles={filtered}
-            currency={CURRENCY}
-            onLike={onLike}
-            onNope={onNope}
-            onSwipeAction={triggerActionFeedback}
-            onEmptyReset={handleDeckReset}
+      {activeView === "calendar" && canUseCalendar ? (
+        <View style={styles.calendarContainer}>
+          <CalendarScheduleView
+            isBroker={false}
+            userId={auth.userId ?? ""}
+            onAddNotePress={(date) => { setCalendarNoteDate(date); setIsNoteModalOpen(true); }}
+            refreshToken={calendarRefreshToken}
           />
-        )}
-      </View>
+        </View>
+      ) : (
+        <>
+          <View style={styles.deckArea}>
+            {loading ? (
+              <View style={styles.center} testID="deck-loading">
+                <ActivityIndicator size="large" color={colors.brand} />
+              </View>
+            ) : (
+              <SwipeDeck
+                key={deckKey}
+                ref={deckRef}
+                profiles={filtered}
+                currentQuizAnswers={currentQuizAnswers}
+                currency={CURRENCY}
+                onLike={onLike}
+                onNope={onNope}
+                onSwipeAction={triggerActionFeedback}
+                onEmptyReset={handleDeckReset}
+              />
+            )}
+          </View>
 
-      <View style={styles.actions}>
-        <Pressable
-          style={[styles.actionBtn, activeAction === "left" && styles.actionBtnActive]}
-          onPress={() => press("left")}
-          testID="nope-button"
-        >
-          <Ionicons name="close" size={32} color={activeAction === "left" ? colors.brand : colors.onBrand} />
-        </Pressable>
-        <Pressable
-          style={[styles.actionBtn, activeAction === "right" && styles.actionBtnActive]}
-          onPress={() => press("right")}
-          testID="like-button"
-        >
-          <Ionicons name="heart" size={30} color={activeAction === "right" ? colors.brand : colors.onBrand} />
-        </Pressable>
-      </View>
+          <View style={styles.actions}>
+            <Pressable style={[styles.actionBtn, activeAction === "left" && styles.actionBtnActive]} onPress={() => press("left")} testID="nope-button">
+              <Ionicons name="close" size={32} color={activeAction === "left" ? colors.brand : colors.onBrand} />
+            </Pressable>
+            <Pressable style={[styles.actionBtn, activeAction === "right" && styles.actionBtnActive]} onPress={() => press("right")} testID="like-button">
+              <Ionicons name="heart" size={30} color={activeAction === "right" ? colors.brand : colors.onBrand} />
+            </Pressable>
+          </View>
+        </>
+      )}
 
       <View style={{ height: TAB_BAR_SPACE + insets.bottom }} />
 
@@ -395,6 +427,16 @@ useEffect(() => {
         visible={sheetVisible}
         onChange={handleFiltersChange}
         onClose={closeSheet}
+      />
+      <CalendarNoteModal
+        visible={isNoteModalOpen}
+        isBroker={false}
+        userId={auth.userId ?? ""}
+        date={calendarNoteDate}
+        onClose={() => setIsNoteModalOpen(false)}
+        onSaved={() => setCalendarRefreshToken((previous) => previous + 1)}
+        onUpdated={() => setCalendarRefreshToken((previous) => previous + 1)}
+        onDeleted={() => setCalendarRefreshToken((previous) => previous + 1)}
       />
     </View>
   );
@@ -406,6 +448,9 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md, gap: spacing.md },
   brandRow: { flexDirection: "row", alignItems: "center" },
   brandTextWrap: { flex: 1 },
+  headerActionsRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  iconBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: radius.pill, backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border },
+  iconBtnActive: { backgroundColor: colors.brand, borderColor: colors.brand },
   brand: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface },
   brandAccent: { color: colors.brand },
   quizPill: {
@@ -426,6 +471,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   filterText: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurfaceInverse },
   deckArea: { flex: 1, marginHorizontal: spacing.lg },
+  calendarContainer: { flex: 1, marginHorizontal: spacing.lg },
   actions: { flexDirection: "row", justifyContent: "center", gap: spacing.xl, paddingVertical: spacing.md },
   actionBtn: {
     width: 64,

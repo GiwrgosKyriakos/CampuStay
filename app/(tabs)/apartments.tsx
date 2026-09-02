@@ -29,12 +29,15 @@ import { resolveLocationCoordinates } from "@/src/hooks/useLocationCoordinates";
 import { isPointInPolygon, type LatLng } from "@/src/utils/geometry";
 import MapPolygonDrawModal from "@/src/components/MapPolygonDrawModal";
 import { WatermarkBadge } from "@/src/components/WatermarkBadge";
-import type { FilterSetPayload as SharedFilterSetPayload } from "@/src/types/filters";
+import type { FilterSetPayload as SharedFilterSetPayload, HardCriteriaKey } from "@/src/types/filters";
 import type { FilterSetVersionData, SharedFilterSetRecord } from "@/src/components/FilterSetVersionModal";
 import type { WatermarkConfig } from "@/src/types/listing";
+import type { VirtualTourData } from "@/src/types/apartment";
 import ApartmentsFeedSkeleton from "@/src/components/skeletons/ApartmentsFeedSkeleton";
 import AgencyPickerModal, { type AgencyItem } from "@/src/components/filters/AgencyPickerModal";
 import ProposalListsPickerModal, { type ReceivedProposalList } from "@/src/components/filters/ProposalListsPickerModal";
+import HardCriteriaSelectionModal, { HARD_CRITERIA_OPTIONS } from "@/src/components/HardCriteriaSelectionModal";
+import VoiceInputButton from "@/src/components/common/VoiceInputButton";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 100;
@@ -75,6 +78,7 @@ export interface FilterSetPayload extends SharedFilterSetPayload {
   sortBy?: SortOption;
   showMatchScore?: boolean;
   showMatchScoreOnMap?: boolean;
+  userHardCriteria?: import("@/src/types/filters").HardCriteriaKey[];
 }
 
 export interface FilterSetDoc extends FilterSetPayload {
@@ -355,6 +359,8 @@ interface Apartment {
   area: string;
   city: string;
   address?: string;
+  exactAddress?: string;
+  showExactAddress?: boolean;
   latitude?: number;
   longitude?: number;
   hasExactLocation?: boolean;
@@ -375,11 +381,12 @@ interface Apartment {
   assignedBrokerIds?: string[];
   isOffMarket?: boolean;
   offMarketAccessUserIds?: string[];
-  status?: "active" | "closed_deal";
+  status?: "active" | "under_negotiation" | "closed_deal";
   rentedToUserId?: string | null;
   rentedAtMillis?: number | null;
   available: boolean;
   watermarkConfig?: WatermarkConfig;
+  virtualTour?: VirtualTourData;
 }
 
 interface FirestoreApartmentDoc {
@@ -392,6 +399,8 @@ interface FirestoreApartmentDoc {
   area?: string;
   city?: string;
   address?: string;
+  exactAddress?: string;
+  showExactAddress?: boolean;
   latitude?: number;
   longitude?: number;
   hasExactLocation?: boolean;
@@ -413,13 +422,14 @@ interface FirestoreApartmentDoc {
   assignedBrokerIds?: string[];
   isOffMarket?: boolean;
   offMarketAccessUserIds?: string[];
-  status?: "active" | "closed_deal";
+  status?: "active" | "under_negotiation" | "closed_deal";
   rentedToUserId?: string | null;
   rentedAt?: unknown;
   createdAt?: unknown;
   available?: boolean;
   isAvailable?: boolean;
   watermarkConfig?: WatermarkConfig;
+  virtualTour?: VirtualTourData;
 }
 
 interface FirestoreLikedApartmentDoc {
@@ -720,6 +730,8 @@ export default function ApartmentsScreen() {
   const [constructionYearMin, setConstructionYearMin] = useState("");
   const [renovationYearMin, setRenovationYearMin] = useState("");
   const [selectedAmenities, setSelectedAmenities] = useState<string[]>([]);
+  const [userHardCriteria, setUserHardCriteria] = useState<HardCriteriaKey[]>([]);
+  const [hardCriteriaModalVisible, setHardCriteriaModalVisible] = useState(false);
   const [showBuildingFilters, setShowBuildingFilters] = useState(true);
   const [showMatchScoreOnMap, setShowMatchScoreOnMap] = useState(false);
   const [polygonCoordinates, setPolygonCoordinates] = useState<LatLng[]>([]);
@@ -813,12 +825,13 @@ export default function ApartmentsScreen() {
       constructionYearMin: constructionYearMin || undefined,
       renovationYearMin: renovationYearMin || undefined,
       selectedAmenities,
+      userHardCriteria,
       showMatchScore: showMatchScoreOnMap,
       showMatchScoreOnMap,
       polygonCoordinates: polygonCoordinates.length >= 3 ? polygonCoordinates : undefined,
       sortBy,
     }),
-    [bathroomsMin, bedroomsMin, cityQuery, constructionYearMin, energyClasses, filterSetTitle, floors, furnishedStatus, heatingTypes, maxSqmPrice, nearMetro, petFriendly, polygonCoordinates, propertyCategories, propertyTypes, rentMax, rentMin, renovationYearMin, selectedAmenities, showMatchScoreOnMap, sizeMax, sizeMin, sortBy, minSqmPrice],
+    [bathroomsMin, bedroomsMin, cityQuery, constructionYearMin, energyClasses, filterSetTitle, floors, furnishedStatus, heatingTypes, maxSqmPrice, nearMetro, petFriendly, polygonCoordinates, propertyCategories, propertyTypes, rentMax, rentMin, renovationYearMin, selectedAmenities, showMatchScoreOnMap, sizeMax, sizeMin, sortBy, userHardCriteria, minSqmPrice],
   );
 
   const savedFilterSetsRef = useMemo(() => auth.userId ? collection(db, "users", auth.userId, "savedFilterSets") : null, [auth.userId]);
@@ -891,6 +904,7 @@ export default function ApartmentsScreen() {
     setConstructionYearMin(savedSet.constructionYearMin ?? "");
     setRenovationYearMin(savedSet.renovationYearMin ?? "");
     setSelectedAmenities(savedSet.selectedAmenities ?? []);
+    setUserHardCriteria(savedSet.userHardCriteria ?? []);
     setShowMatchScoreOnMap(savedSet.showMatchScore === true || savedSet.showMatchScoreOnMap === true);
     setPolygonCoordinates(savedSet.polygonCoordinates ?? []);
     setSortBy(savedSet.sortBy && SORT_OPTIONS.includes(savedSet.sortBy) ? savedSet.sortBy : "newest");
@@ -1169,6 +1183,7 @@ export default function ApartmentsScreen() {
       setConstructionYearMin(imported.constructionYearMin || "");
       setRenovationYearMin(imported.renovationYearMin || "");
       setSelectedAmenities(imported.selectedAmenities ?? []);
+      setUserHardCriteria(imported.userHardCriteria ?? []);
       setShowMatchScoreOnMap(imported.showMatchScore === true || imported.showMatchScoreOnMap === true);
       setPolygonCoordinates(imported.polygonCoordinates ?? []);
       if (imported.sortBy && SORT_OPTIONS.includes(imported.sortBy)) setSortBy(imported.sortBy);
@@ -1312,7 +1327,7 @@ export default function ApartmentsScreen() {
 
     let mounted = true;
     
-    // 🚨 Βγάλαμε το where("type", "==", "host")
+    // Βγάλαμε το where("type", "==", "host")
     const hostChatsQ = query(
       collection(db, "chats"),
       where("users", "array-contains", auth.userId)
@@ -1325,7 +1340,7 @@ export default function ApartmentsScreen() {
             snapshot.docs.map(async (chatDoc) => {
               const chatData = chatDoc.data() as FirestoreHostChatDoc;
               
-              // 🚨 Τοπικό φιλτράρισμα ρόλων
+              // Τοπικό φιλτράρισμα ρόλων
               if (chatData.type !== "host") return false;
               if (chatData.initiatedBy === auth.userId) return false;
 
@@ -1341,7 +1356,7 @@ export default function ApartmentsScreen() {
                 const unreadSnapshot = await getDocs(unreadQuery);
                 return !unreadSnapshot.empty;
               } catch (e) {
-                // 🛡️ Fallback ασφαλείας
+                // Fallback ασφαλείας
                 const lastMsgSnap = await getDocs(query(collection(db, "chats", chatDoc.id, "messages"), orderBy("createdAt", "desc"), limit(1)));
                 if (!lastMsgSnap.empty) {
                   const lastMsg = lastMsgSnap.docs[0].data();
@@ -1463,10 +1478,12 @@ export default function ApartmentsScreen() {
                       : undefined,
                   area: data.area?.trim() || t("apartments.unknownArea"),
                   city: data.city?.trim() || t("apartments.unknownCity"),
-                  address: data.address?.trim(),
+                  address: data.showExactAddress === false ? undefined : (data.exactAddress?.trim() || data.address?.trim()),
+                  exactAddress: data.exactAddress?.trim() || data.address?.trim(),
                   latitude: typeof data.latitude === "number" ? data.latitude : undefined,
                   longitude: typeof data.longitude === "number" ? data.longitude : undefined,
                   hasExactLocation: data.hasExactLocation === true,
+                  showExactAddress: data.showExactAddress !== false,
                   rent: typeof data.rent === "number" ? data.rent : typeof data.price === "number" ? data.price : 0,
                   rooms: typeof data.rooms === "number" ? data.rooms : 1,
                   size: typeof data.size === "number" ? data.size : typeof data.sqft === "number" ? data.sqft : 0,
@@ -1483,11 +1500,12 @@ export default function ApartmentsScreen() {
                   assignedBrokerIds: Array.isArray(data.assignedBrokerIds) ? data.assignedBrokerIds : [],
                   isOffMarket: data.isOffMarket === true,
                   offMarketAccessUserIds: Array.isArray(data.offMarketAccessUserIds) ? data.offMarketAccessUserIds : [],
-                  status: data.status === "closed_deal" ? "closed_deal" : "active",
+                  status: data.status === "closed_deal" ? "closed_deal" : data.status === "under_negotiation" ? "under_negotiation" : "active",
                   rentedToUserId: typeof data.rentedToUserId === "string" ? data.rentedToUserId : data.rentedToUserId === null ? null : null,
                   rentedAtMillis: parseTimestampToMillis(data.rentedAt) || null,
                   available,
                   watermarkConfig: data.watermarkConfig,
+                  virtualTour: data.virtualTour,
                 };
               })
             );
@@ -1655,7 +1673,7 @@ export default function ApartmentsScreen() {
             snapshot.docs.map(async (chatDoc) => {
               const chatData = chatDoc.data() as FirestoreHostChatDoc;
               
-              // 🚨 ΚΑΘΟΡΙΣΤΙΚΟΣ ΕΛΕΓΧΟΣ:
+              // ΚΑΘΟΡΙΣΤΙΚΟΣ ΕΛΕΓΧΟΣ:
               // Αν το chat αυτό το ξεκινήσαμε εμείς (auth.userId), τότε είμαστε ο Guest/Student.
               // Επομένως, το chat αυτό ανήκει στο Matches Screen και ΟΧΙ στο δικό μας Host Inbox!
               if (chatData.initiatedBy === auth.userId) return false;
@@ -1688,7 +1706,7 @@ export default function ApartmentsScreen() {
     };
   }, [auth.isGuest, auth.userId, canOpenHostInbox]);
 
-  // 🟢 Real-time συγχρονισμός των Likes μεταξύ Feed και Detail Screen
+  // Real-time συγχρονισμός των Likes μεταξύ Feed και Detail Screen
   useEffect(() => {
     if (auth.isGuest || !auth.userId) {
       setLikedApartmentIds(new Set());
@@ -1778,7 +1796,7 @@ export default function ApartmentsScreen() {
       const isAssignedBroker = !!currentUid && auth.isBroker === true && Array.isArray(apt.assignedBrokerIds) && apt.assignedBrokerIds.includes(currentUid);
       const isOwnListing = isDirectOwner || isAssignedBroker;
       const isPrivilegedClient = !!currentUid && Array.isArray(apt.offMarketAccessUserIds) && apt.offMarketAccessUserIds.includes(currentUid);
-      if (apt.isOffMarket && !isOwnListing && !isPrivilegedClient) return false;
+      if ((apt.isOffMarket || apt.status === "under_negotiation") && !isOwnListing && !isPrivilegedClient) return false;
       if (proposalApartmentIds.length > 0 && !proposalApartmentIds.includes(apt.id)) return false;
       const isClosedDeal = apt.status === "closed_deal";
       const likedAtMillis = likedApartmentTimestampById[apt.id] ?? 0;
@@ -2053,7 +2071,7 @@ export default function ApartmentsScreen() {
                 hitSlop={8}
                 testID="seeker-top-map-toggle-btn"
                 accessibilityRole="button"
-                accessibilityLabel="Εναλλαγή Χάρτη"
+                accessibilityLabel={t("apartments.accessibility.toggleMap")}
               >
                 <Ionicons name={viewMode === "map" ? "map" : "map-outline"} size={20} color={viewMode === "map" ? colors.brand : colors.onSurface} />
               </Pressable>
@@ -2079,7 +2097,7 @@ export default function ApartmentsScreen() {
             onPress={() => setShowFilters((v) => !v)}
             testID="apartments-filter-toggle"
             accessibilityRole="button"
-            accessibilityLabel="Φίλτρα"
+            accessibilityLabel={t("apartments.accessibility.filters")}
           >
             <Ionicons name="options-outline" size={18} color={showFilters ? "#000000" : colors.brand} />
           </Pressable>
@@ -2191,12 +2209,16 @@ export default function ApartmentsScreen() {
                 onSubmitEditing={() => {
                   void handlePersistedSearch(searchQuery);
                 }}
-                placeholder="Αναζήτηση τίτλου, περιοχής, amenities..."
+                placeholder={t("apartments.searchPlaceholder")}
                 placeholderTextColor={colors.onSurfaceTertiary}
                 autoCapitalize="none"
                 autoCorrect={false}
                 returnKeyType="search"
                 testID="apartments-search-input"
+              />
+              <VoiceInputButton
+                onTextAppend={(spokenText) => setSearchQuery((current) => current.trim() ? `${current.trim()} ${spokenText}` : spokenText)}
+                color={colors.onSurfaceTertiary}
               />
               <View style={styles.searchActionsWrap}>
                 <Pressable
@@ -2227,7 +2249,7 @@ export default function ApartmentsScreen() {
                 >
                   {recentSearches.length === 0 ? (
                     <View style={styles.recentSearchEmptyRow}>
-                      <Text style={styles.recentSearchEmptyText}>Δεν υπάρχουν πρόσφατες αναζητήσεις</Text>
+                      <Text style={styles.recentSearchEmptyText}>{t("apartments.noRecentSearches")}</Text>
                     </View>
                   ) : (
                     recentSearches.map((item) => (
@@ -2278,7 +2300,7 @@ export default function ApartmentsScreen() {
               </Pressable>
             </View>
 
-            <Text style={styles.sortTitle}>Ταξινόμηση</Text>
+            <Text style={styles.sortTitle}>{t("apartments.sort")}</Text>
             <Pressable
               style={styles.sortSelectionBar}
               onPress={() => setIsSortDropdownOpen((prev) => !prev)}
@@ -2315,7 +2337,7 @@ export default function ApartmentsScreen() {
             ) : null}
 
             <View style={styles.polygonFilterSection}>
-              <Text style={styles.filterLabel}>Περιοχή στο Χάρτη</Text>
+              <Text style={styles.filterLabel}>{t("apartments.mapArea")}</Text>
               <Pressable
                 style={[styles.polygonTriggerButton, polygonCoordinates.length >= 3 && styles.polygonTriggerButtonActive]}
                 onPress={() => setIsPolygonModalVisible(true)}
@@ -2328,8 +2350,8 @@ export default function ApartmentsScreen() {
                 />
                 <Text style={[styles.polygonTriggerText, polygonCoordinates.length >= 3 && styles.polygonTriggerTextActive]} numberOfLines={2}>
                   {polygonCoordinates.length >= 3
-                    ? `Προσαρμοσμένο Πολύγωνο (${polygonCoordinates.length} σημεία)`
-                    : "Σχεδιασμός πολυγώνου στο χάρτη"}
+                    ? t("apartments.customPolygon", { count: polygonCoordinates.length })
+                    : t("apartments.drawPolygon")}
                 </Text>
                 {polygonCoordinates.length >= 3 ? (
                   <Pressable
@@ -2346,7 +2368,7 @@ export default function ApartmentsScreen() {
               </Pressable>
             </View>
 
-            <Text style={[styles.sortTitle, { marginTop: spacing.md }]}>Show only</Text>
+            <Text style={[styles.sortTitle, { marginTop: spacing.md }]}>{t("apartments.showOnly")}</Text>
             <View style={styles.showOnlyRow}>
               <Pressable
                 style={[styles.showOnlyCard, selectedAgency && styles.showOnlyCardActive]}
@@ -2354,7 +2376,7 @@ export default function ApartmentsScreen() {
                 testID="apartments-show-only-agency"
               >
                 <Ionicons name="business-outline" size={20} color={selectedAgency ? colors.onBrand : colors.onSurface} />
-                <Text style={[styles.showOnlyLabel, selectedAgency && styles.showOnlyLabelActive]} numberOfLines={1}>{selectedAgency ? selectedAgency.name : "Μεσιτικό γραφείο"}</Text>
+                <Text style={[styles.showOnlyLabel, selectedAgency && styles.showOnlyLabelActive]} numberOfLines={1}>{selectedAgency ? selectedAgency.name : t("apartments.agency")}</Text>
                 {selectedAgency ? <Pressable onPress={(event) => { event.stopPropagation(); setSelectedAgency(null); }} hitSlop={8}><Ionicons name="close-circle" size={16} color={colors.onBrand} /></Pressable> : null}
               </Pressable>
               <Pressable
@@ -2364,7 +2386,7 @@ export default function ApartmentsScreen() {
               >
                 <Ionicons name="person-outline" size={20} color={selectedBrokerFilter ? colors.onBrand : colors.onSurface} />
                 <Text style={[styles.showOnlyLabel, selectedBrokerFilter && styles.showOnlyLabelActive]} numberOfLines={1}>
-                  {selectedBrokerFilter ? selectedBrokerFilter.name : "Μεσίτης"}
+                  {selectedBrokerFilter ? selectedBrokerFilter.name : t("apartments.broker")}
                 </Text>
                 {selectedBrokerFilter ? (
                   <Pressable
@@ -2385,7 +2407,7 @@ export default function ApartmentsScreen() {
                 testID="apartments-show-only-list"
               >
                 <Ionicons name="list-outline" size={20} color={selectedProposalList ? colors.onBrand : colors.onSurface} />
-                <Text style={[styles.showOnlyLabel, selectedProposalList && styles.showOnlyLabelActive]} numberOfLines={1}>{selectedProposalList ? selectedProposalList.title : "Λίστα"}</Text>
+                <Text style={[styles.showOnlyLabel, selectedProposalList && styles.showOnlyLabelActive]} numberOfLines={1}>{selectedProposalList ? selectedProposalList.title : t("apartments.list")}</Text>
                 {selectedProposalList ? <Pressable onPress={(event) => { event.stopPropagation(); setSelectedProposalList(null); setProposalApartmentIds([]); }} hitSlop={8}><Ionicons name="close-circle" size={16} color={colors.onBrand} /></Pressable> : null}
               </Pressable>
             </View>
@@ -2393,7 +2415,7 @@ export default function ApartmentsScreen() {
             {isHostUser && !isViewingMyListings ? (
               <View style={styles.hostFeedToggleRow} testID="apartments-own-listings-toggle-row">
                 <View style={styles.hostFeedToggleTextWrap}>
-                  <Text style={styles.hostFeedToggleTitle}>Εμφάνιση των δικών μου καταχωρίσεων στο All</Text>
+                  <Text style={styles.hostFeedToggleTitle}>{t("apartments.showOwnListings")}</Text>
                 </View>
                 <Switch
                   value={showOwnListingsInFeed}
@@ -2405,13 +2427,13 @@ export default function ApartmentsScreen() {
               </View>
             ) : null}
 
-            <Text style={styles.filterLabel}>Τίτλος set φίλτρων</Text>
+            <Text style={styles.filterLabel}>{t("apartments.filterSetTitle")}</Text>
             <TextInput
               style={styles.singleInput}
               value={filterSetTitle}
               onChangeText={setFilterSetTitle}
               maxLength={40}
-              placeholder="π.χ. 2άρι κέντρο φοιτητικό (έως 40 χαρ.)"
+              placeholder={t("apartments.filterSetPlaceholder")}
               placeholderTextColor={colors.onSurfaceTertiary}
               testID="apartments-filter-set-title-input"
             />
@@ -2422,7 +2444,7 @@ export default function ApartmentsScreen() {
               testID="apartments-filter-set-save"
             >
               <Ionicons name="bookmark-outline" size={17} color={colors.onBrand} />
-              <Text style={styles.saveFilterSetButtonText}>Αποθήκευση Set</Text>
+              <Text style={styles.saveFilterSetButtonText}>{t("apartments.saveFilterSet")}</Text>
             </Pressable>
 
             <Text style={styles.filterLabel}>{t("apartments.monthlyRent", { currency: CURRENCY })}</Text>
@@ -2447,13 +2469,13 @@ export default function ApartmentsScreen() {
               />
             </View>
 
-            <Text style={styles.filterLabel}>Τιμή ανά τ.μ. (€/m²)</Text>
+            <Text style={styles.filterLabel}>{t("apartments.pricePerSqm")}</Text>
             <View style={styles.rangeRow}>
               <TextInput
                 style={styles.rangeInput}
                 value={minSqmPrice}
                 onChangeText={(value) => updateFilterValue(setMinSqmPrice, sanitizeDecimalInput(value))}
-                placeholder="Από (€/m²)"
+                placeholder={t("apartments.fromPricePerSqm")}
                 keyboardType="numeric"
                 placeholderTextColor={colors.onSurfaceTertiary}
                 testID="apartments-sqm-min"
@@ -2462,7 +2484,7 @@ export default function ApartmentsScreen() {
                 style={styles.rangeInput}
                 value={maxSqmPrice}
                 onChangeText={(value) => updateFilterValue(setMaxSqmPrice, sanitizeDecimalInput(value))}
-                placeholder="Έως (€/m²)"
+                placeholder={t("apartments.toPricePerSqm")}
                 keyboardType="numeric"
                 placeholderTextColor={colors.onSurfaceTertiary}
                 testID="apartments-sqm-max"
@@ -2502,7 +2524,7 @@ export default function ApartmentsScreen() {
             </View>
 
             <View style={styles.extendedFilterSection}>
-              <Text style={styles.filterSectionTitle}>Χαρακτηριστικά ακινήτου</Text>
+              <Text style={styles.filterSectionTitle}>{t("apartments.propertyFeatures")}</Text>
               <Text style={styles.filterLabel}>Τύπος ακινήτου</Text>
               <View style={styles.filterChipGrid}>
                 {PROPERTY_TYPE_FILTER_OPTIONS.map((option) => {
@@ -2592,9 +2614,23 @@ export default function ApartmentsScreen() {
                 testID="apartments-map-match-score-toggle"
               />
             </View>
+            <View style={styles.hardCriteriaSection}>
+              <Text style={styles.hardCriteriaTitle}>My Hard Criteria</Text>
+              <Text style={styles.hardCriteriaDescription}>Επιλέξτε τα κριτήρια που είναι απολύτως απαραίτητα για εσάς.</Text>
+              <View style={styles.hardCriteriaPills}>
+                {userHardCriteria.map((criterion) => <View key={criterion} style={styles.hardCriteriaPill}><Text style={styles.hardCriteriaPillText}>{HARD_CRITERIA_OPTIONS.find((option) => option.key === criterion)?.label ?? criterion}</Text><Pressable onPress={() => updateFilterValue(setUserHardCriteria, userHardCriteria.filter((item) => item !== criterion))} hitSlop={6} testID={`apartments-hard-criteria-remove-${criterion}`}><Ionicons name="close" size={14} color={colors.brand} /></Pressable></View>)}
+                <Pressable style={styles.hardCriteriaEditButton} onPress={() => setHardCriteriaModalVisible(true)} testID="apartments-hard-criteria-edit"><Ionicons name="add" size={15} color={colors.brand} /><Text style={styles.hardCriteriaEditText}>{userHardCriteria.length ? "Επεξεργασία" : "Προσθήκη"}</Text></Pressable>
+              </View>
+            </View>
           </ScrollView>
         )}
       </View>
+      <HardCriteriaSelectionModal
+        visible={hardCriteriaModalVisible}
+        selected={userHardCriteria}
+        onClose={() => setHardCriteriaModalVisible(false)}
+        onToggle={(criterion) => updateFilterValue(setUserHardCriteria, userHardCriteria.includes(criterion) ? userHardCriteria.filter((item) => item !== criterion) : [...userHardCriteria, criterion])}
+      />
       <View {...(viewMode === "map" ? {} : contentPanResponder.panHandlers)} style={styles.flexOne}>
       {viewMode === "map" ? (
         <View style={styles.mapContainer}>
@@ -4045,6 +4081,14 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     lineHeight: 20,
   },
   filterLabel: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface, marginTop: spacing.xs },
+  hardCriteriaSection: { marginTop: spacing.md, paddingTop: spacing.md, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, gap: spacing.xs },
+  hardCriteriaTitle: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface },
+  hardCriteriaDescription: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
+  hardCriteriaPills: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: spacing.xs, marginTop: spacing.xs },
+  hardCriteriaPill: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, backgroundColor: colors.brandTertiary },
+  hardCriteriaPillText: { fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.brand },
+  hardCriteriaEditButton: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.brand },
+  hardCriteriaEditText: { fontFamily: fonts.bold, fontSize: fontSize.xs, color: colors.brand },
   rangeRow: { flexDirection: "row", gap: spacing.sm },
   rangeInput: {
     flex: 1,

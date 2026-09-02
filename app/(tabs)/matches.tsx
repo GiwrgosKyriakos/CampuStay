@@ -21,6 +21,8 @@ import { isBrokerOrAgencyUser } from "@/src/utils/roles";
 import { HostInboxContent } from "../host-inbox";
 import FilterSetVersionModal, { type SharedFilterSetRecord } from "@/src/components/FilterSetVersionModal";
 import InboxSkeleton from "@/src/components/skeletons/InboxSkeleton";
+import CreateRoommateGroupModal from "@/src/components/chat/CreateRoommateGroupModal";
+import { getUserProfile } from "@/src/api/userProfile";
 
 const TAB_BAR_SPACE = 100;
 
@@ -35,10 +37,12 @@ interface ChatListItem extends RoommateProfile {
   chat_initiated_by?: string | null;
   chat_rejected_by?: string | null;
   chat_rejections?: string[];
-  // 🎯 ΠΡΟΣΘΗΚΗ: Flags για την κατάσταση blocking
+  // ΠΡΟΣΘΗΚΗ: Flags για την κατάσταση blocking
   isBlocker?: boolean;
   isBlocked?: boolean;
   brokerChatRole?: "client" | "owner";
+  isGroup?: boolean;
+  groupMemberIds?: string[];
 }
 
 interface FirestoreUserDoc {
@@ -63,7 +67,9 @@ interface FirestoreUserDoc {
 
 interface FirestoreChatDoc {
   users?: string[];
-  type?: "roommate" | "host" | string;
+  type?: "roommate" | "host" | "roommate_group" | string;
+  groupName?: string;
+  groupMetadata?: { groupName?: string; memberIds?: string[] };
   brokerChatRole?: "client" | "owner" | string;
   status?: "pending" | "active" | "rejected";
   initiatedBy?: string | null;
@@ -79,6 +85,9 @@ interface FirestoreChatDoc {
 
 interface FirestoreLastMessageDoc {
   text?: string;
+  type?: string;
+  requestedDate?: string;
+  metadata?: { appointmentDate?: string };
   senderId?: string;
   isRead?: boolean;
   read?: boolean;
@@ -89,8 +98,23 @@ interface FirestoreLastMessageDoc {
 
 interface LastMessageMeta {
   text: string;
+  type?: string;
+  appointmentDate?: string;
   senderId: string;
   isRead: boolean;
+}
+
+function formatInboxMessage(data: FirestoreLastMessageDoc): string {
+  const appointmentDate = data.metadata?.appointmentDate ?? data.requestedDate;
+  switch (data.type) {
+    case "filter_share":
+    case "filter_set_share": return "Διαμοιρασμός Φίλτρων Αναζήτησης";
+    case "assignment_request": return "Νέα Ανάθεση Ακινήτου";
+    case "visit_confirmed": return `Επιβεβαιωμένη Υπόδειξη: ${appointmentDate ? new Date(appointmentDate).toLocaleDateString("el-GR") : ""}`;
+    case "visit_rescheduled": return "Αλλαγή Ραντεβού Υπόδειξης";
+    case "visit_cancelled": return "Ακύρωση Ραντεβού Υπόδειξης";
+    default: return data.text?.trim() || "";
+  }
 }
 
 let memoryMatchesCache: Record<string, ChatListItem[]> = {};
@@ -236,9 +260,11 @@ export default function MatchesScreen() {
   const [lastMessageByChat, setLastMessageByChat] = useState<Record<string, LastMessageMeta>>(() => memoryLastMessagesCache);
   const [acceptingChatId, setAcceptingChatId] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string>("");
+  const [isLookingForRoommate, setIsLookingForRoommate] = useState(false);
   const [activeContextChatId, setActiveContextChatId] = useState<string | null>(null);
   const [chatToDelete, setChatToDelete] = useState<ChatListItem | null>(null);
   const [deletingChatId, setDeletingChatId] = useState<string | null>(null);
+  const [showGroupModal, setShowGroupModal] = useState(false);
   const swipeX = React.useRef(new Animated.Value(0)).current;
   const SWIPE_THRESHOLD = 56;
   const messageUnsubsRef = React.useRef<Record<string, () => void>>({});
@@ -247,6 +273,20 @@ export default function MatchesScreen() {
   const inboxLoadMoreLockRef = React.useRef(false);
   const isBroker = !!auth.isBroker;
   const notLookingForRoommate = auth.notLookingForRoommate === true;
+
+  useEffect(() => {
+    if (auth.isGuest || !auth.userId || isBroker) {
+      setIsLookingForRoommate(false);
+      return;
+    }
+    let active = true;
+    void getUserProfile(auth.userId).then((profile) => {
+      if (active) setIsLookingForRoommate(profile?.looking_for_roommate === true && profile.not_looking_for_roommate !== true);
+    }).catch(() => {
+      if (active) setIsLookingForRoommate(false);
+    });
+    return () => { active = false; };
+  }, [auth.isGuest, auth.userId, isBroker]);
 
   const handleInboxScroll = React.useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
@@ -491,7 +531,7 @@ export default function MatchesScreen() {
           const snapshotVersion = ++chatSnapshotVersionRef.current;
           setHasMoreInbox(snapshot.docs.length >= inboxLimit);
           inboxLoadMoreLockRef.current = false;
-          // 🚨 Αφαιρέσαμε το πρόωρο setLoading(false) από εδώ!
+          // Αφαιρέσαμε το πρόωρο setLoading(false) από εδώ!
           console.log("[Matches] Chats snapshot received", {
             uid,
             selectedChatType,
@@ -521,10 +561,12 @@ export default function MatchesScreen() {
               });
             }
             const chatType = chatData.type ?? "roommate";
-            // 🚨 ΔΙΑΧΩΡΙΣΜΟΣ ΡΟΛΩΝ:
+            // ΔΙΑΧΩΡΙΣΜΟΣ ΡΟΛΩΝ:
             // Αν είμαστε στο Tab "Hosts", δείχνουμε ΜΟΝΟ τα chats που ξεκινήσαμε ΕΜΕΙΣ (ως guests).
             const isVisibleForTab = isBrokersView
               ? true
+              : chatType === "roommate_group"
+              ? selectedChatType === "roommate" && !notLookingForRoommate
               : (notLookingForRoommate || selectedChatType === "host")
               ? true
               : (chatType !== "host");
@@ -577,16 +619,18 @@ export default function MatchesScreen() {
               setLastMessageByChat((prev) => ({
                 ...prev,
                 [chatId]: {
-                  text: data.text?.trim() || "",
+                  text: formatInboxMessage(data),
                   senderId: data.senderId || "",
                   isRead: isMessageRead(data, uid),
+                  type: data.type,
+                  appointmentDate: data.metadata?.appointmentDate ?? data.requestedDate,
                 },
               }));
             });
           });
 
           void (async () => {
-            try { // 🚀 ΠΡΟΣΘΗΚΗ ΤΟΥ TRY ΓΙΑ ΑΣΦΑΛΕΙΑ
+            try { // ΠΡΟΣΘΗΚΗ ΤΟΥ TRY ΓΙΑ ΑΣΦΑΛΕΙΑ
               const rows = await Promise.all(
                 visibleChatDocs.map(async (chatDoc) => {
                   const chatData = chatDoc.data() as FirestoreChatDoc;
@@ -596,6 +640,19 @@ export default function MatchesScreen() {
                     getSafeMillis(chatData.createdAt) ||
                     0;
                   const users = Array.isArray(chatData.users) ? chatData.users : [];
+                  if (chatData.type === "roommate_group") {
+                    const memberIds = chatData.groupMetadata?.memberIds ?? users;
+                    return {
+                      sortKey,
+                      item: {
+                        ...buildDeletedCandidate(chatDoc.id, chatDoc.id, "active", null, chatData.groupMetadata?.groupName || chatData.groupName || "Ομαδική"),
+                        chatRoomId: chatDoc.id,
+                        chat_users: memberIds,
+                        isGroup: true,
+                        groupMemberIds: memberIds,
+                      },
+                    };
+                  }
                   const counterpartUid = users.find((u) => u !== uid);
                   if (!counterpartUid) {
                     return null;
@@ -615,7 +672,7 @@ export default function MatchesScreen() {
                     ? chatData.rejections.filter((entry): entry is string => typeof entry === "string")
                     : [];
 
-                  // 🎯 ΔΙΟΡΘΩΣΗ: Διαβάζουμε το blockedByUsers map από το metadata του chat document
+                  // ΔΙΟΡΘΩΣΗ: Διαβάζουμε το blockedByUsers map από το metadata του chat document
                   const blockedMap = (chatData as any).blockedByUsers ?? {};
                   const isBlocker = blockedMap[uid] === true;
                   const isBlocked = blockedMap[counterpartUid] === true;
@@ -690,7 +747,7 @@ export default function MatchesScreen() {
             } catch (error) {
               console.error("[Matches] Error mapping users to chat items:", error);
             } finally {
-              // 🚀 ΕΔΩ είναι το κλειδί: Κλείνει το loading ΑΦΟΥ ολοκληρωθεί το UI update, είτε πετύχει είτε όχι
+              // ΕΔΩ είναι το κλειδί: Κλείνει το loading ΑΦΟΥ ολοκληρωθεί το UI update, είτε πετύχει είτε όχι
               if (mounted) setLoading(false);
             }
           })();
@@ -790,6 +847,12 @@ export default function MatchesScreen() {
               <Text style={[styles.brokersToggleBtnText, isBrokersView && styles.brokersToggleBtnTextActive]}>Brokers</Text>
             </Pressable>
           </View>
+          {!auth.isGuest && !isBroker && isLookingForRoommate ? (
+            <Pressable style={[styles.groupAction, { marginHorizontal: spacing.lg }]} onPress={() => setShowGroupModal(true)} testID="matches-create-group-button">
+              <Ionicons name="people-circle-outline" size={20} color={colors.onBrand} />
+              <Text style={styles.groupActionText}>Δημιουργία Ομαδικής</Text>
+            </Pressable>
+          ) : null}
         </View>
         <Text style={styles.subtitle}>
           {isBrokersView
@@ -878,7 +941,7 @@ export default function MatchesScreen() {
           {matches.map((p) => {
             const isDeleted = isDeletedCounterpart(p);
             
-            // 🎯 ΔΙΟΡΘΩΣΗ: Καθαρό conditional mapping για blocking και deletion
+            // ΔΙΟΡΘΩΣΗ: Καθαρό conditional mapping για blocking και deletion
             let displayName = isDeleted ? t("common.account.deleted") : p.name;
             let hasAvatar = !isDeleted && !!p.photo?.trim();
 
@@ -1052,6 +1115,16 @@ export default function MatchesScreen() {
 
       <FilterSetVersionModal visible={!!selectedGlobalFilterSet} filterSet={selectedGlobalFilterSet} onClose={() => setSelectedGlobalFilterSet(null)} onUpdated={setSelectedGlobalFilterSet} />
 
+      <CreateRoommateGroupModal
+        visible={showGroupModal}
+        userId={currentUserId || auth.userId || ""}
+        onClose={() => setShowGroupModal(false)}
+        onCreated={(chatRoomId) => {
+          setShowGroupModal(false);
+          router.push({ pathname: "/chat/[id]", params: { id: chatRoomId, chatRoomId } });
+        }}
+      />
+
       <Modal
         transparent
         animationType="fade"
@@ -1123,6 +1196,8 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   headerTitleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md },
   title: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface },
   subtitle: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary },
+  groupAction: { minHeight: 44, borderRadius: radius.md, backgroundColor: colors.brand, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm },
+  groupActionText: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onBrand },
   brokersToggleBtn: { flexDirection: "row", alignItems: "center", gap: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, backgroundColor: colors.surfaceSecondary },
   brokersToggleBtnActive: { borderColor: colors.brand, backgroundColor: colors.brand },
   brokersToggleBtnText: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface },

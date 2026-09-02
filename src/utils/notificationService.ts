@@ -104,6 +104,60 @@ export async function sendPushNotification(expoPushToken: string, title: string,
   }
 }
 
+export async function scheduleLocalCalendarNotification(params: {
+  title: string;
+  body: string;
+  data: Record<string, unknown>;
+  date: Date;
+}): Promise<string | null> {
+  if (params.date.getTime() <= Date.now()) return null;
+
+  const permissions = await Notifications.getPermissionsAsync();
+  if (permissions.status !== "granted") {
+    const requested = await Notifications.requestPermissionsAsync();
+    if (requested.status !== "granted") return null;
+  }
+
+  return Notifications.scheduleNotificationAsync({
+    content: {
+      title: params.title,
+      body: params.body,
+      sound: "default",
+      data: params.data,
+    },
+    trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.DATE,
+      date: params.date,
+    },
+  });
+}
+
+export async function cancelScheduledNotification(notificationId?: string): Promise<void> {
+  if (!notificationId) return;
+  await Notifications.cancelScheduledNotificationAsync(notificationId);
+}
+
+export async function schedulePostVisitFeedbackReminder(params: {
+  noteId: string;
+  apartmentTitle: string;
+  scheduledAt: Date;
+}): Promise<string | null> {
+  const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+  await Promise.all(
+    scheduled
+      .filter((item) => item.content.data?.type === "post_visit_feedback" && item.content.data?.noteId === params.noteId)
+      .map((item) => Notifications.cancelScheduledNotificationAsync(item.identifier)),
+  );
+
+  const reminderAt = new Date(params.scheduledAt.getTime() + 2 * 60 * 60 * 1000);
+  return scheduleLocalCalendarNotification({
+    title: "Αξιολόγηση επίσκεψης",
+    body: `Πώς πήγε η επίσκεψη στο ${params.apartmentTitle}; Συμπληρώστε τη σύντομη αξιολόγησή σας!`,
+    data: { type: "post_visit_feedback", targetScreen: "calendar", noteId: params.noteId },
+    date: reminderAt.getTime() > Date.now() ? reminderAt : new Date(Date.now() + 1000),
+  });
+}
+
 function getNextStartTime(startTime: string): Date {
   const [hours, minutes] = startTime.split(':').map(Number);
   const result = new Date();
@@ -140,7 +194,7 @@ export async function scheduleBrokerDealStagnationAlertsAsync(brokerId: string):
 
     const startTime = getNextStartTime(settings.stagnationAlertStartTime);
     await Promise.all(stagnantLeads.map(({ profile, stage, elapsedDays }, index) => {
-      const indicator = elapsedDays >= 10 ? '🟥 Κόκκινη Ένδειξη' : elapsedDays >= 7 ? '🟧 Πορτοκαλί Ένδειξη' : '🟨 Κίτρινη Ένδειξη';
+      const indicator = elapsedDays >= 10 ? 'Κόκκινη Ένδειξη' : elapsedDays >= 7 ? 'Πορτοκαλί Ένδειξη' : 'Κίτρινη Ένδειξη';
       const scheduledTime = new Date(startTime.getTime() + index * Math.max(0, settings.stagnationAlertIntervalMinutes) * 60 * 1000);
       return Notifications.scheduleNotificationAsync({
         content: {

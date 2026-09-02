@@ -1,8 +1,8 @@
-import { getBlockRelationshipState, setBlockStateBetweenUsers } from "@/src/api/chat";
+import { getBlockRelationshipState, markIncomingMessagesAsRead, setBlockStateBetweenUsers } from "@/src/api/chat";
+import { createVisitAppointment, getPublicApartmentAddress, updateLinkedCalendarNotes, updateVisitAppointment } from "@/src/api/visitAppointments";
 import { useTheme } from "@/src/context/ThemeContext";
 import { LinearGradient } from "expo-linear-gradient";
 import { getUserProfile } from "@/src/api/userProfile";
-import { sendPushNotification } from '@/src/utils/notificationService'; // Προσάρμοσε το path ανάλογα με το φάκελό σου
 import React, { useRef, useState, useCallback, useEffect, useMemo } from "react";
 import {
   View,
@@ -16,6 +16,7 @@ import {
   Platform,
   StatusBar,
   Keyboard,
+  AppState,
 } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
@@ -27,19 +28,23 @@ import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme"
 import type { Gender, RoommateProfile } from "@/src/data/profiles";
 import { useAuth } from "@/src/context/auth";
 import { db } from "@/src/config/firebase";
-import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, setDoc, getDoc, getDocs, deleteDoc, limit, FieldPath, deleteField } from "firebase/firestore";
-import { markIncomingMessagesAsRead } from "@/src/api/chat";
+import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, setDoc, getDoc, getDocs, deleteDoc, limit, FieldPath, deleteField, runTransaction } from "firebase/firestore";
 import { cleanupObsoleteChatMessages } from "@/src/api/chatCleanup";
 import { syncBrokerClientProfile } from "@/src/api/brokerClientProfiles";
+import { saveShowingCalendarNotes } from "@/src/api/brokerCalendar";
 import { addPropertyInteraction } from "@/src/api/propertyInteractions";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import CenteredActionModal, { type CenteredModalAction } from "@/src/components/CenteredActionModal";
 import FilterSetVersionModal, { type SharedFilterSetRecord, type FilterSetVersionData } from "@/src/components/FilterSetVersionModal";
 import ChatMessageItem from "@/src/components/chat/ChatMessageItem";
 import PriceProposalModal from "@/src/components/chat/modals/PriceProposalModal";
-import VisitRequestModal from "@/src/components/chat/modals/VisitRequestModal";
-import UserProfileModal from "@/src/components/chat/modals/UserProfileModal";
+import VisitRequestModal, { type VisitRequestListing } from "@/src/components/chat/modals/VisitRequestModal";
+import EditVisitModal from "@/src/components/chat/modals/EditVisitModal";
+import SendAddressModal from "@/src/components/chat/modals/SendAddressModal";
+import ChatUserProfileSheet from "@/src/components/chat/ChatUserProfileSheet";
 import BlockUserModal from "@/src/components/chat/modals/BlockUserModal";
+import AssignClientEmailModal from "@/src/components/AssignClientEmailModal";
+import VoiceInputButton from "@/src/components/common/VoiceInputButton";
 import FilterSetDetailsModal from "@/src/components/chat/modals/FilterSetDetailsModal";
 import SearchHistoryPickerModal, { type SearchHistorySelection } from "@/src/components/chat/modals/SearchHistoryPickerModal";
 import type { FilterSetMessageData, FirestoreUserDoc } from "@/src/components/chat/modals/types";
@@ -57,6 +62,17 @@ import { t } from "@/src/locales";
 import { WatermarkBadge } from "@/src/components/WatermarkBadge";
 import type { WatermarkConfig } from "@/src/types/listing";
 import ChatMessagesSkeleton from "@/src/components/skeletons/ChatMessagesSkeleton";
+import { getWordCount, isNoteBodyValid, MAX_NOTE_BODY_CHARS, MAX_NOTE_BODY_WORDS } from "@/src/utils/noteValidation";
+import GroupChatScreen from "@/src/screens/chat/GroupChatScreen";
+import type { GroupChatMetadata, SharedProfileMessageMetadata } from "@/src/types/chat";
+import { isBrokerOrAgencyUser } from "@/src/utils/roles";
+import { getSharedCoManagedListings } from "@/src/api/agencyCollaboration";
+import { sendContractChatRequest } from "@/src/api/contracts";
+import SelectShareTargetModal from "@/src/components/chat/SelectShareTargetModal";
+import RoommateDeckDetailModal from "@/src/components/chat/RoommateDeckDetailModal";
+import RoommateContractPickerModal from "@/src/components/RoommateContractPickerModal";
+import SignContractModal from "@/src/components/SignContractModal";
+import type { ContractDraftContext, ContractType, DigitalContractDocument } from "@/src/types/esignature";
 
 const CURRENCY = "€";
 interface Message {
@@ -72,6 +88,8 @@ interface Message {
   requestedDate?: string;
   requestedTime?: string;
   apartmentId?: string;
+  apartmentTitle?: string;
+  apartmentPrice?: number;
   apartmentData?: SharedApartmentData;
   filterSetData?: FilterSetMessageData;
   filterSetId?: string;
@@ -80,8 +98,26 @@ interface Message {
   apartmentIds?: string[];
   apartmentCount?: number;
   previewImages?: string[];
+  contractId?: string;
+  contractType?: ContractType;
+  contractTitle?: string;
   hasClientInteracted?: boolean;
   proposalFeedback?: Record<string, ProposalItemFeedback>;
+  metadata?: {
+    appointmentId?: string;
+    contractId?: string;
+    contractType?: ContractType;
+    contractTitle?: string;
+    apartmentId?: string;
+    apartmentTitle?: string;
+    apartmentAddress?: string;
+    appointmentDate?: string;
+    status?: "pending" | "confirmed" | "cancelled" | "completed";
+    exactAddress?: string;
+    latitude?: number;
+    longitude?: number;
+    sharedProfile?: SharedProfileMessageMetadata;
+  };
 }
 
 interface ProposalItemFeedback {
@@ -122,6 +158,8 @@ interface FirestoreMessageDoc {
   requestedDate?: string;
   requestedTime?: string;
   apartmentId?: string;
+  apartmentTitle?: string;
+  apartmentPrice?: number;
   apartmentData?: SharedApartmentData;
   filterSetData?: FilterSetMessageData;
   filterSetId?: string;
@@ -130,13 +168,18 @@ interface FirestoreMessageDoc {
   apartmentIds?: string[];
   apartmentCount?: number;
   previewImages?: string[];
+  contractId?: string;
+  contractType?: ContractType;
+  contractTitle?: string;
   hasClientInteracted?: boolean;
   proposalFeedback?: Record<string, ProposalItemFeedback>;
+  metadata?: Message["metadata"];
 }
 
 interface FirestoreChatDoc {
   users?: string[];
-  type?: "roommate" | "host" | string;
+  type?: "roommate" | "host" | "colleague" | string;
+  agencyId?: string;
   apartmentId?: string;
   apartmentTitle?: string;
   hostPhoneNumber?: string;
@@ -187,6 +230,8 @@ interface FirestoreApartmentDoc {
   assignedBrokerIds?: string[];
   isOffMarket?: boolean;
   watermarkConfig?: WatermarkConfig;
+  exactAddress?: string;
+  showExactAddress?: boolean;
 }
 
 interface BrokerClientDropdownProperty {
@@ -501,9 +546,11 @@ function buildApartmentRoutePayload(apartmentId: string, data: FirestoreApartmen
     area: data.area?.trim() || t("apartments.unknownArea"),
     city: data.city?.trim() || t("apartments.unknownCity"),
     address: data.address?.trim(),
+    exactAddress: data.exactAddress?.trim() || data.address?.trim(),
+    showExactAddress: data.showExactAddress !== false,
     latitude: typeof data.latitude === "number" ? data.latitude : undefined,
     longitude: typeof data.longitude === "number" ? data.longitude : undefined,
-    hasExactLocation: data.hasExactLocation === true,
+    hasExactLocation: data.hasExactLocation === true && data.showExactAddress !== false,
     rent: typeof data.rent === "number" ? data.rent : typeof data.price === "number" ? data.price : 0,
     maxDiscountPercentage,
     rooms: typeof data.rooms === "number" ? data.rooms : 1,
@@ -689,13 +736,13 @@ const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   unmuted_chat_overrides: [],
 };
 
-export default function ChatScreen() {
+function DirectChatScreen() {
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const auth = useAuth();
-  const { id, chatRoomId: chatRoomIdParam } = useLocalSearchParams<{ id: string; chatRoomId?: string }>();
+  const { id, chatRoomId: chatRoomIdParam, action: notificationAction, appointmentId: notificationAppointmentId } = useLocalSearchParams<{ id: string; chatRoomId?: string; action?: string; appointmentId?: string }>();
   const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
 
   useEffect(() => {
@@ -704,7 +751,7 @@ export default function ChatScreen() {
       () => {
         setIsKeyboardOpen(true);
 
-        // 🚀 Δίνουμε ένα ελάχιστο delay (50-100ms) για να προλάβει το KeyboardAvoidingView
+        // Δίνουμε ένα ελάχιστο delay (50-100ms) για να προλάβει το KeyboardAvoidingView
         // να μικρύνει το layout, και μετά κάνουμε scroll στο τελευταίο μήνυμα.
         setTimeout(() => {
           scrollRef.current?.scrollToOffset({ offset: 0, animated: true });
@@ -731,6 +778,10 @@ export default function ChatScreen() {
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [counterpartExists, setCounterpartExists] = useState(true);
   const [profileModalVisible, setProfileModalVisible] = useState(false);
+  const [sharedProfileQuizAnswers, setSharedProfileQuizAnswers] = useState<Record<string, any>>({});
+  const [shareTargetVisible, setShareTargetVisible] = useState(false);
+  const [sharedProfileVisible, setSharedProfileVisible] = useState(false);
+  const [selectedSharedProfile, setSelectedSharedProfile] = useState<SharedProfileMessageMetadata | null>(null);
   const [compatibilityScore, setCompatibilityScore] = useState<number | null>(null);
   const [isBlocker, setIsBlocker] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
@@ -803,7 +854,9 @@ export default function ChatScreen() {
   const [crossChatNoticeTarget, setCrossChatNoticeTarget] = useState<"matches" | "hostInbox" | null>(null);
   const [isCrossChatNoticeDismissed, setIsCrossChatNoticeDismissed] = useState(false);
   const [isNoticeDismissedLocally, setIsNoticeDismissedLocally] = useState(false);
-  const [chatType, setChatType] = useState<"roommate" | "host">("roommate");
+  const [chatType, setChatType] = useState<"roommate" | "host" | "colleague">("roommate");
+  const showRoommateHeaderDetails = chatType === "roommate" && !isBrokerOrAgencyUser(counterpartDetails) && counterpartDetails?.looking_for_roommate !== false && counterpartDetails?.isLookingForRoommate !== false && counterpartDetails?.not_looking_for_roommate !== true;
+  const headerSubInfo = isBrokerOrAgencyUser(counterpartDetails) ? "Μεσίτης" : "Ενεργός τώρα";
   const [brokerChatRole, setBrokerChatRole] = useState<"client" | "owner" | null>(null);
   const [assignedOwnerProperties, setAssignedOwnerProperties] = useState<ReturnType<typeof buildApartmentRoutePayload>[]>([]);
   const [loadingAssignedOwnerProperties, setLoadingAssignedOwnerProperties] = useState(false);
@@ -819,16 +872,27 @@ export default function ChatScreen() {
   const [showHostActionMenu, setShowHostActionMenu] = useState(false);
   const [showPriceProposalModal, setShowPriceProposalModal] = useState(false);
   const [showVisitRequestModal, setShowVisitRequestModal] = useState(false);
+  const [visitToEdit, setVisitToEdit] = useState<Message | null>(null);
+  const [isSavingVisit, setIsSavingVisit] = useState(false);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const [addressDisclosure, setAddressDisclosure] = useState<{ apartmentId: string; exactAddress: string; latitude?: number; longitude?: number } | null>(null);
+  const [isSendingAddress, setIsSendingAddress] = useState(false);
+  const addressActionHandledRef = useRef<string | null>(null);
   const [isSubmittingHostAction, setIsSubmittingHostAction] = useState(false);
   const [currentUserLikedIds, setCurrentUserLikedIds] = useState<Set<string>>(new Set());
   const [counterpartLikedIds, setCounterpartLikedIds] = useState<Set<string>>(new Set());
   const [mutualLikedApartments, setMutualLikedApartments] = useState<MutualApartment[]>([]);
   const [mutualLikesLoading, setMutualLikesLoading] = useState(false);
+  const [sharedColleagueListings, setSharedColleagueListings] = useState<Array<Record<string, unknown> & { id: string }>>([]);
   const [showContextMenu, setShowContextMenu] = useState(false);
+  const [showAddEmailModal, setShowAddEmailModal] = useState(false);
   const [isChatMuted, setIsChatMuted] = useState(false);
   const [isMuting, setIsMuting] = useState(false);
   const [showBlockModal, setShowBlockModal] = useState(false);
   const [showGlobalUnmuteModal, setShowGlobalUnmuteModal] = useState(false);
+  const [roommateContractPickerVisible, setRoommateContractPickerVisible] = useState(false);
+  const [roommateContractDraft, setRoommateContractDraft] = useState<ContractDraftContext | null>(null);
+  const [roommateExistingContractId, setRoommateExistingContractId] = useState<string | null>(null);
   const [messageActionTarget, setMessageActionTarget] = useState<Message | null>(null);
   const [selectedFilterSetMessage, setSelectedFilterSetMessage] = useState<Message | null>(null);
   const [selectedFilterSetRecord, setSelectedFilterSetRecord] = useState<SharedFilterSetRecord | null>(null);
@@ -855,6 +919,91 @@ export default function ChatScreen() {
     chatType === "host" &&
     ((auth.isBroker && brokerChatRole !== "owner") ||
       (!auth.isBroker && counterpartDetails?.is_broker === true));
+  const isManualClient = auth.isBroker && isBrokerClientChat && brokerChatRole === "client" && counterpartDetails?.is_manual_client === true;
+
+  const startRoommateContract = useCallback((contractType: Extract<ContractType, "roommate_agreement" | "holding_deposit_viewing">) => {
+    if (!currentUserId || !counterpartId || !chatRoomId || !isRoommateChat) return;
+    setRoommateContractPickerVisible(false);
+    setRoommateExistingContractId(null);
+    setRoommateContractDraft({
+      agencyId: auth.agencyId || counterpartDetails?.agencyId || "independent",
+      createdByUserId: currentUserId,
+      contractType,
+      title: t(contractType === "roommate_agreement" ? "esign.roommateAgreement" : "esign.holdingDeposit"),
+      chatRoomId,
+      participantIds: [
+        { id: currentUserId, role: "roommate" },
+        { id: counterpartId, role: "roommate" },
+      ],
+      contractPayload: contractType === "holding_deposit_viewing" ? { holdingDepositAmount: 0 } : { houseRulesConfig: {} },
+    });
+  }, [auth.agencyId, chatRoomId, counterpartDetails?.agencyId, counterpartId, currentUserId, isRoommateChat]);
+
+  const handleRoommateContractCreated = useCallback((createdContract: DigitalContractDocument) => {
+    if (!chatRoomId || !currentUserId) return;
+    void sendContractChatRequest({ chatRoomId, senderId: currentUserId, contract: createdContract }).catch(() => undefined);
+  }, [chatRoomId, currentUserId]);
+
+  useEffect(() => {
+    if (!currentUserId || !chatRoomId) return;
+    const updatePresence = async (isActive: boolean) => {
+      const userRef = doc(db, "users", currentUserId);
+      if (isActive) {
+        await setDoc(userRef, { activeChatId: chatRoomId }, { merge: true });
+        return;
+      }
+      await runTransaction(db, async (transaction) => {
+        const snapshot = await transaction.get(userRef);
+        if (snapshot.exists() && snapshot.data().activeChatId === chatRoomId) transaction.update(userRef, { activeChatId: deleteField() });
+      });
+    };
+    void updatePresence(true).catch(() => undefined);
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      void updatePresence(nextState === "active").catch(() => undefined);
+    });
+    return () => {
+      subscription.remove();
+      void updatePresence(false).catch(() => undefined);
+    };
+  }, [chatRoomId, currentUserId]);
+
+  useEffect(() => {
+    if (notificationAction !== "send_exact_address" || !notificationAppointmentId || !currentUserId || addressActionHandledRef.current === notificationAppointmentId) return;
+    addressActionHandledRef.current = notificationAppointmentId;
+    void (async () => {
+      const appointmentSnapshot = await getDoc(doc(db, "appointments", notificationAppointmentId));
+      const appointment = appointmentSnapshot.exists() ? appointmentSnapshot.data() : {};
+      const apartmentId = typeof appointment.apartmentId === "string" ? appointment.apartmentId : "";
+      if (!apartmentId) return;
+      const apartmentSnapshot = await getDoc(doc(db, "apartments", apartmentId));
+      const apartment = apartmentSnapshot.exists() ? apartmentSnapshot.data() : {};
+      const exactAddress = typeof apartment.exactAddress === "string" && apartment.exactAddress.trim()
+        ? apartment.exactAddress.trim()
+        : typeof apartment.address === "string" ? apartment.address.trim() : "";
+      if (exactAddress) setAddressDisclosure({ apartmentId, exactAddress, latitude: typeof apartment.latitude === "number" ? apartment.latitude : undefined, longitude: typeof apartment.longitude === "number" ? apartment.longitude : undefined });
+    })().catch(() => undefined);
+  }, [currentUserId, notificationAction, notificationAppointmentId]);
+
+  const shareExactAddress = useCallback(async () => {
+    if (!addressDisclosure || !currentUserId || !chatRoomId || isSendingAddress) return;
+    setIsSendingAddress(true);
+    try {
+      const text = "Ο μεσίτης σας κοινοποίησε την ακριβή τοποθεσία για την αυριανή υπόδειξη.";
+      await addDoc(collection(db, "chats", chatRoomId, "messages"), {
+        senderId: currentUserId,
+        receiverId: counterpartId,
+        type: "address_revealed",
+        text,
+        metadata: { apartmentId: addressDisclosure.apartmentId, exactAddress: addressDisclosure.exactAddress, latitude: addressDisclosure.latitude, longitude: addressDisclosure.longitude },
+        createdAt: serverTimestamp(),
+        isRead: false,
+      });
+      await setDoc(doc(db, "chats", chatRoomId), { lastMessage: text, lastMessageType: "address_revealed", lastMessageTimestamp: Date.now(), updatedAt: serverTimestamp() }, { merge: true });
+      setAddressDisclosure(null);
+    } finally {
+      setIsSendingAddress(false);
+    }
+  }, [addressDisclosure, chatRoomId, counterpartId, currentUserId, isSendingAddress]);
 
   const handleOpenPropertyList = useCallback(async (message: Message) => {
     const apartmentIds = message.apartmentIds ?? [];
@@ -907,6 +1056,19 @@ export default function ChatScreen() {
 
   // FlatList inverted={true} expects newest-first order (index 0 = latest message).
   const invertedMessages = useMemo(() => [...messages].reverse(), [messages]);
+  const activePinnedAppointment = useMemo(() => {
+    const latestByAppointment = new Map<string, { message: Message; index: number }>();
+    messages.forEach((message, index) => {
+      const appointmentId = message.metadata?.appointmentId;
+      if (appointmentId) latestByAppointment.set(appointmentId, { message, index });
+    });
+    return [...latestByAppointment.values()]
+      .filter(({ message }) => {
+        const appointmentDate = message.metadata?.appointmentDate ? Date.parse(message.metadata.appointmentDate) : NaN;
+        return message.metadata?.status === "confirmed" && Number.isFinite(appointmentDate) && appointmentDate > Date.now();
+      })
+      .sort((first, second) => Date.parse(first.message.metadata?.appointmentDate ?? "") - Date.parse(second.message.metadata?.appointmentDate ?? ""))[0] ?? null;
+  }, [messages]);
 
   const handleLoadOlderMessages = useCallback(() => {
     if (isLoadingOlderMessages || !hasMoreOlderMessages || !messagesLoaded || olderLoadTriggeredRef.current) return;
@@ -968,7 +1130,7 @@ export default function ChatScreen() {
       setChatMetadataLoaded(true);
       setChatMetadataRoomId(chatRoomId);
       setIsCrossChatNoticeDismissed(currentUserId ? dismissedCrossChatNoticesMap[currentUserId] === true : false);
-      setChatType(data.type === "host" ? "host" : "roommate");
+      setChatType(data.type === "host" ? "host" : data.type === "colleague" ? "colleague" : "roommate");
       setBrokerChatRole(data.brokerChatRole === "client" || data.brokerChatRole === "owner" ? data.brokerChatRole : null);
       const rawHostPhoneFromChat =
         typeof data.hostPhoneNumber === "string"
@@ -981,7 +1143,7 @@ export default function ChatScreen() {
       setHostApartmentTitle(typeof data.apartmentTitle === "string" && data.apartmentTitle.trim().length > 0 ? data.apartmentTitle : null);
       setIsApartmentUnavailable(!!data.apartmentUnavailable);
       setIsChatMuted(!!data.mutedByUsers?.[currentUserId]);
-      // 🎯 ΔΙΟΡΘΩΣΗ: Ενημερώνουμε real-time τα block flags μέσα στο δωμάτιο τσατ
+      // ΔΙΟΡΘΩΣΗ: Ενημερώνουμε real-time τα block flags μέσα στο δωμάτιο τσατ
       const blockedMap = (data as any).blockedByUsers ?? {};
       setIsBlocker(currentUserId ? blockedMap[currentUserId] === true : false);
       setIsBlocked(counterpartId ? blockedMap[counterpartId] === true : false);
@@ -990,6 +1152,24 @@ export default function ChatScreen() {
       unsubChat();
     };
   }, [chatRoomId, currentUserId]);
+
+  useEffect(() => {
+    const agencyId = counterpartDetails?.agencyId;
+    if (!agencyId || chatType !== "colleague" || !currentUserId || !counterpartId) {
+      setSharedColleagueListings([]);
+      return;
+    }
+
+    let active = true;
+    void getSharedCoManagedListings(agencyId, [currentUserId, counterpartId])
+      .then((listings) => {
+        if (active) setSharedColleagueListings(listings);
+      })
+      .catch(() => {
+        if (active) setSharedColleagueListings([]);
+      });
+    return () => { active = false; };
+  }, [chatType, counterpartDetails?.agencyId, counterpartId, currentUserId]);
 
   useEffect(() => {
     if (!currentUserId || !chatRoomId || !chatMetadataLoaded || chatMetadataRoomId !== chatRoomId) return;
@@ -1029,6 +1209,9 @@ export default function ChatScreen() {
               requestedTime: typeof data.requestedTime === "string" ? data.requestedTime : undefined,
               apartmentId: typeof data.apartmentId === "string" ? data.apartmentId : undefined,
               apartmentData,
+              contractId: typeof data.contractId === "string" ? data.contractId : typeof data.metadata?.contractId === "string" ? data.metadata.contractId : undefined,
+              contractType: data.contractType,
+              contractTitle: typeof data.contractTitle === "string" ? data.contractTitle : typeof data.metadata?.contractTitle === "string" ? data.metadata.contractTitle : undefined,
               filterSetData: data.filterSetData,
               filterSetId: typeof data.filterSetId === "string" ? data.filterSetId : undefined,
               listId: typeof data.listId === "string" ? data.listId : undefined,
@@ -1038,6 +1221,7 @@ export default function ChatScreen() {
               previewImages: Array.isArray(data.previewImages) ? data.previewImages.filter((item): item is string => typeof item === "string") : undefined,
               hasClientInteracted: data.hasClientInteracted === true,
               proposalFeedback: data.proposalFeedback,
+              metadata: data.metadata,
             };
           })
           .filter((message) => safeTimestampToMillis(message.createdAt) > userClearedAt);
@@ -1358,6 +1542,8 @@ export default function ChatScreen() {
           area: t("apartments.unknownArea"),
           city: t("apartments.unknownCity"),
           address: undefined,
+          exactAddress: undefined,
+          showExactAddress: false,
           latitude: undefined,
           longitude: undefined,
           hasExactLocation: false,
@@ -1450,6 +1636,7 @@ export default function ChatScreen() {
         // 2. Καθαρίζουμε τις απαντήσεις του Quiz όπως ακριβώς κάνουμε και στο roommates.tsx
         const rawCurrentQuiz = (currentQuizSnap.exists() ? (currentQuizSnap.data() as FirestoreQuizDoc).answers : {}) ?? {};
         const rawCounterpartQuiz = (counterpartQuizSnap.exists() ? (counterpartQuizSnap.data() as FirestoreQuizDoc).answers : {}) ?? {};
+        if (active) setSharedProfileQuizAnswers(rawCounterpartQuiz);
 
         const cleanCurrentQuiz: any = {};
         Object.keys(rawCurrentQuiz).forEach(key => {
@@ -1552,52 +1739,6 @@ export default function ChatScreen() {
         new FieldPath(`deletedUsers.${id}`),
         deleteField(),
       );
-      // 🚨 ------------------ ΒΗΜΑ 2: ΕΛΕΓΧΟΙ NOTIFICATIONS & MUTE ------------------
-      
-      // Α. Έλεγχος αν ο παραλήπτης έχει κάνει Mute αυτή τη συγκεκριμένη συνομιλία
-      const chatSnap = await getDoc(doc(db, "chats", chatRoomId));
-      const chatData = chatSnap.exists() ? chatSnap.data() : null;
-      const receiverLegacyMuted = chatData?.mutedByUsers?.[id] === true;
-
-      // Β. Έλεγχος αν ο παραλήπτης έχει κλείσει γενικά τα Direct Messages από το Notifications Screen
-      const receiverSettings = await getUserSettings(id).catch(() => null);
-      const globalDmsEnabled = receiverSettings?.notifications?.direct_messages ?? true;
-      const receiverNotifications = receiverSettings?.notifications ?? DEFAULT_NOTIFICATION_PREFERENCES;
-      const isMutedByReceiver = evaluateEffectiveChatMuted({
-        chatRoomId,
-        muteAllNotifications: receiverNotifications.mute_all_notifications,
-        mutedChatIds: receiverNotifications.muted_chat_ids,
-        unmutedChatOverrides: receiverNotifications.unmuted_chat_overrides,
-        legacyChatMuted: receiverLegacyMuted,
-      });
-
-      // Αν ο άλλος χρήστης σε έχει κάνει Mute Ή έχει κλείσει γενικά τα DMs, σταματάμε εδώ!
-      // Το μήνυμα αποθηκεύεται κανονικά στο chat, αλλά ΔΕΝ του στέλνουμε Push Notification.
-      if (isMutedByReceiver || !globalDmsEnabled) {
-        console.log("[Notifications] Η ειδοποίηση ακυρώθηκε: Ο παραλήπτης έχει κάνει Mute ή έχει απενεργοποιήσει τα DMs.");
-        return; 
-      }
-
-      // 3. Ανάκτηση Token & Αποστολή Push Notification στον Παραλήπτη
-      const receiverDocRef = doc(db, "users", id);
-      const receiverSnap = await getDoc(receiverDocRef);
-
-      if (receiverSnap.exists()) {
-        const receiverData = receiverSnap.data();
-        const receiverToken = receiverData?.expoPushToken;
-
-        if (receiverToken) {
-          await sendPushNotification(
-            receiverToken,
-            "Νέο μήνυμα στο CampuStay! 💬",
-            trimmed,
-            { chatRoomId, senderId: currentUserId }
-          );
-        } else {
-          console.log("[Notifications] Ο παραλήπτης δεν έχει καταχωρημένο expoPushToken.");
-        }
-      }
-
     } catch (error) {
       console.error("Error sending message/notification:", error);
       // Επαναφορά του UI (αφαίρεση του optimistic message) σε περίπτωση αποτυχίας
@@ -1666,7 +1807,7 @@ export default function ChatScreen() {
   const hasBlockedByMe = isBlocker || settingsBlockState.isBlocker;
   const blockedByOtherUser = isBlocked || settingsBlockState.isBlocked;
 
-  // 🎯 ΔΙΟΡΘΩΣΗ: Δυναμικός έλεγχος για απόκρυψη στοιχείων λόγω Block
+  // ΔΙΟΡΘΩΣΗ: Δυναμικός έλεγχος για απόκρυψη στοιχείων λόγω Block
   let displayName = maskedAsDeleted ? t("common.account.deleted") : activeProfile.name;
   let displayAbout = maskedAsDeleted
     ? t("chat.placeholderDeleted")
@@ -1705,7 +1846,7 @@ export default function ChatScreen() {
     legacyChatMuted: isChatMuted,
   });
 
-  // 🎯 ΑΣΦΑΛΕΙΑ: Αν υπάρχει οποιοδήποτε block, κλειδώνουμε το input bar
+  // ΑΣΦΑΛΕΙΑ: Αν υπάρχει οποιοδήποτε block, κλειδώνουμε το input bar
   const inputBlocked = chatStatus === "pending" || chatStatus === "rejected" || deletedCounterpart || apartmentLocked || hasBlockedByMe || blockedByOtherUser;
 
   const filterHistoryRecords = useMemo<SharedFilterSetRecord[]>(() => {
@@ -1775,7 +1916,7 @@ export default function ChatScreen() {
   );
 
   useEffect(() => {
-    if (!isBrokerClientChat || !currentUserId || !counterpartId || !chatRoomId || !showAssignedPropertiesDropdown) {
+    if (!isBrokerClientChat || !currentUserId || !counterpartId || !chatRoomId || (!showAssignedPropertiesDropdown && !showVisitRequestModal)) {
       setClientInteractedProperties([]);
       setLoadingClientInteractedProperties(false);
       return;
@@ -1862,7 +2003,7 @@ export default function ChatScreen() {
     return () => {
       active = false;
     };
-  }, [auth.isBroker, chatRoomId, counterpartId, currentUserId, hostApartmentId, isBrokerClientChat, latestSharedFilterVersion, showAssignedPropertiesDropdown]);
+  }, [auth.isBroker, chatRoomId, counterpartId, currentUserId, hostApartmentId, isBrokerClientChat, latestSharedFilterVersion, showAssignedPropertiesDropdown, showVisitRequestModal]);
 
   const showChatMatchScore = latestSharedFilterVersion?.showMatchScore === true;
 
@@ -1943,6 +2084,13 @@ export default function ChatScreen() {
     typeof hostApartment?.maxDiscountPercentage === "number" ? hostApartment.maxDiscountPercentage : 10;
   const hostRent = typeof hostApartment?.rent === "number" ? hostApartment.rent : 0;
   const minRecommendedPrice = hostRent * ((100 - hostDiscountPercentage) / 100);
+  const visitRequestListings = useMemo<VisitRequestListing[]>(() => {
+    const listings = clientInteractedProperties.map((property) => ({ id: property.id, title: property.title, rent: property.rent }));
+    if (hostApartmentId && hostApartment && !listings.some((listing) => listing.id === hostApartmentId)) {
+      listings.unshift({ id: hostApartmentId, title: hostApartment.title, rent: hostApartment.rent });
+    }
+    return listings;
+  }, [clientInteractedProperties, hostApartment, hostApartmentId]);
 
   const openVisitRequestModal = useCallback(() => {
     setShowVisitRequestModal(true);
@@ -2007,8 +2155,8 @@ export default function ChatScreen() {
     }
   }, [brokerChatRole, chatRoomId, counterpartId, currentUserId, hostApartmentId, isSubmittingHostAction]);
 
-  const submitVisitRequest = useCallback(async (date: string, time: string) => {
-    if (!currentUserId || !chatRoomId || !hostApartmentId || isSubmittingHostAction) return;
+  const submitVisitRequest = useCallback(async (date: string, time: string, apartmentId: string) => {
+    if (!currentUserId || !chatRoomId || !apartmentId || isSubmittingHostAction) return;
 
     const visitDate = parseIsoDate(date);
     if (!visitDate) return;
@@ -2021,7 +2169,9 @@ export default function ChatScreen() {
         requestedDate: date,
         requestedTime: time,
         status: "pending",
-        apartmentId: hostApartmentId,
+        apartmentId,
+        apartmentTitle: visitRequestListings.find((listing) => listing.id === apartmentId)?.title ?? hostApartmentTitle ?? "Διαμέρισμα",
+        apartmentPrice: visitRequestListings.find((listing) => listing.id === apartmentId)?.rent,
         createdAt: serverTimestamp(),
       });
 
@@ -2030,7 +2180,7 @@ export default function ChatScreen() {
         clientId: currentUserId,
         role: brokerChatRole === "owner" ? "owner" : "client",
         chatRoomId,
-        apartmentId: hostApartmentId,
+        apartmentId,
         pipelineStage: "showing_scheduled",
       });
 
@@ -2072,9 +2222,54 @@ export default function ChatScreen() {
     chatRoomId,
     counterpartId,
     currentUserId,
-    hostApartmentId,
+    hostApartmentTitle,
     isSubmittingHostAction,
+    visitRequestListings,
   ]);
+
+  const saveVisitChanges = useCallback(async (nextDateInput: string) => {
+    const appointmentId = visitToEdit?.metadata?.appointmentId;
+    if (!appointmentId || !chatRoomId || !nextDateInput.trim() || Number.isNaN(Date.parse(nextDateInput))) return;
+    setIsSavingVisit(true);
+    const appointmentDate = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(nextDateInput.trim()) ? `${nextDateInput.trim()}:00` : nextDateInput.trim();
+    try {
+      await updateVisitAppointment(appointmentId, { appointmentDate, status: "confirmed" });
+      await updateLinkedCalendarNotes({ appointmentId, appointmentDate, status: "confirmed" });
+      const messageText = `Το ραντεβού επαναπρογραμματίστηκε για τις ${new Date(appointmentDate).toLocaleString("el-GR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`;
+      await addDoc(collection(db, "chats", chatRoomId, "messages"), {
+        senderId: "system",
+        text: messageText,
+        type: "visit_rescheduled",
+        metadata: { ...visitToEdit.metadata, appointmentId, appointmentDate, status: "confirmed" },
+        createdAt: serverTimestamp(),
+        isRead: true,
+      });
+      await setDoc(doc(db, "chats", chatRoomId), { lastMessage: "Αλλαγή Ραντεβού Υπόδειξης", lastMessageType: "visit_rescheduled", lastMessageTimestamp: Date.now(), updatedAt: serverTimestamp() }, { merge: true });
+      setVisitToEdit(null);
+    } catch {
+      setActionModal({ title: t("chat.modals.actionFailedTitle"), description: t("common.messages.tryAgain"), actions: [{ label: t("common.actions.gotIt"), iconName: "alert-circle-outline", onPress: () => setActionModal(null) }] });
+    } finally {
+      setIsSavingVisit(false);
+    }
+  }, [chatRoomId, visitToEdit]);
+
+  const cancelVisit = useCallback(async () => {
+    const appointmentId = visitToEdit?.metadata?.appointmentId;
+    if (!appointmentId || !chatRoomId) return;
+    setIsSavingVisit(true);
+    try {
+      await updateVisitAppointment(appointmentId, { status: "cancelled" });
+      await updateLinkedCalendarNotes({ appointmentId, appointmentDate: visitToEdit.metadata?.appointmentDate ?? "", status: "cancelled" });
+      const messageText = "Το ραντεβού ακυρώθηκε.";
+      await addDoc(collection(db, "chats", chatRoomId, "messages"), { senderId: "system", text: messageText, type: "visit_cancelled", metadata: { ...visitToEdit.metadata, appointmentId, status: "cancelled" }, createdAt: serverTimestamp(), isRead: true });
+      await setDoc(doc(db, "chats", chatRoomId), { lastMessage: messageText, lastMessageType: "visit_cancelled", lastMessageTimestamp: Date.now(), updatedAt: serverTimestamp() }, { merge: true });
+      setVisitToEdit(null);
+    } catch {
+      setActionModal({ title: t("chat.modals.actionFailedTitle"), description: t("common.messages.tryAgain"), actions: [{ label: t("common.actions.gotIt"), iconName: "alert-circle-outline", onPress: () => setActionModal(null) }] });
+    } finally {
+      setIsSavingVisit(false);
+    }
+  }, [chatRoomId, visitToEdit]);
 
   const approveHostActionMessage = useCallback(
     async (message: Message) => {
@@ -2108,6 +2303,34 @@ export default function ChatScreen() {
           }
         }
 
+        let appointmentId: string | undefined;
+        let appointmentAddress = "";
+        if (message.type === "visit_request" && message.requestedDate && message.requestedTime && message.apartmentId) {
+          const apartmentSnapshot = await getDoc(doc(db, "apartments", message.apartmentId));
+          const apartmentData = apartmentSnapshot.exists() ? apartmentSnapshot.data() as FirestoreApartmentDoc : {};
+          appointmentAddress = getPublicApartmentAddress(apartmentData);
+          appointmentId = await createVisitAppointment({
+            chatRoomId,
+            brokerId: currentUserId,
+            clientId: message.senderId,
+            apartmentId: message.apartmentId,
+            apartmentTitle: message.apartmentTitle ?? hostApartmentTitle ?? "Διαμέρισμα",
+            apartmentAddress: appointmentAddress,
+            appointmentDate: `${message.requestedDate}T${message.requestedTime}:00`,
+          });
+          await saveShowingCalendarNotes({
+            brokerId: currentUserId,
+            clientId: message.senderId,
+            clientName: displayName,
+            apartmentId: message.apartmentId,
+            apartmentTitle: message.apartmentTitle ?? hostApartmentTitle ?? "Διαμέρισμα",
+            apartmentPrice: message.apartmentPrice,
+            scheduledDate: message.requestedDate,
+            scheduledTime: message.requestedTime,
+            appointmentId,
+          });
+        }
+
         const confirmationText =
           message.type === "price_proposal"
             ? "Ο αγγελιοδότης επιβεβαίωσε την πρόταση τιμής!"
@@ -2116,7 +2339,17 @@ export default function ChatScreen() {
         await addDoc(collection(db, "chats", chatRoomId, "messages"), {
           senderId: "system",
           text: confirmationText,
-          type: "system_notice",
+          type: message.type === "visit_request" ? "visit_confirmed" : "system_notice",
+          ...(appointmentId ? {
+            metadata: {
+              appointmentId,
+              apartmentId: message.apartmentId,
+              apartmentTitle: message.apartmentTitle ?? hostApartmentTitle ?? "Διαμέρισμα",
+              apartmentAddress: appointmentAddress,
+              appointmentDate: `${message.requestedDate}T${message.requestedTime}:00`,
+              status: "confirmed",
+            },
+          } : {}),
           createdAt: serverTimestamp(),
           isRead: true,
         });
@@ -2125,7 +2358,8 @@ export default function ChatScreen() {
         await setDoc(
           chatRef,
           {
-            lastMessage: confirmationText,
+            lastMessage: message.type === "visit_request" ? `Επιβεβαιωμένη Υπόδειξη: ${formatRequestDate(message.requestedDate ?? "")}` : confirmationText,
+            lastMessageType: message.type === "visit_request" ? "visit_confirmed" : "system_notice",
             lastMessageTimestamp: Date.now(),
             updatedAt: Date.now(),
             deletedUsers: { [counterpartId]: false },
@@ -2151,7 +2385,7 @@ export default function ChatScreen() {
         });
       }
     },
-    [chatRoomId, counterpartId, currentUserId, hostApartmentId, isCurrentUserHost],
+    [chatRoomId, counterpartId, currentUserId, displayName, hostApartmentId, hostApartmentTitle, isCurrentUserHost],
   );
 
   const handleApartmentPillPress = () => {
@@ -2675,7 +2909,7 @@ export default function ChatScreen() {
                 ) : null}
               </View>
               <Text style={styles.headerUni} numberOfLines={1}>
-                {displayUniversity}
+                {showRoommateHeaderDetails ? displayUniversity : headerSubInfo}
               </Text>
             </View>
           </Pressable>
@@ -2728,11 +2962,34 @@ export default function ChatScreen() {
               testID="chat-mutual-likes-toggle"
               hitSlop={8}
             >
-              <Text style={[styles.mutualLikesEmoji, showMutualLikes && styles.mutualLikesEmojiActive]}>💕</Text>
+              <Ionicons name="heart-circle-outline" size={22} color={showMutualLikes ? colors.brand : colors.onSurface} />
+            </Pressable>
+          ) : null}
+          {isRoommateChat ? (
+            <Pressable
+              style={[styles.iconBtn, roommateContractPickerVisible && styles.iconBtnActive]}
+              onPress={() => setRoommateContractPickerVisible(true)}
+              testID="chat-roommate-contract-button"
+              hitSlop={8}
+            >
+              <Ionicons name="document-text-outline" size={21} color={roommateContractPickerVisible ? colors.brand : colors.onSurface} />
             </Pressable>
           ) : null}
         </View>
-        <View style={styles.detailRow}>
+        {chatType === "colleague" && sharedColleagueListings.length > 0 ? (
+          <Pressable
+            style={styles.colleaguePropertyBanner}
+            onPress={() => router.push({ pathname: "/apartment-detail", params: { data: JSON.stringify(sharedColleagueListings[0]) } } as never)}
+            testID="chat-colleague-shared-property-banner"
+          >
+            <Ionicons name="business-outline" size={18} color={colors.brand} />
+            <Text style={styles.colleaguePropertyBannerText} numberOfLines={1}>
+              Κοινό Ακίνητο: {String(sharedColleagueListings[0].title || "Ακίνητο")}
+            </Text>
+            <Ionicons name="chevron-forward" size={18} color={colors.brand} />
+          </Pressable>
+        ) : null}
+        {showRoommateHeaderDetails ? <View style={styles.detailRow}>
           <View style={styles.detailPill}>
             <Ionicons name="person-outline" size={13} color={colors.onSurfaceTertiary} />
             <Text style={styles.detailText}>{displayGender}</Text>
@@ -2747,7 +3004,7 @@ export default function ChatScreen() {
               {displayBudget}
             </Text>
           </View>
-        </View>
+        </View> : null}
 
         {showContextMenu ? (
           <View style={[styles.contextMenu, { top: safeMenuTop, right: 16 }]} testID="chat-context-menu">
@@ -2764,6 +3021,19 @@ export default function ChatScreen() {
                 {isChatMutedEffective ? t("chat.menu.unmuteNotifications") : t("chat.menu.muteNotifications")}
               </Text>
             </Pressable>
+            {isManualClient ? (
+              <Pressable
+                style={styles.contextMenuItem}
+                onPress={() => {
+                  setShowContextMenu(false);
+                  setShowAddEmailModal(true);
+                }}
+                testID="chat-context-add-email"
+              >
+                <Ionicons color={colors.onSurface} name="mail-outline" size={18} />
+                <Text style={styles.contextMenuText}>Προσθήκη email</Text>
+              </Pressable>
+            ) : null}
             <Pressable
               style={styles.contextMenuItem}
               onPress={() => {
@@ -2774,7 +3044,7 @@ export default function ChatScreen() {
               <Ionicons name="trash-outline" size={18} color={colors.error} />
               <Text style={[styles.contextMenuText, styles.contextMenuDangerText]}>{t("chatList.delete")}</Text>
             </Pressable>
-            {/* 🎯 ΔΙΟΡΘΩΣΗ: Αν είμαστε εμείς ο blocker, το κουμπί μετατρέπεται σε Ξεμπλοκάρισμα */}
+            {/* ΔΙΟΡΘΩΣΗ: Αν είμαστε εμείς ο blocker, το κουμπί μετατρέπεται σε Ξεμπλοκάρισμα */}
             {hasBlockedByMe ? (
               <Pressable
                 style={styles.contextMenuItem}
@@ -2799,6 +3069,24 @@ export default function ChatScreen() {
           </View>
         ) : null}
       </View>
+
+      {activePinnedAppointment ? (
+        <Pressable
+          style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, backgroundColor: colors.brandTertiary, borderBottomWidth: 1, borderBottomColor: colors.border }}
+          onPress={() => {
+            const targetIndex = messages.length - 1 - activePinnedAppointment.index;
+            scrollRef.current?.scrollToIndex({ index: targetIndex, animated: true, viewPosition: 0.5 });
+            setHighlightedMessageId(activePinnedAppointment.message.id);
+            setTimeout(() => setHighlightedMessageId(null), 1200);
+          }}
+          testID="chat-pinned-visit-banner"
+        >
+          <Ionicons name="calendar-outline" size={19} color={colors.brand} />
+          <Text style={{ flex: 1, fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface }} numberOfLines={1}>
+            {`Επερχόμενη Υπόδειξη: ${new Date(activePinnedAppointment.message.metadata?.appointmentDate ?? "").toLocaleString("el-GR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })} - ${activePinnedAppointment.message.metadata?.apartmentTitle ?? "Ακίνητο"}`}
+          </Text>
+        </Pressable>
+      ) : null}
 
       {showAssignedPropertiesDropdown && (isBrokerOwnerChat || isBrokerClientChat) ? (
         <>
@@ -2995,11 +3283,13 @@ export default function ChatScreen() {
                               onChangeText={(textValue) => setRejectionDrafts((previous) => ({ ...previous, [apartment.id]: textValue }))}
                               placeholder="π.χ. Πολύ ακριβό, μακριά από τη σχολή..."
                               placeholderTextColor={colors.onSurfaceTertiary}
-                              style={styles.rejectionTextInput}
+                              style={[styles.rejectionTextInput, !isNoteBodyValid(rejectionDrafts[apartment.id] || "") && styles.rejectionTextInputError]}
+                              maxLength={MAX_NOTE_BODY_CHARS}
                             />
+                            <Text style={[styles.rejectionCounterText, getWordCount(rejectionDrafts[apartment.id] || "") >= MAX_NOTE_BODY_WORDS * 0.9 && styles.rejectionCounterTextWarning]}>{`${getWordCount(rejectionDrafts[apartment.id] || "")}/${MAX_NOTE_BODY_WORDS} λέξεις`}</Text>
                             <Pressable
                               style={[styles.rejectionSubmitBtn, !rejectionDrafts[apartment.id]?.trim() && styles.rejectionSubmitBtnDisabled]}
-                              disabled={!rejectionDrafts[apartment.id]?.trim() || submittingFeedbackAptId === apartment.id}
+                              disabled={!rejectionDrafts[apartment.id]?.trim() || !isNoteBodyValid(rejectionDrafts[apartment.id] || "") || submittingFeedbackAptId === apartment.id}
                               onPress={() => void handleSubmitRejectionReason(apartment)}
                               testID={`proposal-rejection-submit-${apartment.id}`}
                             >
@@ -3147,8 +3437,9 @@ export default function ChatScreen() {
                 }
 
                 return (
-                  <ChatMessageItem
-                    message={m}
+                  <View style={m.id === highlightedMessageId ? { backgroundColor: `${colors.brand}22`, borderRadius: radius.md } : undefined}>
+                    <ChatMessageItem
+                      message={m}
                     styles={styles}
                     colors={colors}
                     isMine={isMine}
@@ -3168,8 +3459,21 @@ export default function ChatScreen() {
                     onDeletePress={() => setMessageActionTarget(m)}
                     onApprove={() => void approveHostActionMessage(m)}
                     showMatchScore={showChatMatchScore}
-                    compatibilityScore={apartmentData ? getChatApartmentCompatibilityScore(apartmentData, latestSharedFilterVersion) : 0}
-                  />
+                      compatibilityScore={apartmentData ? getChatApartmentCompatibilityScore(apartmentData, latestSharedFilterVersion) : 0}
+                      onVisitEdit={() => setVisitToEdit(m)}
+                      onSharedProfilePress={() => {
+                        if (m.metadata?.sharedProfile) {
+                          setSelectedSharedProfile(m.metadata.sharedProfile);
+                          setSharedProfileVisible(true);
+                        }
+                      }}
+                      onContractPress={() => {
+                        if (!m.contractId) return;
+                        setRoommateContractDraft(null);
+                        setRoommateExistingContractId(m.contractId);
+                      }}
+                    />
+                  </View>
                 );
               }}
             />
@@ -3203,6 +3507,11 @@ export default function ChatScreen() {
               testID="chat-input"
               onSubmitEditing={send}
               editable={!inputBlocked}
+            />
+            <VoiceInputButton
+              onTextAppend={(spokenText) => setText((current) => current.trim() ? `${current.trim()} ${spokenText}` : spokenText)}
+              color={colors.onSurfaceTertiary}
+              disabled={inputBlocked}
             />
             <Pressable
               style={[styles.sendBtn, (!text.trim() || inputBlocked) && styles.sendBtnDisabled]}
@@ -3254,11 +3563,50 @@ export default function ChatScreen() {
         onConfirm={(selection) => void handleShareSearchHistory(selection)}
       />
 
+      <RoommateContractPickerModal
+        visible={roommateContractPickerVisible}
+        onClose={() => setRoommateContractPickerVisible(false)}
+        onSelect={startRoommateContract}
+      />
+
+      <SignContractModal
+        visible={roommateContractDraft !== null || roommateExistingContractId !== null}
+        draft={roommateContractDraft ?? undefined}
+        contractId={roommateExistingContractId ?? undefined}
+        signerId={currentUserId ?? ""}
+        onCreated={handleRoommateContractCreated}
+        onClose={() => {
+          setRoommateContractDraft(null);
+          setRoommateExistingContractId(null);
+        }}
+      />
+
       <VisitRequestModal
         visible={showVisitRequestModal}
         isSubmitting={isSubmittingHostAction}
+        brokerId={auth.isBroker ? currentUserId ?? "" : counterpartId}
+        listings={visitRequestListings}
         onClose={() => setShowVisitRequestModal(false)}
-        onSubmit={(date, time) => void submitVisitRequest(date, time)}
+        onSubmit={(date, time, apartmentId) => void submitVisitRequest(date, time, apartmentId)}
+      />
+
+      <EditVisitModal
+        visible={visitToEdit !== null}
+        appointmentDate={visitToEdit?.metadata?.appointmentDate}
+        isSaving={isSavingVisit}
+        onClose={() => setVisitToEdit(null)}
+        onSave={(date) => void saveVisitChanges(date)}
+        onCancelAppointment={() => void cancelVisit()}
+      />
+
+      <SendAddressModal
+        visible={addressDisclosure !== null}
+        exactAddress={addressDisclosure?.exactAddress ?? ""}
+        latitude={addressDisclosure?.latitude}
+        longitude={addressDisclosure?.longitude}
+        isSending={isSendingAddress}
+        onClose={() => setAddressDisclosure(null)}
+        onShare={() => void shareExactAddress()}
       />
 
       <BlockUserModal
@@ -3297,7 +3645,7 @@ export default function ChatScreen() {
         testID="chat-unmute-global-override-modal"
       />
 
-      <UserProfileModal
+      <ChatUserProfileSheet
         visible={profileModalVisible}
         profile={activeProfile}
         details={counterpartDetails}
@@ -3306,8 +3654,36 @@ export default function ChatScreen() {
         displayAbout={displayAbout}
         showAvatar={showAvatarImage}
         socialLinks={shouldShowSocialLinks ? socialLinks : []}
+        canShare={showRoommateHeaderDetails && !counterpartDetails?.preferences?.hideNameInDeck && !counterpartDetails?.preferences?.hideInStack}
+        onShare={() => setShareTargetVisible(true)}
         onClose={() => setProfileModalVisible(false)}
       />
+
+      <SelectShareTargetModal
+        visible={shareTargetVisible}
+        currentUserId={currentUserId ?? ""}
+        profile={{
+          sharedUserId: counterpartId,
+          sharedUserData: {
+            fullName: displayName,
+            ...(activeProfile.photo ? { avatarUrl: activeProfile.photo } : {}),
+            ...(counterpartDetails?.photos?.length ? { photos: counterpartDetails.photos } : {}),
+            ...(activeProfile.age ? { age: activeProfile.age } : {}),
+            ...(activeProfile.budget ? { budget: activeProfile.budget } : {}),
+            ...(activeProfile.gender ? { gender: activeProfile.gender } : {}),
+            ...(activeProfile.university ? { university: activeProfile.university } : {}),
+            ...(activeProfile.program ? { program: activeProfile.program } : {}),
+            ...(compatibilityScore != null ? { compatibilityScore } : {}),
+            ...(Object.keys(sharedProfileQuizAnswers).length > 0 ? { compatibilityQuizAnswers: sharedProfileQuizAnswers } : {}),
+            ...(displayAbout ? { bio: displayAbout } : {}),
+            ...(counterpartDetails?.userHardCriteria ? { hardCriteria: { required: counterpartDetails.userHardCriteria } } : {}),
+          },
+        }}
+        onClose={() => setShareTargetVisible(false)}
+        onSent={() => setShareTargetVisible(false)}
+      />
+
+      <RoommateDeckDetailModal visible={sharedProfileVisible} profile={selectedSharedProfile} onClose={() => setSharedProfileVisible(false)} />
 
       <FilterSetDetailsModal
         visible={!!selectedFilterSetMessage}
@@ -3321,6 +3697,14 @@ export default function ChatScreen() {
             router.push({ pathname: "/(tabs)/apartments", params: { importedFilters: JSON.stringify(filterSetData) } } as never);
           }
         }}
+      />
+
+      <AssignClientEmailModal
+        visible={showAddEmailModal}
+        brokerId={currentUserId ?? ""}
+        clientUserId={counterpartId}
+        onClose={() => setShowAddEmailModal(false)}
+        onSaved={(email) => setCounterpartDetails((previous) => previous ? { ...previous, email, pendingClaimEmail: email } : previous)}
       />
 
       <CenteredActionModal
@@ -3469,6 +3853,24 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     color: colors.onSurface,
   },
   headerTop: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  colleaguePropertyBanner: {
+    minHeight: 40,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.brand,
+    backgroundColor: colors.brandTertiary,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+  },
+  colleaguePropertyBannerText: {
+    flex: 1,
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+    color: colors.onBrandTertiary,
+  },
   headerProfileTapArea: {
     flex: 1,
     flexDirection: "row",
@@ -3823,6 +4225,9 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   rejectionFeedbackTitle: { fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
   rejectionInputRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
   rejectionTextInput: { flex: 1, height: 40, backgroundColor: colors.surfaceTertiary, borderRadius: radius.sm, paddingHorizontal: spacing.sm, fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurface },
+  rejectionTextInputError: { borderWidth: 1, borderColor: "#EF4444" },
+  rejectionCounterText: { alignSelf: "flex-end", fontFamily: fonts.regular, fontSize: 11, color: colors.onSurfaceTertiary },
+  rejectionCounterTextWarning: { color: "#F59E0B" },
   rejectionSubmitBtn: { width: 40, height: 40, borderRadius: radius.sm, backgroundColor: colors.brand, alignItems: "center", justifyContent: "center" },
   rejectionSubmitBtnDisabled: { opacity: 0.45 },
   rejectionFeedbackSavedText: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurface, fontStyle: "italic" },
@@ -4055,6 +4460,24 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   sharedListActionRowMine: { borderTopColor: "rgba(255,255,255,0.35)" },
   sharedListViewBtnText: { fontFamily: fonts.bold, fontSize: fontSize.xs, color: colors.brand },
   sharedListViewBtnTextMine: { color: colors.onBrand },
+  contractMessageCard: {
+    maxWidth: "90%",
+    minHeight: 68,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  contractMessageCardTheirs: { alignSelf: "flex-start", backgroundColor: colors.surfaceSecondary, borderColor: colors.border },
+  contractMessageCardMine: { alignSelf: "flex-end", backgroundColor: colors.brand, borderColor: colors.brand },
+  contractMessageCopy: { flex: 1, gap: 2 },
+  contractMessageTitle: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onSurface },
+  contractMessageTitleMine: { color: colors.onBrand },
+  contractMessageSubtitle: { fontFamily: fonts.regular, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
+  contractMessageSubtitleMine: { color: "rgba(255,255,255,0.82)" },
   listFeedHeaderBanner: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface },
   listFeedBannerTitle: { flex: 1, minWidth: 0, fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onSurface, textAlign: "left" },
   floatingBackButtonLeft: { width: 36, height: 36, borderRadius: radius.pill, backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
@@ -4417,3 +4840,35 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     color: colors.onSurface,
   },
 });
+
+export default function ChatScreenRoute() {
+  const auth = useAuth();
+  const { id, chatRoomId: chatRoomIdParam } = useLocalSearchParams<{ id?: string; chatRoomId?: string }>();
+  const chatRoomId = typeof chatRoomIdParam === "string" && chatRoomIdParam.trim() ? chatRoomIdParam : typeof id === "string" ? id : "";
+  const [groupMetadata, setGroupMetadata] = useState<GroupChatMetadata | null>(null);
+
+  useEffect(() => {
+    if (!chatRoomId) return;
+    return onSnapshot(doc(db, "chats", chatRoomId), (snapshot) => {
+      const data = snapshot.exists() ? snapshot.data() as { type?: string; groupMetadata?: GroupChatMetadata; users?: string[]; groupName?: string; hostApartmentId?: string; createdBy?: string } : null;
+      if (!data || data.type !== "roommate_group") {
+        setGroupMetadata(null);
+        return;
+      }
+      const memberIds = data.groupMetadata?.memberIds ?? data.users ?? [];
+      setGroupMetadata({
+        isGroup: true,
+        groupName: data.groupMetadata?.groupName ?? data.groupName ?? "Ομαδική",
+        memberIds,
+        createdBy: data.groupMetadata?.createdBy ?? data.createdBy ?? memberIds[0] ?? "",
+        ...(data.groupMetadata?.hostUserId ? { hostUserId: data.groupMetadata.hostUserId } : {}),
+        ...(data.groupMetadata?.hostApartmentId ?? data.hostApartmentId ? { hostApartmentId: data.groupMetadata?.hostApartmentId ?? data.hostApartmentId } : {}),
+      });
+    });
+  }, [chatRoomId]);
+
+  if (groupMetadata && auth.userId) {
+    return <GroupChatScreen chatRoomId={chatRoomId} currentUserId={auth.userId} metadata={groupMetadata} />;
+  }
+  return <DirectChatScreen />;
+}

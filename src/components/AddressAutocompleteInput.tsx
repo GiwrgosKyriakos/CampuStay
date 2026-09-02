@@ -12,6 +12,7 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
 import { useTheme } from "@/src/context/ThemeContext";
+import { t } from "@/src/locales";
 
 type AddressSuggestion = {
   address: string;
@@ -326,7 +327,7 @@ export default function AddressAutocompleteInput({
       {showDropdown ? (
         <View style={styles.dropdownCard}>
           <View style={styles.dropdownHeader}>
-            <Text style={styles.dropdownTitle}>Αναζήτηση διεύθυνσης</Text>
+            <Text style={styles.dropdownTitle}>{t("addressSearch.title")}</Text>
             {loading || isResolvingManual ? <ActivityIndicator size="small" color={colors.brandSecondary} /> : null}
           </View>
 
@@ -354,14 +355,14 @@ export default function AddressAutocompleteInput({
               })
             ) : (
               <View style={styles.emptyState}>
-                <Text style={styles.emptyStateTitle}>Δεν βρέθηκαν αποτελέσματα</Text>
-                <Text style={styles.emptyStateText}>Δοκίμασε διαφορετική οδό, περιοχή ή πόλη.</Text>
+                <Text style={styles.emptyStateTitle}>{t("addressSearch.noResults")}</Text>
+                <Text style={styles.emptyStateText}>{t("addressSearch.tryDifferent")}</Text>
               </View>
             )}
 
             {hasMore ? (
               <Pressable style={styles.showMoreButton} onPress={handleShowMore}>
-                <Text style={styles.showMoreText}>Περισσότερα</Text>
+                <Text style={styles.showMoreText}>{t("common.actions.more")}</Text>
                 <Ionicons name="chevron-down" size={16} color={colors.brandSecondary} />
               </Pressable>
             ) : null}

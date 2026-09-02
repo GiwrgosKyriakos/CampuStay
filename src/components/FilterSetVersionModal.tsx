@@ -8,6 +8,9 @@ import { useAuth } from "@/src/context/auth";
 import { fontSize, fonts, radius, spacing, type ThemeColors } from "@/src/theme";
 import { useTheme } from "@/src/context/ThemeContext";
 import type { LatLng } from "@/src/utils/geometry";
+import type { HardCriteriaKey } from "@/src/types/filters";
+import { BrokerModificationBadge } from "@/src/components/BrokerModificationBadge";
+import { t } from "@/src/locales";
 
 export type FilterSetSortOption = "newest" | "oldest" | "price_asc" | "price_desc" | "size_asc" | "size_desc" | "price_sqm_asc" | "price_sqm_desc";
 
@@ -39,6 +42,13 @@ export interface FilterSetVersionData {
   selectedAmenities?: string[];
   polygonCoordinates?: LatLng[];
   updatedAt: number;
+  origin?: "client_created" | "broker_created";
+  brokerModCount?: number;
+  lastModifiedByBrokerId?: string;
+  lastModifiedByBrokerName?: string;
+  lastModifiedAt?: number;
+  isSharedWithClient?: boolean;
+  userHardCriteria?: HardCriteriaKey[];
 }
 
 export interface SharedFilterSetRecord {
@@ -125,7 +135,7 @@ export default function FilterSetVersionModal({ visible, filterSet, onClose, onU
         bedroomsMin: nonEmpty(draft.bedroomsMin ?? ""), bathroomsMin: nonEmpty(draft.bathroomsMin ?? ""),
         furnishedStatus: draft.furnishedStatus, heatingTypes: draft.heatingTypes, energyClasses: draft.energyClasses,
         constructionYearMin: nonEmpty(draft.constructionYearMin ?? ""), renovationYearMin: nonEmpty(draft.renovationYearMin ?? ""),
-        selectedAmenities: draft.selectedAmenities, polygonCoordinates: draft.polygonCoordinates, updatedAt,
+        selectedAmenities: draft.selectedAmenities, polygonCoordinates: draft.polygonCoordinates, userHardCriteria: draft.userHardCriteria, updatedAt,
       };
       const updated = { ...filterSet, currentVersion: nextVersion, versions: [...filterSet.versions, next], updatedAt };
       await updateDoc(doc(db, "users", filterSet.userId, "sharedFilterSets", filterSet.id), updated);
@@ -197,21 +207,26 @@ export default function FilterSetVersionModal({ visible, filterSet, onClose, onU
               {([['rentMin', 'Ελάχιστο ενοίκιο'], ['rentMax', 'Μέγιστο ενοίκιο'], ['minSqmPrice', 'Ελάχιστη τιμή/τ.μ.'], ['maxSqmPrice', 'Μέγιστη τιμή/τ.μ.'], ['cityQuery', 'Πόλη / περιοχή'], ['sizeMin', 'Ελάχιστο εμβαδόν'], ['sizeMax', 'Μέγιστο εμβαδόν']] as const).map(([key, label]) => (
                 <View key={key} style={styles.field}><Text style={styles.label}>{label}</Text><TextInput style={styles.input} value={String(draft[key] ?? "")} onChangeText={(value) => setDraftValue(key, value)} placeholderTextColor={colors.onSurfaceTertiary} /></View>
               ))}
-              <View style={styles.switchRow}><Text style={styles.label}>Κατάλληλο για κατοικίδια</Text><Switch value={draft.petFriendly} onValueChange={(value) => setDraftValue("petFriendly", value)} /></View>
-              <View style={styles.switchRow}><Text style={styles.label}>Κοντά σε μετρό</Text><Switch value={draft.nearMetro} onValueChange={(value) => setDraftValue("nearMetro", value)} /></View>
-              <Text style={styles.label}>Ταξινόμηση</Text>
+              <View style={styles.switchRow}><Text style={styles.label}>{t("filterSetVersion.petFriendly")}</Text><Switch value={draft.petFriendly} onValueChange={(value) => setDraftValue("petFriendly", value)} /></View>
+              <View style={styles.switchRow}><Text style={styles.label}>{t("filterSetVersion.nearMetro")}</Text><Switch value={draft.nearMetro} onValueChange={(value) => setDraftValue("nearMetro", value)} /></View>
+              <Text style={styles.label}>{t("filterSetVersion.sort")}</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pills}>{SORT_OPTIONS.map((option) => <Pressable key={option} style={[styles.pill, draft.sortBy === option && styles.pillActive]} onPress={() => setDraftValue("sortBy", option)}><Text style={[styles.pillText, draft.sortBy === option && styles.pillTextActive]}>{SORT_LABELS[option]}</Text></Pressable>)}</ScrollView>
             </ScrollView>
           ) : (
             <ScrollView contentContainerStyle={styles.criteria}>
-              <View style={styles.versionBadge}><Text style={styles.versionText}>Έκδοση {activeVersion.version}</Text></View>
+              <View style={styles.versionBadge}><Text style={styles.versionText}>{t("filterSetVersion.version", { version: activeVersion.version })}</Text></View>
               <Text style={styles.summary}>{activeVersion.summary || "Όλα τα διαμερίσματα"}</Text>
+              <BrokerModificationBadge
+                modCount={activeVersion.brokerModCount}
+                brokerName={activeVersion.lastModifiedByBrokerName}
+                modifiedAt={activeVersion.lastModifiedAt}
+              />
               {Object.entries({ "Ενοίκιο": [activeVersion.rentMin, activeVersion.rentMax].filter(Boolean).join(" - "), "Τιμή/τ.μ.": [activeVersion.minSqmPrice, activeVersion.maxSqmPrice].filter(Boolean).join(" - "), "Περιοχή": activeVersion.cityQuery, "Εμβαδόν": [activeVersion.sizeMin, activeVersion.sizeMax].filter(Boolean).join(" - "), "Κατοικίδια": activeVersion.petFriendly ? "Ναι" : "Όχι", "Μετρό": activeVersion.nearMetro ? "Ναι" : "Όχι", "Ταξινόμηση": activeVersion.sortBy ? SORT_LABELS[activeVersion.sortBy] : "" }).filter(([, value]) => value).map(([label, value]) => <View key={label} style={styles.criteriaPill}><Text style={styles.criteriaLabel}>{label}</Text><Text style={styles.criteriaValue}>{value}</Text></View>)}
             </ScrollView>
           )}
-          {filterSet.versions.length >= 2 && !editing ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pills}>{filterSet.versions.map((version, index) => <Pressable key={version.version} style={[styles.pill, index === selectedVersion && styles.pillActive]} onPress={() => setSelectedVersion(index)}><Text style={[styles.pillText, index === selectedVersion && styles.pillTextActive]}>Έκδοση {version.version}</Text></Pressable>)}</ScrollView> : null}
+          {filterSet.versions.length >= 2 && !editing ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pills}>{filterSet.versions.map((version, index) => <Pressable key={version.version} style={[styles.pill, index === selectedVersion && styles.pillActive]} onPress={() => setSelectedVersion(index)}><Text style={[styles.pillText, index === selectedVersion && styles.pillTextActive]}>{t("filterSetVersion.version", { version: version.version })}</Text></Pressable>)}</ScrollView> : null}
           <View style={styles.actions}>
-            <Pressable style={styles.actionButton} onPress={() => void openShare()}><Ionicons name="share-social-outline" size={18} color={colors.brand} /><Text style={styles.actionText}>Κοινοποίηση</Text></Pressable>
+            <Pressable style={styles.actionButton} onPress={() => void openShare()}><Ionicons name="share-social-outline" size={18} color={colors.brand} /><Text style={styles.actionText}>{t("filterSetVersion.share")}</Text></Pressable>
             {auth.userId === filterSet.userId ? <Pressable style={[styles.actionButton, styles.primaryButton]} onPress={editing ? () => void saveVersion() : startEditing} disabled={saving}><Ionicons name={editing ? "bookmark-outline" : "create-outline"} size={18} color={colors.onBrand} />{saving ? <ActivityIndicator size="small" color={colors.onBrand} /> : <Text style={styles.primaryText}>{editing ? "Αποθήκευση" : "Επεξεργασία"}</Text>}</Pressable> : null}
           </View>
           {brokers.length > 0 ? <View style={styles.brokerPicker}><Text style={styles.label}>Επιλογή μεσίτη</Text>{brokers.map((broker) => <Pressable key={broker.id} style={styles.brokerRow} onPress={() => void shareWithBroker(broker)}>{broker.avatar ? <Image source={{ uri: broker.avatar }} style={styles.avatar} /> : <Ionicons name="person-circle-outline" size={38} color={colors.onSurfaceTertiary} />}<Text style={styles.brokerName}>{broker.name}</Text><Ionicons name="paper-plane-outline" size={18} color={colors.brand} /></Pressable>)}</View> : null}

@@ -17,7 +17,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { addDoc, arrayUnion, collection, doc, getDoc, getDocs, limit, orderBy, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
+import { addDoc, arrayUnion, collection, deleteField, doc, getDoc, getDocs, limit, orderBy, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { Image } from "expo-image";
@@ -35,13 +35,15 @@ import { useTheme } from "@/src/context/ThemeContext";
 import { uploadBrokerPrivateImageAsync, uploadImageAsync, uploadListingDocumentAsync, uploadListingImageAsync } from "@/src/api/imageUpload";
 import { upsertListing } from "@/src/api/listings";
 import { syncBrokerClientProfile, upsertBrokerClientProfile } from "@/src/api/brokerClientProfiles";
-import { getUserProfile } from "@/src/api/userProfile";
+import { getUserProfile, type UserProfile } from "@/src/api/userProfile";
 import { t } from "@/src/locales";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
+import AiCopywriterModal from "@/src/components/AiCopywriterModal";
 import { calculateTenantCompatibilityScore } from "@/src/utils/compatibilityScore";
 import type { FilterSetPayload } from "@/src/types/filters";
 import type { RealEstateAgency } from "@/src/types/agency";
 import type { LogoWatermarkStyle, WatermarkConfig, WatermarkType } from "@/src/types/listing";
+import type { TourScene, VirtualTourData } from "@/src/types/apartment";
 
 type AmenityKey = "petFriendly" | "nearMetro" | "furnished" | "balcony" | "parking";
 type AmenitySlug = "pet_friendly" | "near_metro" | "furnished" | "balcony" | "parking";
@@ -171,8 +173,8 @@ function filterMatchesListing(filter: ClientFilterVersion, rent: number, size: n
 
 interface FirestoreApartmentDoc {
   title?: string;
-  description?: string; // 🟢 Νέο πεδίο
-  about?: string;       // 🟢 Νέο πεδίο
+  description?: string; // Νέο πεδίο
+  about?: string;       // Νέο πεδίο
   propertyCategory?: string;
   propertyType?: string;
   floor?: string;
@@ -180,6 +182,8 @@ interface FirestoreApartmentDoc {
   area?: string;
   city?: string;
   address?: string;
+  exactAddress?: string;
+  showExactAddress?: boolean;
   latitude?: number;
   longitude?: number;
   hasExactLocation?: boolean;
@@ -193,6 +197,7 @@ interface FirestoreApartmentDoc {
   images?: string[];
   files2d3d?: string[];
   watermarkConfig?: WatermarkConfig;
+  virtualTour?: VirtualTourData;
   brokerPrivatePhotos?: string[];
   documents?: Partial<Record<DocumentCategoryKey, ListingDocument[]>>;
   tags?: string[];
@@ -206,6 +211,7 @@ interface FirestoreApartmentDoc {
   priceHistory?: PriceHistoryEntry[];
   ownerDetails?: {
     name?: string;
+    phone?: string;
     motivation?: string;
     motivationType?: string | null;
     customMotivation?: string;
@@ -214,7 +220,10 @@ interface FirestoreApartmentDoc {
   hostId?: string;
   ownerId?: string;
   assignedBrokerIds?: string[];
+  agencyId?: string;
+  assignmentStatus?: "unassigned_pool" | "claim_pending" | "assigned";
   showPhoneNumber?: boolean;
+  hidePhoneFromBrokers?: boolean;
   publishedAt?: unknown;
   updatedAt?: unknown;
   createdAt?: unknown;
@@ -721,6 +730,7 @@ export default function CreateListingScreen() {
   const [closedDealPrice, setClosedDealPrice] = useState("");
   const [isOwnerDetailsExpanded, setIsOwnerDetailsExpanded] = useState(false);
   const [ownerName, setOwnerName] = useState("");
+  const [ownerPhone, setOwnerPhone] = useState("");
   const [ownerMotivationType, setOwnerMotivationType] = useState<string | null>(null);
   const [customOwnerMotivation, setCustomOwnerMotivation] = useState("");
   const [ownerPriceExpectation, setOwnerPriceExpectation] = useState("");
@@ -744,6 +754,7 @@ export default function CreateListingScreen() {
   const [city, setCity] = useState<string | null>(null);
   const [area, setArea] = useState("");
   const [address, setAddress] = useState("");
+  const [showExactAddress, setShowExactAddress] = useState(true);
   const [addressLatitude, setAddressLatitude] = useState<number | null>(null);
   const [addressLongitude, setAddressLongitude] = useState<number | null>(null);
   const [hasExactLocation, setHasExactLocation] = useState(false);
@@ -770,6 +781,7 @@ export default function CreateListingScreen() {
   const [maxDiscountPercent, setMaxDiscountPercent] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [showPhoneNumber, setShowPhoneNumber] = useState(true);
+  const [hidePhoneFromBrokers, setHidePhoneFromBrokers] = useState(false);
   const [permBlocked, setPermBlocked] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [amenities, setAmenities] = useState<Record<AmenityKey, boolean>>({
@@ -781,11 +793,16 @@ export default function CreateListingScreen() {
   });
   const [photos, setPhotos] = useState<string[]>([]);
   const [files2d3d, setFiles2d3d] = useState<string[]>([]);
+  const [enableVirtualTour, setEnableVirtualTour] = useState(false);
+  const [tourScenes, setTourScenes] = useState<TourScene[]>([]);
+  const [defaultTourSceneId, setDefaultTourSceneId] = useState("");
+  const [tourUploadLoading, setTourUploadLoading] = useState(false);
   const [files2d3dLoading, setFiles2d3dLoading] = useState(false);
   const [watermarkEnabled, setWatermarkEnabled] = useState(false);
   const [watermarkType, setWatermarkType] = useState<WatermarkType>("default_text");
   const [logoStyle, setLogoStyle] = useState<LogoWatermarkStyle>("no_bg_transparent");
   const [agencyData, setAgencyData] = useState<RealEstateAgency | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [brokerPrivatePhotos, setBrokerPrivatePhotos] = useState<string[]>([]);
   const [isBrokerPrivatePhotosExpanded, setIsBrokerPrivatePhotosExpanded] = useState(false);
   const [isDocumentsExpanded, setIsDocumentsExpanded] = useState(false);
@@ -794,6 +811,7 @@ export default function CreateListingScreen() {
   const [uploadingDocumentCategory, setUploadingDocumentCategory] = useState<DocumentCategoryKey | null>(null);
   const [photoPickerTarget, setPhotoPickerTarget] = useState<"listing" | "brokerPrivate">("listing");
   const [photoSourceModalVisible, setPhotoSourceModalVisible] = useState(false);
+  const [aiCopywriterVisible, setAiCopywriterVisible] = useState(false);
   const [formFeedbackModal, setFormFeedbackModal] = useState<{
     title: string;
     description: string;
@@ -808,6 +826,7 @@ export default function CreateListingScreen() {
   const [isAssignedBrokerListing, setIsAssignedBrokerListing] = useState(false);
   const [listingOwnerId, setListingOwnerId] = useState<string | null>(null);
   const [existingAssignedBrokerIds, setExistingAssignedBrokerIds] = useState<string[]>([]);
+  const [existingAssignmentStatus, setExistingAssignmentStatus] = useState<"unassigned_pool" | "claim_pending" | "assigned" | null>(null);
   const [currentListingId, setCurrentListingId] = useState(listingId);
   const [isOffMarket, setIsOffMarket] = useState(false);
   const [offMarketAccessUserIds, setOffMarketAccessUserIds] = useState<string[]>([]);
@@ -816,12 +835,13 @@ export default function CreateListingScreen() {
   const matchingSectionY = useRef(0);
   const [clientPool, setClientPool] = useState<BrokerClientWithFilters[]>([]);
   const [loadingClientPool, setLoadingClientPool] = useState(false);
+  const [publishModeModalVisible, setPublishModeModalVisible] = useState(false);
 
   const handlePick2D3DFiles = useCallback(async () => {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== "granted") {
-        Alert.alert("Απαιτείται Άδεια", "Χρειάζεται πρόσβαση στη συλλογή φωτογραφιών για την επισύναψη αρχείων 2D/3D.");
+        Alert.alert(t("createListing.alerts.permissionTitle"), t("createListing.alerts.permissionMessage"));
         return;
       }
 
@@ -848,6 +868,25 @@ export default function CreateListingScreen() {
     setFiles2d3d((previous) => previous.filter((_, fileIndex) => fileIndex !== index));
   }, []);
 
+  const handlePickTourScenes = useCallback(async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (permission.status !== "granted") {
+      setError("Χρειάζεται πρόσβαση στη συλλογή φωτογραφιών για την προσθήκη 360° εικόνων.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsMultipleSelection: true, quality: 1 });
+    if (result.canceled) return;
+    const nextScenes = result.assets.map((asset, index) => ({
+      id: `scene-${Date.now()}-${tourScenes.length + index}`,
+      title: `Χώρος ${tourScenes.length + index + 1}`,
+      imageUrl: asset.uri,
+      hotspots: [],
+    } satisfies TourScene));
+    setTourScenes((previous) => [...previous, ...nextScenes]);
+    if (!defaultTourSceneId && nextScenes[0]) setDefaultTourSceneId(nextScenes[0].id);
+    setEnableVirtualTour(true);
+  }, [defaultTourSceneId, tourScenes.length]);
+
   const currentPriceHistory = useMemo(() => {
     if (priceHistory.length > 0) return priceHistory;
     const currentPrice = Number(monthlyRent);
@@ -864,6 +903,7 @@ export default function CreateListingScreen() {
     ];
   }, [auth.user?.name, auth.userId, monthlyRent, ownerPriceExpectation, priceHistory]);
   const isBrokerMode = auth.isBroker === true;
+  const canAssignBroker = !isBrokerMode && userProfile?.looking_for_roommate === false;
 
   useEffect(() => {
     if (auth.isGuest || !auth.userId) {
@@ -874,6 +914,7 @@ export default function CreateListingScreen() {
     let active = true;
     void getUserProfile(auth.userId)
       .then(async (profile) => {
+        if (active) setUserProfile(profile);
         if (!profile?.agencyId) return null;
         const agencySnapshot = await getDoc(doc(db, "agencies", profile.agencyId));
         return agencySnapshot.exists()
@@ -995,8 +1036,9 @@ export default function CreateListingScreen() {
       if (!active) return;
       setAvailableBrokers(snapshot.docs.flatMap((brokerDoc) => {
         if (brokerDoc.id === auth.userId) return [];
-        const data = brokerDoc.data() as { name?: string; photoUrl?: string; avatar?: string; photos?: string[]; is_visible?: boolean; isVisible?: boolean };
+        const data = brokerDoc.data() as { name?: string; photoUrl?: string; avatar?: string; photos?: string[]; is_visible?: boolean; isVisible?: boolean; agencyId?: string };
         if (data.is_visible === false || data.isVisible === false) return [];
+        if (agencyData?.id && data.agencyId !== agencyData.id) return [];
         return [{ id: brokerDoc.id, name: data.name?.trim() || "Μεσίτης", avatar: data.photoUrl || data.avatar || data.photos?.[0] || "" }];
       }));
     }).catch(() => {
@@ -1005,7 +1047,7 @@ export default function CreateListingScreen() {
       if (active) setLoadingBrokers(false);
     });
     return () => { active = false; };
-  }, [auth.userId, brokerShareModalVisible]);
+  }, [agencyData?.id, auth.userId, brokerShareModalVisible]);
   const cityOptions = t("createListing.options.cities") as unknown as string[];
   const propertyCategoryOptions = ["Κατοικία", "Επαγγελματική στέγη", "Γη", "Λοιπά ακίνητα"];
   const propertyTypeOptions = [
@@ -1305,6 +1347,7 @@ export default function CreateListingScreen() {
         setOffMarketAccessUserIds(Array.isArray(data.offMarketAccessUserIds) ? data.offMarketAccessUserIds : []);
         const ownerId = data.ownerId || data.hostId;
         const assignedBrokers = Array.isArray(data.assignedBrokerIds) ? data.assignedBrokerIds : [];
+        setExistingAssignmentStatus(data.assignmentStatus === "unassigned_pool" || data.assignmentStatus === "claim_pending" || data.assignmentStatus === "assigned" ? data.assignmentStatus : null);
         setListingOwnerId(ownerId ?? null);
         const hasAccess = Boolean(auth.userId && (ownerId === auth.userId || (isBrokerMode && assignedBrokers.includes(auth.userId))));
         if (!hasAccess) {
@@ -1333,6 +1376,7 @@ export default function CreateListingScreen() {
         setCity(data.city ?? null);
         setArea(data.area ?? "");
         setAddress(data.address ?? "");
+        setShowExactAddress(data.showExactAddress !== false);
         setAddressLatitude(typeof data.latitude === "number" ? data.latitude : null);
         setAddressLongitude(typeof data.longitude === "number" ? data.longitude : null);
         setHasExactLocation(data.hasExactLocation === true);
@@ -1345,6 +1389,7 @@ export default function CreateListingScreen() {
         setTitle(data.title ?? "");
         setDescription(data.description ?? data.about ?? "");
         setShowPhoneNumber(data.showPhoneNumber !== false);
+        setHidePhoneFromBrokers(data.hidePhoneFromBrokers === true);
         setPropertyCategory(data.propertyCategory ?? null);
         setPropertyType(data.propertyType ?? null);
         setFloor(data.floor ?? null);
@@ -1421,6 +1466,7 @@ export default function CreateListingScreen() {
             : "",
         );
         setOwnerName(data.ownerDetails?.name ?? "");
+        setOwnerPhone(data.ownerDetails?.phone ?? "");
         const savedMotivation = data.ownerDetails?.motivation ?? "";
         const savedMotivationType = data.ownerDetails?.motivationType;
         if (OWNER_MOTIVATION_OPTIONS.includes(savedMotivationType as (typeof OWNER_MOTIVATION_OPTIONS)[number])) {
@@ -1506,6 +1552,13 @@ export default function CreateListingScreen() {
           : [data.imageUrl || data.image || ""].filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0);
         setPhotos(imageList.slice(0, PHOTO_SLOTS));
         setFiles2d3d(Array.isArray(data.files2d3d) ? data.files2d3d.filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0) : []);
+        const savedTour = data.virtualTour;
+        const savedScenes = savedTour && Array.isArray(savedTour.scenes)
+          ? savedTour.scenes.filter((scene): scene is TourScene => !!scene && typeof scene.id === "string" && typeof scene.title === "string" && typeof scene.imageUrl === "string")
+          : [];
+        setEnableVirtualTour(savedTour?.enabled === true && savedScenes.length > 0);
+        setTourScenes(savedScenes);
+        setDefaultTourSceneId(savedTour?.defaultSceneId || savedScenes[0]?.id || "");
         const savedWatermark = data.watermarkConfig;
         setWatermarkEnabled(savedWatermark?.enabled === true);
         setWatermarkType(savedWatermark?.type === "agency_logo" ? "agency_logo" : "default_text");
@@ -1562,6 +1615,8 @@ export default function CreateListingScreen() {
 
       await updateDoc(apartmentRef, {
         assignedBrokerIds: arrayUnion(selectedBrokerId),
+        assignmentStatus: "assigned",
+        pendingClaimBrokerId: deleteField(),
         "ownerDetails.name": finalOwnerName,
         updatedAt: serverTimestamp(),
       });
@@ -1796,6 +1851,8 @@ export default function CreateListingScreen() {
       area: area.trim(),
       city,
       address: address.trim() || undefined,
+      exactAddress: address.trim() || undefined,
+      showExactAddress,
       latitude: hasExactLocation ? addressLatitude : undefined,
       longitude: hasExactLocation ? addressLongitude : undefined,
       hasExactLocation,
@@ -1832,6 +1889,7 @@ export default function CreateListingScreen() {
       closedDealPrice: propertyStatus === "sold_rented" && closedDealPrice.trim() ? Number(closedDealPrice) : null,
       ownerDetails: {
         name: ownerName.trim(),
+        phone: ownerPhone.trim() || undefined,
         motivationType: ownerMotivationType,
         customMotivation: ownerMotivationType === "Άλλο" ? customOwnerMotivation.trim() : undefined,
         motivation: ownerMotivationType === "Άλλο" ? customOwnerMotivation.trim() : (ownerMotivationType ?? ""),
@@ -1839,6 +1897,7 @@ export default function CreateListingScreen() {
       },
       priceHistory: currentPriceHistory,
       showPhoneNumber,
+      hidePhoneFromBrokers: showPhoneNumber && hidePhoneFromBrokers,
       hostId,
       ownerId: hostId,
       assignedBrokerIds: existingAssignedBrokerIds,
@@ -1846,7 +1905,64 @@ export default function CreateListingScreen() {
       visibility: options?.visibility ?? (isOffMarket ? "client_only" : "public"),
       offMarketAccessUserIds: options?.offMarketAccessUserIds ?? offMarketAccessUserIds,
     };
-  }, [address, addressLatitude, addressLongitude, agencyData, area, availableFromDate, buildYear, city, closedDealPrice, commonExpenses, currentPriceHistory, customOwnerMotivation, description, energyClass, existingAssignedBrokerIds, extraDetailsState, files2d3d, floor, hasExactLocation, heatingSystem, isImmediatelyAvailable, isOffMarket, kitchens, levels, livingRooms, listingOwnerId, logoStyle, maxDiscountPercent, monthlyRent, offMarketAccessUserIds, orientation, ownerMotivationType, ownerName, ownerPriceExpectation, photos, propertyCategory, propertyStatus, propertyType, rooms, selectedAmenitySlugs, showPhoneNumber, sizeSqm, technicalSpecificationsPayload, title, watermarkEnabled, watermarkType, windowFrames, renovationYear, bathrooms, auth.userId]);
+  }, [address, addressLatitude, addressLongitude, agencyData, area, availableFromDate, buildYear, city, closedDealPrice, commonExpenses, currentPriceHistory, customOwnerMotivation, description, energyClass, existingAssignedBrokerIds, extraDetailsState, files2d3d, floor, hasExactLocation, heatingSystem, hidePhoneFromBrokers, isImmediatelyAvailable, isOffMarket, kitchens, levels, livingRooms, listingOwnerId, logoStyle, maxDiscountPercent, monthlyRent, offMarketAccessUserIds, orientation, ownerMotivationType, ownerName, ownerPhone, ownerPriceExpectation, photos, propertyCategory, propertyStatus, propertyType, rooms, selectedAmenitySlugs, showExactAddress, showPhoneNumber, sizeSqm, technicalSpecificationsPayload, title, watermarkEnabled, watermarkType, windowFrames, renovationYear, bathrooms, auth.userId]);
+
+  const ensureOwnerForListing = useCallback(async (apartmentId: string, options: { addToBroker?: boolean } = {}): Promise<string | null> => {
+    if (!isBrokerMode || !auth.userId || !ownerName.trim()) return null;
+    const cleanName = ownerName.trim();
+    const cleanPhone = ownerPhone.trim();
+    let ownerUserId = listingOwnerId && listingOwnerId !== auth.userId ? listingOwnerId : null;
+
+    if (!ownerUserId) {
+      const profileSnapshot = await getDocs(query(collection(db, "brokerClientProfiles"), where("brokerId", "==", auth.userId), where("role", "==", "owner")));
+      for (const profileDoc of profileSnapshot.docs) {
+        const profileData = profileDoc.data() as { clientId?: unknown; clientUserId?: unknown };
+        const candidateId = typeof profileData.clientId === "string" ? profileData.clientId : typeof profileData.clientUserId === "string" ? profileData.clientUserId : "";
+        if (!candidateId) continue;
+        const userSnapshot = await getDoc(doc(db, "users", candidateId));
+        if (!userSnapshot.exists()) continue;
+        const userData = userSnapshot.data() as { name?: unknown; phone?: unknown };
+        const sameName = typeof userData.name === "string" && userData.name.trim().toLocaleLowerCase() === cleanName.toLocaleLowerCase();
+        const samePhone = !cleanPhone || (typeof userData.phone === "string" && userData.phone.trim() === cleanPhone);
+        if (sameName && samePhone) {
+          ownerUserId = candidateId;
+          break;
+        }
+      }
+    }
+
+    if (!ownerUserId) {
+      ownerUserId = `manual_owner_${Date.now()}`;
+      await setDoc(doc(db, "users", ownerUserId), {
+        name: cleanName,
+        phone: cleanPhone,
+        is_manual_owner: true,
+        createdByBrokerId: auth.userId,
+        createdAt: serverTimestamp(),
+      });
+    }
+
+    if (options.addToBroker !== false) {
+      await upsertBrokerClientProfile({
+        brokerId: auth.userId,
+        clientId: ownerUserId,
+        clientName: cleanName,
+        role: "owner",
+        apartmentId,
+        apartmentTitle: title.trim() || "Ακίνητο",
+        rent: Number(monthlyRent) || 0,
+        ownerId: ownerUserId,
+      });
+    }
+    await updateDoc(doc(db, "apartments", apartmentId), {
+      ownerId: ownerUserId,
+      ...(options.addToBroker !== false ? { assignedBrokerIds: arrayUnion(auth.userId) } : {}),
+      "ownerDetails.name": cleanName,
+      ...(cleanPhone ? { "ownerDetails.phone": cleanPhone } : {}),
+      updatedAt: serverTimestamp(),
+    });
+    return ownerUserId;
+  }, [auth.userId, isBrokerMode, listingOwnerId, monthlyRent, ownerName, ownerPhone, title]);
 
   const handleSendOffMarketListing = useCallback(async (client: MatchedClient) => {
     if (!auth.userId || auth.isGuest || sendingOffMarketClientId) return;
@@ -1873,6 +1989,7 @@ export default function CreateListingScreen() {
           offMarketAccessUserIds: nextAccessUserIds,
         },
       });
+      await ensureOwnerForListing(finalListingId);
       if (existingId) {
         await updateDoc(doc(db, "apartments", finalListingId), {
           isOffMarket: true,
@@ -1902,7 +2019,7 @@ export default function CreateListingScreen() {
     } finally {
       setSendingOffMarketClientId(null);
     }
-  }, [area, auth.isGuest, auth.userId, buildCurrentListingPayload, city, currentListingId, isEditMode, listingId, monthlyRent, offMarketAccessUserIds, photos, sendingOffMarketClientId, showFeedbackModal, sizeSqm, title]);
+  }, [area, auth.isGuest, auth.userId, buildCurrentListingPayload, city, currentListingId, ensureOwnerForListing, isEditMode, listingId, monthlyRent, offMarketAccessUserIds, photos, sendingOffMarketClientId, showFeedbackModal, sizeSqm, title]);
 
   useEffect(() => {
     if (!isOffMarket || !currentListingId || !auth.isBroker) return;
@@ -1917,7 +2034,7 @@ export default function CreateListingScreen() {
     return () => clearTimeout(timer);
   }, [address, amenities, area, auth.isBroker, buildCurrentListingPayload, city, currentListingId, description, floor, isOffMarket, monthlyRent, photos, rooms, sizeSqm, title]);
 
-  const validateAndSubmit = async () => {
+  const validateAndSubmit = async (publishMode?: "direct" | "pool") => {
         const parsedMaxDiscount = maxDiscountPercent.trim().length > 0 ? Number(maxDiscountPercent) : null;
         if (parsedMaxDiscount !== null && (!Number.isInteger(parsedMaxDiscount) || parsedMaxDiscount < 0 || parsedMaxDiscount > 100)) {
           showFeedbackModal(
@@ -2023,6 +2140,19 @@ export default function CreateListingScreen() {
         nextPriceHistory = [...nextPriceHistory, currentPriceHistoryEntry];
       }
 
+      const publishToPool = isBrokerMode && publishMode === "pool";
+      const assignedBrokerIds = isBrokerMode && publishMode === "direct"
+        ? [currentUserId]
+        : publishToPool
+          ? []
+          : existingAssignedBrokerIds;
+      const assignmentStatus = isBrokerMode
+        ? publishMode === "pool"
+          ? "unassigned_pool"
+          : publishMode === "direct"
+            ? "assigned"
+            : existingAssignmentStatus ?? (assignedBrokerIds.length > 0 ? "assigned" : "unassigned_pool")
+        : undefined;
       const data: Record<string, unknown> = {
         title: finalTitle,
         description: finalDescription,
@@ -2034,6 +2164,8 @@ export default function CreateListingScreen() {
         area: area.trim(),
         city,
         address: finalAddress.length > 0 ? finalAddress : undefined,
+        exactAddress: finalAddress.length > 0 ? finalAddress : undefined,
+        showExactAddress,
         latitude: exactAddressSelected ? addressLatitude : undefined,
         longitude: exactAddressSelected ? addressLongitude : undefined,
         hasExactLocation: exactAddressSelected,
@@ -2069,6 +2201,7 @@ export default function CreateListingScreen() {
         ownerDetails: isBrokerMode
           ? {
               name: ownerName.trim(),
+              phone: ownerPhone.trim() || undefined,
               motivationType: ownerMotivationType,
               customMotivation: ownerMotivationType === "Άλλο" ? customOwnerMotivation.trim() : undefined,
               motivation: ownerMotivationType === "Άλλο" ? customOwnerMotivation.trim() : (ownerMotivationType ?? ""),
@@ -2077,9 +2210,12 @@ export default function CreateListingScreen() {
           : undefined,
         priceHistory: isBrokerMode ? nextPriceHistory : undefined,
         showPhoneNumber,
+        hidePhoneFromBrokers: showPhoneNumber && hidePhoneFromBrokers,
         hostId,
         ownerId: hostId,
-        assignedBrokerIds: existingAssignedBrokerIds,
+        ...(isBrokerMode && (agencyData?.id || auth.agencyId) ? { agencyId: agencyData?.id || auth.agencyId } : {}),
+        assignedBrokerIds,
+        ...(assignmentStatus ? { assignmentStatus } : {}),
         isOffMarket: false,
         visibility: "public",
         offMarketAccessUserIds,
@@ -2091,6 +2227,9 @@ export default function CreateListingScreen() {
       });
       setCurrentListingId(savedApartmentId);
       setIsOffMarket(false);
+      if (isBrokerMode) {
+        await ensureOwnerForListing(savedApartmentId, { addToBroker: !publishToPool });
+      }
       if (isBrokerMode) {
         setPriceHistory(nextPriceHistory);
         setSelectedHistoryNode(null);
@@ -2151,6 +2290,24 @@ export default function CreateListingScreen() {
       setFiles2d3d(finalFiles2d3d);
       setFiles2d3dLoading(false);
 
+      setTourUploadLoading(true);
+      const uploadedTourScenes = enableVirtualTour
+        ? await Promise.all(tourScenes.map(async (scene) => ({
+          ...scene,
+          imageUrl: await uploadImageAsync(scene.imageUrl, `apartments/${savedApartmentId}/360_scenes/${scene.id}.jpg`),
+        })))
+        : [];
+      const virtualTour: VirtualTourData = {
+        enabled: enableVirtualTour && uploadedTourScenes.length > 0,
+        defaultSceneId: uploadedTourScenes.some((scene) => scene.id === defaultTourSceneId) ? defaultTourSceneId : uploadedTourScenes[0]?.id ?? "",
+        scenes: uploadedTourScenes,
+      };
+      await upsertListing({ apartmentId: savedApartmentId, payload: { virtualTour } });
+      setTourScenes(uploadedTourScenes);
+      setDefaultTourSceneId(virtualTour.defaultSceneId);
+      setEnableVirtualTour(virtualTour.enabled);
+      setTourUploadLoading(false);
+
       if (uploadedImages.length) {
         setPhotos(uploadedImages);
       }
@@ -2169,6 +2326,14 @@ export default function CreateListingScreen() {
       t("createListing.alerts.publishedMessage", { size: sizeSqm, area, city }),
       () => router.back(),
     );
+  };
+
+  const handlePublishPress = () => {
+    if (isBrokerMode && !isEditMode && !currentListingId) {
+      setPublishModeModalVisible(true);
+      return;
+    }
+    void validateAndSubmit();
   };
 
   return (
@@ -2220,7 +2385,7 @@ export default function CreateListingScreen() {
             <Text style={styles.fieldHint}>{t("createListing.rentHint")}</Text>
           </View>
 
-          {/* 🟢 1. ΚΑΡΤΑ ΤΙΤΛΟΥ ΑΓΓΕΛΙΑΣ */}
+          {/* 1. ΚΑΡΤΑ ΤΙΤΛΟΥ ΑΓΓΕΛΙΑΣ */}
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Τίτλος Αγγελίας (Προαιρετικό)</Text>
             <TextInput
@@ -2237,13 +2402,22 @@ export default function CreateListingScreen() {
             </Text>
           </View>
 
-          {/* 🟢 2. ΚΑΡΤΑ ΠΕΡΙΓΡΑΦΗΣ / ABOUT */}
+          {/* 2. ΚΑΡΤΑ ΠΕΡΙΓΡΑΦΗΣ / ABOUT */}
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Περιγραφή / Σχετικά με το σπίτι (Προαιρετικό)</Text>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionTitle}>Περιγραφή / Σχετικά με το σπίτι (Προαιρετικό)</Text>
+              <Pressable
+                style={[styles.aiHelperButton, { backgroundColor: colors.brandTertiary, borderColor: colors.border }]}
+                onPress={() => setAiCopywriterVisible(true)}
+              >
+                <Ionicons name="sparkles-outline" size={16} color={colors.brand} />
+                <Text style={[styles.aiHelperButtonText, { color: colors.brand }]}>{t("feed.aiCopywriterButton")}</Text>
+              </Pressable>
+            </View>
             <TextInput
               value={description}
               onChangeText={setDescription}
-              placeholder="Γράψε λεπτομέρειες για το σπίτι, τους κανόνες ή τι αναζητάς..."
+              placeholder={t("createListing.detailsPlaceholder")}
               placeholderTextColor={colors.onSurfaceTertiary}
               multiline
               numberOfLines={4}
@@ -2286,7 +2460,7 @@ export default function CreateListingScreen() {
                       if (Number.isNaN(parsed)) return;
                       setMaxDiscountPercent(String(Math.min(100, parsed)));
                     }}
-                    placeholder="π.χ. 10"
+                    placeholder={t("createListing.maxOfferDiscountPlaceholder")}
                     placeholderTextColor={colors.onSurfaceTertiary}
                     keyboardType="number-pad"
                     maxLength={3}
@@ -2319,11 +2493,24 @@ export default function CreateListingScreen() {
               style={[styles.input, styles.mtSm]}
               testID="create-listing-area-input"
             />
+            <View style={[styles.contactToggleRow, styles.mtSm]}>
+              <View style={styles.contactToggleTextWrap}>
+                <Text style={styles.contactToggleLabel}>Εμφάνιση ακριβούς διεύθυνσης στην αγγελία</Text>
+                <Text style={styles.fieldHint}>Εάν απενεργοποιηθεί, οι ενδιαφερόμενοι θα βλέπουν μόνο την περιοχή μέχρι να τους κοινοποιήσετε τη διεύθυνση.</Text>
+              </View>
+              <Switch
+                value={showExactAddress}
+                onValueChange={setShowExactAddress}
+                trackColor={{ false: colors.border, true: colors.brandSecondary }}
+                thumbColor={showExactAddress ? colors.brand : colors.onSurface}
+                testID="create-listing-show-exact-address-toggle"
+              />
+            </View>
             <AddressAutocompleteInput
               value={address}
               city={city}
               area={area}
-              placeholder="Οδός, αριθμός, περιοχή (προαιρετικό)"
+              placeholder={t("createListing.addressPlaceholder")}
               onChangeAddressText={(text) => {
                 setAddress(text);
                 setAddressLatitude(null);
@@ -2404,7 +2591,7 @@ export default function CreateListingScreen() {
                 <Dropdown
                   value={propertyCategory}
                   options={propertyCategoryOptions}
-                  placeholder="Επιλέξτε κατηγορία"
+                  placeholder={t("createListing.categoryPlaceholder")}
                   onSelect={setPropertyCategory}
                   testID="create-listing-property-category-dropdown"
                 />
@@ -2413,7 +2600,7 @@ export default function CreateListingScreen() {
                 <Dropdown
                   value={propertyType}
                   options={propertyTypeOptions}
-                  placeholder="Επιλέξτε είδος"
+                  placeholder={t("createListing.propertyTypePlaceholder")}
                   onSelect={setPropertyType}
                   testID="create-listing-property-type-dropdown"
                 />
@@ -2422,7 +2609,7 @@ export default function CreateListingScreen() {
                 <Dropdown
                   value={floor}
                   options={floorOptions}
-                  placeholder="Επιλέξτε όροφο"
+                  placeholder={t("createListing.floorPlaceholder")}
                   onSelect={setFloor}
                   testID="create-listing-floor-dropdown"
                 />
@@ -2432,7 +2619,7 @@ export default function CreateListingScreen() {
                   value={rooms}
                   onChangeText={(value) => setRooms(digitsOnlyInput(value))}
                   onBlur={() => setRooms(normalizeIntegerOnBlur(rooms, 1, 99, 1))}
-                  placeholder="π.χ. 2"
+                    placeholder={t("createListing.roomsPlaceholder")}
                   placeholderTextColor={colors.onSurfaceTertiary}
                   keyboardType="number-pad"
                   maxLength={2}
@@ -2445,7 +2632,7 @@ export default function CreateListingScreen() {
                 <Dropdown
                   value={orientation}
                   options={ORIENTATION_OPTIONS}
-                  placeholder="Επιλέξτε προσανατολισμό"
+                  placeholder={t("createListing.orientationPlaceholder")}
                   onSelect={setOrientation}
                   testID="create-listing-orientation-dropdown"
                 />
@@ -2505,6 +2692,41 @@ export default function CreateListingScreen() {
             )}
 
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
+          </View>
+
+          <View style={styles.card} testID="virtual-tour-controls-section">
+            <View style={styles.sectionHeaderRow}>
+              <View style={styles.sectionTitleWrap}>
+                <Ionicons color={colors.onSurface} name="cube-outline" size={20} />
+                <View>
+                  <Text style={styles.sectionTitle}>Προσθήκη 360° Virtual Tour</Text>
+                  <Text style={styles.fieldHint}>Προσθέστε πανοραμικές εικόνες για περιήγηση στους χώρους.</Text>
+                </View>
+              </View>
+              <Switch value={enableVirtualTour} onValueChange={setEnableVirtualTour} trackColor={{ false: colors.border, true: colors.brandSecondary }} thumbColor={enableVirtualTour ? colors.brand : colors.onSurface} testID="create-listing-virtual-tour-toggle" />
+            </View>
+            {enableVirtualTour ? (
+              <>
+                <Pressable style={styles.tourAddButton} onPress={() => void handlePickTourScenes()} disabled={tourUploadLoading} testID="create-listing-add-tour-scene">
+                  {tourUploadLoading ? <ActivityIndicator color={colors.onBrand} /> : <Ionicons name="add-circle-outline" size={19} color={colors.onBrand} />}
+                  <Text style={styles.tourAddButtonText}>Προσθήκη πανοράματος</Text>
+                </Pressable>
+                {tourScenes.map((scene) => (
+                  <View key={scene.id} style={styles.tourSceneRow}>
+                    <Image source={{ uri: scene.imageUrl }} style={styles.tourSceneThumb} contentFit="cover" />
+                    <View style={styles.tourSceneDetails}>
+                      <TextInput value={scene.title} onChangeText={(title) => setTourScenes((previous) => previous.map((item) => item.id === scene.id ? { ...item, title } : item))} style={styles.tourSceneTitleInput} placeholder={t("createListing.sceneTitlePlaceholder")} placeholderTextColor={colors.onSurfaceTertiary} testID={`tour-scene-title-${scene.id}`} />
+                      <Pressable style={styles.tourDefaultRow} onPress={() => setDefaultTourSceneId(scene.id)} testID={`tour-scene-default-${scene.id}`}>
+                        <Ionicons name={defaultTourSceneId === scene.id ? "radio-button-on" : "radio-button-off"} size={18} color={defaultTourSceneId === scene.id ? colors.brand : colors.onSurfaceTertiary} />
+                        <Text style={styles.tourDefaultText}>Προεπιλεγμένος χώρος</Text>
+                      </Pressable>
+                    </View>
+                    <Pressable onPress={() => { setTourScenes((previous) => previous.filter((item) => item.id !== scene.id)); if (defaultTourSceneId === scene.id) setDefaultTourSceneId(tourScenes.find((item) => item.id !== scene.id)?.id ?? ""); }} hitSlop={8} testID={`tour-scene-remove-${scene.id}`}><Ionicons name="trash-outline" size={19} color={colors.error} /></Pressable>
+                  </View>
+                ))}
+                {tourScenes.length === 0 ? <Text style={styles.fieldHint}>Δεν έχουν προστεθεί ακόμη πανοράματα.</Text> : null}
+              </>
+            ) : null}
           </View>
 
           <View style={styles.sectionCard} testID="section-2d-3d-files">
@@ -2885,6 +3107,21 @@ export default function CreateListingScreen() {
                 testID="create-listing-show-phone-toggle"
               />
             </View>
+            {showPhoneNumber ? (
+              <View style={styles.contactToggleRow}>
+                <View style={styles.contactToggleTextWrap}>
+                  <Text style={styles.contactToggleLabel}>Απόκρυψη από μεσίτες</Text>
+                  <Text style={styles.fieldHint}>Ο αριθμός τηλεφώνου δεν θα εμφανίζεται σε χρήστες με μεσιτικό λογαριασμό.</Text>
+                </View>
+                <Switch
+                  value={hidePhoneFromBrokers}
+                  onValueChange={setHidePhoneFromBrokers}
+                  trackColor={{ false: colors.border, true: colors.brandSecondary }}
+                  thumbColor={hidePhoneFromBrokers ? colors.brand : colors.onSurface}
+                  testID="create-listing-hide-phone-from-brokers-toggle"
+                />
+              </View>
+            ) : null}
           </View>
 
           <View style={styles.card}>
@@ -3084,7 +3321,7 @@ export default function CreateListingScreen() {
                 <Dropdown
                   value={heatingSystem}
                   options={HEATING_SYSTEM_OPTIONS}
-                  placeholder="Επιλέξτε σύστημα θέρμανσης"
+                  placeholder={t("createListing.heatingPlaceholder")}
                   onSelect={setHeatingSystem}
                   testID="create-listing-extra-info-heating-system"
                 />
@@ -3093,7 +3330,7 @@ export default function CreateListingScreen() {
                 <Dropdown
                   value={energyClass}
                   options={ENERGY_CLASS_OPTIONS}
-                  placeholder="Επιλέξτε ενεργειακή κλάση"
+                  placeholder={t("createListing.energyClassPlaceholder")}
                   onSelect={setEnergyClass}
                   testID="create-listing-extra-info-energy-class"
                 />
@@ -3102,7 +3339,7 @@ export default function CreateListingScreen() {
                 <TextInput
                   value={windowFrames}
                   onChangeText={setWindowFrames}
-                  placeholder="π.χ. Αλουμινίου, Συνθετικά (PVC), Ξύλινα"
+                  placeholder={t("createListing.windowFramesPlaceholder")}
                   placeholderTextColor={colors.onSurfaceTertiary}
                   style={styles.input}
                   testID="create-listing-extra-info-window-frames"
@@ -3128,7 +3365,7 @@ export default function CreateListingScreen() {
                 <Dropdown
                   value={availableFromDateLabel}
                   options={availableFromDateOptions.map((item) => item.label)}
-                  placeholder="Επιλέξτε ημερομηνία"
+                  placeholder={t("createListing.datePlaceholder")}
                   onSelect={(selectedLabel) => {
                     const selectedOption = availableFromDateOptions.find((item) => item.label === selectedLabel);
                     setAvailableFromDate(selectedOption?.value ?? null);
@@ -3210,7 +3447,7 @@ export default function CreateListingScreen() {
                           <TextInput
                             value={inputValue}
                             onChangeText={(value) => handleTechnicalSpecInputChange(config.type, value)}
-                            placeholder="τ.μ."
+                            placeholder={t("createListing.squareMetersPlaceholder")}
                             placeholderTextColor={colors.onSurfaceTertiary}
                             keyboardType="number-pad"
                             maxLength={4}
@@ -3303,7 +3540,7 @@ export default function CreateListingScreen() {
                         value={closedDealPrice}
                         onChangeText={(value) => setClosedDealPrice(digitsOnlyInput(value))}
                         keyboardType="number-pad"
-                        placeholder="Τελική τιμή (€)"
+                        placeholder={t("createListing.finalPricePlaceholder")}
                         placeholderTextColor={colors.onSurfaceTertiary}
                         style={styles.input}
                         testID="create-listing-closed-deal-price"
@@ -3338,7 +3575,7 @@ export default function CreateListingScreen() {
                       value={ownerName}
                       onChangeText={setOwnerName}
                       editable={!isAssignedBrokerListing}
-                      placeholder="π.χ. Γιώργος Παπαδόπουλος"
+                      placeholder={t("createListing.ownerNamePlaceholder")}
                       placeholderTextColor={colors.onSurfaceTertiary}
                       style={[styles.input, isAssignedBrokerListing && styles.readOnlyInput]}
                       testID="create-listing-owner-name-input"
@@ -3352,15 +3589,28 @@ export default function CreateListingScreen() {
                     <Dropdown
                       onSelect={setOwnerMotivationType}
                       options={[...OWNER_MOTIVATION_OPTIONS]}
-                      placeholder="Επιλέξτε κίνητρο"
+                      placeholder={t("createListing.ownerMotivationPlaceholder")}
                       value={ownerMotivationType}
                       testID="create-listing-owner-motivation-dropdown"
+                    />
+                  </View>
+                  <View>
+                    <Text style={styles.fieldLabel}>Τηλέφωνο ιδιοκτήτη</Text>
+                    <TextInput
+                      value={ownerPhone}
+                      onChangeText={setOwnerPhone}
+                      editable={!isAssignedBrokerListing}
+                      placeholder={t("createListing.ownerPhonePlaceholder")}
+                      placeholderTextColor={colors.onSurfaceTertiary}
+                      keyboardType="phone-pad"
+                      style={[styles.input, isAssignedBrokerListing && styles.readOnlyInput]}
+                      testID="create-listing-owner-phone-input"
                     />
                   </View>
                   {ownerMotivationType === "Άλλο" ? (
                     <TextInput
                       onChangeText={setCustomOwnerMotivation}
-                      placeholder="Προσδιορίστε το κίνητρο του ιδιοκτήτη..."
+                      placeholder={t("createListing.ownerMotivationDetailsPlaceholder")}
                       placeholderTextColor={colors.onSurfaceTertiary}
                       style={[styles.input, styles.mtSm]}
                       testID="create-listing-owner-custom-motivation-input"
@@ -3372,7 +3622,7 @@ export default function CreateListingScreen() {
                     <TextInput
                       onChangeText={(value) => setOwnerPriceExpectation(digitsOnlyInput(value))}
                       value={ownerPriceExpectation}
-                      placeholder="π.χ. 550"
+                      placeholder={t("createListing.ownerExpectedPricePlaceholder")}
                       placeholderTextColor={colors.onSurfaceTertiary}
                       keyboardType="number-pad"
                       style={styles.input}
@@ -3421,7 +3671,7 @@ export default function CreateListingScreen() {
           <Pressable
             style={[styles.floatingMatchingButton, { top: spacing.md + insets.top }]}
             onPress={() => scrollViewRef.current?.scrollTo({ y: matchingSectionY.current, animated: true })}
-            accessibilityLabel="Αναζήτηση συμβατών πελατών"
+            accessibilityLabel={t("createListing.searchCompatibleClientsLabel")}
             testID="create-listing-matching-scroll-button"
           >
             <Ionicons name="search-outline" size={20} color={colors.onSurface} />
@@ -3434,7 +3684,7 @@ export default function CreateListingScreen() {
               <Text style={styles.offMarketBackButtonText}>Πίσω</Text>
             </Pressable>
           ) : null}
-          {!isBrokerMode && (isEditMode || userHasListings) ? (
+          {canAssignBroker && propertyCategory !== "roommate" && (isEditMode || userHasListings) ? (
             <Pressable
               style={styles.assignBrokerButton}
               onPress={() => {
@@ -3452,7 +3702,7 @@ export default function CreateListingScreen() {
           ) : null}
           <Pressable
             style={[styles.publishButton, isOffMarket && styles.offMarketPublishButton, submitting && styles.publishButtonDisabled]}
-            onPress={validateAndSubmit}
+            onPress={handlePublishPress}
             disabled={submitting}
             testID="create-listing-publish-button"
           >
@@ -3467,6 +3717,23 @@ export default function CreateListingScreen() {
           </Pressable>
         </View>
       </KeyboardAvoidingView>
+
+      <AiCopywriterModal
+        visible={aiCopywriterVisible}
+        onClose={() => setAiCopywriterVisible(false)}
+        onApply={(nextDescription) => {
+          setDescription((previous) => (previous && previous.trim().length > 0 ? `${previous}\n\n${nextDescription}` : nextDescription));
+        }}
+        specs={{
+          rooms: Number(rooms) || 2,
+          sqm: Number(sizeSqm) || 80,
+          area,
+          amenities: Object.entries(amenities)
+            .filter(([, enabled]) => enabled)
+            .map(([key]) => key === "petFriendly" ? "Pet friendly" : key === "nearMetro" ? "Near metro" : key === "furnished" ? "Furnished" : key === "balcony" ? "Balcony" : "Parking"),
+          price: Number(monthlyRent) || 1200,
+        }}
+      />
 
       <CenteredActionModal
         visible={!!formFeedbackModal}
@@ -3483,6 +3750,20 @@ export default function CreateListingScreen() {
         ]}
         testID="create-listing-feedback-modal"
       />
+
+      <Modal visible={publishModeModalVisible} transparent animationType="fade" onRequestClose={() => setPublishModeModalVisible(false)}>
+        <Pressable style={styles.publishModeBackdrop} onPress={() => setPublishModeModalVisible(false)}>
+          <Pressable style={styles.publishModeCard} onPress={(event) => event.stopPropagation()} testID="create-listing-publish-mode-modal">
+            <View style={styles.publishModeHeader}><Text style={styles.publishModeTitle}>Πώς θέλεις να δημοσιεύσεις;</Text><Pressable onPress={() => setPublishModeModalVisible(false)} hitSlop={8}><Ionicons name="close-outline" size={24} color={colors.onSurface} /></Pressable></View>
+            <Pressable style={styles.publishModeOption} onPress={() => { setPublishModeModalVisible(false); void validateAndSubmit("direct"); }} testID="create-listing-direct-manage-option">
+              <Ionicons name="person-circle-outline" size={24} color={colors.brand} /><View style={styles.publishModeOptionCopy}><Text style={styles.publishModeOptionTitle}>Αναλαμβάνω τη διαχείριση</Text><Text style={styles.publishModeOptionSubtitle}>Απευθείας ανάθεση σε εσάς και προσθήκη ιδιοκτήτη στους πελάτες σας.</Text></View><Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />
+            </Pressable>
+            <Pressable style={styles.publishModeOption} onPress={() => { setPublishModeModalVisible(false); void validateAndSubmit("pool"); }} testID="create-listing-pool-option">
+              <Ionicons name="business-outline" size={24} color={colors.brand} /><View style={styles.publishModeOptionCopy}><Text style={styles.publishModeOptionTitle}>Προσθήκη στο Apartment Pool</Text><Text style={styles.publishModeOptionSubtitle}>Διάθεση στο κοινό pool του γραφείου χωρίς ανάθεση.</Text></View><Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       <Modal
         visible={brokerShareModalVisible}
@@ -3635,6 +3916,14 @@ function createStyles(colors: ThemeColors) {
       marginTop: spacing.md,
     },
     sectionTitleWrap: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
+    tourAddButton: { minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.xs, borderRadius: radius.md, backgroundColor: colors.brand },
+    tourAddButtonText: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onBrand },
+    tourSceneRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceSecondary },
+    tourSceneThumb: { width: 72, height: 52, borderRadius: radius.sm, backgroundColor: colors.surfaceTertiary },
+    tourSceneDetails: { flex: 1, gap: spacing.xs },
+    tourSceneTitleInput: { minHeight: 34, paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurface },
+    tourDefaultRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
+    tourDefaultText: { fontFamily: fonts.regular, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
     attachmentSubtitle: { fontFamily: fonts.regular, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
     attachIconButton: {
       width: 36,
@@ -3758,6 +4047,20 @@ function createStyles(colors: ThemeColors) {
       alignItems: "center",
       justifyContent: "space-between",
       gap: spacing.sm,
+    },
+    aiHelperButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      borderWidth: 1,
+      borderRadius: 999,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      alignSelf: "flex-start",
+    },
+    aiHelperButtonText: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.xs,
     },
     sectionHeaderRowInline: {
       flexDirection: "row",
@@ -4563,6 +4866,46 @@ function createStyles(colors: ThemeColors) {
       backgroundColor: colors.surface,
       padding: spacing.lg,
     },
+    publishModeBackdrop: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      padding: spacing.lg,
+      backgroundColor: "rgba(0, 0, 0, 0.45)",
+    },
+    publishModeCard: {
+      width: "100%",
+      maxWidth: 480,
+      borderRadius: radius.lg,
+      backgroundColor: colors.surface,
+      padding: spacing.lg,
+      gap: spacing.sm,
+    },
+    publishModeHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: spacing.sm,
+    },
+    publishModeTitle: {
+      flex: 1,
+      fontFamily: fonts.bold,
+      fontSize: fontSize.lg,
+      color: colors.onSurface,
+    },
+    publishModeOption: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceSecondary,
+      padding: spacing.md,
+    },
+    publishModeOptionCopy: { flex: 1, gap: 3 },
+    publishModeOptionTitle: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface },
+    publishModeOptionSubtitle: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary, lineHeight: 19 },
     brokerModalHeader: {
       flexDirection: "row",
       alignItems: "center",

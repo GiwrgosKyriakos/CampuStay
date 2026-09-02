@@ -306,7 +306,7 @@ export default function AuthEmailScreen() {
                     params: { role: isCeoTrigger ? "ceo" : "member", email: email.trim(), password },
                   })}
                 >
-                  <Text style={styles.agencyTriggerText}>Είστε σε μεσιτικό γραφείο; Εγγραφείτε ως μεσιτικό γραφείο εδώ</Text>
+                  <Text style={styles.agencyTriggerText}>{t("agency.onboarding.registerAgencyCta")}</Text>
                 </Pressable>
               ) : null}
             </View>

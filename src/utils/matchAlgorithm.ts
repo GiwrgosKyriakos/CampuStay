@@ -70,7 +70,7 @@ function hasAnswer(value: unknown): value is string {
 }
 
 /**
- * 🎯 Μεταφράζει τα δεδομένα του Firestore (q1, q2...) στα μεγάλα κλειδιά του αλγορίθμου
+ * Μεταφράζει τα δεδομένα του Firestore (q1, q2...) στα μεγάλα κλειδιά του αλγορίθμου
  */
 function normalizeQuizData(rawQuiz: any): CompatibilityQuizAnswers {
   const normalized: any = {};
@@ -103,7 +103,7 @@ function normalizeQuizData(rawQuiz: any): CompatibilityQuizAnswers {
 }
 
 /**
- * 🎯 Υπολογίζει τον συντελεστή Συμβιβασμού (S) βάσει των υπαρχουσών ποσοστώσεων
+ * Υπολογίζει τον συντελεστή Συμβιβασμού (S) βάσει των υπαρχουσών ποσοστώσεων
  * S = 1.0 για πλήρη ταύτιση, S = 0.5 για συμβιβασμό, S = 0.0 για ασυμβατότητα
  */
 function getCompromiseFactor(
@@ -157,11 +157,11 @@ export function calculateMatchScore(currentUser: UserProfile, potentialMatch: Us
   // ΒΑΣΗ: Όλοι όσοι είναι στην ίδια πόλη ξεκινάνε αυτόματα από το 50%
   let finalScore = 50;
 
-  // 🎯 ΕΞΟΜΑΛΥΝΣΗ ΔΕΔΟΜΕΝΩΝ: Μετατρέπουμε τα q1, q2 σε q4_cleanliness κλπ.
+  // ΕΞΟΜΑΛΥΝΣΗ ΔΕΔΟΜΕΝΩΝ: Μετατρέπουμε τα q1, q2 σε q4_cleanliness κλπ.
   const currentQuiz = normalizeQuizData(currentUser.quiz);
   const matchQuiz = normalizeQuizData(potentialMatch.quiz);
 
-  // 🎯 QUIZ QUESTIONS BONUS
+  // QUIZ QUESTIONS BONUS
   for (const key of QUESTION_KEYS) { //[cite: 14]
     const currentAnswer = currentQuiz[key]; //[cite: 14]
     const matchAnswer = matchQuiz[key]; //[cite: 14]
@@ -187,7 +187,7 @@ export function calculateMatchScore(currentUser: UserProfile, potentialMatch: Us
     }
   }
 
-  // 🎯 COMPLETION REWARD FOR CURRENT USER
+  // COMPLETION REWARD FOR CURRENT USER
   const currentUserAnsweredCount = QUESTION_KEYS.filter(key => hasAnswer(currentQuiz[key])).length;
   const completionReward = Math.floor(currentUserAnsweredCount / 5) * 1.5;
   finalScore += completionReward;

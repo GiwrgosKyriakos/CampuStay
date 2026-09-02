@@ -1,8 +1,9 @@
 import { t } from "@/src/locales";
+import { Ionicons } from "@expo/vector-icons";
 
 export interface QuizQuestion {
   id: string;
-  emoji: string;
+  icon: keyof typeof Ionicons.glyphMap;
   question: string;
   options: string[];
 }
@@ -18,19 +19,19 @@ export const QUIZ_SECTIONS: QuizSection[] = [
     questions: [
       {
         id: "q1",
-        emoji: "🧹",
+        icon: "brush-outline",
         question: t("quiz.questions.q1.question"),
         options: t("quiz.questions.q1.options") as unknown as string[],
       },
       {
         id: "q2",
-        emoji: "🧽",
+        icon: "sparkles-outline",
         question: t("quiz.questions.q2.question"),
         options: t("quiz.questions.q2.options") as unknown as string[],
       },
       {
         id: "q3",
-        emoji: "🍽️",
+        icon: "restaurant-outline",
         question: t("quiz.questions.q3.question"),
         options: t("quiz.questions.q3.options") as unknown as string[],
       },
@@ -41,7 +42,7 @@ export const QUIZ_SECTIONS: QuizSection[] = [
     questions: [
       {
         id: "q4",
-        emoji: "💵",
+        icon: "cash-outline",
         question: t("quiz.questions.q4.question"),
         options: t("quiz.questions.q4.options") as unknown as string[],
       },
@@ -52,19 +53,19 @@ export const QUIZ_SECTIONS: QuizSection[] = [
     questions: [
       {
         id: "q5",
-        emoji: "🚬",
+        icon: "ban-outline",
         question: t("quiz.questions.q5.question"),
         options: t("quiz.questions.q5.options") as unknown as string[],
       },
       {
         id: "q6",
-        emoji: "🤫",
+        icon: "volume-mute-outline",
         question: t("quiz.questions.q6.question"),
         options: t("quiz.questions.q6.options") as unknown as string[],
       },
       {
         id: "q7",
-        emoji: "💤",
+        icon: "moon-outline",
         question: t("quiz.questions.q7.question"),
         options: t("quiz.questions.q7.options") as unknown as string[],
       },
@@ -75,19 +76,19 @@ export const QUIZ_SECTIONS: QuizSection[] = [
     questions: [
       {
         id: "q8",
-        emoji: "🔕",
+        icon: "notifications-off-outline",
         question: t("quiz.questions.q8.question"),
         options: t("quiz.questions.q8.options") as unknown as string[],
       },
       {
         id: "q9",
-        emoji: "🎉",
+        icon: "sparkles-outline",
         question: t("quiz.questions.q9.question"),
         options: t("quiz.questions.q9.options") as unknown as string[],
       },
       {
         id: "q10",
-        emoji: "🤝",
+        icon: "people-outline",
         question: t("quiz.questions.q10.question"),
         options: t("quiz.questions.q10.options") as unknown as string[],
       },
@@ -98,13 +99,13 @@ export const QUIZ_SECTIONS: QuizSection[] = [
     questions: [
       {
         id: "q11",
-        emoji: "📦",
+        icon: "cube-outline",
         question: t("quiz.questions.q11.question"),
         options: t("quiz.questions.q11.options") as unknown as string[],
       },
       {
         id: "q12",
-        emoji: "🛒",
+        icon: "cart-outline",
         question: t("quiz.questions.q12.question"),
         options: t("quiz.questions.q12.options") as unknown as string[],
       },
@@ -115,19 +116,19 @@ export const QUIZ_SECTIONS: QuizSection[] = [
     questions: [
       {
         id: "q13",
-        emoji: "🐾",
+        icon: "paw-outline",
         question: t("quiz.questions.q13.question"),
         options: t("quiz.questions.q13.options") as unknown as string[],
       },
       {
         id: "q14",
-        emoji: "🍻",
+        icon: "wine-outline",
         question: t("quiz.questions.q14.question"),
         options: t("quiz.questions.q14.options") as unknown as string[],
       },
       {
         id: "q15",
-        emoji: "🍳",
+        icon: "restaurant-outline",
         question: t("quiz.questions.q15.question"),
         options: t("quiz.questions.q15.options") as unknown as string[],
       },

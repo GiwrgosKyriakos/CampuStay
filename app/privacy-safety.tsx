@@ -51,6 +51,8 @@ export default function PrivacySafetyScreen() {
   const [privacy, setPrivacy] = useState<PrivacyPreferences>({
     is_visible: true,
     blocked_profiles: [],
+    hideNameInDeck: false,
+    hideInStack: false,
   });
   const [error, setError] = useState<string | null>(null);
   const [blockedSheetVisible, setBlockedSheetVisible] = useState(false);
@@ -121,6 +123,14 @@ export default function PrivacySafetyScreen() {
       void persistPrivacy({ ...privacy, is_visible: value });
     },
     [isGuest, privacy, persistPrivacy],
+  );
+
+  const toggleDeckVisibility = useCallback(
+    (value: boolean) => {
+      if (isGuest) return;
+      void persistPrivacy({ ...privacy, hideNameInDeck: value, hideInStack: value });
+    },
+    [isGuest, persistPrivacy, privacy],
   );
 
   useEffect(() => {
@@ -219,7 +229,7 @@ export default function PrivacySafetyScreen() {
 
   const handleUnblockProfile = useCallback(
     async (targetUserId: string) => {
-      if (isGuest || !auth.userId) return; // 🎯 Safety guard για το TS
+      if (isGuest || !auth.userId) return; // Safety guard για το TS
       setActiveBlockedMenuId(null);
 
       const nextPrivacy = {
@@ -294,6 +304,28 @@ export default function PrivacySafetyScreen() {
             </View>
           </View>
         )}
+
+        {!auth.isBroker && !notLookingForRoommate ? (
+          <View style={styles.card} testID="privacy-deck-visibility-card">
+            <View style={styles.cardHeader}>
+              <View style={styles.iconWrap}><Ionicons name="layers-outline" size={20} color={colors.onSurface} /></View>
+              <View style={styles.cardHeaderTextWrap}>
+                <Text style={styles.cardTitle}>Απόκρυψη από το Deck</Text>
+                <Text style={styles.subtitle}>Το προφίλ σου δεν θα μπορεί να κοινοποιηθεί σε άλλους χρήστες.</Text>
+              </View>
+            </View>
+            <View style={isGuest ? styles.disabledControl : undefined}>
+              <Switch
+                value={privacy.hideNameInDeck === true || privacy.hideInStack === true}
+                onValueChange={toggleDeckVisibility}
+                disabled={isGuest}
+                trackColor={{ false: colors.surfaceTertiary, true: colors.brandTertiary }}
+                thumbColor={privacy.hideNameInDeck === true || privacy.hideInStack === true ? colors.brand : colors.onSurfaceTertiary}
+                testID="privacy-hide-from-deck-toggle"
+              />
+            </View>
+          </View>
+        ) : null}
 
         <View style={styles.card}>
           <View style={styles.cardHeader}>

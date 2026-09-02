@@ -10,12 +10,13 @@ export interface UserProfile {
   already_have_apartment_to_share: boolean;
   is_broker?: boolean;
   agencyId?: string | null;
-  agencyRole?: "ceo" | "member" | null;
+  agencyRole?: "ceo" | "member" | "secretary" | null;
   agencyStatus?: "approved" | "pending" | "none";
   agencyRequestedAt?: unknown;
   agencyJoinedAt?: unknown;
   looking_for_apartment?: boolean;
   not_looking_for_roommate?: boolean;
+  preferences?: { hideNameInDeck?: boolean; hideInStack?: boolean };
   university: string | null;
   program?: string | null;
   tags?: string[];

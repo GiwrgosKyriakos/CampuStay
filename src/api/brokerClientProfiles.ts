@@ -1,6 +1,7 @@
 import { collection, collectionGroup, doc, getDoc, getDocs, query, serverTimestamp, setDoc, where } from "firebase/firestore";
 
 import { db } from "@/src/config/firebase";
+import { scanHighMatchForBrokerClient } from "@/src/utils/brokerAutomations";
 
 export type BrokerRelationshipRole = "client" | "owner";
 export type BrokerPipelineStage =
@@ -14,7 +15,7 @@ export type BrokerPipelineStage =
   | "closed_won"
   | "closed_lost";
 
-export type DealPipelineStage = "liked" | "lead" | "showing_scheduled" | "offer_made" | "deal_closed" | "lost";
+export type DealPipelineStage = "liked" | "lead" | "showing_scheduled" | "offer_made" | "negotiation_agreement" | "deal_closed" | "lost";
 
 export interface BrokerDeal {
   id: string;
@@ -23,6 +24,7 @@ export interface BrokerDeal {
   clientId: string;
   role?: BrokerRelationshipRole;
   ownerId?: string;
+  listingOwnerId?: string;
   apartmentId: string;
   apartmentTitle?: string;
   rent?: number;
@@ -62,7 +64,8 @@ export function getDealId(apartmentId: string): string {
 
 function getDealStage(stage?: BrokerPipelineStage): DealPipelineStage {
   if (stage === "showing_scheduled" || stage === "showing_planned" || stage === "showing_completed") return "showing_scheduled";
-  if (stage === "offer_made" || stage === "offer" || stage === "negotiation_agreement") return "offer_made";
+  if (stage === "negotiation_agreement") return "negotiation_agreement";
+  if (stage === "offer_made" || stage === "offer") return "offer_made";
   if (stage === "closed_won") return "deal_closed";
   if (stage === "closed_lost") return "lost";
   return "lead";
@@ -131,6 +134,7 @@ export async function upsertBrokerClientProfile(input: {
         clientId: input.clientId,
         role: input.role,
         ...(input.ownerId?.trim() ? { ownerId: input.ownerId.trim() } : {}),
+        ...(input.ownerId?.trim() ? { listingOwnerId: input.ownerId.trim() } : {}),
         apartmentId: input.apartmentId.trim(),
         ...(input.apartmentTitle?.trim() ? { apartmentTitle: input.apartmentTitle.trim() } : {}),
         ...(typeof input.rent === "number" && Number.isFinite(input.rent) ? { rent: input.rent } : {}),
@@ -140,6 +144,10 @@ export async function upsertBrokerClientProfile(input: {
       },
       { merge: true },
     );
+  }
+
+  if (input.role === "client") {
+    void scanHighMatchForBrokerClient(input.brokerId, input.clientId, clientName ?? "Πελάτης").catch(() => undefined);
   }
 }
 

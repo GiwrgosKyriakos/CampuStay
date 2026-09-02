@@ -147,9 +147,10 @@ export default function RoomieProfileScreen() {
                 </View>
                 {section.questions.map((q) => (
                   <View key={q.id} style={styles.questionBlock} testID={`question-${q.id}`}>
-                    <Text style={styles.question}>
-                      {q.emoji}  {q.question}
-                    </Text>
+                    <View style={styles.questionRow}>
+                      <Ionicons name={q.icon} size={18} color={colors.brand} />
+                      <Text style={styles.question}>{q.question}</Text>
+                    </View>
                     {q.options.map((opt, idx) => {
                       const selected = answers[q.id] === opt;
                       return (
@@ -233,6 +234,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   categoryDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.brand },
   category: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onSurfaceTertiary, textTransform: "uppercase", letterSpacing: 1 },
   questionBlock: { gap: spacing.sm },
+  questionRow: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm },
   question: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface, lineHeight: 24, marginBottom: spacing.xs },
   option: {
     flexDirection: "row",

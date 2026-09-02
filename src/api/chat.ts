@@ -9,10 +9,119 @@ import {
   Timestamp,
   serverTimestamp,
   setDoc,
+  addDoc,
 } from "firebase/firestore";
 import { db } from "@/src/config/firebase";
 import { getUserSettings } from "@/src/api/accountSettings";
 import { syncBrokerClientProfile } from "@/src/api/brokerClientProfiles";
+import type { GroupChatMetadata, SharedProfileMessageMetadata } from "@/src/types/chat";
+import { isBrokerOrAgencyUser } from "@/src/utils/roles";
+
+export async function createRoommateGroupChat(params: {
+  creatorId: string;
+  memberIds: string[];
+  hostUserId?: string;
+  hostUserIds?: string[];
+  hostApartmentId?: string;
+  groupName?: string;
+}): Promise<string> {
+  const creatorSnapshot = await getDoc(doc(db, "users", params.creatorId));
+  const creator = creatorSnapshot.exists() ? creatorSnapshot.data() as { is_broker?: boolean; agencyId?: string; agencyRole?: string; role?: string; looking_for_roommate?: boolean; isLookingForRoommate?: boolean; not_looking_for_roommate?: boolean } : null;
+  if (!creator || isBrokerOrAgencyUser(creator) || creator.looking_for_roommate === false || creator.isLookingForRoommate === false || creator.not_looking_for_roommate === true) {
+    throw new Error("Η δημιουργία ομαδικής είναι διαθέσιμη μόνο σε χρήστες που αναζητούν συγκάτοικο.");
+  }
+  const memberIds = Array.from(new Set([params.creatorId, ...params.memberIds])).filter(Boolean);
+  if (memberIds.length < 3) throw new Error("A group chat needs at least two selected participants.");
+  const hostUserIds = Array.from(new Set([...(params.hostUserIds ?? []), ...(params.hostUserId ? [params.hostUserId] : [])]));
+  if (hostUserIds.length > 1) throw new Error("Μπορεί να προστεθεί μόνο ένας Host στην ομαδική.");
+  const hostUserId = hostUserIds[0];
+  if (hostUserId && !memberIds.includes(hostUserId)) {
+    throw new Error("The selected host must be a group member.");
+  }
+
+  const groupMetadata: GroupChatMetadata = {
+    isGroup: true,
+    groupName: params.groupName?.trim() || "Ομαδική",
+    ...(hostUserId ? { hostUserId } : {}),
+    ...(params.hostApartmentId ? { hostApartmentId: params.hostApartmentId } : {}),
+    memberIds,
+    createdBy: params.creatorId,
+  };
+  const chatRef = doc(collection(db, "chats"));
+  await setDoc(chatRef, {
+    users: memberIds,
+    participants: memberIds,
+    type: "roommate_group",
+    groupName: groupMetadata.groupName,
+    groupMetadata,
+    ...(params.hostApartmentId ? { hostApartmentId: params.hostApartmentId, apartmentId: params.hostApartmentId } : {}),
+    createdBy: params.creatorId,
+    status: "active",
+    lastMessage: "Ομαδική συνομιλία δημιουργήθηκε",
+    lastMessageText: "Ομαδική συνομιλία δημιουργήθηκε",
+    lastMessageTimestamp: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    createdAt: serverTimestamp(),
+    unreadCounts: Object.fromEntries(memberIds.map((id) => [id, 0])),
+  });
+  await addDoc(collection(db, "chats", chatRef.id, "messages"), {
+    senderId: params.creatorId,
+    type: "system",
+    text: "Ομαδική συνομιλία δημιουργήθηκε",
+    createdAt: serverTimestamp(),
+    isRead: true,
+  });
+  return chatRef.id;
+}
+
+export async function renameRoommateGroupChat(chatRoomId: string, userId: string, groupName: string): Promise<void> {
+  const trimmedName = groupName.trim();
+  if (!trimmedName) throw new Error("Group name cannot be empty.");
+  const chatRef = doc(db, "chats", chatRoomId);
+  const snapshot = await getDoc(chatRef);
+  if (!snapshot.exists()) throw new Error("Group chat not found.");
+  const data = snapshot.data() as { users?: string[]; groupMetadata?: GroupChatMetadata };
+  if (!Array.isArray(data.users) || !data.users.includes(userId)) throw new Error("Only group members can rename this chat.");
+  const userSnapshot = await getDoc(doc(db, "users", userId));
+  const userName = userSnapshot.exists() && typeof userSnapshot.data()?.name === "string" ? userSnapshot.data()?.name.trim() : "Χρήστης";
+  const systemText = `${userName || "Χρήστης"} άλλαξε το όνομα της ομαδικής σε '${trimmedName}'`;
+  await setDoc(chatRef, {
+    groupName: trimmedName,
+    groupMetadata: { ...(data.groupMetadata ?? { isGroup: true, memberIds: data.users, createdBy: userId }), groupName: trimmedName },
+    lastMessage: systemText,
+    lastMessageText: systemText,
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
+  await addDoc(collection(db, "chats", chatRoomId, "messages"), {
+    senderId: userId,
+    type: "system",
+    text: systemText,
+    createdAt: serverTimestamp(),
+    isRead: true,
+  });
+}
+
+export async function sendSharedRoommateProfile(params: {
+  chatRoomId: string;
+  senderId: string;
+  metadata: SharedProfileMessageMetadata;
+}): Promise<void> {
+  const name = params.metadata.sharedUserData.fullName || "Προφίλ συγκάτοικου";
+  await addDoc(collection(db, "chats", params.chatRoomId, "messages"), {
+    senderId: params.senderId,
+    type: "shared_roommate_profile",
+    text: `Κοινοποιήθηκε το προφίλ του/της ${name}`,
+    metadata: { sharedProfile: params.metadata },
+    createdAt: serverTimestamp(),
+    isRead: false,
+  });
+  await setDoc(doc(db, "chats", params.chatRoomId), {
+    lastMessage: `Κοινοποιήθηκε το προφίλ του/της ${name}`,
+    lastMessageText: `Κοινοποιήθηκε το προφίλ του/της ${name}`,
+    lastMessageTimestamp: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
+}
 
 /**
  * Marks all incoming messages from a specific sender as read within a chat room.

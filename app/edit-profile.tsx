@@ -65,7 +65,7 @@ export default function EditProfileScreen() {
   const [city, setCity] = useState<string | null>(null);
   const [hasPlace, setHasPlace] = useState(false);
   const [isBroker, setIsBroker] = useState(false);
-  const [agencyRole, setAgencyRole] = useState<"ceo" | "member" | null>(null);
+  const [agencyRole, setAgencyRole] = useState<"ceo" | "member" | "secretary" | null>(null);
   const [agencyId, setAgencyId] = useState<string | null>(null);
   const [agencyStatus, setAgencyStatus] = useState<"approved" | "pending" | "none">("none");
   const [isAgencyAffiliated, setIsAgencyAffiliated] = useState(false);
@@ -136,14 +136,16 @@ export default function EditProfileScreen() {
           setUserId(id);
           const authAgencyUser = auth.user as (typeof auth.user & {
             agencyId?: string | null;
-            agencyRole?: "ceo" | "member" | null;
+            agencyRole?: "ceo" | "member" | "secretary" | null;
           }) | null;
           const isAgencyUser =
             !!p?.agencyId ||
             p?.agencyRole === "ceo" ||
             p?.agencyRole === "member" ||
+            p?.agencyRole === "secretary" ||
             authAgencyUser?.agencyRole === "ceo" ||
-            authAgencyUser?.agencyRole === "member";
+            authAgencyUser?.agencyRole === "member" ||
+            authAgencyUser?.agencyRole === "secretary";
           setIsAgencyAffiliated(isAgencyUser);
           setAgencyId(p?.agencyId ?? authAgencyUser?.agencyId ?? null);
           setAgencyRole(p?.agencyRole ?? authAgencyUser?.agencyRole ?? null);
@@ -321,7 +323,7 @@ export default function EditProfileScreen() {
         }
 
         setPhotos(profile.photos);
-        console.log("[EditProfile] ✓ Profile saved successfully");
+        console.log("[EditProfile] Profile saved successfully");
       }
       
       const targetRoute = isBrokerUser || notLookingForRoommate ? "/apartments" : "/roommates";
@@ -331,15 +333,15 @@ export default function EditProfileScreen() {
         console.log("[EditProfile] → Clearing profile setup flag");
         try {
           await auth.clearProfileSetup();
-          console.log("[EditProfile] ✓ Profile setup flag cleared");
+          console.log("[EditProfile] Profile setup flag cleared");
         } catch (flagError) {
           console.warn("[EditProfile] clearProfileSetup warning:", flagError);
         }
       }
-      console.log(`[EditProfile] ✓ Profile saved successfully. Redirecting to ${targetRoute}`);
+      console.log(`[EditProfile] Profile saved successfully. Redirecting to ${targetRoute}`);
       router.replace(targetRoute as any);
     } catch (err) {
-      console.error("[EditProfile] ✗ Error saving profile:", err);
+      console.error("[EditProfile] Error saving profile:", err);
       setError(t("editProfile.errors.saveFailed"));
       setSubmitting(false);
     }

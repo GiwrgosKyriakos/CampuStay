@@ -31,7 +31,8 @@ import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import { useTheme } from "@/src/context/ThemeContext";
 import { useAuth } from "@/src/context/auth";
 import { db } from "@/src/config/firebase";
-import { saveApartmentNote, getApartmentNote, type Apartment } from "@/src/api/apartmentNotes";
+import { saveApartmentNote, getApartmentNoteDetails, type Apartment } from "@/src/api/apartmentNotes";
+import { getWordCount, isNoteBodyValid, isNoteTitleValid, MAX_NOTE_BODY_CHARS, MAX_NOTE_BODY_WORDS, MAX_NOTE_TITLE_CHARS, MAX_NOTE_TITLE_WORDS } from "@/src/utils/noteValidation";
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
 import { t } from "@/src/locales";
 
@@ -71,6 +72,8 @@ export default function ApartmentNoteScreen() {
 
   const [noteText, setNoteText] = useState("");
   const [initialText, setInitialText] = useState("");
+  const [noteTitle, setNoteTitle] = useState("");
+  const [initialTitle, setInitialTitle] = useState("");
   const [showUnsavedModal, setShowUnsavedModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loadingNote, setLoadingNote] = useState(false);
@@ -112,6 +115,8 @@ export default function ApartmentNoteScreen() {
     if (!auth.userId || !apartmentData?.id || auth.isGuest) {
       setNoteText("");
       setInitialText("");
+      setNoteTitle("");
+      setInitialTitle("");
       setLoadingNote(false);
       return;
     }
@@ -121,15 +126,20 @@ export default function ApartmentNoteScreen() {
 
     void (async () => {
       try {
-        const existingText = await getApartmentNote(auth.userId!, apartmentData.id);
+        const existingNote = await getApartmentNoteDetails(auth.userId!, apartmentData.id);
         if (!active) return;
-        const normalized = existingText ?? "";
+        const normalized = existingNote?.text ?? "";
+        const normalizedTitle = existingNote?.title ?? "";
         setNoteText(normalized);
         setInitialText(normalized);
+        setNoteTitle(normalizedTitle);
+        setInitialTitle(normalizedTitle);
       } catch {
         if (!active) return;
         setNoteText("");
         setInitialText("");
+        setNoteTitle("");
+        setInitialTitle("");
       } finally {
         if (active) setLoadingNote(false);
       }
@@ -176,7 +186,7 @@ export default function ApartmentNoteScreen() {
             return {
               chatRoomId: chatDoc.id,
               counterpartId,
-              name: counterpartData?.name?.trim() || "Unknown",
+              name: counterpartData?.name?.trim() || t("common.values.unknown"),
               avatar: counterpartData?.photoUrl || counterpartData?.avatar || photos[0] || "",
             } satisfies ShareMatchItem;
           }),
@@ -203,9 +213,9 @@ export default function ApartmentNoteScreen() {
   if (!apartmentData) {
     return (
       <View style={[styles.container, styles.center]}>
-        <Text style={styles.errorText}>Δεν βρέθηκαν δεδομένα διαμερίσματος.</Text>
+        <Text style={styles.errorText}>{t("apartmentNote.missingApartment")}</Text>
         <Pressable style={styles.backPill} onPress={() => router.back()}>
-          <Text style={styles.backPillText}>Επιστροφή</Text>
+          <Text style={styles.backPillText}>{t("common.actions.back")}</Text>
         </Pressable>
       </View>
     );
@@ -223,7 +233,11 @@ export default function ApartmentNoteScreen() {
     tags: Array.isArray(apartmentData.tags) ? apartmentData.tags : [],
   };
 
-  const hasUnsavedChanges = noteText !== initialText;
+  const hasUnsavedChanges = noteText !== initialText || noteTitle !== initialTitle;
+  const titleInvalid = !isNoteTitleValid(noteTitle);
+  const bodyInvalid = !isNoteBodyValid(noteText);
+  const titleNearLimit = getWordCount(noteTitle) >= MAX_NOTE_TITLE_WORDS * 0.9 || noteTitle.length >= MAX_NOTE_TITLE_CHARS * 0.9;
+  const bodyNearLimit = getWordCount(noteText) >= MAX_NOTE_BODY_WORDS * 0.9 || noteText.length >= MAX_NOTE_BODY_CHARS * 0.9;
 
   const handleBackPress = () => {
     if (hasUnsavedChanges) {
@@ -240,16 +254,20 @@ export default function ApartmentNoteScreen() {
     }
 
     if (saving) return;
+    if (titleInvalid || bodyInvalid) return;
 
     try {
       setSaving(true);
-      await saveApartmentNote(auth.userId, apartmentData.id, noteText, apartmentData);
+      const cleanTitle = noteTitle.trim() || t("apartmentNote.defaultTitle");
+      await saveApartmentNote(auth.userId, apartmentData.id, noteText, apartmentData, cleanTitle);
+      setNoteTitle(cleanTitle);
+      setInitialTitle(cleanTitle);
       setInitialText(noteText);
       setSaveFeedbackVisible(true);
     } catch {
       setActionModal({
-        title: "Αποτυχία αποθήκευσης",
-        description: "Δεν ήταν δυνατή η αποθήκευση της σημείωσης. Προσπαθήστε ξανά.",
+        title: t("apartmentNote.saveFailedTitle"),
+        description: t("apartmentNote.saveFailedDescription"),
       });
     } finally {
       setSaving(false);
@@ -280,21 +298,21 @@ export default function ApartmentNoteScreen() {
       });
 
       await updateDoc(doc(db, "chats", item.chatRoomId), {
-        lastMessageText: `📝 Σημείωση αγγελίας: ${apartmentData.title}`,
-        lastMessage: `📝 Σημείωση αγγελίας: ${apartmentData.title}`,
+        lastMessageText: `Σημείωση αγγελίας: ${apartmentData.title}`,
+        lastMessage: `Σημείωση αγγελίας: ${apartmentData.title}`,
         lastMessageTimestamp: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
 
       setShareModalVisible(false);
       setActionModal({
-        title: "Το διαμέρισμα κοινοποιήθηκε!",
-        description: "Η αγγελία στάλθηκε επιτυχώς στη συνομιλία.",
+        title: t("apartmentNote.shareSuccessTitle"),
+        description: t("apartmentNote.shareSuccessDescription"),
       });
     } catch {
       setActionModal({
-        title: "Παρουσιάστηκε πρόβλημα",
-        description: "Η κοινοποίηση δεν ολοκληρώθηκε. Προσπαθήστε ξανά.",
+        title: t("apartmentNote.shareFailedTitle"),
+        description: t("apartmentNote.shareFailedDescription"),
       });
     } finally {
       setSendingShareChatId(null);
@@ -309,7 +327,7 @@ export default function ApartmentNoteScreen() {
         </Pressable>
 
         <View style={styles.titleWrap}>
-          <Text style={styles.headerTitle} numberOfLines={1}>{apartmentData.title || "Σημείωση"}</Text>
+          <Text style={styles.headerTitle} numberOfLines={1}>{apartmentData.title || t("apartmentNote.shortTitle")}</Text>
         </View>
 
         <View style={styles.headerActions}>
@@ -380,17 +398,31 @@ export default function ApartmentNoteScreen() {
           ) : (
             <>
               <TextInput
+                value={noteTitle}
+                onChangeText={setNoteTitle}
+                placeholder={t("apartmentNote.titlePlaceholder")}
+                placeholderTextColor={colors.onSurfaceTertiary}
+                style={[styles.noteTitleInput, titleInvalid && styles.inputErrorBorder]}
+                maxLength={MAX_NOTE_TITLE_CHARS}
+                testID="apartment-note-title-input"
+              />
+              <Text style={[styles.counterText, titleNearLimit && styles.counterTextWarning, titleInvalid && styles.counterTextError]}>{t("apartmentNote.counter", { words: getWordCount(noteTitle), maxWords: MAX_NOTE_TITLE_WORDS, characters: noteTitle.length, maxCharacters: MAX_NOTE_TITLE_CHARS })}</Text>
+              {titleInvalid ? <Text style={styles.warningText}>{t("apartmentNote.titleInvalid")}</Text> : null}
+              <TextInput
                 value={noteText}
                 onChangeText={setNoteText}
-                placeholder="Γράψτε τη σημείωσή σας για αυτό το διαμέρισμα..."
+                placeholder={t("apartmentNote.bodyPlaceholder")}
                 placeholderTextColor={colors.onSurfaceTertiary}
-                style={styles.noteInput}
+                style={[styles.noteInput, bodyInvalid && styles.inputErrorBorder]}
                 multiline
                 textAlignVertical="top"
-                maxLength={450}
+                maxLength={MAX_NOTE_BODY_CHARS}
                 testID="apartment-note-input"
               />
-              <Text style={styles.counterText}>{`${noteText.length}/450`}</Text>
+              <View style={styles.counterRow}>
+                {bodyInvalid ? <Text style={styles.warningText}>{t("apartmentNote.bodyInvalid")}</Text> : null}
+                <Text style={[styles.counterText, bodyNearLimit && styles.counterTextWarning, bodyInvalid && styles.counterTextError]}>{t("apartmentNote.counter", { words: getWordCount(noteText), maxWords: MAX_NOTE_BODY_WORDS, characters: noteText.length, maxCharacters: MAX_NOTE_BODY_CHARS })}</Text>
+              </View>
             </>
           )}
         </View>
@@ -398,26 +430,26 @@ export default function ApartmentNoteScreen() {
 
       {saveFeedbackVisible ? (
         <View style={[styles.toastWrap, { bottom: spacing.lg + insets.bottom }]} pointerEvents="none">
-          <Text style={styles.toastText}>Η σημείωση αποθηκεύτηκε</Text>
+          <Text style={styles.toastText}>{t("apartmentNote.saved")}</Text>
         </View>
       ) : null}
 
       <CenteredActionModal
         visible={showUnsavedModal}
-        title="Αποχώρηση χωρίς αποθήκευση;"
-        description="Είστε σίγουροι ότι θέλετε να αποχωρήσετε χωρίς να αποθηκεύσετε τις αλλαγές σας;"
+        title={t("apartmentNote.unsavedTitle")}
+        description={t("apartmentNote.unsavedDescription")}
         onDismiss={() => setShowUnsavedModal(false)}
         actionsLayout="horizontal"
         actions={[
           {
-            label: "Ακύρωση",
+            label: t("common.actions.cancel"),
             variant: "muted",
             iconName: "close-outline",
             onPress: () => setShowUnsavedModal(false),
             testID: "apartment-note-unsaved-cancel",
           },
           {
-            label: "Αποχώρηση",
+            label: t("apartmentNote.leave"),
             variant: "danger",
             iconName: "exit-outline",
             onPress: () => {
@@ -437,7 +469,7 @@ export default function ApartmentNoteScreen() {
         onDismiss={() => setActionModal(null)}
         actions={[
           {
-            label: "OK",
+            label: t("common.actions.ok"),
             iconName: "checkmark-circle-outline",
             onPress: () => setActionModal(null),
           },
@@ -446,14 +478,14 @@ export default function ApartmentNoteScreen() {
 
       <CenteredActionModal
         visible={shareModalVisible}
-        title="Κοινοποίηση Διαμερίσματος"
-        description="Επιλέξτε συνομιλία για κοινοποίηση"
+        title={t("apartmentNote.shareTitle")}
+        description={t("apartmentNote.shareDescription")}
         onDismiss={() => {
           if (!sendingShareChatId) setShareModalVisible(false);
         }}
         actions={[
           {
-            label: "Κλείσιμο",
+            label: t("common.actions.close"),
             variant: "outline",
             iconName: "close-outline",
             onPress: () => setShareModalVisible(false),
@@ -467,7 +499,7 @@ export default function ApartmentNoteScreen() {
               </View>
             ) : activeShareMatches.length === 0 ? (
               <View style={styles.shareStateWrap}>
-                <Text style={styles.shareStateText}>Δεν έχετε ενεργές συνομιλίες με συγκατοίκους ακόμα</Text>
+                <Text style={styles.shareStateText}>{t("apartmentNote.noActiveChats")}</Text>
               </View>
             ) : (
               <ScrollView style={styles.shareList} contentContainerStyle={styles.shareListContent}>
@@ -601,12 +633,18 @@ function createStyles(colors: ThemeColors) {
       textAlignVertical: "top",
       padding: 0,
     },
+    noteTitleInput: { minHeight: 46, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onSurface },
+    inputErrorBorder: { borderColor: "#EF4444" },
+    counterRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.xs },
+    counterTextError: { color: "#EF4444" },
+    warningText: { flex: 1, fontFamily: fonts.semibold, fontSize: fontSize.xs, color: "#F59E0B" },
     counterText: {
       alignSelf: "flex-end",
       fontFamily: fonts.semibold,
       fontSize: fontSize.sm,
       color: colors.onSurfaceTertiary,
     },
+    counterTextWarning: { color: "#F59E0B" },
     toastWrap: {
       position: "absolute",
       left: spacing.lg,

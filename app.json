@@ -10,7 +10,13 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "io.github.giwrgoskyriakos.CampuStay"
+      "bundleIdentifier": "io.github.giwrgoskyriakos.CampuStay",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Η εφαρμογή χρειάζεται πρόσβαση στο μικρόφωνο για τη λειτουργία υπαγόρευσης.",
+        "NSSpeechRecognitionUsageDescription": "Η εφαρμογή χρειάζεται άδεια αναγνώρισης ομιλίας για τη μετατροπή φωνής σε κείμενο.",
+        "NSCameraUsageDescription": "Η εφαρμογή χρειάζεται πρόσβαση στην κάμερα για τη φωτογράφιση εγγράφων ταυτοποίησης.",
+        "NSLocationWhenInUseUsageDescription": "Η εφαρμογή καταγράφει την τοποθεσία κατά την ηλεκτρονική υπογραφή για το eIDAS audit trail."
+      }
     },
     "android": {
       "config": {
@@ -30,7 +36,9 @@
         "backgroundColor": "#00000000"
       },
       "permissions": [
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.CAMERA",
+        "android.permission.ACCESS_FINE_LOCATION"
       ]
     },
     "web": {
@@ -39,8 +47,27 @@
       "favicon": "./assets/campuStayLogo.png"
     },
     "plugins": [
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Η εφαρμογή χρειάζεται πρόσβαση στο μικρόφωνο για τη λειτουργία υπαγόρευσης.",
+          "speechRecognitionPermission": "Η εφαρμογή χρειάζεται άδεια αναγνώρισης ομιλίας για τη μετατροπή φωνής σε κείμενο."
+        }
+      ],
       "expo-router",
       "./plugins/withAndroidContrast",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Η εφαρμογή χρειάζεται πρόσβαση στην κάμερα για τη φωτογράφιση εγγράφων ταυτοποίησης."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Η εφαρμογή καταγράφει την τοποθεσία κατά την ηλεκτρονική υπογραφή για το eIDAS audit trail."
+        }
+      ],
       [
         "expo-image-picker",
         {

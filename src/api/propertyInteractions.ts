@@ -25,6 +25,7 @@ export interface PropertyInteraction {
   createdAt: Timestamp | null;
   createdAtMillis: number;
   loggedByUserId: string;
+  brokerId?: string;
 }
 
 export async function addPropertyInteraction(payload: {
@@ -35,6 +36,7 @@ export async function addPropertyInteraction(payload: {
   type: InteractionType;
   note: string;
   loggedByUserId: string;
+  brokerId?: string;
 }): Promise<string> {
   const colRef = collection(db, "apartments", payload.apartmentId, "interactions");
   const docRef = await addDoc(colRef, {
@@ -45,6 +47,7 @@ export async function addPropertyInteraction(payload: {
     type: payload.type,
     note: payload.note,
     loggedByUserId: payload.loggedByUserId,
+    ...(payload.brokerId ? { brokerId: payload.brokerId } : {}),
     createdAt: serverTimestamp(),
   });
   return docRef.id;
@@ -76,6 +79,7 @@ export function subscribePropertyInteractions(
         createdAt,
         createdAtMillis: createdAt?.toMillis ? createdAt.toMillis() : Date.now(),
         loggedByUserId: typeof data.loggedByUserId === "string" ? data.loggedByUserId : "",
+        brokerId: typeof data.brokerId === "string" ? data.brokerId : undefined,
       };
     });
 
@@ -112,6 +116,7 @@ export function subscribeClientInteractions(
           createdAt,
           createdAtMillis: createdAt?.toMillis ? createdAt.toMillis() : Date.now(),
           loggedByUserId: typeof data.loggedByUserId === "string" ? data.loggedByUserId : "",
+          brokerId: typeof data.brokerId === "string" ? data.brokerId : undefined,
         };
       });
       callback(list);

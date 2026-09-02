@@ -1,0 +1,91 @@
+{
+  "expo": {
+    "name": "CampuStay",
+    "slug": "campustay",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/campuStayLogo.png",
+    "scheme": "campustay",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "io.github.giwrgoskyriakos.CampuStay"
+    },
+    "android": {
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyCPxyTI23tIDtuI8Y7FhTs1meAovj7OZco"
+        }
+      },
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/campuStayLogoTransparent.png",
+        "backgroundColor": "#07404C"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.gksolutions.campustay",
+      "versionCode": 5,
+      "googleServicesFile": "./google-services.json",
+      "androidNavigationBar": {
+        "backgroundColor": "#00000000"
+      },
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./assets/campuStayLogo.png"
+    },
+    "plugins": [
+      "expo-router",
+      "./plugins/withAndroidContrast",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Upload photos to complete your roommate profile"
+        }
+      ],
+      [
+        "expo-navigation-bar",
+        {
+          "enforceContrast": false
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification_icon_big.png",
+          "color": "#07404C"
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/campuStayLogoTransparent.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#07404C"
+        }
+      ],
+      "expo-font",
+      "expo-secure-store",
+      "expo-web-browser",
+      "@react-native-google-signin/google-signin",
+      "expo-localization",
+      "expo-mail-composer",
+      "expo-speech-recognition"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "ad8bcd67-fd40-4feb-b462-28498892be45"
+      }
+    },
+    "owner": "gkyriakos92"
+  }
+}

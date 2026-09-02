@@ -31,7 +31,8 @@ function sanitizePayload(data: Record<string, unknown>): Record<string, unknown>
       typeof value === "object" &&
       !Array.isArray(value) &&
       !(value instanceof Date) &&
-      typeof (value as { toMillis?: unknown }).toMillis !== "function"
+      typeof (value as { toMillis?: unknown }).toMillis !== "function" &&
+      typeof (value as { _methodName?: unknown })._methodName !== "string"
     ) {
       sanitized[key] = sanitizePayload(value as Record<string, unknown>);
     } else {
@@ -44,18 +45,26 @@ function sanitizePayload(data: Record<string, unknown>): Record<string, unknown>
 
 export type NoteCategory =
   | "visit"
+  | "showing"
+  | "pickup"
+  | "owner_meeting"
   | "keys"
   | "message"
   | "phone"
+  | "call"
   | "offer_review"
   | "deal_confirmation"
   | "other";
 
 const categoryPriority: NoteCategory[] = [
   "visit",
+  "showing",
+  "pickup",
+  "owner_meeting",
   "keys",
   "message",
   "phone",
+  "call",
   "offer_review",
   "deal_confirmation",
   "other",
@@ -68,9 +77,13 @@ function getBrandPrimaryColor(): string {
 
 export const noteCategoryColorMap: Record<NoteCategory, string> = {
   visit: getBrandPrimaryColor(),
+  showing: getBrandPrimaryColor(),
+  pickup: "#F59E0B",
+  owner_meeting: "#F97316",
   keys: "#E6E6FA",
   message: "#D8BFD8",
   phone: "#E0BBFF",
+  call: "#E0BBFF",
   offer_review: "#C8A2C8",
   deal_confirmation: "#A8E6CF",
   other: "#E0E0E0",
@@ -78,32 +91,80 @@ export const noteCategoryColorMap: Record<NoteCategory, string> = {
 
 export interface BrokerNote {
   id: string;
+  title?: string;
   brokerId: string;
+  agencyId?: string;
+  calendarOwnerId?: string;
   date: string; // "YYYY-MM-DD"
   time?: string; // "HH:mm" (e.g. "10:30")
+  type?: NoteCategory;
+  scheduledDate?: string;
+  scheduledTime?: string;
+  timestamp?: number;
   apartmentId?: string;
   apartmentTitle?: string;
   apartmentPrice?: number;
+  appointmentId?: string;
   clientId?: string;
+  clientProfileId?: string;
   clientName?: string;
   category: NoteCategory;
   notesText?: string;
   done: boolean;
+  isCompleted?: boolean;
+  enablePushReminder?: boolean;
+  reminderLeadTimeMinutes?: number;
+  reminderNotificationId?: string;
+  counterpartId?: string;
+  counterpartName?: string;
+  primaryBrokerId?: string;
+  primaryBrokerName?: string;
+  primaryNoteId?: string;
+  listingBrokerId?: string;
+  buyerBrokerId?: string;
+  coveringBrokerId?: string;
+  coveringBrokerName?: string;
+  submittedByCoveringBrokerId?: string;
+  feedbackSubmittedBy?: Record<string, boolean>;
   createdAt: FieldValue;
 }
 
 type FirestoreBrokerNoteReadDoc = {
+  title?: string;
   brokerId?: string;
+  agencyId?: string;
+  calendarOwnerId?: string;
   date?: string;
   time?: string;
+  type?: string;
+  scheduledDate?: string;
+  scheduledTime?: string;
+  timestamp?: number;
   apartmentId?: string;
   apartmentTitle?: string;
   apartmentPrice?: number;
+  appointmentId?: string;
   clientId?: string;
+  clientProfileId?: string;
   clientName?: string;
   category?: string;
   notesText?: string;
   done?: boolean;
+  isCompleted?: boolean;
+  enablePushReminder?: boolean;
+  reminderLeadTimeMinutes?: number;
+  reminderNotificationId?: string;
+  counterpartId?: string;
+  counterpartName?: string;
+  primaryBrokerId?: string;
+  primaryBrokerName?: string;
+  primaryNoteId?: string;
+  listingBrokerId?: string;
+  buyerBrokerId?: string;
+  coveringBrokerId?: string;
+  coveringBrokerName?: string;
+  submittedByCoveringBrokerId?: string;
+  feedbackSubmittedBy?: Record<string, boolean>;
   createdAt?: unknown;
 };
 
@@ -165,19 +226,44 @@ function compareTimeAsc(a?: string, b?: string): number {
 }
 
 function mapFirestoreDocToBrokerNote(id: string, data: FirestoreBrokerNoteReadDoc, brokerId: string): BrokerNote {
+  const category = normalizeCategory(data.category ?? data.type);
   return {
     id,
+    title: typeof data.title === "string" ? data.title : undefined,
     brokerId: isNonEmptyString(data.brokerId ?? "") ? (data.brokerId as string) : brokerId,
+    agencyId: typeof data.agencyId === "string" ? data.agencyId : undefined,
+    calendarOwnerId: typeof data.calendarOwnerId === "string" ? data.calendarOwnerId : brokerId,
     date: typeof data.date === "string" ? data.date : "",
     time: typeof data.time === "string" ? data.time : undefined,
+    type: category,
+    scheduledDate: typeof data.scheduledDate === "string" ? data.scheduledDate : undefined,
+    scheduledTime: typeof data.scheduledTime === "string" ? data.scheduledTime : undefined,
+    timestamp: typeof data.timestamp === "number" ? data.timestamp : undefined,
     apartmentId: typeof data.apartmentId === "string" ? data.apartmentId : undefined,
     apartmentTitle: typeof data.apartmentTitle === "string" ? data.apartmentTitle : undefined,
     apartmentPrice: typeof data.apartmentPrice === "number" ? data.apartmentPrice : undefined,
+    appointmentId: typeof data.appointmentId === "string" ? data.appointmentId : undefined,
     clientId: typeof data.clientId === "string" ? data.clientId : undefined,
+    clientProfileId: typeof data.clientProfileId === "string" ? data.clientProfileId : undefined,
     clientName: typeof data.clientName === "string" ? data.clientName : undefined,
-    category: normalizeCategory(data.category),
+    category,
     notesText: typeof data.notesText === "string" ? data.notesText : undefined,
-    done: data.done === true,
+    done: data.done === true || data.isCompleted === true,
+    isCompleted: data.isCompleted === true || data.done === true,
+    enablePushReminder: data.enablePushReminder === true,
+    reminderLeadTimeMinutes: typeof data.reminderLeadTimeMinutes === "number" ? data.reminderLeadTimeMinutes : undefined,
+    reminderNotificationId: typeof data.reminderNotificationId === "string" ? data.reminderNotificationId : undefined,
+    counterpartId: typeof data.counterpartId === "string" ? data.counterpartId : undefined,
+    counterpartName: typeof data.counterpartName === "string" ? data.counterpartName : undefined,
+    primaryBrokerId: typeof data.primaryBrokerId === "string" ? data.primaryBrokerId : undefined,
+    primaryBrokerName: typeof data.primaryBrokerName === "string" ? data.primaryBrokerName : undefined,
+    primaryNoteId: typeof data.primaryNoteId === "string" ? data.primaryNoteId : undefined,
+    listingBrokerId: typeof data.listingBrokerId === "string" ? data.listingBrokerId : undefined,
+    buyerBrokerId: typeof data.buyerBrokerId === "string" ? data.buyerBrokerId : undefined,
+    coveringBrokerId: typeof data.coveringBrokerId === "string" ? data.coveringBrokerId : undefined,
+    coveringBrokerName: typeof data.coveringBrokerName === "string" ? data.coveringBrokerName : undefined,
+    submittedByCoveringBrokerId: typeof data.submittedByCoveringBrokerId === "string" ? data.submittedByCoveringBrokerId : undefined,
+    feedbackSubmittedBy: data.feedbackSubmittedBy,
     createdAt: (data.createdAt as FieldValue) ?? serverTimestamp(),
   };
 }
@@ -192,16 +278,67 @@ export async function saveBrokerNote(brokerId: string, noteData: SaveBrokerNoteI
     const payload: Omit<BrokerNote, "id"> = {
       ...noteData,
       brokerId,
+      calendarOwnerId: noteData.calendarOwnerId ?? brokerId,
       done: noteData.done ?? false,
+      isCompleted: noteData.isCompleted ?? noteData.done ?? false,
       category: normalizeCategory(noteData.category),
+      type: normalizeCategory(noteData.type ?? noteData.category),
       createdAt: serverTimestamp(),
     };
 
-    const newDocRef = await addDoc(notesRef, payload);
+    const newDocRef = await addDoc(notesRef, sanitizePayload(payload as unknown as Record<string, unknown>));
     return newDocRef.id;
   } catch (error: unknown) {
     throw new Error(`Failed to save broker note: ${toErrorMessage(error)}`);
   }
+}
+
+export async function saveShowingCalendarNotes(params: {
+  brokerId: string;
+  clientId: string;
+  appointmentId?: string;
+  clientName?: string;
+  apartmentId: string;
+  apartmentTitle: string;
+  apartmentPrice?: number;
+  scheduledDate: string;
+  scheduledTime: string;
+}): Promise<{ brokerNoteId: string; clientNoteId: string }> {
+  const timestamp = new Date(`${params.scheduledDate}T${params.scheduledTime}:00`).getTime();
+  const shared = {
+    title: `Επίσκεψη: ${params.apartmentTitle}`,
+    type: "showing" as const,
+    category: "showing" as const,
+    apartmentId: params.apartmentId,
+    apartmentTitle: params.apartmentTitle,
+    apartmentPrice: params.apartmentPrice,
+    scheduledDate: params.scheduledDate,
+    scheduledTime: params.scheduledTime,
+    time: params.scheduledTime,
+    date: params.scheduledDate,
+    timestamp,
+    clientId: params.clientId,
+    appointmentId: params.appointmentId,
+    clientName: params.clientName,
+  };
+
+  const [brokerNoteId, clientNoteId] = await Promise.all([
+    saveBrokerNote(params.brokerId, {
+      ...shared,
+      brokerId: params.brokerId,
+      calendarOwnerId: params.brokerId,
+      counterpartId: params.clientId,
+      counterpartName: params.clientName,
+    }),
+    saveBrokerNote(params.clientId, {
+      ...shared,
+      brokerId: params.brokerId,
+      calendarOwnerId: params.clientId,
+      counterpartId: params.brokerId,
+    }),
+  ]);
+
+  return { brokerNoteId, clientNoteId };
 }
 
 export async function updateBrokerNote(brokerId: string, noteId: string, updates: UpdateBrokerNoteInput): Promise<void> {
@@ -221,6 +358,17 @@ export async function updateBrokerNote(brokerId: string, noteId: string, updates
 
       if (key === "category") {
         sanitizedUpdates.category = normalizeCategory(value);
+        continue;
+      }
+
+      if (key === "type") {
+        sanitizedUpdates.type = normalizeCategory(value);
+        continue;
+      }
+
+      if (key === "done" || key === "isCompleted") {
+        sanitizedUpdates.done = value === true;
+        sanitizedUpdates.isCompleted = value === true;
         continue;
       }
 
@@ -288,9 +436,13 @@ export function getMostFrequentCategoryColor(notes: BrokerNote[]): string {
 
   const frequency: Record<NoteCategory, number> = {
     visit: 0,
+    showing: 0,
+    pickup: 0,
+    owner_meeting: 0,
     keys: 0,
     message: 0,
     phone: 0,
+    call: 0,
     offer_review: 0,
     deal_confirmation: 0,
     other: 0,

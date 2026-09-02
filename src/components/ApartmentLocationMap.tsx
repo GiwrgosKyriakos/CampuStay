@@ -5,6 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { fonts, fontSize, radius, type ThemeColors } from "@/src/theme";
 import { useTheme } from "@/src/context/ThemeContext";
+import { t } from "@/src/locales";
 
 interface ApartmentLocationMapProps {
   latitude?: number;
@@ -151,7 +152,7 @@ export default function ApartmentLocationMap({
 
       {!exactCoordinates ? (
         <View pointerEvents="none" style={styles.modeBadge}>
-          <Text style={styles.modeBadgeText}>Ενδεικτική περιοχή</Text>
+          <Text style={styles.modeBadgeText}>{t("map.approximateArea")}</Text>
         </View>
       ) : null}
     </View>

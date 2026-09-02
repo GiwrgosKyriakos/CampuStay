@@ -19,6 +19,7 @@ import { LocaleProvider, useLocale } from "@/src/context/locale";
 import { ThemeProvider, useTheme } from "@/src/context/ThemeContext";
 import { AppLocale } from "@/src/locales";
 import { storage } from "@/src/utils/storage";
+import { configureNotificationChannels, handleNotificationResponse, registerFcmTokenForUser, registerNotificationCategories } from "@/src/services/notifications";
 
 const HAS_SELECTED_LANGUAGE_KEY = "has_selected_language";
 const SELECTED_LANGUAGE_KEY = "selected_language";
@@ -44,8 +45,8 @@ function AppContent() {
   const { setLocale } = useLocale();
   const segments = useSegments();
   const router = useRouter();
-  const rootNavigationState = useRootNavigationState(); // 🎯 ΠΡΟΣΘΗΚΗ
-  // 🚨 ΠΡΟΣΘΕΣΗ: Κρατάει το loading screen ενεργό κατά τις native μεταβάσεις
+  const rootNavigationState = useRootNavigationState(); // ΠΡΟΣΘΗΚΗ
+  // ΠΡΟΣΘΕΣΗ: Κρατάει το loading screen ενεργό κατά τις native μεταβάσεις
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [isLanguagePromptVisible, setIsLanguagePromptVisible] = useState(false);
   const [languagePromptResolved, setLanguagePromptResolved] = useState(false);
@@ -77,6 +78,15 @@ function AppContent() {
     : auth.notLookingForRoommate
     ? "/apartments"
     : "/roommates";
+
+  useEffect(() => {
+    if (!auth.userId || auth.isGuest) return;
+    void registerFcmTokenForUser(auth.userId).catch((error) => console.warn("[Notifications] Token registration failed:", error));
+  }, [auth.isGuest, auth.userId]);
+
+  useEffect(() => {
+    void Promise.all([registerNotificationCategories(), configureNotificationChannels()]).catch((error) => console.warn("[Notifications] Native setup failed:", error));
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -175,7 +185,7 @@ function AppContent() {
   const shouldForceProfileSetup = isAuthenticated && auth.needsProfileSetup;
 
   useEffect(() => {
-    // 🎯 Guard ετοιμότητας: Περιμένουμε να φορτώσει το auth, το profile gate και ο root navigator
+    // Guard ετοιμότητας: Περιμένουμε να φορτώσει το auth, το profile gate και ο root navigator
     if (!appReady || !rootNavigationState?.key) return;
 
     let active = true;
@@ -184,7 +194,7 @@ function AppContent() {
     if (isUnauthenticated && !isAuthRoute) {
       setIsTransitioning(true);
       
-      // 🎯 Η ΔΙΟΡΘΩΣΗ: Σπρώχνουμε το replace στον επόμενο κύκλο για να έχει προλάβει να γίνει mount ο navigator
+      // Η ΔΙΟΡΘΩΣΗ: Σπρώχνουμε το replace στον επόμενο κύκλο για να έχει προλάβει να γίνει mount ο navigator
       setTimeout(() => {
         if (active) router.replace("/auth-landing");
       }, 0);
@@ -324,32 +334,13 @@ export default function RootLayout() {
 
   useEffect(() => {
     // Listener για όταν ο χρήστης ΠΑΤΑΕΙ την ειδοποίηση
-    const subscription = Notifications.addNotificationResponseReceivedListener(response => {
-      // 1. Κάνουμε cast το data ώστε ο TypeScript να γνωρίζει ότι περιέχει strings
-      const data = response.notification.request.content.data as {
-        senderId?: string;
-        chatRoomId?: string;
-      };
-      
-      console.log("[Notifications] Notification tapped with data:", data);
-
-      if (data && data.senderId) {
-        // Καθυστέρηση ελάχιστων milliseconds για να σιγουρευτούμε ότι το Navigation Tree έχει φορτώσει
-        setTimeout(() => {
-          router.push({
-            pathname: "/chat/[id]", // Χρησιμοποιούμε το στατικό path του αρχείου σου [id].tsx
-            params: { 
-              id: data.senderId, // Περνάμε το id του counterpart στο δυναμικό segment [id]
-              chatRoomId: data.chatRoomId // Περνάμε και το chatRoomId ως extra query param
-            }
-          } as any); // Χρησιμοποιούμε as any για να παρακάμψουμε τις υπερβολικά αυστηρές TS ρυθμίσεις του Expo Router
-        }, 100);
-      }
+    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+      setTimeout(() => { void handleNotificationResponse(response, router).catch((error) => console.warn("[Notifications] Response handling failed:", error)); }, 100);
     });
 
     // Cleanup του listener όταν το component γίνει unmount
     return () => subscription.remove();
-  }, []);
+  }, [router]);
 
   //useEffect(() => {
   //  SplashScreen.preventAutoHideAsync()

@@ -10,7 +10,7 @@ import {
   updateProfile,
   type User as FirebaseUser,
 } from "firebase/auth";
-import { doc, getDoc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, setDoc, where, writeBatch } from "firebase/firestore";
 
 import { storage } from "@/src/utils/storage";
 import { setUserIdCache } from "@/src/utils/userId";
@@ -41,6 +41,8 @@ interface AuthContextValue {
   needsProfileSetup: boolean;
   isBroker: boolean;
   notLookingForRoommate: boolean;
+  agencyId: string | null;
+  agencyRole: string | null;
   loginEmail: (email: string, password: string) => Promise<void>;
   registerEmail: (email: string, password: string, name?: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
@@ -82,7 +84,7 @@ async function syncUserDocument(
         ? existingData.needsProfileSetup
         : !userSnap.exists();
 
-  // 🟢 🛡️ ΔΙΑΤΗΡΗΣΗ ΥΠΑΡΧΟΝΤΩΝ ΣΤΟΙΧΕΙΩΝ
+  // ΔΙΑΤΗΡΗΣΗ ΥΠΑΡΧΟΝΤΩΝ ΣΤΟΙΧΕΙΩΝ
   // Αν ο χρήστης έχει ήδη ορίσει δικό του όνομα/φωτογραφίες στη βάση, δεν τα πατάμε με του Google Mail
   const existingPhotos = Array.isArray(existingData?.photos) && existingData.photos.length > 0
     ? existingData.photos
@@ -133,7 +135,7 @@ async function syncUserDocument(
       facebook: "",
       linkedin: "",
       twitter: "",
-      is_visible: true, // 🟢 Προεπιλεγμένη ορατότητα για νέους χρήστες
+      is_visible: true, // Προεπιλεγμένη ορατότητα για νέους χρήστες
       not_looking_for_roommate: false,
       createdAt: serverTimestamp(),
     });
@@ -141,6 +143,86 @@ async function syncUserDocument(
 
   await setDoc(userRef, payload, { merge: true });
   return resolvedNeedsProfileSetup;
+}
+
+async function claimManualClientData(firebaseUser: FirebaseUser): Promise<void> {
+  const email = firebaseUser.email?.trim().toLowerCase();
+  if (!email) return;
+
+  const pendingSnapshot = await getDocs(query(
+    collection(db, "users"),
+    where("pendingClaimEmail", "==", email),
+    where("is_manual_client", "==", true),
+  ));
+  if (pendingSnapshot.empty) return;
+
+  for (const pendingDoc of pendingSnapshot.docs) {
+    const placeholderId = pendingDoc.id;
+    if (placeholderId === firebaseUser.uid) continue;
+
+    const [profileByClientId, profileByClientUserId, savedSetsSnapshot, notesSnapshot, chatsSnapshot] = await Promise.all([
+      getDocs(query(collection(db, "brokerClientProfiles"), where("clientId", "==", placeholderId))),
+      getDocs(query(collection(db, "brokerClientProfiles"), where("clientUserId", "==", placeholderId))),
+      getDocs(collection(db, "users", placeholderId, "savedFilterSets")),
+      getDocs(collection(db, "users", placeholderId, "calendarNotes")),
+      getDocs(query(collection(db, "chats"), where("manualClientUserId", "==", placeholderId))),
+    ]);
+    const profileDocs = new Map([...profileByClientId.docs, ...profileByClientUserId.docs].map((profileDoc) => [profileDoc.id, profileDoc]));
+    const batch = writeBatch(db);
+
+    for (const savedSet of savedSetsSnapshot.docs) {
+      batch.set(doc(db, "users", firebaseUser.uid, "savedFilterSets", savedSet.id), savedSet.data(), { merge: true });
+    }
+    for (const note of notesSnapshot.docs) {
+      batch.set(doc(db, "users", firebaseUser.uid, "calendarNotes", note.id), { ...note.data(), brokerId: firebaseUser.uid }, { merge: true });
+    }
+
+    for (const profileDoc of profileDocs.values()) {
+      const profileData = profileDoc.data() as { brokerId?: string; role?: string; [key: string]: unknown };
+      if (!profileData.brokerId) continue;
+      const newProfileRef = doc(db, "brokerClientProfiles", `${profileData.brokerId}_${firebaseUser.uid}`);
+      batch.set(newProfileRef, {
+        ...profileData,
+        clientId: firebaseUser.uid,
+        clientUserId: firebaseUser.uid,
+        isManual: false,
+        updatedAt: Date.now(),
+      }, { merge: true });
+
+      const dealsSnapshot = await getDocs(collection(profileDoc.ref, "deals"));
+      for (const deal of dealsSnapshot.docs) {
+        batch.set(doc(newProfileRef, "deals", deal.id), { ...deal.data(), clientId: firebaseUser.uid }, { merge: true });
+        batch.delete(deal.ref);
+      }
+      batch.delete(profileDoc.ref);
+    }
+
+    for (const chatDoc of chatsSnapshot.docs) {
+      const chatData = chatDoc.data() as { users?: unknown; participantDisplayNames?: Record<string, string> };
+      const users = Array.isArray(chatData.users) ? chatData.users.map((userId) => userId === placeholderId ? firebaseUser.uid : userId) : [];
+      const displayNames = { ...(chatData.participantDisplayNames ?? {}) };
+      if (displayNames[placeholderId]) {
+        displayNames[firebaseUser.uid] = displayNames[placeholderId];
+        delete displayNames[placeholderId];
+      }
+      batch.update(chatDoc.ref, { users, participantDisplayNames: displayNames, updatedAt: serverTimestamp() });
+      const messagesSnapshot = await getDocs(collection(chatDoc.ref, "messages"));
+      messagesSnapshot.docs.forEach((messageDoc) => {
+        const messageData = messageDoc.data() as { senderId?: string; receiverId?: string };
+        const update: Record<string, string> = {};
+        if (messageData.senderId === placeholderId) update.senderId = firebaseUser.uid;
+        if (messageData.receiverId === placeholderId) update.receiverId = firebaseUser.uid;
+        if (Object.keys(update).length > 0) batch.update(messageDoc.ref, update);
+      });
+    }
+
+    batch.update(pendingDoc.ref, {
+      is_manual_client: false,
+      claimedAt: serverTimestamp(),
+      claimedByUserId: firebaseUser.uid,
+    });
+    await batch.commit();
+  }
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -154,6 +236,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [needsProfileSetup, setNeedsProfileSetup] = useState(false);
   const [isBroker, setIsBroker] = useState(false);
   const [notLookingForRoommate, setNotLookingForRoommate] = useState(false);
+  const [agencyId, setAgencyId] = useState<string | null>(null);
+  const [agencyRole, setAgencyRole] = useState<string | null>(null);
 
   useEffect(() => {
     GoogleSignin.configure({
@@ -173,6 +257,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setNeedsProfileSetup(false);
     setIsBroker(false);
     setNotLookingForRoommate(false);
+    setAgencyId(null);
+    setAgencyRole(null);
     setStatus("guest");
   }, []);
 
@@ -215,6 +301,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
           setIsBroker(isBrokerOrAgencyUser(userData));
           setNotLookingForRoommate(userData?.not_looking_for_roommate === true);
+          setAgencyId(typeof userData?.agencyId === "string" ? userData.agencyId : null);
+          setAgencyRole(typeof userData?.agencyRole === "string" ? userData.agencyRole : typeof userData?.role === "string" ? userData.role : null);
+          await claimManualClientData(firebaseUser).catch((error) => console.error("[Auth] Manual client claim failed during session restore:", error));
           await persist(idToken, mapFirebaseUser(firebaseUser), needsSetup);
 
           unsubscribeUserDoc?.();
@@ -223,6 +312,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             const data = snapshot.exists() ? snapshot.data() : null;
             setIsBroker(isBrokerOrAgencyUser(data));
             setNotLookingForRoommate(data?.not_looking_for_roommate === true);
+            setAgencyId(typeof data?.agencyId === "string" ? data.agencyId : null);
+            setAgencyRole(typeof data?.agencyRole === "string" ? data.agencyRole : typeof data?.role === "string" ? data.role : null);
             if (typeof data?.needsProfileSetup === "boolean") {
               setNeedsProfileSetup(data.needsProfileSetup);
             }
@@ -239,6 +330,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUserIdCache(null);
       setIsBroker(false);
       setNotLookingForRoommate(false);
+      setAgencyId(null);
+      setAgencyRole(null);
       unsubscribeUserDoc?.();
       unsubscribeUserDoc = null;
 
@@ -268,6 +361,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async (email: string, password: string) => {
       const userCredential = await signInWithEmailAndPassword(firebaseAuth, email.trim(), password);
       const needsSetup = await syncUserDocument(userCredential.user);
+      await claimManualClientData(userCredential.user).catch((error) => console.error("[Auth] Manual client claim failed during email login:", error));
       const idToken = await userCredential.user.getIdToken();
       await persist(idToken, mapFirebaseUser(userCredential.user), needsSetup);
     },
@@ -288,6 +382,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         name: trimmedName || userCredential.user.displayName,
         needsProfileSetup: true,
       });
+      await claimManualClientData(userCredential.user).catch((error) => console.error("[Auth] Manual client claim failed during registration:", error));
       const idToken = await userCredential.user.getIdToken();
       await persist(idToken, mapFirebaseUser(userCredential.user), true);
     },
@@ -308,6 +403,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const credential = GoogleAuthProvider.credential(idToken);
       const userCredential = await signInWithCredential(firebaseAuth, credential);
       const needsSetup = await syncUserDocument(userCredential.user);
+      await claimManualClientData(userCredential.user).catch((error) => console.error("[Auth] Manual client claim failed during Google login:", error));
       const firebaseToken = await userCredential.user.getIdToken();
       await persist(firebaseToken, mapFirebaseUser(userCredential.user), needsSetup);
       console.log("[Auth] Native Google sign-in completed via Firebase.", {
@@ -341,7 +437,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [user]);
 
   const logout = useCallback(async () => {
-    // 🎯 ΔΙΟΡΘΩΣΗ: Γράφουμε ΠΡΩΤΑ τα flags του Guest mode στο storage. 
+    // ΔΙΟΡΘΩΣΗ: Γράφουμε ΠΡΩΤΑ τα flags του Guest mode στο storage.
     // Έτσι, όταν πυροδοτηθεί το ασύγχρονο signOut, η εφαρμογή θα ξέρει ήδη ότι είσαι Guest και δεν θα κάνει flash στο auth-landing.
     try {
       await storage.setItem(GUEST_KEY, true);
@@ -376,6 +472,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
     setNeedsProfileSetup(false);
     setNotLookingForRoommate(false);
+    setAgencyId(null);
+    setAgencyRole(null);
     setStatus("guest");
   }, []);
 
@@ -399,6 +497,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       updateRoleStates,
       isBroker,
       notLookingForRoommate,
+      agencyId,
+      agencyRole,
     }),
     [
       status,
@@ -407,6 +507,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       needsProfileSetup,
       isBroker,
       notLookingForRoommate,
+      agencyId,
+      agencyRole,
       loginEmail,
       registerEmail,
       signInWithGoogle,

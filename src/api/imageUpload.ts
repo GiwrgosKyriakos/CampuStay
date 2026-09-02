@@ -24,7 +24,7 @@ function guessContentType(uri: string): string {
   return "image/jpeg";
 }
 
-// 🟢 Η ΔΙΟΡΘΩΜΕΝΗ ΣΥΝΑΡΤΗΣΗ: Μετατροπή τοπικού URI σε Blob με XMLHttpRequest
+// Η ΔΙΟΡΘΩΜΕΝΗ ΣΥΝΑΡΤΗΣΗ: Μετατροπή τοπικού URI σε Blob με XMLHttpRequest
 async function uriToBlob(uri: string): Promise<Blob> {
   return new Promise<Blob>((resolve, reject) => {
     const xhr = new XMLHttpRequest();

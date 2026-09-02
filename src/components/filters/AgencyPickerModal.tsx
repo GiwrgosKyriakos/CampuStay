@@ -6,6 +6,7 @@ import { collection, getDocs } from "firebase/firestore";
 
 import { db } from "@/src/config/firebase";
 import { useTheme } from "@/src/context/ThemeContext";
+import { t } from "@/src/locales";
 import { fonts, fontSize, radius, spacing } from "@/src/theme";
 
 export interface AgencyItem {
@@ -40,7 +41,7 @@ export default function AgencyPickerModal({ visible, selectedAgencyId, onSelectA
           const data = agencyDoc.data() as Record<string, unknown>;
           return {
             id: agencyDoc.id,
-            name: typeof data.name === "string" && data.name.trim() ? data.name.trim() : "Μεσιτικό Γραφείο",
+            name: typeof data.name === "string" && data.name.trim() ? data.name.trim() : t("agency.picker.agencyFallback"),
             logo: typeof data.logo === "string" ? data.logo : typeof data.photoUrl === "string" ? data.photoUrl : "",
             city: typeof data.city === "string" ? data.city : "",
             activeListingsCount: typeof data.activeListingsCount === "number" ? data.activeListingsCount : 0,
@@ -66,7 +67,7 @@ export default function AgencyPickerModal({ visible, selectedAgencyId, onSelectA
       {selectedAgencyId ? (
         <Pressable style={[styles.clearBtn, { borderColor: colors.border }]} onPress={() => onSelectAgency(null)}>
           <Ionicons color={colors.error} name="trash-outline" size={16} />
-          <Text style={[styles.clearBtnText, { color: colors.error }]}>Καθαρισμός φίλτρου γραφείου</Text>
+          <Text style={[styles.clearBtnText, { color: colors.error }]}>{t("agency.picker.clearFilter")}</Text>
         </Pressable>
       ) : null}
       {loading ? (
@@ -76,7 +77,7 @@ export default function AgencyPickerModal({ visible, selectedAgencyId, onSelectA
             data={agencies}
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.list}
-            ListEmptyComponent={<Text style={[styles.emptyText, { color: colors.onSurfaceTertiary }]}>Δεν βρέθηκαν μεσιτικά γραφεία.</Text>}
+            ListEmptyComponent={<Text style={[styles.emptyText, { color: colors.onSurfaceTertiary }]}>{t("agency.picker.empty")}</Text>}
             renderItem={({ item }) => {
               const isSelected = selectedAgencyId === item.id;
               return (
@@ -91,7 +92,7 @@ export default function AgencyPickerModal({ visible, selectedAgencyId, onSelectA
                   <View style={styles.agencyInfo}>
                     <Text style={[styles.agencyName, { color: colors.onSurface }]} numberOfLines={1}>{item.name}</Text>
                     {item.city ? <Text style={[styles.agencyCity, { color: colors.onSurfaceTertiary }]}>{item.city}</Text> : null}
-                    {typeof item.activeListingsCount === "number" ? <Text style={[styles.agencyCity, { color: colors.brand }]}>{`${item.activeListingsCount} ενεργές αγγελίες`}</Text> : null}
+                    {typeof item.activeListingsCount === "number" ? <Text style={[styles.agencyCity, { color: colors.brand }]}>{t("agency.picker.activeListings", { count: item.activeListingsCount })}</Text> : null}
                   </View>
                   {isSelected ? <Ionicons color={colors.brand} name="checkmark-circle" size={20} /> : null}
                 </Pressable>
