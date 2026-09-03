@@ -1,15 +1,16 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/context/ThemeContext";
 import { t } from "@/src/locales";
-import { generateListingCopywritingStub } from "@/src/services/aiFeatureService";
+import { AiServiceError, fetchPropertyListingCopy, type CopywriterResult } from "@/src/services/aiFeatureService";
 
 export interface AiCopywriterModalProps {
   visible: boolean;
   onClose: () => void;
-  onApply: (value: string) => void;
+  onApply: (value: CopywriterResult) => void;
   specs?: {
+    title?: string;
     rooms?: number;
     sqm?: number;
     area?: string;
@@ -20,22 +21,36 @@ export interface AiCopywriterModalProps {
 
 const tones = [
   { key: "professional", label: "Επαγγελματικό" },
-  { key: "enthusiastic", label: "Ενθουσιώδες" },
   { key: "luxury", label: "Luxury/Premium" },
-  { key: "concise_bulleted", label: "Σύντομο" },
+  { key: "student_friendly", label: "Student friendly" },
 ] as const;
 
 export default function AiCopywriterModal({ visible, onClose, onApply, specs }: AiCopywriterModalProps) {
   const { colors } = useTheme();
   const [selectedTone, setSelectedTone] = useState<(typeof tones)[number]["key"]>("professional");
-  const [generated, setGenerated] = useState<Awaited<ReturnType<typeof generateListingCopywritingStub>>[number] | null>(null);
+  const [generated, setGenerated] = useState<CopywriterResult | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [errorText, setErrorText] = useState<string | null>(null);
+  const nextAllowedRequest = useRef(0);
 
   const handleGenerate = async () => {
+    if (isGenerating || Date.now() < nextAllowedRequest.current) return;
+    nextAllowedRequest.current = Date.now() + 3000;
     setIsGenerating(true);
+    setErrorText(null);
     try {
-      const options = await generateListingCopywritingStub(specs ?? {}, selectedTone);
-      setGenerated(options.find((option) => option.tone === selectedTone) ?? options[0] ?? null);
+      const result = await fetchPropertyListingCopy({
+        title: specs?.title ?? "Ακίνητο",
+        area: specs?.area ?? "Ελλάδα",
+        sqm: specs?.sqm ?? 0,
+        bedrooms: specs?.rooms ?? 0,
+        price: specs?.price ?? 0,
+        features: specs?.amenities ?? [],
+        tone: selectedTone,
+      });
+      setGenerated(result);
+    } catch (error) {
+      setErrorText(error instanceof AiServiceError ? error.message : "Δεν ήταν δυνατή η δημιουργία κειμένου.");
     } finally {
       setIsGenerating(false);
     }
@@ -58,6 +73,7 @@ export default function AiCopywriterModal({ visible, onClose, onApply, specs }: 
               <Pressable
                 key={tone.key}
                 onPress={() => setSelectedTone(tone.key)}
+                disabled={isGenerating}
                 style={[styles.pill, { backgroundColor: selectedTone === tone.key ? colors.brand : colors.surfaceSecondary, borderColor: colors.border }]}
               >
                 <Text style={[styles.pillText, { color: selectedTone === tone.key ? colors.onBrand : colors.onSurface }]}>{tone.label}</Text>
@@ -69,19 +85,21 @@ export default function AiCopywriterModal({ visible, onClose, onApply, specs }: 
             {isGenerating ? <ActivityIndicator color={colors.onBrand} /> : <Text style={[styles.primaryButtonText, { color: colors.onBrand }]}>{t("ai.generateCopy")}</Text>}
           </Pressable>
 
+          {errorText ? <View style={styles.errorBlock}><Text style={[styles.errorText, { color: colors.error }]}>{errorText}</Text><Pressable style={[styles.retryButton, { borderColor: colors.error }]} onPress={() => void handleGenerate()} disabled={isGenerating}><Text style={[styles.retryText, { color: colors.error }]}>Επανάληψη</Text></Pressable></View> : null}
+
           {generated ? (
             <ScrollView style={styles.preview}>
-              <Text style={[styles.headline, { color: colors.onSurface }]}>{generated.headline}</Text>
-              <Text style={[styles.body, { color: colors.onSurfaceTertiary }]}>{generated.description}</Text>
+              <Text style={[styles.headline, { color: colors.onSurface }]}>{generated.portalTitle}</Text>
+              <Text style={[styles.body, { color: colors.onSurfaceTertiary }]}>{generated.portalDescription}</Text>
               <Text style={[styles.highlightsTitle, { color: colors.onSurface }]}>Highlights</Text>
-              {generated.keyHighlights.map((highlight) => (
+              {generated.bulletHighlights.map((highlight) => (
                 <Text key={highlight} style={[styles.highlight, { color: colors.onSurfaceTertiary }]}>• {highlight}</Text>
               ))}
             </ScrollView>
           ) : null}
 
           {generated ? (
-            <Pressable style={[styles.applyButton, { backgroundColor: colors.brandSecondary }]} onPress={() => { onApply(`${generated.headline}\n\n${generated.description}`); onClose(); }}>
+            <Pressable style={[styles.applyButton, { backgroundColor: colors.brandSecondary }]} onPress={() => { onApply(generated); onClose(); }}>
               <Text style={[styles.applyButtonText, { color: colors.onBrand }]}>{t("ai.applyToDescription")}</Text>
             </Pressable>
           ) : null}
@@ -102,6 +120,10 @@ const styles = StyleSheet.create({
   pillText: { fontWeight: "700" },
   primaryButton: { borderRadius: 12, paddingVertical: 12, alignItems: "center" },
   primaryButtonText: { fontWeight: "700" },
+  errorText: { fontSize: 13, lineHeight: 18 },
+  errorBlock: { gap: 8 },
+  retryButton: { alignSelf: "flex-start", borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
+  retryText: { fontSize: 13, fontWeight: "700" },
   preview: { maxHeight: 240, borderRadius: 12, padding: 12 },
   headline: { fontSize: 18, fontWeight: "700", marginBottom: 8 },
   body: { fontSize: 14, lineHeight: 22 },

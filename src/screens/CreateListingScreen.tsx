@@ -39,6 +39,7 @@ import { getUserProfile, type UserProfile } from "@/src/api/userProfile";
 import { t } from "@/src/locales";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import AiCopywriterModal from "@/src/components/AiCopywriterModal";
+import type { CopywriterResult } from "@/src/services/aiFeatureService";
 import { calculateTenantCompatibilityScore } from "@/src/utils/compatibilityScore";
 import type { FilterSetPayload } from "@/src/types/filters";
 import type { RealEstateAgency } from "@/src/types/agency";
@@ -816,6 +817,7 @@ export default function CreateListingScreen() {
   const [photoPickerTarget, setPhotoPickerTarget] = useState<"listing" | "brokerPrivate">("listing");
   const [photoSourceModalVisible, setPhotoSourceModalVisible] = useState(false);
   const [aiCopywriterVisible, setAiCopywriterVisible] = useState(false);
+  const [aiCopywriterValidation, setAiCopywriterValidation] = useState<string | null>(null);
   const [formFeedbackModal, setFormFeedbackModal] = useState<{
     title: string;
     description: string;
@@ -2462,12 +2464,21 @@ export default function CreateListingScreen() {
               <Text style={styles.sectionTitle}>Περιγραφή / Σχετικά με το σπίτι (Προαιρετικό)</Text>
               <Pressable
                 style={[styles.aiHelperButton, { backgroundColor: colors.brandTertiary, borderColor: colors.border }]}
-                onPress={() => setAiCopywriterVisible(true)}
+                onPress={() => {
+                  const parsedSqm = Number(sizeSqm);
+                  if (!area.trim() || !Number.isFinite(parsedSqm) || parsedSqm <= 0) {
+                    setAiCopywriterValidation("Συμπλήρωσε πρώτα περιοχή και έγκυρα τετραγωνικά μέτρα για τη δημιουργία κειμένου.");
+                    return;
+                  }
+                  setAiCopywriterValidation(null);
+                  setAiCopywriterVisible(true);
+                }}
               >
                 <Ionicons name="sparkles-outline" size={16} color={colors.brand} />
                 <Text style={[styles.aiHelperButtonText, { color: colors.brand }]}>{t("feed.aiCopywriterButton")}</Text>
               </Pressable>
             </View>
+            {aiCopywriterValidation ? <Text style={[styles.fieldHint, { color: colors.error }]}>{aiCopywriterValidation}</Text> : null}
             <TextInput
               value={description}
               onChangeText={setDescription}
@@ -3807,17 +3818,20 @@ export default function CreateListingScreen() {
       <AiCopywriterModal
         visible={aiCopywriterVisible}
         onClose={() => setAiCopywriterVisible(false)}
-        onApply={(nextDescription) => {
+        onApply={(copy: CopywriterResult) => {
+          if (!title.trim()) setTitle(copy.portalTitle);
+          const highlights = copy.bulletHighlights.length > 0 ? `\n\n${copy.bulletHighlights.map((highlight) => `• ${highlight}`).join("\n")}` : "";
+          const nextDescription = `${copy.portalDescription}${highlights}`;
           setDescription((previous) => (previous && previous.trim().length > 0 ? `${previous}\n\n${nextDescription}` : nextDescription));
         }}
         specs={{
-          rooms: Number(rooms) || 2,
-          sqm: Number(sizeSqm) || 80,
+          title: title.trim() || `Διαμέρισμα στην ${area.trim()}`,
+          rooms: Number(rooms) || 0,
+          sqm: Number(sizeSqm),
           area,
-          amenities: Object.entries(amenities)
-            .filter(([, enabled]) => enabled)
-            .map(([key]) => key === "petFriendly" ? "Pet friendly" : key === "nearMetro" ? "Near metro" : key === "furnished" ? "Furnished" : key === "balcony" ? "Balcony" : "Parking"),
-          price: Number(monthlyRent) || 1200,
+          amenities: AMENITIES.filter((amenity) => amenities[amenity.key])
+            .map((amenity) => t(amenity.label)),
+          price: Number(monthlyRent) || 0,
         }}
       />
 

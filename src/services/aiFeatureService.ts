@@ -1,61 +1,228 @@
-import type { AiCopywritingOption } from "@/src/types/aiFeatures";
+import { httpsCallable } from "firebase/functions";
+import { firebaseFunctions } from "@/src/config/functions";
 
-export interface ApartmentSpecRequest {
-  rooms?: number;
-  sqm?: number;
+export interface FeedbackSentimentAnalysis {
+  overallSentiment: "positive" | "neutral" | "negative";
+  positivePoints: string[];
+  frictionPoints: string[];
+  recurringPatterns: { issue: string; frequencyPercentage: number }[];
+  priceAdjustmentRecommendation?: { suggestedReductionPercent: number; justification: string };
+}
+
+export interface CmaAnalysisInput {
+  apartmentId: string;
+  targetPrice?: number;
   area?: string;
-  amenities?: string[];
-  price?: number;
+  sqm?: number;
+  rooms?: number;
+  floor?: number;
 }
 
-export async function generateListingCopywritingStub(specs: ApartmentSpecRequest, tone: string): Promise<AiCopywritingOption[]> {
-  const area = specs.area ?? "Central district";
-  const sqm = specs.sqm ?? 80;
-  const rooms = specs.rooms ?? 2;
-  const price = specs.price ?? 1200;
-  const amenities = specs.amenities?.length ? specs.amenities.join(", ") : "balcony, natural light, practical layout";
-
-  const options: AiCopywritingOption[] = [
-    {
-      tone: "professional",
-      headline: `${rooms}-Bedroom Apartment in ${area}`,
-      description: `This ${rooms}-bed apartment offers ${sqm} sqm of well-planned living space in ${area}. Designed for comfortable everyday living with ${amenities} and a compelling price of €${price}.`,
-      keyHighlights: ["Well-planned layout", "Prime area", "Excellent value"],
-      socialMediaSnippet: `Fresh listing in ${area}: ${sqm} sqm, ${amenities}, from €${price}.`,
-    },
-    {
-      tone: "enthusiastic",
-      headline: `Your next home in ${area}`,
-      description: `A welcoming and bright home with an easy flow, generous natural light, and practical features that make everyday living feel effortless. An excellent option for buyers seeking comfort and convenience in ${area}.`,
-      keyHighlights: ["Bright and airy", "Move-in ready", "High-demand area"],
-      socialMediaSnippet: `Discover this stylish property in ${area} — bright interiors, premium convenience, and a great value from €${price}.`,
-    },
-    {
-      tone: "luxury",
-      headline: `Luxury living in ${area}`,
-      description: `A refined residential opportunity combining premium comfort, thoughtful design, and an ideal location in ${area}. With ${sqm} sqm of generous living space, this home offers the balance of contemporary elegance and practical convenience.`,
-      keyHighlights: ["Premium feel", "Strong location", "Well-designed interiors"],
-      socialMediaSnippet: `Luxury meets practicality in ${area}: ${sqm} sqm of elevated living, designed for effortless city living.`,
-    },
-  ];
-
-  return tone === "concise_bulleted" ? [
-    { ...options[0], tone: "concise_bulleted", headline: `${rooms}-Bedroom • ${area}`, description: `• ${sqm} sqm\n• ${amenities}\n• ${area}\n• €${price}`, keyHighlights: ["Efficient layout", "Convenient location", "Value for money"], socialMediaSnippet: `${area} • ${sqm} sqm • €${price}` },
-  ] : options;
+export interface CmaAnalysisResult {
+  suggestedPriceRange: { min: number; max: number; optimal: number };
+  pricePerSqmEstimate: number;
+  marketCompetitiveness: "low" | "fair" | "high" | "overpriced";
+  keyDifferentiators: string[];
+  marketInsightsSummary: string;
 }
 
-export async function generateCmaReportStub(apartmentId: string) {
+export interface CopywriterInput {
+  apartmentId?: string;
+  title: string;
+  area: string;
+  sqm: number;
+  bedrooms: number;
+  price: number;
+  features: string[];
+  tone?: "professional" | "luxury" | "student_friendly";
+}
+
+export interface CopywriterResult {
+  portalTitle: string;
+  portalDescription: string;
+  socialCaption: string;
+  bulletHighlights: string[];
+  seoTags: string[];
+}
+
+export interface OwnerReportInput {
+  apartmentId: string;
+  timeRangeDays?: number;
+}
+
+export interface OwnerReportResult {
+  reportPeriod: string;
+  executiveSummary: string;
+  showingMetrics: { totalVisits: number; positiveSignalsCount: number; concernsCount: number };
+  buyerFeedbackThemes: { theme: string; sentiment: "positive" | "negative" | "neutral" }[];
+  strategicRecommendations: string[];
+  ownerActionItems: string[];
+}
+
+export type AiErrorCode =
+  | "unauthenticated"
+  | "invalid-argument"
+  | "resource-exhausted"
+  | "failed-precondition"
+  | "not-found"
+  | "unavailable"
+  | "internal"
+  | "unknown";
+
+export class AiServiceError extends Error {
+  constructor(public readonly code: AiErrorCode, message: string) {
+    super(message);
+    this.name = "AiServiceError";
+  }
+}
+
+const errorMessages: Record<AiErrorCode, string> = {
+  unauthenticated: "Συνδεθείτε για να χρησιμοποιήσετε τις λειτουργίες AI.",
+  "invalid-argument": "Τα στοιχεία που στάλθηκαν δεν είναι έγκυρα.",
+  "resource-exhausted": "Έχουν γίνει πολλά αιτήματα AI. Δοκιμάστε ξανά σε λίγο.",
+  "failed-precondition": "Η λειτουργία AI δεν μπορεί να εκτελεστεί με τα διαθέσιμα δεδομένα.",
+  "not-found": "Το ακίνητο δεν βρέθηκε.",
+  unavailable: "Η υπηρεσία AI δεν είναι προσωρινά διαθέσιμη. Δοκιμάστε ξανά.",
+  internal: "Παρουσιάστηκε σφάλμα στην υπηρεσία AI. Δοκιμάστε ξανά.",
+  unknown: "Δεν ήταν δυνατή η ολοκλήρωση του αιτήματος AI.",
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function asString(value: unknown, field: string): string {
+  if (typeof value !== "string" || value.trim().length === 0) throw new AiServiceError("internal", `Η απάντηση AI δεν περιέχει έγκυρο ${field}.`);
+  return value.trim();
+}
+
+function asStringList(value: unknown, field: string): string[] {
+  if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string" && entry.trim().length > 0)) {
+    throw new AiServiceError("internal", `Η απάντηση AI δεν περιέχει έγκυρη λίστα ${field}.`);
+  }
+  return value.map((entry) => (entry as string).trim());
+}
+
+function asNumber(value: unknown, field: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) throw new AiServiceError("internal", `Η απάντηση AI δεν περιέχει έγκυρο ${field}.`);
+  return value;
+}
+
+function normalizeFeedback(value: unknown): FeedbackSentimentAnalysis {
+  if (!isRecord(value)) throw new AiServiceError("internal", "Η απάντηση ανάλυσης συναισθήματος δεν είναι έγκυρη.");
+  if (value.overallSentiment !== "positive" && value.overallSentiment !== "neutral" && value.overallSentiment !== "negative") throw new AiServiceError("internal", "Η απάντηση ανάλυσης συναισθήματος δεν περιέχει έγκυρο τόνο.");
+  if (!Array.isArray(value.recurringPatterns)) throw new AiServiceError("internal", "Η απάντηση ανάλυσης συναισθήματος δεν περιέχει έγκυρα μοτίβα.");
+  const recurringPatterns = value.recurringPatterns.map((entry) => {
+    if (!isRecord(entry)) throw new AiServiceError("internal", "Η απάντηση ανάλυσης συναισθήματος περιέχει μη έγκυρο μοτίβο.");
+    const frequencyPercentage = asNumber(entry.frequencyPercentage, "ποσοστό συχνότητας");
+    return { issue: asString(entry.issue, "θέμα"), frequencyPercentage: Math.min(100, Math.max(0, frequencyPercentage)) };
+  });
+  let priceAdjustmentRecommendation: FeedbackSentimentAnalysis["priceAdjustmentRecommendation"];
+  if (value.priceAdjustmentRecommendation !== undefined) {
+    if (!isRecord(value.priceAdjustmentRecommendation)) throw new AiServiceError("internal", "Η απάντηση ανάλυσης συναισθήματος περιέχει μη έγκυρη πρόταση τιμής.");
+    priceAdjustmentRecommendation = {
+      suggestedReductionPercent: Math.min(100, Math.max(0, asNumber(value.priceAdjustmentRecommendation.suggestedReductionPercent, "ποσοστό προσαρμογής"))),
+      justification: asString(value.priceAdjustmentRecommendation.justification, "αιτιολόγηση"),
+    };
+  }
+  return { overallSentiment: value.overallSentiment, positivePoints: asStringList(value.positivePoints, "θετικά σημεία"), frictionPoints: asStringList(value.frictionPoints, "σημεία τριβής"), recurringPatterns, ...(priceAdjustmentRecommendation ? { priceAdjustmentRecommendation } : {}) };
+}
+
+function normalizeCma(value: unknown): CmaAnalysisResult {
+  if (!isRecord(value) || !isRecord(value.suggestedPriceRange)) throw new AiServiceError("internal", "Η απάντηση CMA δεν είναι έγκυρη.");
+  const range = value.suggestedPriceRange;
+  const marketCompetitiveness = value.marketCompetitiveness;
+  if (marketCompetitiveness !== "low" && marketCompetitiveness !== "fair" && marketCompetitiveness !== "high" && marketCompetitiveness !== "overpriced") throw new AiServiceError("internal", "Η απάντηση CMA δεν περιέχει έγκυρη ανταγωνιστικότητα.");
   return {
-    id: `cma-${apartmentId}`,
-    apartmentId,
-    estimatedPriceMin: 820,
-    estimatedPriceMax: 950,
-    recommendedListingPrice: 890,
-    confidenceScore: 89,
-    pricePerSqmAverage: 12.1,
-    comparables: [],
-    marketTrendSummary: "Prices remain stable with mild upward movement in the local market.",
-    pricingAdvice: "Use a value-led range to trigger fast interest while preserving margin.",
-    createdAt: Date.now(),
+    suggestedPriceRange: { min: asNumber(range.min, "ελάχιστη τιμή"), max: asNumber(range.max, "μέγιστη τιμή"), optimal: asNumber(range.optimal, "βέλτιστη τιμή") },
+    pricePerSqmEstimate: asNumber(value.pricePerSqmEstimate, "τιμή ανά τετραγωνικό"),
+    marketCompetitiveness,
+    keyDifferentiators: asStringList(value.keyDifferentiators, "διαφοροποιητικά στοιχεία"),
+    marketInsightsSummary: asString(value.marketInsightsSummary, "σύνοψη αγοράς"),
   };
+}
+
+function normalizeCopy(value: unknown): CopywriterResult {
+  if (!isRecord(value)) throw new AiServiceError("internal", "Η απάντηση copywriter δεν είναι έγκυρη.");
+  return {
+    portalTitle: asString(value.portalTitle, "τίτλο portal"),
+    portalDescription: asString(value.portalDescription, "περιγραφή portal"),
+    socialCaption: asString(value.socialCaption, "λεζάντα social"),
+    bulletHighlights: asStringList(value.bulletHighlights, "σημεία προβολής"),
+    seoTags: asStringList(value.seoTags, "SEO tags"),
+  };
+}
+
+function normalizeOwnerReport(value: unknown): OwnerReportResult {
+  if (!isRecord(value) || !isRecord(value.showingMetrics) || !Array.isArray(value.buyerFeedbackThemes)) throw new AiServiceError("internal", "Η απάντηση αναφοράς ιδιοκτήτη δεν είναι έγκυρη.");
+  const showingMetrics = value.showingMetrics;
+  const buyerFeedbackThemes: OwnerReportResult["buyerFeedbackThemes"] = value.buyerFeedbackThemes.map((entry) => {
+    if (!isRecord(entry) || (entry.sentiment !== "positive" && entry.sentiment !== "negative" && entry.sentiment !== "neutral")) throw new AiServiceError("internal", "Η απάντηση αναφοράς ιδιοκτήτη περιέχει μη έγκυρο θέμα.");
+    const sentiment = entry.sentiment as "positive" | "negative" | "neutral";
+    return { theme: asString(entry.theme, "θέμα"), sentiment };
+  });
+  return {
+    reportPeriod: asString(value.reportPeriod, "περίοδο"),
+    executiveSummary: asString(value.executiveSummary, "σύνοψη"),
+    showingMetrics: { totalVisits: asNumber(showingMetrics.totalVisits, "υποδείξεις"), positiveSignalsCount: asNumber(showingMetrics.positiveSignalsCount, "θετικά σήματα"), concernsCount: asNumber(showingMetrics.concernsCount, "ανησυχίες") },
+    buyerFeedbackThemes,
+    strategicRecommendations: asStringList(value.strategicRecommendations, "στρατηγικές προτάσεις"),
+    ownerActionItems: asStringList(value.ownerActionItems, "ενέργειες ιδιοκτήτη"),
+  };
+}
+
+function toAiError(error: unknown): AiServiceError {
+  if (error instanceof AiServiceError) return error;
+  const rawCode = isRecord(error) && typeof error.code === "string" ? error.code.replace(/^functions\//, "") : "unknown";
+  const knownCode = rawCode in errorMessages ? rawCode as AiErrorCode : "unknown";
+  return new AiServiceError(knownCode, errorMessages[knownCode]);
+}
+
+async function callAiFunction<Input, Output>(name: string, input: Input, normalize: (value: unknown) => Output): Promise<Output> {
+  try {
+    const callable = httpsCallable<Input, Output>(firebaseFunctions, name);
+    const result = await callable(input);
+    return normalize(result.data);
+  } catch (error) {
+    throw toAiError(error);
+  }
+}
+
+function requireText(value: string, field: string): string {
+  if (typeof value !== "string" || value.trim().length === 0) throw new AiServiceError("invalid-argument", `Η παράμετρος ${field} είναι υποχρεωτική.`);
+  return value.trim();
+}
+
+function requireNonNegative(value: number | undefined, field: string): void {
+  if (value !== undefined && (typeof value !== "number" || !Number.isFinite(value) || value < 0)) throw new AiServiceError("invalid-argument", `Η παράμετρος ${field} πρέπει να είναι μη αρνητικός αριθμός.`);
+}
+
+export function fetchShowingFeedbackSentiment(apartmentId: string): Promise<FeedbackSentimentAnalysis> {
+  return callAiFunction("getPropertyFeedbackSentiment", { apartmentId: requireText(apartmentId, "apartmentId") }, normalizeFeedback);
+}
+
+export function fetchComparativeMarketAnalysis(params: CmaAnalysisInput): Promise<CmaAnalysisResult> {
+  const apartmentId = requireText(params?.apartmentId, "apartmentId");
+  requireNonNegative(params.targetPrice, "targetPrice");
+  requireNonNegative(params.sqm, "sqm");
+  requireNonNegative(params.rooms, "rooms");
+  requireNonNegative(params.floor, "floor");
+  return callAiFunction("getComparativeMarketAnalysis", { ...params, apartmentId }, normalizeCma);
+}
+
+export function fetchPropertyListingCopy(params: CopywriterInput): Promise<CopywriterResult> {
+  const title = requireText(params?.title, "title");
+  const area = requireText(params?.area, "area");
+  if (!Array.isArray(params?.features) || !params.features.every((feature) => typeof feature === "string")) throw new AiServiceError("invalid-argument", "Η παράμετρος features πρέπει να είναι λίστα κειμένων.");
+  if (typeof params?.sqm !== "number" || !Number.isFinite(params.sqm) || params.sqm <= 0) throw new AiServiceError("invalid-argument", "Η παράμετρος sqm πρέπει να είναι θετικός αριθμός.");
+  requireNonNegative(params.bedrooms, "bedrooms");
+  requireNonNegative(params.price, "price");
+  if (params.tone !== undefined && params.tone !== "professional" && params.tone !== "luxury" && params.tone !== "student_friendly") throw new AiServiceError("invalid-argument", "Η παράμετρος tone δεν είναι έγκυρη.");
+  return callAiFunction("generatePropertyListingCopy", { ...params, title, area }, normalizeCopy);
+}
+
+export function fetchOwnerPerformanceReport(apartmentId: string, timeRangeDays?: number): Promise<OwnerReportResult> {
+  const normalizedApartmentId = requireText(apartmentId, "apartmentId");
+  if (timeRangeDays !== undefined && (typeof timeRangeDays !== "number" || !Number.isFinite(timeRangeDays) || timeRangeDays <= 0)) throw new AiServiceError("invalid-argument", "Η παράμετρος timeRangeDays πρέπει να είναι θετικός αριθμός.");
+  return callAiFunction("generateOwnerPerformanceReport", { apartmentId: normalizedApartmentId, timeRangeDays }, normalizeOwnerReport);
 }

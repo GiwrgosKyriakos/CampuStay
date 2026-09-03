@@ -43,9 +43,10 @@ export interface PostVisitFeedbackModalProps {
   maxDiscountPercent?: number;
   onClose: () => void;
   onSaved?: () => void;
+  onSentimentInvalidated?: (apartmentId: string) => void;
 }
 
-export default function PostVisitFeedbackModal({ visible, note, isClient, userId, clientName, propertyId, clientId, profileId, listingPrice, maxDiscountPercent = 10, onClose, onSaved }: PostVisitFeedbackModalProps) {
+export default function PostVisitFeedbackModal({ visible, note, isClient, userId, clientName, propertyId, clientId, profileId, listingPrice, maxDiscountPercent = 10, onClose, onSaved, onSentimentInvalidated }: PostVisitFeedbackModalProps) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [scores, setScores] = useState<[number, number, number]>([0, 0, 0]);
@@ -114,6 +115,7 @@ export default function PostVisitFeedbackModal({ visible, note, isClient, userId
         followUpIntent: isClient ? undefined : followUpIntent || undefined,
         submittedByCoveringBrokerId: note?.coveringBrokerId === userId ? note.coveringBrokerId : undefined,
       });
+      if (note.apartmentId) onSentimentInvalidated?.(note.apartmentId);
       onSaved?.();
       onClose();
     } catch (error) {

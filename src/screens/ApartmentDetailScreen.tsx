@@ -79,6 +79,8 @@ import { evaluateCompetingClientsStrategy, type ClientDealContext, type Strategy
 import { checkoutKeySafe, returnKeySafe, updateOpenHouseConfig } from "@/src/api/agencyCollaboration";
 import CrossBrokerVisitModal from "@/src/components/CrossBrokerVisitModal";
 import OpenHouseScannerModal from "@/src/components/OpenHouseScannerModal";
+import CmaValuationModal from "@/src/components/CmaValuationModal";
+import FeedbackSentimentCard from "@/src/components/FeedbackSentimentCard";
 import SignContractModal from "@/src/components/SignContractModal";
 import PropertyAssignmentSetupModal from "@/src/components/PropertyAssignmentSetupModal";
 import { sendContractChatRequest } from "@/src/api/contracts";
@@ -726,6 +728,8 @@ export default function ApartmentDetailScreen() {
   const [resolvedWatermarkConfig, setResolvedWatermarkConfig] = useState<WatermarkConfig | undefined>(apt?.watermarkConfig);
   const [resolvedVirtualTour, setResolvedVirtualTour] = useState<VirtualTourData | undefined>(apt?.virtualTour);
   const [isVirtualTourVisible, setIsVirtualTourVisible] = useState(false);
+  const [isCmaVisible, setIsCmaVisible] = useState(false);
+  const [sentimentRefreshKey, setSentimentRefreshKey] = useState(0);
   const offMarketGuardShown = useRef(false);
 
   const [clientPool, setClientPool] = useState<BrokerClientWithFilters[]>([]);
@@ -2763,6 +2767,17 @@ export default function ApartmentDetailScreen() {
                   </Pressable>
                 ) : null}
                 <Pressable
+                  style={styles.titleActionBtn}
+                  onPress={() => setIsCmaVisible(true)}
+                  testID={`apartment-detail-cma-${apt.id}`}
+                  accessibilityRole="button"
+                  accessibilityLabel="Άνοιγμα AI εκτίμησης αξίας"
+                  hitSlop={8}
+                  disabled={isReadOnlyWithdrawnCoBroker}
+                >
+                  <Ionicons name="analytics-outline" size={20} color={colors.brand} />
+                </Pressable>
+                <Pressable
                   style={[styles.titleActionBtn, isClientsSectionOpen && styles.titleActionBtnActive]}
                   onPress={handleToggleAndScrollToClients}
                   testID={`apartment-detail-inquiries-btn-${apt.id}`}
@@ -2974,6 +2989,19 @@ export default function ApartmentDetailScreen() {
         ) : null}
 
         {isListingOwner ? (
+          <>
+          <View style={styles.aiActionRow}>
+            <Ionicons name="analytics-outline" size={18} color={colors.brand} />
+            <Text style={styles.aiActionCopy}>Αξιολόγησε τη θέση του ακινήτου στην αγορά</Text>
+            <Pressable style={styles.aiActionButton} onPress={() => setIsCmaVisible(true)} disabled={isReadOnlyWithdrawnCoBroker} testID="apartment-detail-cma-button">
+              <Text style={styles.aiActionButtonText}>AI Εκτίμηση Αξίας</Text>
+            </Pressable>
+          </View>
+          <FeedbackSentimentCard
+            apartmentId={apt.id}
+            feedbackCount={interactions.filter((interaction) => interaction.type === "showing").length}
+            refreshKey={sentimentRefreshKey}
+          />
           <View style={styles.propertyInteractionCard} testID="apartment-interaction-log">
             <View style={styles.interactionHeaderRow}>
               <View style={styles.interactionTitleWrap}>
@@ -3095,6 +3123,7 @@ export default function ApartmentDetailScreen() {
               )}
             </View>
           </View>
+          </>
         ) : null}
 
         <View style={styles.section}>
@@ -3589,6 +3618,17 @@ export default function ApartmentDetailScreen() {
       />
 
       <VirtualTourViewerModal visible={isVirtualTourVisible} tourData={virtualTour ?? null} onClose={() => setIsVirtualTourVisible(false)} />
+
+      <CmaValuationModal
+        visible={isCmaVisible}
+        onClose={() => setIsCmaVisible(false)}
+        apartmentId={apt.id}
+        targetPrice={displayRentPrice}
+        area={apt.area || apt.city}
+        sqm={apt.size}
+        rooms={displayRooms}
+        floor={Number.parseFloat(displayFloor) || undefined}
+      />
 
       <CallFeedbackModal
         visible={isCallFeedbackModalVisible}
@@ -4559,6 +4599,10 @@ function createStyles(colors: ThemeColors) {
       borderColor: colors.border,
       gap: spacing.md,
     },
+    aiActionRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginHorizontal: spacing.lg, marginTop: spacing.lg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceSecondary, padding: spacing.md },
+    aiActionCopy: { flex: 1, fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface },
+    aiActionButton: { borderRadius: radius.sm, backgroundColor: colors.brand, paddingHorizontal: spacing.sm, paddingVertical: spacing.sm },
+    aiActionButtonText: { fontFamily: fonts.bold, fontSize: fontSize.xs, color: colors.onBrand },
     interactionHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
     interactionTitleWrap: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
     interactionCardTitle: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface },

@@ -60,6 +60,21 @@ export async function savePostVisitFeedback(input: PostVisitFeedbackInput): Prom
     submittedByCoveringBrokerId: input.submittedByCoveringBrokerId ?? null,
   });
 
+  await setDoc(doc(db, "post_visit_feedbacks", interaction.id), {
+    apartmentId,
+    apartmentTitle: input.note.apartmentTitle ?? "Διαμέρισμα",
+    clientId,
+    clientName: input.clientName,
+    brokerId,
+    loggedByUserId: input.loggedByUserId,
+    feedback: input.isClient ? input.clientNotes ?? "" : input.brokerAssessmentNotes ?? "",
+    comment: input.isClient ? input.clientNotes ?? "" : input.brokerAssessmentNotes ?? "",
+    selectedFeedbackTags: input.isClient ? input.selectedTags ?? [] : [],
+    rating: averageScore,
+    createdAt: serverTimestamp(),
+    sourceInteractionId: interaction.id,
+  });
+
   if (clientId) {
     const brokerIds = new Set([brokerId, input.note.listingBrokerId, input.note.buyerBrokerId].filter((id): id is string => typeof id === "string" && id.length > 0));
     await Promise.all([...brokerIds].map((targetBrokerId) => setDoc(doc(db, "brokerClientProfiles", `${targetBrokerId}_${clientId}`), {
