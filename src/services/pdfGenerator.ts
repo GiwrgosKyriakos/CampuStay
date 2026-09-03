@@ -1,5 +1,5 @@
 import * as Crypto from "expo-crypto";
-import * as FileSystem from "expo-file-system/legacy";
+import { File } from "expo-file-system";
 import * as Print from "expo-print";
 
 export interface GeneratedContractPdf {
@@ -14,9 +14,7 @@ export async function generateContractPdf(htmlContent: string): Promise<Generate
     base64: true,
   });
 
-  const base64Data = await FileSystem.readAsStringAsync(uri, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
+  const base64Data = await new File(uri).base64();
   const sha256Hash = await Crypto.digestStringAsync(
     Crypto.CryptoDigestAlgorithm.SHA256,
     base64Data,

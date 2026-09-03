@@ -101,7 +101,8 @@
       "@react-native-google-signin/google-signin",
       "expo-localization",
       "expo-mail-composer",
-      "expo-video"
+      "expo-video",
+      "expo-audio"
     ],
     "experiments": {
       "typedRoutes": true

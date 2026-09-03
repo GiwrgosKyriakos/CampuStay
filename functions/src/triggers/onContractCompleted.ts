@@ -43,7 +43,7 @@ function getContractTimestamp(value: unknown): number {
 }
 
 async function getArchiveUrl(file: ReturnType<ReturnType<typeof getStorage>["bucket"]>["file"] extends (...args: never[]) => infer T ? T : never): Promise<string> {
-  const [url] = await file.getSignedUrl({ action: "read", expires: Date.now() + 1000 * 60 * 60 * 24 * 365 * 5 });
+  const [url] = await (file as any).getSignedUrl({ action: "read", expires: Date.now() + 1000 * 60 * 60 * 24 * 365 * 5 });
   return url;
 }
 

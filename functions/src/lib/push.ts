@@ -51,7 +51,7 @@ export async function sendPushToUser(userId: string, title: string, body: string
       data: Object.fromEntries(Object.entries(data).filter((entry): entry is [string, string] => typeof entry[1] !== "undefined").map(([key, value]) => [key, String(value)])),
       android: { priority: "high", notification: typeof data.channelId === "string" ? { channelId: data.channelId } : undefined },
     });
-    await Promise.all(response.responses.map((result, index) => {
+    await Promise.all(response.responses.map((result: any, index: number) => {
       if (result.success || result.error?.code !== "messaging/registration-token-not-registered") return Promise.resolve();
       return pruneToken(userId, fcmTokens[index]);
     }));
