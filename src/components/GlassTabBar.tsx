@@ -13,6 +13,7 @@ const ICONS: Record<string, { active: keyof typeof Ionicons.glyphMap; inactive: 
   calendar: { active: "calendar", inactive: "calendar-outline" },
   broker: { active: "person", inactive: "person-outline" },
   matches: { active: "heart", inactive: "heart-outline" },
+  "explore-feed": { active: "play-circle", inactive: "play-circle-outline" },
   apartments: { active: "home", inactive: "home-outline" },
   "apartment-pool": { active: "business", inactive: "business-outline" },
   settlements: { active: "receipt", inactive: "receipt-outline" },
@@ -36,13 +37,14 @@ export default function GlassTabBar({ state, navigation, descriptors }: BottomTa
         const href = (descriptors[route.key]?.options as { href?: string | null } | undefined)?.href;
         if (href === null) return false;
         if (isBroker || isExecutive) return ["calendar", "matches", "apartment-pool", "apartments", "broker", "settlements", "secretariat-pool", ...(isExecutive ? ["analytics"] : [])].includes(route.name);
+        if (notLookingForRoommate) return ["matches", "apartments", "profile"].includes(route.name);
         if (route.name === "roommates") return !notLookingForRoommate;
-        return ["matches", "apartments", "profile"].includes(route.name);
+        return ["matches", "explore-feed", "apartments", "profile"].includes(route.name);
       })
       .sort((left, right) => {
         const order = isBroker || isExecutive
           ? ["calendar", "matches", "apartment-pool", "apartments", "broker", "settlements", "secretariat-pool", ...(isExecutive ? ["analytics"] : [])]
-          : ["roommates", "matches", "apartments", "profile"];
+          : ["roommates", "matches", "explore-feed", "apartments", "profile"];
         return order.indexOf(left.name) - order.indexOf(right.name);
       });
   }, [descriptors, isBroker, isExecutive, notLookingForRoommate, state.routes]);
@@ -75,6 +77,7 @@ export default function GlassTabBar({ state, navigation, descriptors }: BottomTa
                 <View
                   style={[
                     styles.iconPill,
+                    route.name === "explore-feed" && styles.reelIconPill,
                     focused ? { backgroundColor: colors.brand } : undefined,
                   ]}
                 >
@@ -128,6 +131,13 @@ function createStyles(colors: ThemeColors) {
     },
     iconPillActive: {
       backgroundColor: colors.brand,
+    },
+    reelIconPill: {
+      width: 58,
+      height: 58,
+      borderRadius: 29,
+      borderWidth: 2,
+      borderColor: colors.brand,
     },
   });
 }

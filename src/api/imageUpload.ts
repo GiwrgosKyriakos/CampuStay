@@ -46,7 +46,7 @@ async function uriToBlob(uri: string): Promise<Blob> {
   });
 }
 
-export async function uploadImageAsync(uri: string, path: string): Promise<string> {
+export async function uploadImageAsync(uri: string, path: string, contentType?: string): Promise<string> {
   if (isRemoteUrl(uri)) {
     return uri;
   }
@@ -59,7 +59,7 @@ export async function uploadImageAsync(uri: string, path: string): Promise<strin
   const imageRef = ref(storage, path);
 
   try {
-    await uploadBytes(imageRef, blob, { contentType: guessContentType(uri) });
+    await uploadBytes(imageRef, blob, { contentType: contentType ?? guessContentType(uri) });
     return await getDownloadURL(imageRef);
   } catch (error) {
     console.error("[ImageUpload] Firebase Storage upload failed", {
@@ -82,6 +82,14 @@ export async function uploadProfileImageAsync(uri: string, userId: string, index
 
 export async function uploadListingImageAsync(uri: string, userId: string, index: number): Promise<string> {
   return uploadImageAsync(uri, `listings/${userId}/${Date.now()}-${index}.jpg`);
+}
+
+export async function uploadListingReelAsync(uri: string, apartmentId: string): Promise<string> {
+  if (!apartmentId?.trim()) {
+    throw new Error("Apartment id is required for reel uploads");
+  }
+
+  return uploadImageAsync(uri, `apartments/${apartmentId}/reels/reel.mp4`, "video/mp4");
 }
 
 /** Ιδιωτικές φωτογραφίες αγγελίας, ορατές μόνο στο γραφείο που τη διαχειρίζεται. */

@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import React, { useState } from "react";
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/context/ThemeContext";
 import { t } from "@/src/locales";
@@ -28,19 +28,17 @@ const tones = [
 export default function AiCopywriterModal({ visible, onClose, onApply, specs }: AiCopywriterModalProps) {
   const { colors } = useTheme();
   const [selectedTone, setSelectedTone] = useState<(typeof tones)[number]["key"]>("professional");
-  const [generated, setGenerated] = useState<string | null>(null);
-  const [headline, setHeadline] = useState<string>("");
-
-  const draft = useMemo(() => {
-    if (!specs) return null;
-    return generateListingCopywritingStub(specs, selectedTone);
-  }, [selectedTone, specs]);
+  const [generated, setGenerated] = useState<Awaited<ReturnType<typeof generateListingCopywritingStub>>[number] | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const handleGenerate = async () => {
-    const options = await generateListingCopywritingStub(specs ?? {}, selectedTone);
-    const first = options[0];
-    setHeadline(first.headline);
-    setGenerated(first.description);
+    setIsGenerating(true);
+    try {
+      const options = await generateListingCopywritingStub(specs ?? {}, selectedTone);
+      setGenerated(options.find((option) => option.tone === selectedTone) ?? options[0] ?? null);
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   return (
@@ -67,19 +65,23 @@ export default function AiCopywriterModal({ visible, onClose, onApply, specs }: 
             ))}
           </View>
 
-          <Pressable style={[styles.primaryButton, { backgroundColor: colors.brand }]} onPress={handleGenerate}>
-            <Text style={[styles.primaryButtonText, { color: colors.onBrand }]}>{t("ai.generateCopy")}</Text>
+          <Pressable style={[styles.primaryButton, { backgroundColor: colors.brand }]} onPress={handleGenerate} disabled={isGenerating}>
+            {isGenerating ? <ActivityIndicator color={colors.onBrand} /> : <Text style={[styles.primaryButtonText, { color: colors.onBrand }]}>{t("ai.generateCopy")}</Text>}
           </Pressable>
 
           {generated ? (
             <ScrollView style={styles.preview}>
-              <Text style={[styles.headline, { color: colors.onSurface }]}>{headline}</Text>
-              <Text style={[styles.body, { color: colors.onSurfaceTertiary }]}>{generated}</Text>
+              <Text style={[styles.headline, { color: colors.onSurface }]}>{generated.headline}</Text>
+              <Text style={[styles.body, { color: colors.onSurfaceTertiary }]}>{generated.description}</Text>
+              <Text style={[styles.highlightsTitle, { color: colors.onSurface }]}>Highlights</Text>
+              {generated.keyHighlights.map((highlight) => (
+                <Text key={highlight} style={[styles.highlight, { color: colors.onSurfaceTertiary }]}>• {highlight}</Text>
+              ))}
             </ScrollView>
           ) : null}
 
           {generated ? (
-            <Pressable style={[styles.applyButton, { backgroundColor: colors.brandSecondary }]} onPress={() => { onApply(`${headline}\n\n${generated}`); onClose(); }}>
+            <Pressable style={[styles.applyButton, { backgroundColor: colors.brandSecondary }]} onPress={() => { onApply(`${generated.headline}\n\n${generated.description}`); onClose(); }}>
               <Text style={[styles.applyButtonText, { color: colors.onBrand }]}>{t("ai.applyToDescription")}</Text>
             </Pressable>
           ) : null}
@@ -103,6 +105,8 @@ const styles = StyleSheet.create({
   preview: { maxHeight: 240, borderRadius: 12, padding: 12 },
   headline: { fontSize: 18, fontWeight: "700", marginBottom: 8 },
   body: { fontSize: 14, lineHeight: 22 },
+  highlightsTitle: { fontSize: 14, fontWeight: "700", marginTop: 14, marginBottom: 4 },
+  highlight: { fontSize: 14, lineHeight: 22 },
   applyButton: { borderRadius: 12, paddingVertical: 12, alignItems: "center" },
   applyButtonText: { fontWeight: "700" },
 });

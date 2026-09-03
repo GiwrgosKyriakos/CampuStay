@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { addDoc, collection, doc, getDocs, onSnapshot, orderBy, query, serverTimestamp, setDoc, where, limit } from "firebase/firestore";
 import DraggableFlatList, { ScaleDecorator } from "react-native-draggable-flatlist";
-import MapView, { Marker, PROVIDER_DEFAULT, type Region } from "react-native-maps";
+import MapView, { Marker, PROVIDER_DEFAULT, type ApartmentMapRef, type ApartmentMapRegion as Region } from "../../src/components/ApartmentMapView";
 
 import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
 import { getUserProfile } from "@/src/api/userProfile";
@@ -765,7 +765,7 @@ export default function ApartmentsScreen() {
   const [selectedProposalList, setSelectedProposalList] = useState<ReceivedProposalList | null>(null);
   const [markersTracking, setMarkersTracking] = useState(true);
   const [fallbackCoordinates, setFallbackCoordinates] = useState<Record<string, { latitude: number; longitude: number }>>({});
-  const mapRef = useRef<MapView>(null);
+  const mapRef = useRef<ApartmentMapRef>(null);
   const previousNonMapViewMode = useRef<"list" | "grid" | "compact">("list");
   const [isViewingMyListings, setIsViewingMyListings] = useState(false);
   const [hideCreateFab, setHideCreateFab] = useState(false);

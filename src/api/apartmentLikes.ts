@@ -205,3 +205,8 @@ export async function getApartmentLikeCount(apartmentId: string): Promise<number
   const countSnap = await getCountFromServer(likesQ);
   return countSnap.data().count;
 }
+
+export function subscribeApartmentLikeCount(apartmentId: string, onChange: (count: number) => void): () => void {
+  const likesQ = query(collection(db, "liked_apartments"), where("apartmentId", "==", apartmentId));
+  return onSnapshot(likesQ, (snapshot) => onChange(snapshot.size));
+}

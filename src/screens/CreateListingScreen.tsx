@@ -32,7 +32,7 @@ import { db } from "@/src/config/firebase";
 import { useAuth } from "@/src/context/auth";
 import { useTheme } from "@/src/context/ThemeContext";
 // import { useLocationCoordinates } from "@/src/hooks/useLocationCoordinates";
-import { uploadBrokerPrivateImageAsync, uploadImageAsync, uploadListingDocumentAsync, uploadListingImageAsync } from "@/src/api/imageUpload";
+import { uploadBrokerPrivateImageAsync, uploadImageAsync, uploadListingDocumentAsync, uploadListingImageAsync, uploadListingReelAsync } from "@/src/api/imageUpload";
 import { upsertListing } from "@/src/api/listings";
 import { syncBrokerClientProfile, upsertBrokerClientProfile } from "@/src/api/brokerClientProfiles";
 import { getUserProfile, type UserProfile } from "@/src/api/userProfile";
@@ -43,7 +43,7 @@ import { calculateTenantCompatibilityScore } from "@/src/utils/compatibilityScor
 import type { FilterSetPayload } from "@/src/types/filters";
 import type { RealEstateAgency } from "@/src/types/agency";
 import type { LogoWatermarkStyle, WatermarkConfig, WatermarkType } from "@/src/types/listing";
-import type { TourScene, VirtualTourData } from "@/src/types/apartment";
+import type { ApartmentReelMedia, TourScene, VirtualTourData } from "@/src/types/apartment";
 
 type AmenityKey = "petFriendly" | "nearMetro" | "furnished" | "balcony" | "parking";
 type AmenitySlug = "pet_friendly" | "near_metro" | "furnished" | "balcony" | "parking";
@@ -198,6 +198,7 @@ interface FirestoreApartmentDoc {
   files2d3d?: string[];
   watermarkConfig?: WatermarkConfig;
   virtualTour?: VirtualTourData;
+  reelMedia?: ApartmentReelMedia | null;
   brokerPrivatePhotos?: string[];
   documents?: Partial<Record<DocumentCategoryKey, ListingDocument[]>>;
   tags?: string[];
@@ -792,6 +793,9 @@ export default function CreateListingScreen() {
     parking: false,
   });
   const [photos, setPhotos] = useState<string[]>([]);
+  const [reelVideoUri, setReelVideoUri] = useState<string | null>(null);
+  const [virtualStagingEnabled, setVirtualStagingEnabled] = useState(false);
+  const [virtualStagingPhotoIndexes, setVirtualStagingPhotoIndexes] = useState<number[]>([]);
   const [files2d3d, setFiles2d3d] = useState<string[]>([]);
   const [enableVirtualTour, setEnableVirtualTour] = useState(false);
   const [tourScenes, setTourScenes] = useState<TourScene[]>([]);
@@ -1551,6 +1555,7 @@ export default function CreateListingScreen() {
           ? data.images
           : [data.imageUrl || data.image || ""].filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0);
         setPhotos(imageList.slice(0, PHOTO_SLOTS));
+        setReelVideoUri(data.reelMedia?.videoUrl ?? null);
         setFiles2d3d(Array.isArray(data.files2d3d) ? data.files2d3d.filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0) : []);
         const savedTour = data.virtualTour;
         const savedScenes = savedTour && Array.isArray(savedTour.scenes)
@@ -1733,6 +1738,39 @@ export default function CreateListingScreen() {
 
   const removePhoto = useCallback((index: number) => {
     setPhotos((prev) => prev.filter((_, photoIndex) => photoIndex !== index));
+  }, []);
+
+  const pickReelVideo = useCallback(async () => {
+    setPermBlocked(false);
+    try {
+      if (Platform.OS !== "web") {
+        const current = await ImagePicker.getMediaLibraryPermissionsAsync();
+        if (current.status !== "granted") {
+          const requested = await ImagePicker.requestMediaLibraryPermissionsAsync();
+          if (requested.status !== "granted") {
+            setPermBlocked(requested.status === "denied");
+            return;
+          }
+        }
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["videos"],
+        allowsMultipleSelection: false,
+        videoMaxDuration: 60,
+        videoExportPreset: ImagePicker.VideoExportPreset.MediumQuality,
+      });
+      if (result.canceled) return;
+      const uri = result.assets[0]?.uri?.trim();
+      if (!uri) {
+        setError(t("createListing.errors.imageUnreadable"));
+        return;
+      }
+      setReelVideoUri(uri);
+      setError(null);
+    } catch {
+      setError(t("createListing.errors.imagePicker"));
+    }
   }, []);
 
   const removeBrokerPrivatePhoto = useCallback((index: number) => {
@@ -2178,6 +2216,10 @@ export default function CreateListingScreen() {
         image: firstImage,
         imageUrl: firstImage,
         images: uploadedImages,
+        virtualStaging: {
+          enabled: virtualStagingEnabled,
+          photoIndexes: virtualStagingPhotoIndexes.filter((index) => index < uploadedImages.length),
+        },
         watermarkConfig: watermarkEnabled
           ? {
               enabled: true,
@@ -2275,6 +2317,18 @@ export default function CreateListingScreen() {
         setBrokerPrivatePhotos(uploadedPrivatePhotos);
         setDocuments(uploadedDocuments);
       }
+
+      const uploadedReelUrl = reelVideoUri
+        ? await uploadListingReelAsync(reelVideoUri, savedApartmentId)
+        : null;
+      const reelMedia: ApartmentReelMedia | null = uploadedReelUrl
+        ? { videoUrl: uploadedReelUrl, aspectRatio: "9:16" }
+        : null;
+      await upsertListing({
+        apartmentId: savedApartmentId,
+        payload: { reelMedia },
+      });
+      setReelVideoUri(uploadedReelUrl);
 
       setFiles2d3dLoading(true);
       const existingFiles2d3d = files2d3d.filter((uri) => /^https?:\/\//i.test(uri));
@@ -2655,6 +2709,10 @@ export default function CreateListingScreen() {
                     key={`photo-slot-${index}`}
                     onPress={() => {
                       if (filled) {
+                        if (virtualStagingEnabled) {
+                          setVirtualStagingPhotoIndexes((previous) => previous.includes(index) ? previous.filter((item) => item !== index) : [...previous, index]);
+                          return;
+                        }
                         removePhoto(index);
                         return;
                       }
@@ -2684,12 +2742,40 @@ export default function CreateListingScreen() {
               })}
             </View>
 
+            <View style={styles.sectionHeaderRow}>
+              <View style={styles.sectionTitleWrap}>
+                <Ionicons name="sparkles-outline" size={19} color={colors.onSurface} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.sectionTitle}>AI Virtual Staging / Βελτίωση Φωτογραφιών</Text>
+                  <Text style={styles.fieldHint}>{virtualStagingEnabled ? "Πατήστε μια φωτογραφία για να την επισημάνετε για μελλοντικό staging." : "Ενεργοποιήστε το για να επιλέξετε άδειους χώρους."}</Text>
+                </View>
+              </View>
+              <Switch value={virtualStagingEnabled} onValueChange={setVirtualStagingEnabled} trackColor={{ false: colors.border, true: colors.brandSecondary }} thumbColor={virtualStagingEnabled ? colors.brand : colors.onSurface} testID="create-listing-virtual-staging-toggle" />
+            </View>
+            {virtualStagingEnabled && virtualStagingPhotoIndexes.length > 0 ? <Text style={styles.fieldHint}>{virtualStagingPhotoIndexes.length} φωτογραφία/ες επισημάνθηκαν για AI επεξεργασία.</Text> : null}
+
             {permBlocked && (
               <Pressable style={styles.settingsButton} onPress={() => Linking.openSettings()}>
                 <Ionicons name="settings-outline" size={16} color={colors.onSurface} />
                 <Text style={styles.settingsButtonText}>{`${t("common.media.photoAccessOff")} ${t("common.actions.openSettings")}.`}</Text>
               </Pressable>
             )}
+
+            <View style={styles.reelUploadHeader}>
+              <View style={styles.sectionTitleWrap}>
+                <Ionicons name="videocam-outline" size={19} color={colors.onSurface} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.sectionTitle}>{t("feed.uploadReel")}</Text>
+                  <Text style={styles.fieldHint}>Προσθέστε ένα κάθετο video έως 60 δευτερόλεπτα για το Reels Feed.</Text>
+                </View>
+              </View>
+              {reelVideoUri ? <Pressable onPress={() => setReelVideoUri(null)} hitSlop={8} accessibilityLabel="Remove reel video" testID="create-listing-remove-reel"><Ionicons name="trash-outline" size={19} color={colors.error} /></Pressable> : null}
+            </View>
+            <Pressable style={styles.reelUploadButton} onPress={() => void pickReelVideo()} testID="create-listing-upload-reel">
+              <Ionicons name={reelVideoUri ? "refresh-outline" : "videocam-outline"} size={19} color={colors.onBrand} />
+              <Text style={styles.reelUploadButtonText}>{reelVideoUri ? "Αντικατάσταση Video Reel" : t("feed.uploadReel")}</Text>
+            </Pressable>
+            {reelVideoUri ? <Text style={styles.fieldHint}>{reelVideoUri.startsWith("http") ? "Το video reel είναι αποθηκευμένο στην αγγελία." : "Το video reel θα ανέβει με τη δημοσίευση."}</Text> : null}
 
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
           </View>
@@ -3916,6 +4002,9 @@ function createStyles(colors: ThemeColors) {
       marginTop: spacing.md,
     },
     sectionTitleWrap: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
+    reelUploadHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm, marginTop: spacing.md },
+    reelUploadButton: { minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.xs, borderRadius: radius.md, backgroundColor: colors.brand, marginTop: spacing.sm },
+    reelUploadButtonText: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onBrand },
     tourAddButton: { minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.xs, borderRadius: radius.md, backgroundColor: colors.brand },
     tourAddButtonText: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onBrand },
     tourSceneRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceSecondary },

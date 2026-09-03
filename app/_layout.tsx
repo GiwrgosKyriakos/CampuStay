@@ -77,7 +77,7 @@ function AppContent() {
     ? "/calendar"
     : auth.notLookingForRoommate
     ? "/apartments"
-    : "/roommates";
+    : "/explore-feed";
 
   useEffect(() => {
     if (!auth.userId || auth.isGuest) return;

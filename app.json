@@ -15,6 +15,7 @@
         "NSMicrophoneUsageDescription": "Η εφαρμογή χρειάζεται πρόσβαση στο μικρόφωνο για τη λειτουργία υπαγόρευσης.",
         "NSSpeechRecognitionUsageDescription": "Η εφαρμογή χρειάζεται άδεια αναγνώρισης ομιλίας για τη μετατροπή φωνής σε κείμενο.",
         "NSCameraUsageDescription": "Η εφαρμογή χρειάζεται πρόσβαση στην κάμερα για τη φωτογράφιση εγγράφων ταυτοποίησης.",
+        "NSPhotoLibraryUsageDescription": "Η εφαρμογή χρειάζεται πρόσβαση στις φωτογραφίες για την προσθήκη εικόνων και video αγγελιών.",
         "NSLocationWhenInUseUsageDescription": "Η εφαρμογή καταγράφει την τοποθεσία κατά την ηλεκτρονική υπογραφή για το eIDAS audit trail."
       }
     },
@@ -32,13 +33,11 @@
       "package": "com.gksolutions.campustay",
       "versionCode": 5,
       "googleServicesFile": "./google-services.json",
-      "androidNavigationBar": {
-        "backgroundColor": "#00000000"
-      },
       "permissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.CAMERA",
-        "android.permission.ACCESS_FINE_LOCATION"
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION"
       ]
     },
     "web": {
@@ -101,7 +100,8 @@
       "expo-web-browser",
       "@react-native-google-signin/google-signin",
       "expo-localization",
-      "expo-mail-composer"
+      "expo-mail-composer",
+      "expo-video"
     ],
     "experiments": {
       "typedRoutes": true

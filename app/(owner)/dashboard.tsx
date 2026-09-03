@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import * as Print from "expo-print";
 import { useTheme } from "@/src/context/ThemeContext";
 import { t } from "@/src/locales";
 import type { FeedbackSentimentAnalysis } from "@/src/types/aiFeatures";
@@ -30,6 +31,7 @@ const feedbackRows = [
 export default function OwnerDashboardScreen() {
   const { colors } = useTheme();
   const [reportGenerated, setReportGenerated] = useState(false);
+  const [reportLoading, setReportLoading] = useState(false);
   const sentimentColor = useMemo(() => {
     switch (mockSentiment.overallSentiment) {
       case "positive":
@@ -39,7 +41,21 @@ export default function OwnerDashboardScreen() {
       default:
         return colors.warning;
     }
-  }, [colors, mockSentiment.overallSentiment]);
+  }, [colors]);
+
+  const handleReport = async () => {
+    setReportLoading(true);
+    try {
+      const html = `<html><body style="font-family: sans-serif; color: #17212b; padding: 24px"><h1>CampuStay Owner Activity Report</h1><p>Last 30 days</p><h2>Activity</h2><p>Views: 4,200<br/>Inquiries / Likes: 184<br/>Completed showings: 18</p><h2>Feedback sentiment</h2><p>Overall sentiment: ${mockSentiment.overallSentiment}</p><ul>${mockSentiment.recurringPatterns.map((pattern) => `<li>${pattern.issue}: ${pattern.frequencyPercentage}%</li>`).join("")}</ul><p>${mockSentiment.priceAdjustmentRecommendation?.justification ?? ""}</p></body></html>`;
+      const result = await Print.printToFileAsync({ html });
+      setReportGenerated(true);
+      await Linking.openURL(result.uri);
+    } catch {
+      Alert.alert("Report unavailable", "The activity report could not be generated.");
+    } finally {
+      setReportLoading(false);
+    }
+  };
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -104,10 +120,11 @@ export default function OwnerDashboardScreen() {
 
       <Pressable
         style={[styles.primaryButton, { backgroundColor: colors.brand }]}
-        onPress={() => setReportGenerated((prev) => !prev)}
+        onPress={() => void handleReport()}
+        disabled={reportLoading}
       >
-        <Ionicons name="download-outline" size={18} color={colors.onBrand} />
-        <Text style={[styles.primaryButtonText, { color: colors.onBrand }]}>{reportGenerated ? "Report Ready" : t("ai.sendReportToOwner")}</Text>
+        <Ionicons name={reportLoading ? "hourglass-outline" : "download-outline"} size={18} color={colors.onBrand} />
+        <Text style={[styles.primaryButtonText, { color: colors.onBrand }]}>{reportLoading ? "Generating..." : reportGenerated ? "Report Ready" : t("ai.sendReportToOwner")}</Text>
       </Pressable>
     </ScrollView>
   );

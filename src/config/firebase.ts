@@ -1,7 +1,8 @@
 import { initializeApp } from "firebase/app";
 import { initializeFirestore, memoryLocalCache } from "firebase/firestore";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-// @ts-ignore
+// Firebase's React Native conditional export is selected by Metro but omitted from the default TypeScript declaration.
+// @ts-expect-error Firebase's React Native conditional export is available at runtime.
 import { getAuth, getReactNativePersistence, initializeAuth } from "firebase/auth";
 import { getStorage } from "firebase/storage";
 

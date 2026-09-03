@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useRef } from "react";
-import MapView, { Circle, Marker, PROVIDER_GOOGLE, Region } from "react-native-maps";
-import { StyleSheet, Text, View } from "react-native";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import MapView, { Circle, Marker, Polygon, PROVIDER_GOOGLE, Region } from "react-native-maps";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import { fonts, fontSize, radius, type ThemeColors } from "@/src/theme";
@@ -13,7 +13,17 @@ interface ApartmentLocationMapProps {
   cityCoordinates: { latitude: number; longitude: number };
   hasExactLocation: boolean;
   height?: number;
+  showLayerControls?: boolean;
 }
+
+type MapLayer = "transit" | "education" | "shopping" | "heatmap";
+
+const layerLabels: Record<MapLayer, { icon: keyof typeof Ionicons.glyphMap; label: string }> = {
+  transit: { icon: "train-outline", label: "Μετρό / ΜΜΜ" },
+  education: { icon: "school-outline", label: "Σχολεία / Πανεπιστήμια" },
+  shopping: { icon: "cart-outline", label: "Supermarkets / Εμπόριο" },
+  heatmap: { icon: "thermometer-outline", label: "Χάρτης τιμών €/τ.μ." },
+};
 
 const EXACT_REGION_DELTA = 0.012;
 const AREA_REGION_DELTA = 0.045;
@@ -71,11 +81,14 @@ export default function ApartmentLocationMap({
   cityCoordinates,
   hasExactLocation,
   height = 280,
+  showLayerControls = true,
 }: ApartmentLocationMapProps) {
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const mapRef = useRef<MapView>(null);
   const mapStyle = isDark ? darkMapStyle : lightMapStyle;
+  const [layers, setLayers] = useState<Record<MapLayer, boolean>>({ transit: false, education: false, shopping: false, heatmap: false });
+  const [layerSheetVisible, setLayerSheetVisible] = useState(false);
 
   const exactCoordinates = useMemo(() => {
     if (!hasExactLocation) return null;
@@ -146,6 +159,31 @@ export default function ApartmentLocationMap({
             strokeWidth={2}
           />
         ) : null}
+        {layers.transit ? (
+          <>
+            <Marker coordinate={{ latitude: cityCoordinates.latitude + 0.006, longitude: cityCoordinates.longitude - 0.004 }} title="Σταθμός Μετρό">
+              <View style={[styles.poiMarker, { backgroundColor: "#168aad" }]}><Ionicons name="train" size={16} color="#fff" /></View>
+            </Marker>
+            <Circle center={{ latitude: cityCoordinates.latitude + 0.006, longitude: cityCoordinates.longitude - 0.004 }} radius={500} fillColor="rgba(22,138,173,0.12)" strokeColor="#168aad" strokeWidth={1} />
+          </>
+        ) : null}
+        {layers.education ? (
+          <Marker coordinate={{ latitude: cityCoordinates.latitude - 0.004, longitude: cityCoordinates.longitude + 0.006 }} title="Σχολείο / Πανεπιστήμιο">
+            <View style={[styles.poiMarker, { backgroundColor: "#7b2cbf" }]}><Ionicons name="school" size={16} color="#fff" /></View>
+          </Marker>
+        ) : null}
+        {layers.shopping ? (
+          <Marker coordinate={{ latitude: cityCoordinates.latitude + 0.002, longitude: cityCoordinates.longitude + 0.008 }} title="Supermarket">
+            <View style={[styles.poiMarker, { backgroundColor: "#e76f51" }]}><Ionicons name="cart" size={16} color="#fff" /></View>
+          </Marker>
+        ) : null}
+        {layers.heatmap ? (
+          <>
+            <Polygon coordinates={heatmapPolygon(cityCoordinates, -0.004, -0.004)} fillColor="rgba(42,157,143,0.34)" strokeColor="rgba(42,157,143,0.75)" strokeWidth={1} />
+            <Polygon coordinates={heatmapPolygon(cityCoordinates, 0.004, 0.005)} fillColor="rgba(244,196,48,0.34)" strokeColor="rgba(244,196,48,0.75)" strokeWidth={1} />
+            <Polygon coordinates={heatmapPolygon(cityCoordinates, 0.001, -0.006)} fillColor="rgba(231,111,81,0.34)" strokeColor="rgba(231,111,81,0.75)" strokeWidth={1} />
+          </>
+        ) : null}
       </MapView>
 
       <View pointerEvents="none" style={styles.overlayBorder} />
@@ -155,8 +193,38 @@ export default function ApartmentLocationMap({
           <Text style={styles.modeBadgeText}>{t("map.approximateArea")}</Text>
         </View>
       ) : null}
+
+      {showLayerControls ? (
+        <>
+          <Pressable style={[styles.layerButton, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={() => setLayerSheetVisible((visible) => !visible)} accessibilityLabel={t("ai.mapLayers")}>
+            <Ionicons name="layers-outline" size={20} color={colors.brand} />
+          </Pressable>
+          {layerSheetVisible ? (
+            <View style={[styles.layerSheet, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+              {(Object.keys(layerLabels) as MapLayer[]).map((layer) => (
+                <Pressable key={layer} style={styles.layerRow} onPress={() => setLayers((current) => ({ ...current, [layer]: !current[layer] }))}>
+                  <Ionicons name={layerLabels[layer].icon} size={19} color={layers[layer] ? colors.brand : colors.onSurfaceTertiary} />
+                  <Text style={[styles.layerLabel, { color: colors.onSurface }]}>{layerLabels[layer].label}</Text>
+                  <Ionicons name={layers[layer] ? "checkbox" : "square-outline"} size={20} color={layers[layer] ? colors.brand : colors.onSurfaceTertiary} />
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+        </>
+      ) : null}
     </View>
   );
+}
+
+function heatmapPolygon(center: { latitude: number; longitude: number }, latitudeOffset: number, longitudeOffset: number) {
+  const latitude = center.latitude + latitudeOffset;
+  const longitude = center.longitude + longitudeOffset;
+  return [
+    { latitude: latitude - 0.003, longitude: longitude - 0.003 },
+    { latitude: latitude - 0.003, longitude: longitude + 0.003 },
+    { latitude: latitude + 0.003, longitude: longitude + 0.003 },
+    { latitude: latitude + 0.003, longitude: longitude - 0.003 },
+  ];
 }
 
 function createStyles(colors: ThemeColors, isDark: boolean) {
@@ -216,6 +284,47 @@ function createStyles(colors: ThemeColors, isDark: boolean) {
       fontFamily: fonts.semibold,
       fontSize: fontSize.sm,
       letterSpacing: 0.2,
+    },
+    layerButton: {
+      position: "absolute",
+      right: 12,
+      top: 12,
+      width: 42,
+      height: 42,
+      borderRadius: 21,
+      borderWidth: 1,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    layerSheet: {
+      position: "absolute",
+      right: 12,
+      top: 60,
+      width: 230,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      padding: 8,
+      gap: 2,
+    },
+    layerRow: {
+      minHeight: 42,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 9,
+    },
+    layerLabel: {
+      flex: 1,
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.sm,
+    },
+    poiMarker: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 2,
+      borderColor: "#fff",
     },
   });
 }
