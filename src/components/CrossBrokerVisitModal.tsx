@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { getBrokerClientProfiles, type BrokerClientProfile } from "@/src/api/brokerClientProfiles";
 import { createCrossBrokerShowing } from "@/src/api/agencyCollaboration";
 import { useTheme } from "@/src/context/ThemeContext";
 import { fonts, fontSize, radius, spacing } from "@/src/theme";
+import BaseBottomSheet from "@/src/components/common/BaseBottomSheet";
 
 export default function CrossBrokerVisitModal({ visible, agencyId, brokerId, listingBrokerId, apartmentId, apartmentTitle, apartmentAddress, apartmentPrice, onClose, onCreated }: { visible: boolean; agencyId: string; brokerId: string; listingBrokerId: string; apartmentId: string; apartmentTitle: string; apartmentAddress: string; apartmentPrice?: number; onClose: () => void; onCreated: () => void }) {
   const { colors } = useTheme();
@@ -41,18 +42,25 @@ export default function CrossBrokerVisitModal({ visible, agencyId, brokerId, lis
       setSaving(false);
     }
   };
-  return <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}><View style={styles.backdrop}><View style={styles.sheet}><View style={styles.header}><View style={styles.headerCopy}><Text style={styles.title}>Κλείσε επίσκεψη</Text><Text style={styles.subtitle}>{apartmentTitle}</Text></View><Pressable onPress={onClose}><Ionicons name="close-outline" size={24} color={colors.onSurface} /></Pressable></View><Text style={styles.label}>Πελάτης</Text>{loading ? <ActivityIndicator color={colors.brand} /> : <ScrollView style={styles.clientList} contentContainerStyle={styles.clientListContent} bounces={false}>{clients.map((client) => <Pressable key={client.clientId} style={[styles.clientRow, selectedClientId === client.clientId && styles.clientRowSelected]} onPress={() => setSelectedClientId(client.clientId)}><View style={styles.clientCopy}><Text style={styles.clientName}>{client.clientName || "Πελάτης"}</Text><Text style={styles.clientMeta}>{client.role === "owner" ? "Ιδιοκτήτης" : "Πελάτης"}</Text></View><Ionicons name={selectedClientId === client.clientId ? "checkmark-circle" : "ellipse-outline"} size={21} color={selectedClientId === client.clientId ? colors.brand : colors.onSurfaceTertiary} /></Pressable>)}</ScrollView>}<Text style={styles.label}>Ημερομηνία</Text><TextInput value={date} onChangeText={setDate} placeholder="YYYY-MM-DD" placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} keyboardType="numbers-and-punctuation" testID="cross-broker-visit-date" /><Text style={styles.label}>Ώρα</Text><TextInput value={time} onChangeText={setTime} placeholder="HH:MM" placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} keyboardType="numbers-and-punctuation" testID="cross-broker-visit-time" /><Pressable style={[styles.submit, (!selectedClientId || saving) && styles.submitDisabled]} disabled={!selectedClientId || saving} onPress={() => void submit()} testID="cross-broker-visit-submit">{saving ? <ActivityIndicator color={colors.onBrand} /> : <><Ionicons name="calendar-outline" size={18} color={colors.onBrand} /><Text style={styles.submitText}>Προγραμματισμός</Text></>}</Pressable></View></View></Modal>;
+  return <BaseBottomSheet visible={visible} onClose={onClose} scrollable>
+    <View style={styles.content}>
+      <View style={styles.header}><View style={styles.headerCopy}><Text style={styles.title}>Κλείσε επίσκεψη</Text><Text style={styles.subtitle}>{apartmentTitle}</Text></View><Pressable onPress={onClose}><Ionicons name="close-outline" size={24} color={colors.onSurface} /></Pressable></View>
+      <Text style={styles.label}>Πελάτης</Text>
+      {loading ? <ActivityIndicator color={colors.brand} /> : <View style={styles.clientList}>{clients.map((client) => <Pressable key={client.clientId} style={[styles.clientRow, selectedClientId === client.clientId && styles.clientRowSelected]} onPress={() => setSelectedClientId(client.clientId)}><View style={styles.clientCopy}><Text style={styles.clientName}>{client.clientName || "Πελάτης"}</Text><Text style={styles.clientMeta}>{client.role === "owner" ? "Ιδιοκτήτης" : "Πελάτης"}</Text></View><Ionicons name={selectedClientId === client.clientId ? "checkmark-circle" : "ellipse-outline"} size={21} color={selectedClientId === client.clientId ? colors.brand : colors.onSurfaceTertiary} /></Pressable>)}</View>}
+      <Text style={styles.label}>Ημερομηνία</Text><TextInput value={date} onChangeText={setDate} placeholder="YYYY-MM-DD" placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} keyboardType="numbers-and-punctuation" testID="cross-broker-visit-date" />
+      <Text style={styles.label}>Ώρα</Text><TextInput value={time} onChangeText={setTime} placeholder="HH:MM" placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} keyboardType="numbers-and-punctuation" testID="cross-broker-visit-time" />
+      <Pressable style={[styles.submit, (!selectedClientId || saving) && styles.submitDisabled]} disabled={!selectedClientId || saving} onPress={() => void submit()} testID="cross-broker-visit-submit">{saving ? <ActivityIndicator color={colors.onBrand} /> : <><Ionicons name="calendar-outline" size={18} color={colors.onBrand} /><Text style={styles.submitText}>Προγραμματισμός</Text></>}</Pressable>
+    </View>
+  </BaseBottomSheet>;
 }
 const createStyles = (colors: ReturnType<typeof useTheme>["colors"]) => StyleSheet.create({
-  backdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.45)" },
-  sheet: { maxHeight: "88%", backgroundColor: colors.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg, gap: spacing.sm },
+  content: { gap: spacing.sm, padding: spacing.lg },
   header: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.md },
   headerCopy: { flex: 1, gap: 2 },
   title: { fontFamily: fonts.bold, fontSize: fontSize.xl, color: colors.onSurface },
   subtitle: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
   label: { marginTop: spacing.sm, fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface },
-  clientList: { maxHeight: 180 },
-  clientListContent: { gap: spacing.xs },
+  clientList: { gap: spacing.xs },
   clientRow: { minHeight: 50, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.md, flexDirection: "row", alignItems: "center", gap: spacing.sm },
   clientRowSelected: { borderColor: colors.brand, backgroundColor: colors.brandTertiary },
   clientCopy: { flex: 1, gap: 2 },

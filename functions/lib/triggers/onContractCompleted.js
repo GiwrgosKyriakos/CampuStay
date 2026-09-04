@@ -1,11 +1,13 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.onContractCompleted = void 0;
+const node_crypto_1 = require("node:crypto");
 const app_1 = require("firebase-admin/app");
 const storage_1 = require("firebase-admin/storage");
 const firestore_1 = require("firebase-admin/firestore");
 const firestore_2 = require("firebase-functions/v2/firestore");
 const firebase_functions_1 = require("firebase-functions");
+const mailOutbox_1 = require("../lib/mailOutbox");
 if ((0, app_1.getApps)().length === 0)
     (0, app_1.initializeApp)();
 const db = (0, firestore_1.getFirestore)();
@@ -19,34 +21,6 @@ function getContractTimestamp(value) {
         return value.toMillis();
     }
     return Date.now();
-}
-async function getArchiveUrl(file) {
-    const [url] = await file.getSignedUrl({ action: "read", expires: Date.now() + 1000 * 60 * 60 * 24 * 365 * 5 });
-    return url;
-}
-async function dispatchContractEmail(params) {
-    const apiKey = process.env.RESEND_API_KEY;
-    if (!apiKey) {
-        firebase_functions_1.logger.warn("Contract completed without email provider configuration", { contractId: params.contractId });
-        return false;
-    }
-    const from = process.env.RESEND_FROM_EMAIL || "CampuStay Contracts <contracts@campustay.com>";
-    const response = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-            from,
-            to: params.recipients,
-            subject: `Υπογεγραμμένο έγγραφο: ${params.title}`,
-            html: `<p>Το έγγραφο <strong>${params.title}</strong> ολοκληρώθηκε και επισυνάπτεται σε πιστοποιημένο αντίγραφο.</p><p>Η ακεραιότητα του αρχείου επαληθεύεται με SHA-256. Διαθέσιμο και από τον ασφαλή σύνδεσμο: <a href="${params.url}">${params.url}</a></p><p>Το παρόν email αποτελεί αυτοματοποιημένη αποστολή του αρχείου eIDAS audit trail.</p>`,
-            attachments: [{ filename: `${params.contractId}.pdf`, content: params.pdfBase64 }],
-        }),
-    });
-    if (!response.ok) {
-        firebase_functions_1.logger.error("Contract email provider rejected the request", { contractId: params.contractId, status: response.status });
-        return false;
-    }
-    return true;
 }
 exports.onContractCompleted = (0, firestore_2.onDocumentUpdated)("contracts/{contractId}", async (event) => {
     const before = event.data?.before.data();
@@ -67,36 +41,54 @@ exports.onContractCompleted = (0, firestore_2.onDocumentUpdated)("contracts/{con
         firebase_functions_1.logger.error("Signed contract source PDF was not found", { contractId, sourcePath });
         return;
     }
+    const [sourceContents] = await sourceFile.download();
+    const authoritativeHash = (0, node_crypto_1.createHash)("sha256").update(sourceContents).digest("hex");
+    const submittedHash = nonEmptyString(after.pdfSha256Hash).toLowerCase();
+    const finalHash = nonEmptyString(after.finalDocumentHash).toLowerCase();
+    if (!submittedHash || submittedHash !== authoritativeHash || (finalHash && finalHash !== authoritativeHash)) {
+        firebase_functions_1.logger.error("Signed contract PDF hash validation failed", { contractId, sourcePath });
+        throw new Error("Signed contract PDF hash validation failed.");
+    }
+    const ledgerSnapshot = await db.collection(`contracts/${contractId}/signatures_ledger`).get();
+    const signersById = new Map();
+    const legacySigners = Array.isArray(after.signers) ? after.signers : [];
+    for (const signer of legacySigners) {
+        const signerId = nonEmptyString(signer.signerId);
+        if (signerId)
+            signersById.set(signerId, signer);
+    }
+    for (const ledgerEntry of ledgerSnapshot.docs) {
+        const signer = ledgerEntry.data();
+        const signerId = nonEmptyString(signer.signerId);
+        if (signerId)
+            signersById.set(signerId, signer);
+    }
+    const signers = Array.from(signersById.values());
     const finalPath = `agencies/${agencyId}/contracts/${contractId}.pdf`;
     const finalFile = bucket.file(finalPath);
     await sourceFile.copy(finalFile);
     await finalFile.setMetadata({
         contentType: "application/pdf",
         cacheControl: "private, max-age=31536000, immutable",
-        metadata: { contractId, sha256Hash: nonEmptyString(after.pdfSha256Hash), immutable: "true" },
+        metadata: { contractId, sha256Hash: authoritativeHash, immutable: "true" },
     });
-    const finalUrl = await getArchiveUrl(finalFile);
-    const [contents] = await finalFile.download();
-    const signers = Array.isArray(after.signers) ? after.signers : [];
+    const finalUrl = await (0, mailOutbox_1.getShortLivedStorageUrl)(finalPath);
     const idCardPhotoUrls = signers.flatMap((signer) => [nonEmptyString(signer.idCardPhotoUrl), nonEmptyString(signer.idCardBackPhotoUrl)]).filter(Boolean);
+    const signedAt = getContractTimestamp(after.completedAt);
     const documentReference = {
         contractId,
+        type: nonEmptyString(after.contractType),
+        signedAt,
+        documentUrl: finalUrl,
         contractType: nonEmptyString(after.contractType),
         title: nonEmptyString(after.title) || "Υπογεγραμμένο έγγραφο",
         url: finalUrl,
-        sha256Hash: nonEmptyString(after.pdfSha256Hash),
+        sha256Hash: authoritativeHash,
         createdAt: getContractTimestamp(after.createdAt),
         idCardPhotoUrls,
     };
     const clientId = nonEmptyString(after.clientId);
     const clientProfileId = nonEmptyString(after.clientProfileId) || (clientId && nonEmptyString(after.brokerId) ? `${nonEmptyString(after.brokerId)}_${clientId}` : clientId);
-    if (clientProfileId) {
-        await db.doc(`brokerClientProfiles/${clientProfileId}`).set({ documents: firestore_1.FieldValue.arrayUnion(documentReference), updatedAt: Date.now() }, { merge: true });
-    }
-    const apartmentId = nonEmptyString(after.apartmentId);
-    if (apartmentId) {
-        await db.doc(`apartments/${apartmentId}`).set({ "documents.signedContracts": firestore_1.FieldValue.arrayUnion(documentReference), updatedAt: Date.now() }, { merge: true });
-    }
     const recipients = new Set(signers.map((signer) => nonEmptyString(signer.signerEmail)).filter(Boolean));
     const brokerId = nonEmptyString(after.brokerId) || nonEmptyString(after.createdByUserId);
     if (brokerId) {
@@ -105,15 +97,74 @@ exports.onContractCompleted = (0, firestore_2.onDocumentUpdated)("contracts/{con
         if (brokerEmail)
             recipients.add(brokerEmail);
     }
-    const emailDispatched = recipients.size > 0
-        ? await dispatchContractEmail({ recipients: Array.from(recipients), title: documentReference.title, contractId, url: finalUrl, pdfBase64: contents.toString("base64") })
-        : false;
+    const apartmentId = nonEmptyString(after.apartmentId);
+    const dealId = nonEmptyString(after.dealId);
+    const outboxId = `contract_${contractId}`;
+    const now = Date.now();
+    const outboxMessage = {
+        contractId,
+        recipients: Array.from(recipients),
+        title: documentReference.title,
+        pdfStoragePath: finalPath,
+        pdfSha256Hash: authoritativeHash,
+        status: "pending",
+        attempts: 0,
+        nextAttemptAt: now,
+    };
+    const apartmentRef = apartmentId ? db.doc(`apartments/${apartmentId}`) : null;
+    const dealRef = dealId ? db.doc(`deals/${dealId}`) : null;
+    const profileRef = clientProfileId ? db.doc(`brokerClientProfiles/${clientProfileId}`) : null;
+    const clientRef = clientId ? db.doc(`users/${clientId}`) : null;
+    const outboxRef = db.doc(`mail_outbox/${outboxId}`);
+    const transactionRefs = [apartmentRef, dealRef, profileRef, clientRef, outboxRef].filter((ref) => ref !== null);
+    await db.runTransaction(async (transaction) => {
+        const snapshots = await Promise.all(transactionRefs.map((ref) => transaction.get(ref)));
+        const snapshotByPath = new Map(transactionRefs.map((ref, index) => [ref.path, snapshots[index]]));
+        if (apartmentRef && snapshotByPath.get(apartmentRef.path)?.exists) {
+            transaction.update(apartmentRef, {
+                contracts: firestore_1.FieldValue.arrayUnion(documentReference),
+                "documents.signedContracts": firestore_1.FieldValue.arrayUnion(documentReference),
+                updatedAt: now,
+            });
+        }
+        if (dealRef && snapshotByPath.get(dealRef.path)?.exists) {
+            const deal = snapshotByPath.get(dealRef.path)?.data() ?? {};
+            const currentStage = typeof deal.stage === "number" && Number.isFinite(deal.stage) ? deal.stage : 0;
+            transaction.update(dealRef, {
+                contractId,
+                contractReference: documentReference,
+                contractCompleted: true,
+                signedContractVerified: true,
+                signedContractVerifiedAt: now,
+                "prerequisites.signedContract": true,
+                stage: Math.max(currentStage, 90),
+                updatedAt: now,
+            });
+        }
+        if (profileRef && snapshotByPath.get(profileRef.path)?.exists) {
+            transaction.update(profileRef, {
+                documents: firestore_1.FieldValue.arrayUnion(documentReference),
+                signedMandateHistory: firestore_1.FieldValue.arrayUnion(documentReference),
+                updatedAt: now,
+            });
+        }
+        if (clientRef && snapshotByPath.get(clientRef.path)?.exists) {
+            transaction.update(clientRef, {
+                contractDocuments: firestore_1.FieldValue.arrayUnion(documentReference),
+                documents: firestore_1.FieldValue.arrayUnion(documentReference),
+                updatedAt: now,
+            });
+        }
+        if (!snapshotByPath.get(outboxRef.path)?.exists)
+            transaction.create(outboxRef, outboxMessage);
+    });
+    await (0, mailOutbox_1.dispatchMailOutboxMessage)(outboxId);
     await event.data.after.ref.set({
         finalPdfStoragePath: finalPath,
+        finalDocumentHash: authoritativeHash,
         pdfStorageUrl: finalUrl,
         archivedAt: Date.now(),
-        ...(emailDispatched ? { emailDispatchedAt: Date.now() } : {}),
-        updatedAt: Date.now(),
+        updatedAt: now,
     }, { merge: true });
 });
 //# sourceMappingURL=onContractCompleted.js.map

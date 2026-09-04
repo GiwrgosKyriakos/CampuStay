@@ -2,10 +2,6 @@ import { Platform } from 'react-native';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
-import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
-
-import { db } from '@/src/config/firebase';
-import { DEFAULT_BROKER_STAGNATION_SETTINGS, getPipelineStageConfig, type BrokerClientProfileDoc, type BrokerStagnationSettings } from '@/src/constants/pipeline';
 
 // 1. Ρύθμιση για το πώς θα συμπεριφέρεται η ειδοποίηση αν το App είναι ΑΝΟΙΧΤΟ
 Notifications.setNotificationHandler({
@@ -76,33 +72,6 @@ export async function registerForPushNotificationsAsync() {
   return token;
 }
 
-// Συνάρτηση που στέλνει το Push Notification μέσω του Expo Push API
-export async function sendPushNotification(expoPushToken: string, title: string, body: string, data?: any) {
-  const message = {
-    to: expoPushToken,
-    sound: 'default',
-    title: title,
-    body: body,
-    data: data || {},
-  };
-
-  try {
-    const response = await fetch('https://exp.host/--/api/v2/push/send', {
-      method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        'Accept-encoding': 'gzip, deflate',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(message),
-    });
-    
-    const resData = await response.json();
-    console.log('[Notifications] Push Sent Response:', resData);
-  } catch (error) {
-    console.error('[Notifications] Error sending push:', error);
-  }
-}
 
 export async function scheduleLocalCalendarNotification(params: {
   title: string;
@@ -156,56 +125,4 @@ export async function schedulePostVisitFeedbackReminder(params: {
     data: { type: "post_visit_feedback", targetScreen: "calendar", noteId: params.noteId },
     date: reminderAt.getTime() > Date.now() ? reminderAt : new Date(Date.now() + 1000),
   });
-}
-
-function getNextStartTime(startTime: string): Date {
-  const [hours, minutes] = startTime.split(':').map(Number);
-  const result = new Date();
-  result.setHours(Number.isFinite(hours) ? Math.min(Math.max(hours, 0), 23) : 11, Number.isFinite(minutes) ? Math.min(Math.max(minutes, 0), 59) : 0, 0, 0);
-  if (result.getTime() <= Date.now()) result.setDate(result.getDate() + 1);
-  return result;
-}
-
-export async function scheduleBrokerDealStagnationAlertsAsync(brokerId: string): Promise<void> {
-  if (!brokerId) return;
-  try {
-    const [profilesSnapshot, userSnapshot, settingsSnapshot] = await Promise.all([
-      getDocs(query(collection(db, 'brokerClientProfiles'), where('brokerId', '==', brokerId))),
-      getDoc(doc(db, 'users', brokerId)),
-      getDoc(doc(db, 'settings', brokerId)),
-    ]);
-    const userData = userSnapshot.exists() ? userSnapshot.data() : {};
-    const settingsData = settingsSnapshot.exists() ? settingsSnapshot.data() : {};
-    const settings = {
-      ...DEFAULT_BROKER_STAGNATION_SETTINGS,
-      ...((userData.brokerStagnationSettings ?? settingsData.brokerStagnationSettings) as Partial<BrokerStagnationSettings> | undefined),
-    };
-    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
-    await Promise.all(scheduled.filter((item) => item.content.data?.type === 'broker_deal_stagnation').map((item) => Notifications.cancelScheduledNotificationAsync(item.identifier)));
-    if (!settings.stagnationAlertsEnabled) return;
-
-    const now = Date.now();
-    const stagnantLeads = profilesSnapshot.docs.map((profileSnapshot) => {
-      const profile = profileSnapshot.data() as BrokerClientProfileDoc;
-      const stage = getPipelineStageConfig(profile.pipelineStage);
-      const elapsedDays = Math.floor((now - profile.stageUpdatedAt) / (1000 * 60 * 60 * 24));
-      return { profile, stage, elapsedDays };
-    }).filter((lead) => lead.stage.probability >= 0.5 && lead.stage.probability < 1 && lead.elapsedDays >= 5).sort((a, b) => b.elapsedDays - a.elapsedDays);
-
-    const startTime = getNextStartTime(settings.stagnationAlertStartTime);
-    await Promise.all(stagnantLeads.map(({ profile, stage, elapsedDays }, index) => {
-      const indicator = elapsedDays >= 10 ? 'Κόκκινη Ένδειξη' : elapsedDays >= 7 ? 'Πορτοκαλί Ένδειξη' : 'Κίτρινη Ένδειξη';
-      const scheduledTime = new Date(startTime.getTime() + index * Math.max(0, settings.stagnationAlertIntervalMinutes) * 60 * 1000);
-      return Notifications.scheduleNotificationAsync({
-        content: {
-          title: `Deal Stagnation ${indicator}`,
-          body: `Ο πελάτης ${profile.clientName ?? 'ο πελάτης'} έχει μείνει ${elapsedDays} ημέρες στο στάδιο ${stage.label}.`,
-          data: { type: 'broker_deal_stagnation', clientUserId: profile.clientUserId ?? profile.clientId, chatRoomId: profile.chatRoomId, route: '/broker-client-detail' },
-        },
-        trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: scheduledTime },
-      });
-    }));
-  } catch (error) {
-    console.error('[Notifications] Could not schedule broker deal stagnation alerts:', error);
-  }
 }

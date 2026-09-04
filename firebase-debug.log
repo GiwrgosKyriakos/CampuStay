@@ -1,0 +1,22 @@
+[debug] [2026-09-04T12:05:20.635Z] ----------------------------------------------------------------------
+[debug] [2026-09-04T12:05:20.639Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\gkiri\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js deploy --only storage --dry-run
+[debug] [2026-09-04T12:05:20.639Z] CLI Version:   15.29.0
+[debug] [2026-09-04T12:05:20.639Z] Platform:      win32
+[debug] [2026-09-04T12:05:20.639Z] Node Version:  v24.18.0
+[debug] [2026-09-04T12:05:20.640Z] Detected Agent: github_copilot_vscode_agent
+[debug] [2026-09-04T12:05:20.640Z] Time:          Fri Sep 04 2026 15:05:20 GMT+0300 (Θερινή ώρα Ανατολικής Ευρώπης)
+[debug] [2026-09-04T12:05:20.640Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-09-04T12:05:26.128Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-09-04T12:05:26.128Z] > authorizing via signed-in user (gkiriakos92@gmail.com)
+[debug] [2026-09-04T12:05:26.129Z] [iam] checking project campustay-da4b5 for permissions ["firebase.projects.get","firebaserules.releases.create","firebaserules.releases.update","firebaserules.rulesets.create"]
+[debug] [2026-09-04T12:05:26.160Z] Checked if tokens are valid: false, expires at: 1788521407801
+[debug] [2026-09-04T12:05:26.160Z] Checked if tokens are valid: false, expires at: 1788521407801
+[debug] [2026-09-04T12:05:26.161Z] > refreshing access token with scopes: []
+[debug] [2026-09-04T12:05:26.172Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-09-04T12:05:26.173Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-09-04T12:05:26.446Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 200
+[debug] [2026-09-04T12:05:26.446Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-09-04T12:05:26.497Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/campustay-da4b5:testIamPermissions [none]
+[debug] [2026-09-04T12:05:26.497Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/campustay-da4b5:testIamPermissions  x-goog-user-project=campustay-da4b5
+[debug] [2026-09-04T12:05:26.498Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/campustay-da4b5:testIamPermissions {"permissions":["firebase.projects.get","firebaserules.releases.create","firebaserules.releases.update","firebaserules.rulesets.create"]}

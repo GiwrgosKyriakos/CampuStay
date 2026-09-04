@@ -1,5 +1,5 @@
-import { getFirestore } from "firebase-admin/firestore";
-import { getGeminiModel } from "./geminiClient";
+import { getFirestore, Timestamp } from "firebase-admin/firestore";
+import { getGeminiModel, recordGeminiUsage, type AiUsage } from "./geminiClient";
 
 export interface OwnerReportInput {
   apartmentId: string;
@@ -10,9 +10,14 @@ export interface OwnerReportResult {
   reportPeriod: string;
   executiveSummary: string;
   showingMetrics: { totalVisits: number; positiveSignalsCount: number; concernsCount: number };
+  totalViews: number;
+  totalInquiries: number;
+  averageRating: number;
   buyerFeedbackThemes: { theme: string; sentiment: "positive" | "negative" | "neutral" }[];
   strategicRecommendations: string[];
   ownerActionItems: string[];
+  reportId?: string;
+  createdAt?: number;
 }
 
 export interface OwnerActivityReport {
@@ -77,7 +82,7 @@ function isWithinRange(data: Record<string, unknown>, startTime: number): boolea
   return !Number.isFinite(candidate) || candidate >= startTime;
 }
 
-function fallbackReport(days: number, totalVisits: number, feedback: FeedbackExtract[], totalInquiries: number): OwnerReportResult {
+function fallbackReport(days: number, totalVisits: number, feedback: FeedbackExtract[], totalInquiries: number, totalViews: number): OwnerReportResult {
   const positiveSignalsCount = feedback.filter((entry) => entry.sentiment === "positive").length;
   const concernsCount = feedback.filter((entry) => entry.sentiment === "negative").length;
   return {
@@ -86,6 +91,9 @@ function fallbackReport(days: number, totalVisits: number, feedback: FeedbackExt
       ? `Καταγράφηκαν ${totalVisits} υποδείξεις και ${totalInquiries} ερωτήματα για το ακίνητο. Η εικόνα βασίζεται στα διαθέσιμα στοιχεία της περιόδου.`
       : "Δεν καταγράφηκαν υποδείξεις στην επιλεγμένη περίοδο. Τα συμπεράσματα είναι περιορισμένα λόγω ανεπαρκών δεδομένων.",
     showingMetrics: { totalVisits, positiveSignalsCount, concernsCount },
+    totalViews,
+    totalInquiries,
+    averageRating: feedback.filter((entry) => entry.rating !== undefined).reduce((sum, entry, _index, entries) => sum + (entry.rating ?? 0) / entries.length, 0),
     buyerFeedbackThemes: [],
     strategicRecommendations: totalVisits > 0 ? ["Συνεχίστε την παρακολούθηση των υποδείξεων και των ερωτημάτων πριν από αλλαγή τιμής."] : ["Εξετάστε την προβολή της αγγελίας και την ανταγωνιστικότητα της τιμής για την προσέλκυση περισσότερων υποδείξεων."],
     ownerActionItems: ["Συζητήστε με τον μεσίτη τα επόμενα βήματα με βάση τα νέα δεδομένα."],
@@ -112,20 +120,24 @@ function normalizeResult(value: Record<string, unknown> | null, fallback: OwnerR
       positiveSignalsCount: Math.max(0, Math.round(numberValue(metrics.positiveSignalsCount, fallback.showingMetrics.positiveSignalsCount))),
       concernsCount: Math.max(0, Math.round(numberValue(metrics.concernsCount, fallback.showingMetrics.concernsCount))),
     },
+    totalViews: Math.max(0, Math.round(numberValue(value?.totalViews, fallback.totalViews))),
+    totalInquiries: Math.max(0, Math.round(numberValue(value?.totalInquiries, fallback.totalInquiries))),
+    averageRating: Math.max(0, Math.min(5, numberValue(value?.averageRating, fallback.averageRating))),
     buyerFeedbackThemes: themes,
     strategicRecommendations: list(value?.strategicRecommendations, fallback.strategicRecommendations),
     ownerActionItems: list(value?.ownerActionItems, fallback.ownerActionItems),
   };
 }
 
-export async function generateOwnerPerformanceReport(input: OwnerReportInput): Promise<OwnerReportResult> {
+export async function generateOwnerPerformanceReport(input: OwnerReportInput, usage?: AiUsage): Promise<OwnerReportResult> {
   const days = Math.min(3650, Math.max(1, Math.round(numberValue(input?.timeRangeDays, 30))));
   const startTime = Date.now() - days * 24 * 60 * 60 * 1000;
   const db = getFirestore();
-  const [feedbackSnapshot, showingsSnapshot, inquiriesSnapshot] = await Promise.all([
+  const [feedbackSnapshot, showingsSnapshot, inquiriesSnapshot, viewsSnapshot] = await Promise.all([
     db.collection("post_visit_feedbacks").where("apartmentId", "==", input.apartmentId).limit(500).get().catch(() => null),
     db.collection("showings").where("apartmentId", "==", input.apartmentId).limit(5000).get().catch(() => null),
     db.collection("inquiries").where("apartmentId", "==", input.apartmentId).limit(5000).get().catch(() => null),
+    db.collection("apartment_views").where("apartmentId", "==", input.apartmentId).limit(5000).get().catch(() => null),
   ]);
   const feedback = (feedbackSnapshot?.docs ?? []).filter((document) => isWithinRange(document.data() as Record<string, unknown>, startTime)).map((document) => {
     const data = document.data() as Record<string, unknown>;
@@ -133,14 +145,31 @@ export async function generateOwnerPerformanceReport(input: OwnerReportInput): P
   });
   const totalVisits = (showingsSnapshot?.docs ?? []).filter((document) => isWithinRange(document.data() as Record<string, unknown>, startTime)).length;
   const totalInquiries = (inquiriesSnapshot?.docs ?? []).filter((document) => isWithinRange(document.data() as Record<string, unknown>, startTime)).length;
-  const fallback = fallbackReport(days, totalVisits, feedback, totalInquiries);
+  const totalViews = (viewsSnapshot?.docs ?? []).filter((document) => isWithinRange(document.data() as Record<string, unknown>, startTime)).length;
+  const ratings = feedback.map((entry) => entry.rating).filter((rating): rating is number => rating !== undefined);
+  const fallback = fallbackReport(days, totalVisits, feedback, totalInquiries, totalViews);
+  fallback.averageRating = ratings.length ? Math.round(ratings.reduce((sum, rating) => sum + rating, 0) / ratings.length * 10) / 10 : 0;
   const prompt = `Είσαι σύμβουλος ενημέρωσης ιδιοκτητών σε επαγγελματικό ελληνικό μεσιτικό CRM. Σύνταξε ευγενική, διαφανή και data-driven αναφορά προς τον ιδιοκτήτη. Αν τα δεδομένα είναι λίγα, ανέφερε καθαρά τον περιορισμό και μην επινοήσεις συμπεράσματα. Χρησιμοποίησε τα θέματα των σχολίων χωρίς προσωπικά δεδομένα.\n\nΠερίοδος: τελευταίες ${days} ημέρες\nΥποδείξεις: ${totalVisits}\nΕρωτήματα: ${totalInquiries}\nΣχόλια: ${JSON.stringify(feedback.slice(0, 100))}\n\nΕπίστρεψε αυστηρά έγκυρο JSON χωρίς markdown ή άλλο κείμενο, με ακριβώς αυτή τη δομή. Όλα τα κείμενα στα Ελληνικά (EL-GR):\n{"reportPeriod":"Τελευταίες ${days} ημέρες","executiveSummary":"...","showingMetrics":{"totalVisits":0,"positiveSignalsCount":0,"concernsCount":0},"buyerFeedbackThemes":[{"theme":"...","sentiment":"positive" | "negative" | "neutral"}],"strategicRecommendations":["..."],"ownerActionItems":["..."]}`;
   try {
     const response = await getGeminiModel().generateContent(prompt);
+    recordGeminiUsage(response, usage);
     return normalizeResult(parseJsonObject(response.response.text()), fallback);
   } catch {
     return fallback;
   }
+}
+
+export async function persistOwnerReport(apartmentId: string, timeRangeDays: number, report: OwnerReportResult): Promise<{ reportId: string; createdAt: number }> {
+  const reportRef = getFirestore().collection(`apartments/${apartmentId}/owner_reports`).doc();
+  const createdAt = Timestamp.now();
+  await reportRef.set({
+    ...report,
+    reportId: reportRef.id,
+    apartmentId,
+    timeRangeDays,
+    createdAt,
+  });
+  return { reportId: reportRef.id, createdAt: createdAt.toMillis() };
 }
 
 export async function buildOwnerActivityPdfReport(apartmentId: string): Promise<OwnerActivityReport> {
@@ -154,15 +183,18 @@ export async function buildOwnerActivityPdfReport(apartmentId: string): Promise<
   const startTime = Date.now() - 30 * 24 * 60 * 60 * 1000;
   const views = (viewsSnapshot?.docs ?? []).filter((document) => isWithinRange(document.data() as Record<string, unknown>, startTime)).length;
   const inquiries = (inquiriesSnapshot?.docs ?? []).filter((document) => isWithinRange(document.data() as Record<string, unknown>, startTime)).length;
-  const ratings = (feedbackSnapshot?.docs ?? []).map((document) => numberValue((document.data() as Record<string, unknown>).rating)).filter((rating) => rating > 0);
+  const ratings = (feedbackSnapshot?.docs ?? [])
+    .filter((document) => isWithinRange(document.data() as Record<string, unknown>, startTime))
+    .map((document) => numberValue((document.data() as Record<string, unknown>).rating))
+    .filter((rating) => rating > 0);
   return {
     id: `report-${apartmentId}`,
     apartmentId,
     reportPeriod: result.reportPeriod,
-    totalViews: views,
-    totalInquiries: inquiries,
+    totalViews: result.totalViews || views,
+    totalInquiries: result.totalInquiries || inquiries,
     totalShowings: result.showingMetrics.totalVisits,
-    averageRating: ratings.length ? Math.round(ratings.reduce((sum, rating) => sum + rating, 0) / ratings.length * 10) / 10 : 0,
+    averageRating: ratings.length ? Math.round(ratings.reduce((sum, rating) => sum + rating, 0) / ratings.length * 10) / 10 : result.averageRating,
     sentimentSummary: {
       overallSentiment: result.showingMetrics.positiveSignalsCount > result.showingMetrics.concernsCount ? "positive" : result.showingMetrics.concernsCount > result.showingMetrics.positiveSignalsCount ? "negative" : "neutral",
       positivePoints: result.buyerFeedbackThemes.filter((theme) => theme.sentiment === "positive").map((theme) => theme.theme),

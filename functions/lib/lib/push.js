@@ -17,35 +17,53 @@ async function pruneToken(userId, token) {
     const tokens = Array.isArray(snapshot.data()?.fcmTokens) ? snapshot.data()?.fcmTokens.filter((entry) => entry !== token) : [];
     await userRef.set({ fcmTokens: tokens, ...(snapshot.data()?.expoPushToken === token ? { expoPushToken: null } : {}) }, { merge: true });
 }
-async function sendExpoToken(userId, token, title, body, data) {
+function toTransportData(payload, channelId) {
+    return {
+        type: payload.type,
+        screen: payload.screen,
+        params: JSON.stringify(payload.params),
+        ...(payload.entityId ? { entityId: payload.entityId } : {}),
+        ...(payload.action ? { action: payload.action } : {}),
+        ...(payload.categoryId ? { categoryId: payload.categoryId } : {}),
+        ...(channelId ? { channelId } : {}),
+    };
+}
+async function sendExpoToken(userId, token, payload, data) {
     const response = await fetch(EXPO_PUSH_URL, {
         method: "POST",
         headers: { Accept: "application/json", "Content-Type": "application/json" },
-        body: JSON.stringify({ to: token, sound: "default", title, body, data, ...(typeof data.categoryId === "string" ? { categoryId: data.categoryId } : {}), ...(typeof data.channelId === "string" ? { channelId: data.channelId } : {}) }),
+        body: JSON.stringify({ to: token, sound: "default", title: payload.title, body: payload.body, data, ...(payload.categoryId ? { categoryId: payload.categoryId } : {}), ...(typeof data.channelId === "string" ? { channelId: data.channelId } : {}) }),
     });
-    const payload = await response.json();
-    const error = payload.data?.details?.error;
+    const responsePayload = await response.json();
+    const error = responsePayload.data?.details?.error;
     if (error === "DeviceNotRegistered" || error === "InvalidCredentials")
         await pruneToken(userId, token);
 }
-async function sendPushToUser(userId, title, body, data = {}) {
+async function sendPushToUser(userId, payload, channelId) {
     const snapshot = await db.doc(`users/${userId}`).get();
     if (!snapshot.exists)
         return;
     const userData = snapshot.data();
+    await db.collection(`users/${userId}/notifications`).add({
+        ...payload,
+        ...(channelId ? { channelId } : {}),
+        read: false,
+        createdAt: Date.now(),
+    }).catch((error) => console.error("[Push] Notification feed write failed", error));
     const tokens = Array.from(new Set([
         ...(Array.isArray(userData.fcmTokens) ? userData.fcmTokens.filter((token) => typeof token === "string" && Boolean(token.trim())) : []),
         ...(typeof userData.expoPushToken === "string" && userData.expoPushToken.trim() ? [userData.expoPushToken] : []),
     ]));
     const expoTokens = tokens.filter(isExpoToken);
     const fcmTokens = tokens.filter((token) => !isExpoToken(token));
-    await Promise.all(expoTokens.map((token) => sendExpoToken(userId, token, title, body, data)));
+    const data = toTransportData(payload, channelId);
+    await Promise.all(expoTokens.map((token) => sendExpoToken(userId, token, payload, data)));
     if (fcmTokens.length === 0)
         return;
     try {
         const response = await (0, messaging_1.getMessaging)().sendEachForMulticast({
             tokens: fcmTokens,
-            notification: { title, body },
+            notification: { title: payload.title, body: payload.body },
             data: Object.fromEntries(Object.entries(data).filter((entry) => typeof entry[1] !== "undefined").map(([key, value]) => [key, String(value)])),
             android: { priority: "high", notification: typeof data.channelId === "string" ? { channelId: data.channelId } : undefined },
         });

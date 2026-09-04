@@ -838,6 +838,12 @@ export default function MatchesScreen() {
           <Text style={styles.title}>{t("matches.title")}</Text>
           <View style={styles.brokersHeaderActions}>
             {isBrokersView ? <Pressable style={styles.circularHistoryBtn} onPress={() => setShowGlobalFilterHistoryModal(true)} testID="matches-global-filter-history-btn" hitSlop={8}><Ionicons name="time-outline" size={20} color={colors.onSurface} /></Pressable> : null}
+            {!auth.isGuest && isLookingForRoommate && !isBrokersView && selectedChatType === "roommate" ? (
+              <Pressable style={styles.groupAction} onPress={() => setShowGroupModal(true)} testID="matches-create-group-button">
+                <Ionicons name="people-circle-outline" size={18} color={colors.onBrand} />
+                <Text style={styles.groupActionText}>Δημιουργία Ομαδικής</Text>
+              </Pressable>
+            ) : null}
             <Pressable
               style={[styles.brokersToggleBtn, isBrokersView && styles.brokersToggleBtnActive]}
               onPress={() => setIsBrokersView((previous) => !previous)}
@@ -847,12 +853,6 @@ export default function MatchesScreen() {
               <Text style={[styles.brokersToggleBtnText, isBrokersView && styles.brokersToggleBtnTextActive]}>Brokers</Text>
             </Pressable>
           </View>
-          {!auth.isGuest && !isBroker && isLookingForRoommate ? (
-            <Pressable style={[styles.groupAction, { marginHorizontal: spacing.lg }]} onPress={() => setShowGroupModal(true)} testID="matches-create-group-button">
-              <Ionicons name="people-circle-outline" size={20} color={colors.onBrand} />
-              <Text style={styles.groupActionText}>Δημιουργία Ομαδικής</Text>
-            </Pressable>
-          ) : null}
         </View>
         <Text style={styles.subtitle}>
           {isBrokersView
@@ -1165,7 +1165,7 @@ export default function MatchesScreen() {
 }
 
 const createStyles = (colors: ThemeColors) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.surface },
+  container: { flex: 1, backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, overflow: "hidden" },
   flexOne: { flex: 1 },
   toggleShell: {
     flexDirection: "row",

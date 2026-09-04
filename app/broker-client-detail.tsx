@@ -2,11 +2,14 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, TextInput, Modal, Switch } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
+import * as DocumentPicker from "expo-document-picker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { addDoc, collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
+import { httpsCallable } from "firebase/functions";
 
 import { db } from "@/src/config/firebase";
+import { firebaseFunctions } from "@/src/config/functions";
 import { useAuth } from "@/src/context/auth";
 import { useTheme } from "@/src/context/ThemeContext";
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
@@ -24,7 +27,7 @@ import {
   type InteractionType,
   type PropertyInteraction,
 } from "@/src/api/propertyInteractions";
-import { getBrokerClientDeals, upsertBrokerClientProfile } from "@/src/api/brokerClientProfiles";
+import { getBrokerClientDeals } from "@/src/api/brokerClientProfiles";
 import { BrokerModificationBadge } from "@/src/components/BrokerModificationBadge";
 import AssignClientEmailModal from "@/src/components/AssignClientEmailModal";
 import { settleClosedDeal } from "@/src/utils/dealAutomations";
@@ -32,6 +35,10 @@ import { calculateDynamicDealStage } from "@/src/utils/dealPipeline";
 import ClientCalendarNotesModal from "@/src/components/calendar/ClientCalendarNotesModal";
 import CloseLostDealModal from "@/src/components/CloseLostDealModal";
 import { recordLostDeal } from "@/src/api/lostDeals";
+import DealChecklistSection from "@/src/components/DealChecklistSection";
+import DocumentPreviewModal from "@/src/components/DocumentPreviewModal";
+import { uploadImageAsync } from "@/src/api/imageUpload";
+import { DEFAULT_DEAL_CHECKLIST, type DealChecklistItem } from "@/src/types/checklist";
 
 export interface BrokerPropertyList {
   id: string;
@@ -383,11 +390,11 @@ export interface ClientPurchasingPowerData {
 }
 
 export default function BrokerClientDetailScreen() {
-  const insets = useSafeAreaInsets(); const router = useRouter(); const auth = useAuth(); const params = useLocalSearchParams<{ clientUserId?: string; profileId?: string; clientName?: string; clientAvatar?: string; chatRoomId?: string; sharedFilterSet?: string; scrollTo?: string }>(); const { colors } = useTheme(); const styles = useMemo(() => createStyles(colors), [colors]);
+  const insets = useSafeAreaInsets(); const router = useRouter(); const auth = useAuth(); const params = useLocalSearchParams<{ clientUserId?: string; clientId?: string; profileId?: string; clientName?: string; clientAvatar?: string; chatRoomId?: string; sharedFilterSet?: string; scrollTo?: string; dealId?: string; highlightItemId?: string }>(); const { colors } = useTheme(); const styles = useMemo(() => createStyles(colors), [colors]);
   const scrollViewRef = useRef<ScrollView>(null);
   const [suggestedSectionY, setSuggestedSectionY] = useState(0);
   const [brokerManagedApartments, setBrokerManagedApartments] = useState<BrokerApartment[]>([]); const [loading, setLoading] = useState(true);
-  const resolvedClientUserId = params.clientUserId || (params.profileId?.includes("_") ? params.profileId.split("_").slice(1).join("_") : undefined);
+  const resolvedClientUserId = params.clientUserId || params.clientId || (params.profileId?.includes("_") ? params.profileId.split("_").slice(1).join("_") : undefined);
   const [activeSubView, setActiveSubView] = useState<ClientDetailSubView>("default");
   const [cashOnHand, setCashOnHand] = useState("");
   const [approvedMortgage, setApprovedMortgage] = useState("");
@@ -419,6 +426,15 @@ export default function BrokerClientDetailScreen() {
   const [clientPropertyDeals, setClientPropertyDeals] = useState<ClientInteractedPropertyDeal[]>([]);
   const [loadingPropertyDeals, setLoadingPropertyDeals] = useState(false);
   const [editingDealStageAptId, setEditingDealStageAptId] = useState<string | null>(null);
+  const [checklistsByDealId, setChecklistsByDealId] = useState<Record<string, DealChecklistItem[]>>({});
+  const [checklistUploadItemKey, setChecklistUploadItemKey] = useState<string | null>(null);
+  const [previewDocument, setPreviewDocument] = useState<DealChecklistItem | null>(null);
+  const [rejectionPrompt, setRejectionPrompt] = useState<{ dealId: string; item: DealChecklistItem } | null>(null);
+  const [rejectionReason, setRejectionReason] = useState("");
+  const [rejectionReasonError, setRejectionReasonError] = useState("");
+  const [reviewingChecklistItemKey, setReviewingChecklistItemKey] = useState<string | null>(null);
+  const [stageGateModal, setStageGateModal] = useState<{ stageLabel: string; missingItems: string[] } | null>(null);
+  const [highlightedDealY, setHighlightedDealY] = useState<number | null>(null);
   const [sharedSearchQueries, setSharedSearchQueries] = useState<string[]>([]);
   const [sharedSearchFilterSets, setSharedSearchFilterSets] = useState<SharedSearchFilterSet[]>([]);
   const [selectedFilterSetId, setSelectedFilterSetId] = useState<string | null>(null);
@@ -613,6 +629,13 @@ export default function BrokerClientDetailScreen() {
     return () => clearTimeout(timer);
   }, [params.scrollTo, suggestedSectionY]);
   useEffect(() => {
+    if (!params.highlightItemId || !params.dealId) return;
+    setActiveSubView("deal_stage");
+    if (highlightedDealY === null) return;
+    const timer = setTimeout(() => scrollViewRef.current?.scrollTo({ y: Math.max(0, highlightedDealY - 24), animated: true }), 350);
+    return () => clearTimeout(timer);
+  }, [highlightedDealY, params.dealId, params.highlightItemId]);
+  useEffect(() => {
     if (!auth.userId || !resolvedClientUserId || brokerManagedApartments.length === 0) {
       setClientPropertyDeals([]);
       setLoadingPropertyDeals(false);
@@ -624,7 +647,7 @@ export default function BrokerClientDetailScreen() {
     void (async () => {
       try {
         const [deals, likesSnapshot, chatsSnapshot] = await Promise.all([
-          getBrokerClientDeals(auth.userId!, resolvedClientUserId),
+          getBrokerClientDeals(auth.userId!, resolvedClientUserId, brokerManagedApartments.map((apartment) => apartment.id)),
           getDocs(query(collection(db, "liked_apartments"), where("userId", "==", resolvedClientUserId))),
           getDocs(query(collection(db, "chats"), where("users", "array-contains", resolvedClientUserId), where("type", "==", "host"))),
         ]);
@@ -752,6 +775,29 @@ export default function BrokerClientDetailScreen() {
     return () => { active = false; };
   }, [auth.userId, params.clientUserId]);
 
+  useEffect(() => {
+    const subscriptions = clientPropertyDeals.map((deal) => {
+      const dealId = `${deal.apartmentId}_${resolvedClientUserId || ""}`;
+      return onSnapshot(
+        collection(db, "deals", dealId, "checklist"),
+        (snapshot) => {
+          const storedItems = new Map(snapshot.docs.map((item) => [item.id, item.data()]));
+          const mergedItems = DEFAULT_DEAL_CHECKLIST.map((template) => ({
+            ...template,
+            ...(storedItems.get(template.id) ?? {}),
+          })) as DealChecklistItem[];
+          const templateIds = new Set(DEFAULT_DEAL_CHECKLIST.map((item) => item.id));
+          const extraItems = snapshot.docs
+            .filter((item) => !templateIds.has(item.id))
+            .map((item) => ({ id: item.id, ...item.data() } as DealChecklistItem));
+          setChecklistsByDealId((previous) => ({ ...previous, [dealId]: [...mergedItems, ...extraItems] }));
+        },
+        (error) => console.warn("[BrokerClientDetail] Error loading deal checklist:", error),
+      );
+    });
+    return () => subscriptions.forEach((unsubscribe) => unsubscribe());
+  }, [clientPropertyDeals, resolvedClientUserId]);
+
   const currentStageConfig = CLEAN_PIPELINE_STAGES.find((stage) => stage.key === pipelineStage) ?? CLEAN_PIPELINE_STAGES[0];
   const selectedReadinessOption = LEAD_READINESS_OPTIONS.find((option) => option.key === leadReadiness);
   const realBudget = (Number(cashOnHand) || 0) + (Number(approvedMortgage) || 0);
@@ -759,6 +805,108 @@ export default function BrokerClientDetailScreen() {
   const isStagnant = currentStageConfig.probability >= 0.5 && currentStageConfig.probability < 1 && elapsedDays >= 5;
   const stagnationColor = elapsedDays >= 10 ? "#EF4444" : elapsedDays >= 7 ? "#F97316" : "#EAB308";
   const stagnationIcon = elapsedDays >= 10 ? "warning-outline" : "alert-circle-outline";
+  const canReviewDocuments = auth.isBroker || ["ceo", "secretary", "secretariat", "admin"].includes(auth.agencyRole || "");
+
+  const checklistItemsForDeal = (dealId: string): DealChecklistItem[] => (
+    checklistsByDealId[dealId] ?? DEFAULT_DEAL_CHECKLIST.map((item) => ({ ...item }))
+  );
+
+  const showChecklistError = (title: string, error: unknown) => {
+    const message = error instanceof Error && error.message ? error.message : "Δεν ήταν δυνατή η ολοκλήρωση της ενέργειας.";
+    setShareFeedbackModal({ visible: true, title, description: message });
+  };
+
+  const handleUploadChecklistDocument = async (apartmentId: string, item: DealChecklistItem) => {
+    if (!auth.userId || !params.clientUserId || checklistUploadItemKey) return;
+    const result = await DocumentPicker.getDocumentAsync({
+      type: ["application/pdf", "image/jpeg", "image/png"],
+      copyToCacheDirectory: true,
+    });
+    if (result.canceled || !result.assets?.[0]?.uri) return;
+    const asset = result.assets[0];
+    if (typeof asset.size === "number" && asset.size > 25 * 1024 * 1024) {
+      setShareFeedbackModal({ visible: true, title: "Το αρχείο είναι πολύ μεγάλο", description: "Το μέγιστο επιτρεπόμενο μέγεθος είναι 25 MB." });
+      return;
+    }
+    const fileName = (asset.name?.trim() || `document-${Date.now()}`).replace(/[^a-zA-Z0-9._-]/g, "_");
+    const extension = fileName.toLowerCase().split(".").pop();
+    const mimeType = asset.mimeType || (extension === "pdf" ? "application/pdf" : extension === "png" ? "image/png" : "image/jpeg");
+    if (!["application/pdf", "image/jpeg", "image/png"].includes(mimeType)) {
+      setShareFeedbackModal({ visible: true, title: "Μη υποστηριζόμενο αρχείο", description: "Επιλέξτε αρχείο PDF, JPEG ή PNG." });
+      return;
+    }
+
+    const dealId = `${apartmentId}_${params.clientUserId}`;
+    const apartment = brokerManagedApartments.find((candidate) => candidate.id === apartmentId);
+    setChecklistUploadItemKey(`${dealId}:${item.id}`);
+    try {
+      const initializeDeal = httpsCallable<Record<string, unknown>, { dealId: string }>(firebaseFunctions, "initializeDealCallable");
+      await initializeDeal({
+        apartmentId,
+        brokerId: auth.userId,
+        clientId: params.clientUserId,
+        clientName: params.clientName || t("brokerClient.clientFallback"),
+        apartmentTitle: apartment?.title || "Ακίνητο",
+        ...(typeof apartment?.rent === "number" ? { dealAmount: apartment.rent } : {}),
+      });
+      const storagePath = `deals/${dealId}/${item.id}/${fileName}`;
+      const fileUrl = await uploadImageAsync(asset.uri, storagePath, mimeType);
+      const finalizeUpload = httpsCallable<Record<string, unknown>, { dealId: string; itemId: string; status: string }>(firebaseFunctions, "finalizeChecklistDocumentUploadCallable");
+      await finalizeUpload({ dealId, itemId: item.id, fileUrl, fileName, storagePath });
+    } catch (error) {
+      console.error("[BrokerClientDetail] Failed to upload checklist document:", error);
+      showChecklistError("Αποτυχία μεταφόρτωσης", error);
+    } finally {
+      setChecklistUploadItemKey(null);
+    }
+  };
+
+  const submitChecklistReview = async (dealId: string, item: DealChecklistItem, action: "verify" | "reject", reason?: string) => {
+    if (!auth.userId || reviewingChecklistItemKey) return;
+    setReviewingChecklistItemKey(`${dealId}:${item.id}`);
+    try {
+      const reviewDocument = httpsCallable<Record<string, unknown>, { dealId: string; itemId: string; status: string }>(firebaseFunctions, "reviewChecklistDocumentCallable");
+      await reviewDocument({ dealId, itemId: item.id, action, ...(action === "reject" ? { rejectionReason: reason } : {}) });
+      setRejectionPrompt(null);
+      setRejectionReason("");
+      setRejectionReasonError("");
+    } catch (error) {
+      console.error("[BrokerClientDetail] Failed to review checklist document:", error);
+      showChecklistError("Αποτυχία ελέγχου εγγράφου", error);
+    } finally {
+      setReviewingChecklistItemKey(null);
+    }
+  };
+
+  const handleReviewChecklist = (dealId: string, item: DealChecklistItem, action: "verify" | "reject") => {
+    if (action === "reject") {
+      setRejectionReason("");
+      setRejectionReasonError("");
+      setRejectionPrompt({ dealId, item });
+      return;
+    }
+    void submitChecklistReview(dealId, item, action);
+  };
+
+  const handleSelectDealStage = (apartmentId: string, nextStage: CleanPipelineStageKey) => {
+    const targetStage = CLEAN_PIPELINE_STAGES.find((stage) => stage.key === nextStage)?.percentage ?? 0;
+    if (targetStage >= 90) {
+      const dealId = `${apartmentId}_${params.clientUserId || ""}`;
+      const checklistItems = checklistItemsForDeal(dealId);
+      const missingItems = checklistItems
+        .filter((item) => (targetStage === 100 || item.requiredForStage <= 90) && item.status !== "verified")
+        .map((item) => item.title);
+      if (missingItems.length > 0) {
+        setStageGateModal({
+          stageLabel: `${nextStage === "closed_won" ? "Ολοκληρωμένη Συμφωνία" : "Προσύμφωνο"} (${targetStage}%)`,
+          missingItems,
+        });
+        setEditingDealStageAptId(null);
+        return;
+      }
+    }
+    void handleUpdatePropertyDealStage(apartmentId, nextStage);
+  };
 
   const handleUpdatePropertyDealStage = async (apartmentId: string, nextStage: CleanPipelineStageKey) => {
     if (!auth.userId || !params.clientUserId) return;
@@ -776,20 +924,23 @@ export default function BrokerClientDetailScreen() {
       setEditingDealStageAptId(null);
       return;
     }
-    setClientPropertyDeals((previous) => previous.map((item) => item.apartmentId === apartmentId ? { ...item, pipelineStage: nextStage } : item));
     setEditingDealStageAptId(null);
 
     try {
-      await upsertBrokerClientProfile({
+      const initializeDeal = httpsCallable<Record<string, unknown>, { dealId: string }>(firebaseFunctions, "initializeDealCallable");
+      const advanceDealStage = httpsCallable<Record<string, unknown>, { dealId: string; stage: number }>(firebaseFunctions, "advanceDealStageCallable");
+      const dealId = `${apartmentId}_${params.clientUserId}`;
+      await initializeDeal({
+        apartmentId,
         brokerId: auth.userId,
         clientId: params.clientUserId,
         clientName: params.clientName || t("brokerClient.clientFallback"),
-        role: "client",
-        apartmentId,
-        apartmentTitle: apartment?.title,
-        rent: apartment?.rent,
-        pipelineStage: nextStage,
+        apartmentTitle: apartment?.title || "Ακίνητο",
+        ...(typeof apartment?.rent === "number" ? { dealAmount: apartment.rent } : {}),
       });
+      const targetStage = CLEAN_PIPELINE_STAGES.find((stage) => stage.key === nextStage)?.percentage ?? 0;
+      await advanceDealStage({ dealId, targetStage });
+      setClientPropertyDeals((previous) => previous.map((item) => item.apartmentId === apartmentId ? { ...item, pipelineStage: nextStage } : item));
       if (nextStage === "negotiation_agreement" && apartmentId) {
         await updateDoc(doc(db, "apartments", apartmentId), {
           status: "under_negotiation",
@@ -839,26 +990,35 @@ export default function BrokerClientDetailScreen() {
     }
   };
 
-  const handleConfirmLostDeal = async (reason: LostDealReason) => {
+  const handleConfirmLostDeal = async (lostReason: LostDealReason, notes?: string) => {
     if (!auth.userId || !params.clientUserId || !pendingLostDeal) return;
     const lostDeal = pendingLostDeal;
     try {
       await setDoc(doc(db, "brokerClientProfiles", `${auth.userId}_${params.clientUserId}`), {
         pipelineStage: "closed_lost",
-        lossReason: reason,
+        lossReason: lostReason,
+        lossNotes: notes ?? null,
         lossApartmentId: lostDeal.apartmentId,
         lossApartmentTitle: lostDeal.apartmentTitle,
         lossReportedAt: Date.now(),
         stageUpdatedAt: Date.now(),
         updatedAt: Date.now(),
       }, { merge: true });
+      const advanceDealStage = httpsCallable<Record<string, unknown>, { dealId: string; stage: number }>(firebaseFunctions, "advanceDealStageCallable");
+      await advanceDealStage({
+        dealId: `${lostDeal.apartmentId}_${params.clientUserId}`,
+        targetStage: lostDeal.stageBeforeLoss,
+        status: "lost",
+        lostReason,
+      });
       await recordLostDeal({
         agencyId: auth.agencyId || "",
         dealId: `${lostDeal.apartmentId}_${params.clientUserId}`,
         apartmentId: lostDeal.apartmentId,
         brokerId: auth.userId,
         clientId: params.clientUserId,
-        reason,
+        lostReason,
+        notes,
         stageBeforeLoss: lostDeal.stageBeforeLoss,
         potentialRevenueLoss: lostDeal.potentialRevenueLoss,
       });
@@ -1191,8 +1351,15 @@ export default function BrokerClientDetailScreen() {
                 const stage = CLEAN_PIPELINE_STAGES.find((option) => option.key === item.pipelineStage) ?? CLEAN_PIPELINE_STAGES[0];
                 const stageTone = getPropertyDealStageTone(item.pipelineStage, colors);
                 const isEditing = editingDealStageAptId === item.apartmentId;
+                const dealId = `${item.apartmentId}_${params.clientUserId || ""}`;
                 return (
-                  <View key={item.apartmentId} style={styles.propertyDealCard}>
+                  <View
+                    key={item.apartmentId}
+                    onLayout={(event) => {
+                      if (dealId === params.dealId) setHighlightedDealY(event.nativeEvent.layout.y);
+                    }}
+                    style={styles.propertyDealCard}
+                  >
                     <View style={styles.propertyDealTopRow}>
                       {item.image ? <Image source={{ uri: item.image }} contentFit="cover" style={styles.propertyDealThumb} /> : <View style={styles.propertyDealThumb}><Ionicons color={colors.onSurfaceTertiary} name="home-outline" size={20} /></View>}
                       <View style={styles.propertyDealMetaCol}>
@@ -1205,6 +1372,15 @@ export default function BrokerClientDetailScreen() {
                         <Text style={styles.interactionTypeBadgeText}>{item.interactionType === "both" ? "Like & Chat" : item.interactionType === "liked" ? "Like" : "Chat"}</Text>
                       </View>
                     </View>
+                    <DealChecklistSection
+                      items={checklistItemsForDeal(dealId)}
+                      canReview={canReviewDocuments}
+                      highlightItemId={dealId === params.dealId ? params.highlightItemId : undefined}
+                      uploadingItemId={checklistUploadItemKey?.startsWith(`${dealId}:`) ? checklistUploadItemKey.slice(dealId.length + 1) : null}
+                      onUpload={(checklistItem) => void handleUploadChecklistDocument(item.apartmentId, checklistItem)}
+                      onPreview={(checklistItem) => setPreviewDocument(checklistItem)}
+                      onReview={(checklistItem, action) => handleReviewChecklist(dealId, checklistItem, action)}
+                    />
                     <View style={styles.propertyDealBottomRow}>
                       {item.compatibilityScore > 0 ? <View style={styles.matchBadgePill}><Ionicons color={colors.brand} name="sparkles" size={12} /><Text style={styles.matchBadgePillText}>{`${item.compatibilityScore}% Match`}</Text></View> : <View style={styles.noMatchPill}><Text style={styles.noMatchPillText}>— Match</Text></View>}
                       <Pressable style={[styles.stageSelectorPill, { backgroundColor: stageTone.backgroundColor }]} onPress={() => setEditingDealStageAptId(isEditing ? null : item.apartmentId)} hitSlop={6} testID={`broker-client-stage-selector-${item.apartmentId}`}>
@@ -1218,7 +1394,7 @@ export default function BrokerClientDetailScreen() {
                         {CLEAN_PIPELINE_STAGES.map((option) => {
                           const isSelected = item.pipelineStage === option.key;
                           return (
-                            <Pressable key={option.key} style={[styles.inlineStageOptRow, isSelected && styles.inlineStageOptRowSelected]} onPress={() => void handleUpdatePropertyDealStage(item.apartmentId, option.key)} testID={`broker-client-stage-opt-${item.apartmentId}-${option.key}`}>
+                            <Pressable key={option.key} style={[styles.inlineStageOptRow, isSelected && styles.inlineStageOptRowSelected]} onPress={() => handleSelectDealStage(item.apartmentId, option.key)} testID={`broker-client-stage-opt-${item.apartmentId}-${option.key}`}>
                               <Text style={[styles.inlineStageOptText, isSelected && styles.inlineStageOptTextSelected]}>{`${option.label} (${option.percentage}%)`}</Text>
                               {isSelected ? <Ionicons color={colors.brand} name="checkmark-circle" size={16} /> : null}
                             </Pressable>
@@ -1532,6 +1708,77 @@ export default function BrokerClientDetailScreen() {
         </Pressable>
       </Pressable>
     </Modal>
+    <DocumentPreviewModal
+      visible={!!previewDocument}
+      fileUrl={previewDocument?.fileUrl}
+      fileName={previewDocument?.fileName}
+      onClose={() => setPreviewDocument(null)}
+    />
+    <CenteredActionModal
+      visible={!!rejectionPrompt}
+      title="Απόρριψη εγγράφου"
+      description={rejectionPrompt ? `Αναφέρετε γιατί απορρίπτεται το «${rejectionPrompt.item.title}».` : undefined}
+      onDismiss={() => {
+        if (!reviewingChecklistItemKey) {
+          setRejectionPrompt(null);
+          setRejectionReasonError("");
+        }
+      }}
+      actions={[
+        {
+          label: "Ακύρωση",
+          iconName: "close-outline",
+          variant: "muted",
+          onPress: () => {
+            setRejectionPrompt(null);
+            setRejectionReasonError("");
+          },
+        },
+        {
+          label: reviewingChecklistItemKey ? "Αποστολή..." : "Απόρριψη",
+          iconName: "alert-circle-outline",
+          variant: "danger",
+          onPress: () => {
+            if (!rejectionPrompt) return;
+            if (!rejectionReason.trim()) {
+              setRejectionReasonError("Ο λόγος απόρριψης είναι υποχρεωτικός.");
+              return;
+            }
+            void submitChecklistReview(rejectionPrompt.dealId, rejectionPrompt.item, "reject", rejectionReason.trim());
+          },
+        },
+      ]}
+      testID="checklist-rejection-modal"
+    >
+      <TextInput
+        value={rejectionReason}
+        onChangeText={(value) => {
+          setRejectionReason(value);
+          setRejectionReasonError("");
+        }}
+        placeholder="π.χ. Λείπει η υπογραφή του ιδιοκτήτη"
+        placeholderTextColor={colors.onSurfaceTertiary}
+        style={styles.interactionNoteInput}
+        multiline
+        textAlignVertical="top"
+        maxLength={500}
+        editable={!reviewingChecklistItemKey}
+        testID="checklist-rejection-reason-input"
+      />
+      {rejectionReasonError ? <Text style={styles.rejectionReasonError}>{rejectionReasonError}</Text> : null}
+    </CenteredActionModal>
+    <CenteredActionModal
+      visible={!!stageGateModal}
+      title="Δεν είναι δυνατή η μετάβαση"
+      description={stageGateModal ? `Δεν είναι δυνατή η μετάβαση στο στάδιο ${stageGateModal.stageLabel}. Εκκρεμούν τα παρακάτω έγγραφα:\n${stageGateModal.missingItems.map((title) => `• ${title}`).join("\n")}` : undefined}
+      onDismiss={() => setStageGateModal(null)}
+      actions={[{
+        label: t("common.actions.gotIt") || "OK",
+        iconName: "checkmark-circle-outline",
+        onPress: () => setStageGateModal(null),
+      }]}
+      testID="deal-stage-gate-modal"
+    />
     <CloseLostDealModal
       visible={isLossModalVisible}
       apartmentTitle={pendingLostDeal?.apartmentTitle ?? "Ακίνητο"}
@@ -1539,7 +1786,7 @@ export default function BrokerClientDetailScreen() {
         setIsLossModalVisible(false);
         setPendingLostDeal(null);
       }}
-      onConfirm={(reason) => void handleConfirmLostDeal(reason)}
+      onConfirm={(lostReason, notes) => void handleConfirmLostDeal(lostReason, notes)}
     />
     <Modal visible={isNameListModalVisible} transparent animationType="fade" onRequestClose={() => setIsNameListModalVisible(false)}><Pressable style={styles.modalBackdrop} onPress={() => setIsNameListModalVisible(false)}><Pressable style={styles.stageModal} onPress={(event) => event.stopPropagation()}><Text style={styles.modalTitle}>Όνομα λίστας ακινήτων</Text><TextInput value={newListName} onChangeText={setNewListName} autoFocus placeholder="π.χ. Επιλογές για τον πελάτη" placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} testID="property-list-name-input" /><Pressable style={styles.purchasingPowerSaveButton} onPress={() => void handleSavePropertyList()} disabled={savingList} testID="save-property-list"><Ionicons name="save-outline" size={18} color={colors.onBrand} /><Text style={styles.purchasingPowerSaveText}>{savingList ? "Αποθήκευση..." : "Αποθήκευση λίστας"}</Text></Pressable></Pressable></Pressable></Modal>
     <BrokerFilterSetEditorModal
@@ -1758,6 +2005,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   interactionTypeChipText: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
   interactionTypeChipTextActive: { fontFamily: fonts.bold, color: colors.brand },
   interactionNoteInput: { minHeight: 104, maxHeight: 160, paddingHorizontal: spacing.md, paddingVertical: spacing.md, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surfaceSecondary, color: colors.onSurface, fontFamily: fonts.regular, fontSize: fontSize.base },
+  rejectionReasonError: { fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.error },
   interactionModalActions: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
   modalCancelButton: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceSecondary },
   modalCancelText: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface },

@@ -2,11 +2,28 @@ import { t } from "@/src/locales";
 import { Ionicons } from "@expo/vector-icons";
 
 export interface QuizQuestion {
-  id: string;
+  id: QuizQuestionId;
   icon: keyof typeof Ionicons.glyphMap;
   question: string;
   options: string[];
 }
+
+export type QuizQuestionId =
+  | "q1"
+  | "q2"
+  | "q3"
+  | "q4"
+  | "q5"
+  | "q6"
+  | "q7"
+  | "q8"
+  | "q9"
+  | "q10"
+  | "q11"
+  | "q12"
+  | "q13"
+  | "q14"
+  | "q15";
 
 export interface QuizSection {
   category: string;

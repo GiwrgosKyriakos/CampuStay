@@ -1,9 +1,9 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import { addDoc, collection, doc, getDoc, onSnapshot, query, serverTimestamp, setDoc, orderBy } from "firebase/firestore";
+import { useFocusEffect, useRouter } from "expo-router";
+import { addDoc, collection, deleteField, doc, getDoc, onSnapshot, query, runTransaction, serverTimestamp, setDoc, orderBy } from "firebase/firestore";
 
 import { db } from "@/src/config/firebase";
 import { useTheme } from "@/src/context/ThemeContext";
@@ -11,15 +11,19 @@ import { radius, spacing, fonts, fontSize } from "@/src/theme";
 import { subscribeUserLikedApartmentIds } from "@/src/api/apartmentLikes";
 import { renameRoommateGroupChat } from "@/src/api/chat";
 import { sendContractChatRequest } from "@/src/api/contracts";
+import { updateLinkedCalendarNotes, updateVisitAppointment } from "@/src/api/visitAppointments";
 import type { GroupChatMetadata } from "@/src/types/chat";
 import RenameGroupModal from "@/src/components/chat/RenameGroupModal";
 import CommonLikedListingsModal, { type CommonLikedListing } from "@/src/components/chat/CommonLikedListingsModal";
 import RoommateContractPickerModal from "@/src/components/RoommateContractPickerModal";
 import SignContractModal from "@/src/components/SignContractModal";
+import VoiceInputButton from "@/src/components/common/VoiceInputButton";
+import { useVoiceInputPreview } from "@/src/hooks/useVoiceInputPreview";
 import { t } from "@/src/locales";
 import type { ContractDraftContext, ContractType, DigitalContractDocument } from "@/src/types/esignature";
+import EditVisitModal from "@/src/components/chat/modals/EditVisitModal";
 
-type GroupMessage = { id: string; senderId: string; text: string; type?: string; contractId?: string; contractType?: ContractType; contractTitle?: string; createdAt: number };
+type GroupMessage = { id: string; senderId: string; text: string; type?: string; contractId?: string; contractType?: ContractType; contractTitle?: string; createdAt: number; metadata?: { appointmentId?: string; appointmentDate?: string; apartmentTitle?: string; status?: "pending" | "confirmed" | "cancelled" } };
 type Apartment = CommonLikedListing & { images?: string[] };
 
 export default function GroupChatScreen({ chatRoomId, currentUserId, metadata }: { chatRoomId: string; currentUserId: string; metadata: GroupChatMetadata }) {
@@ -28,6 +32,7 @@ export default function GroupChatScreen({ chatRoomId, currentUserId, metadata }:
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [messages, setMessages] = useState<GroupMessage[]>([]);
   const [text, setText] = useState("");
+  const draftVoice = useVoiceInputPreview(text, setText);
   const [groupName, setGroupName] = useState(metadata.groupName || "Ομαδική");
   const [renameVisible, setRenameVisible] = useState(false);
   const [commonVisible, setCommonVisible] = useState(false);
@@ -39,7 +44,26 @@ export default function GroupChatScreen({ chatRoomId, currentUserId, metadata }:
   const [contractPickerVisible, setContractPickerVisible] = useState(false);
   const [contractDraft, setContractDraft] = useState<ContractDraftContext | null>(null);
   const [existingContractId, setExistingContractId] = useState<string | null>(null);
+  const [visitToEdit, setVisitToEdit] = useState<GroupMessage | null>(null);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const listRef = useRef<FlatList<GroupMessage>>(null);
   const hasHost = Boolean(metadata.hostUserId || metadata.hostApartmentId);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (!currentUserId || !chatRoomId) return undefined;
+      const userRef = doc(db, "users", currentUserId);
+      void setDoc(userRef, { activeChatId: chatRoomId }, { merge: true }).catch(() => undefined);
+      return () => {
+        void runTransaction(db, async (transaction) => {
+          const snapshot = await transaction.get(userRef);
+          if (snapshot.exists() && snapshot.data().activeChatId === chatRoomId) {
+            transaction.update(userRef, { activeChatId: deleteField() });
+          }
+        }).catch(() => undefined);
+      };
+    }, [chatRoomId, currentUserId]),
+  );
 
   useEffect(() => {
     void getDoc(doc(db, "users", currentUserId)).then((snapshot) => {
@@ -49,8 +73,30 @@ export default function GroupChatScreen({ chatRoomId, currentUserId, metadata }:
   }, [currentUserId]);
 
   useEffect(() => onSnapshot(query(collection(db, "chats", chatRoomId, "messages"), orderBy("createdAt", "asc")), (snapshot) => {
-    setMessages(snapshot.docs.map((message) => { const data = message.data() as { senderId?: string; text?: string; type?: string; contractId?: string; contractType?: ContractType; contractTitle?: string; createdAt?: { toMillis?: () => number } | number }; const createdAt = typeof data.createdAt === "number" ? data.createdAt : data.createdAt?.toMillis?.() || 0; return { id: message.id, senderId: data.senderId || "", text: data.text || "", type: data.type, contractId: data.contractId, contractType: data.contractType, contractTitle: data.contractTitle, createdAt }; }));
+    setMessages(snapshot.docs.map((message) => { const data = message.data() as { senderId?: string; text?: string; type?: string; contractId?: string; contractType?: ContractType; contractTitle?: string; createdAt?: { toMillis?: () => number } | number; metadata?: GroupMessage["metadata"] }; const createdAt = typeof data.createdAt === "number" ? data.createdAt : data.createdAt?.toMillis?.() || 0; return { id: message.id, senderId: data.senderId || "", text: data.text || "", type: data.type, contractId: data.contractId, contractType: data.contractType, contractTitle: data.contractTitle, metadata: data.metadata, createdAt }; }));
   }), [chatRoomId]);
+
+  const activePinnedAppointment = useMemo(() => [...new Map(messages.filter((message) => message.metadata?.appointmentId).map((message) => [message.metadata?.appointmentId, message])).values()]
+    .filter((message) => (message.metadata?.status === "pending" || message.metadata?.status === "confirmed") && !!message.metadata?.appointmentDate && Date.parse(message.metadata.appointmentDate) > Date.now())
+    .sort((first, second) => Date.parse(first.metadata?.appointmentDate ?? "") - Date.parse(second.metadata?.appointmentDate ?? ""))[0] ?? null, [messages]);
+
+  const saveVisitChanges = async (appointmentDate: string) => {
+    const appointmentId = visitToEdit?.metadata?.appointmentId;
+    if (!appointmentId || !visitToEdit) return;
+    await updateVisitAppointment(appointmentId, { appointmentDate, status: "confirmed" });
+    await updateLinkedCalendarNotes({ appointmentId, appointmentDate, status: "confirmed" });
+    await addDoc(collection(db, "chats", chatRoomId, "messages"), { senderId: "system", text: "Το ραντεβού ενημερώθηκε.", type: "visit_rescheduled", metadata: { ...visitToEdit.metadata, appointmentId, appointmentDate, status: "confirmed" }, createdAt: serverTimestamp(), isRead: true });
+    setVisitToEdit(null);
+  };
+
+  const cancelVisit = async () => {
+    const appointmentId = visitToEdit?.metadata?.appointmentId;
+    if (!appointmentId || !visitToEdit) return;
+    await updateVisitAppointment(appointmentId, { status: "cancelled" });
+    await updateLinkedCalendarNotes({ appointmentId, appointmentDate: visitToEdit.metadata?.appointmentDate ?? "", status: "cancelled" });
+    await addDoc(collection(db, "chats", chatRoomId, "messages"), { senderId: "system", text: "Το ραντεβού ακυρώθηκε.", type: "visit_cancelled", metadata: { ...visitToEdit.metadata, appointmentId, status: "cancelled" }, createdAt: serverTimestamp(), isRead: true });
+    setVisitToEdit(null);
+  };
 
   useEffect(() => {
     const unsubscribers = metadata.memberIds.map((memberId) => subscribeUserLikedApartmentIds(memberId, (ids) => setLikedByMember((previous) => ({ ...previous, [memberId]: ids }))));
@@ -91,8 +137,8 @@ export default function GroupChatScreen({ chatRoomId, currentUserId, metadata }:
   }, [commonIds, commonVisible]);
 
   const send = async () => {
-    const value = text.trim();
-    if (!value) return;
+    const value = draftVoice.value.trim();
+    if (!value || draftVoice.isPreviewing) return;
     setText("");
     await addDoc(collection(db, "chats", chatRoomId, "messages"), { senderId: currentUserId, type: "text", text: value, createdAt: serverTimestamp(), isRead: false });
     await setDoc(doc(db, "chats", chatRoomId), { lastMessage: value, lastMessageText: value, lastMessageTimestamp: serverTimestamp(), updatedAt: serverTimestamp() }, { merge: true });
@@ -123,12 +169,14 @@ export default function GroupChatScreen({ chatRoomId, currentUserId, metadata }:
   return <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === "ios" ? "padding" : undefined}>
     <View style={styles.header}><Pressable onPress={() => router.back()} hitSlop={8}><Ionicons name="chevron-back" size={24} color={colors.onSurface} /></Pressable><Pressable style={styles.nameButton} onPress={() => setRenameVisible(true)}><Ionicons name="people-circle-outline" size={24} color={colors.brand} /><Text style={styles.title} numberOfLines={1}>{groupName}</Text><Ionicons name="pencil-outline" size={16} color={colors.onSurfaceTertiary} /></Pressable><Pressable onPress={() => setContractPickerVisible(true)} hitSlop={8} testID="group-contract-button"><Ionicons name="document-text-outline" size={25} color={colors.brand} /></Pressable>{hasHost ? null : <Pressable onPress={() => setCommonVisible(true)} hitSlop={8} testID="group-common-likes-button"><Ionicons name="heart-circle-outline" size={26} color={colors.brand} /></Pressable>}</View>
     {hostApartment ? <Pressable style={styles.propertyBanner} onPress={() => router.push({ pathname: "/apartment-detail", params: { data: JSON.stringify(hostApartment) } } as never)}><Image source={hostApartment.image ? { uri: hostApartment.image } : undefined} style={styles.propertyImage} /><View style={styles.propertyCopy}><Text style={styles.propertyTitle} numberOfLines={1}>{hostApartment.title}</Text><Text style={styles.propertyMeta}>{hostApartment.area}, {hostApartment.city} · €{hostApartment.rent}</Text><Text style={styles.propertyLink}>Προβολή Ακινήτου</Text></View><Ionicons name="chevron-forward" size={20} color={colors.brand} /></Pressable> : null}
-    {messages.length === 0 ? <View style={styles.loading}><ActivityIndicator color={colors.brand} /></View> : <FlatList data={messages} keyExtractor={(item) => item.id} contentContainerStyle={styles.messages} renderItem={({ item }) => item.type === "contract_request" && item.contractId ? <Pressable style={[styles.contractMessage, item.senderId === currentUserId ? styles.mine : styles.theirs]} onPress={() => { setContractDraft(null); setExistingContractId(item.contractId ?? null); }} testID={`group-contract-message-${item.id}`}><Ionicons name="document-text-outline" size={20} color={item.senderId === currentUserId ? colors.onBrand : colors.brand} /><View style={styles.contractMessageCopy}><Text style={[styles.contractMessageTitle, { color: item.senderId === currentUserId ? colors.onBrand : colors.onSurface }]}>{item.contractTitle || item.text}</Text><Text style={[styles.contractMessageSubtitle, { color: item.senderId === currentUserId ? "rgba(255,255,255,0.78)" : colors.onSurfaceTertiary }]}>{t("esign.tapToSign")}</Text></View></Pressable> : <View style={[styles.message, item.senderId === currentUserId ? styles.mine : styles.theirs]}><Text style={item.type === "system" ? styles.system : styles.messageText}>{item.text}</Text></View>} />}
-    <View style={styles.inputBar}><TextInput value={text} onChangeText={setText} style={styles.input} placeholder="Γράψε μήνυμα" placeholderTextColor={colors.onSurfaceTertiary} multiline /><Pressable style={styles.send} onPress={() => void send()}><Ionicons name="paper-plane" size={19} color={colors.onBrand} /></Pressable></View>
+    {activePinnedAppointment ? <Pressable style={styles.appointmentBanner} onPress={() => { const index = messages.findIndex((message) => message.id === activePinnedAppointment.id); if (index < 0) return; listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 }); setHighlightedMessageId(activePinnedAppointment.id); setTimeout(() => setHighlightedMessageId(null), 1200); }} testID="group-chat-pinned-visit-banner"><Ionicons name="calendar-outline" size={19} color={colors.brand} /><View style={styles.propertyCopy}><Text style={styles.propertyTitle} numberOfLines={1}>{activePinnedAppointment.metadata?.apartmentTitle || "Επερχόμενη Υπόδειξη"}</Text><Text style={styles.propertyMeta}>{new Date(activePinnedAppointment.metadata?.appointmentDate ?? "").toLocaleString("el-GR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })} · {activePinnedAppointment.metadata?.status === "pending" ? "Εκκρεμές" : "Επιβεβαιωμένο"}</Text></View><Pressable onPress={(event) => { event.stopPropagation(); setVisitToEdit(activePinnedAppointment); }} hitSlop={8} testID="group-chat-pinned-visit-edit"><Ionicons name="create-outline" size={20} color={colors.brand} /></Pressable></Pressable> : null}
+    {messages.length === 0 ? <View style={styles.loading}><ActivityIndicator color={colors.brand} /></View> : <FlatList ref={listRef} data={messages} keyExtractor={(item) => item.id} contentContainerStyle={styles.messages} renderItem={({ item }) => item.type === "contract_request" && item.contractId ? <Pressable style={[styles.contractMessage, item.senderId === currentUserId ? styles.mine : styles.theirs]} onPress={() => { setContractDraft(null); setExistingContractId(item.contractId ?? null); }} testID={`group-contract-message-${item.id}`}><Ionicons name="document-text-outline" size={20} color={item.senderId === currentUserId ? colors.onBrand : colors.brand} /><View style={styles.contractMessageCopy}><Text style={[styles.contractMessageTitle, { color: item.senderId === currentUserId ? colors.onBrand : colors.onSurface }]}>{item.contractTitle || item.text}</Text><Text style={[styles.contractMessageSubtitle, { color: item.senderId === currentUserId ? "rgba(255,255,255,0.78)" : colors.onSurfaceTertiary }]}>{t("esign.tapToSign")}</Text></View></Pressable> : <View style={[styles.message, item.senderId === currentUserId ? styles.mine : styles.theirs, item.id === highlightedMessageId && styles.highlightedMessage]}><Text style={item.type === "system" ? styles.system : styles.messageText}>{item.text}</Text></View>} />}
+    <View style={styles.inputBar}><TextInput value={draftVoice.value} onChangeText={draftVoice.onChangeText} style={styles.input} placeholder="Γράψε μήνυμα" placeholderTextColor={colors.onSurfaceTertiary} multiline /><VoiceInputButton onTextAppend={draftVoice.onFinalResult} onPartialResult={draftVoice.onPartialResult} onAbort={draftVoice.onAbort} color={colors.onSurfaceTertiary} /><Pressable style={[styles.send, draftVoice.isPreviewing && styles.sendDisabled]} onPress={() => void send()} disabled={draftVoice.isPreviewing}><Ionicons name="paper-plane" size={19} color={colors.onBrand} /></Pressable></View>
     <RenameGroupModal visible={renameVisible} initialName={groupName} onClose={() => setRenameVisible(false)} onSubmit={(name) => void rename(name)} />
     <CommonLikedListingsModal visible={commonVisible} loading={commonLoading} listings={commonIds.map((id) => apartments[id]).filter((listing): listing is Apartment => !!listing)} onClose={() => setCommonVisible(false)} onListingPress={(listing) => router.push({ pathname: "/apartment-detail", params: { data: JSON.stringify(listing) } } as never)} />
     <RoommateContractPickerModal visible={contractPickerVisible} onClose={() => setContractPickerVisible(false)} onSelect={startContract} />
     <SignContractModal visible={contractDraft !== null || existingContractId !== null} draft={contractDraft ?? undefined} contractId={existingContractId ?? undefined} signerId={currentUserId} onCreated={handleContractCreated} onClose={() => { setContractDraft(null); setExistingContractId(null); }} />
+    <EditVisitModal visible={visitToEdit !== null} appointmentDate={visitToEdit?.metadata?.appointmentDate} isSaving={false} onClose={() => setVisitToEdit(null)} onSave={(date) => void saveVisitChanges(date)} onCancelAppointment={() => void cancelVisit()} />
   </KeyboardAvoidingView>;
 }
 
@@ -138,6 +186,7 @@ const createStyles = (colors: ReturnType<typeof useTheme>["colors"]) => StyleShe
   nameButton: { flex: 1, flexDirection: "row", alignItems: "center", gap: spacing.sm },
   title: { flex: 1, color: colors.onSurface, fontFamily: fonts.bold, fontSize: fontSize.lg },
   propertyBanner: { margin: spacing.md, padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.surfaceSecondary, flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  appointmentBanner: { marginHorizontal: spacing.md, marginBottom: spacing.sm, padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.brandTertiary, flexDirection: "row", alignItems: "center", gap: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border },
   propertyImage: { width: 76, height: 64, borderRadius: radius.sm, backgroundColor: colors.surfaceTertiary },
   propertyCopy: { flex: 1, gap: 2 },
   propertyTitle: { color: colors.onSurface, fontFamily: fonts.semibold, fontSize: fontSize.base },
@@ -148,6 +197,7 @@ const createStyles = (colors: ReturnType<typeof useTheme>["colors"]) => StyleShe
   message: { maxWidth: "82%", paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.md },
   mine: { alignSelf: "flex-end", backgroundColor: colors.brand },
   theirs: { alignSelf: "flex-start", backgroundColor: colors.surfaceSecondary },
+  highlightedMessage: { borderWidth: 2, borderColor: colors.brand },
   messageText: { color: colors.onSurface, fontFamily: fonts.regular, fontSize: fontSize.base },
   system: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: fontSize.sm, fontStyle: "italic" },
   contractMessage: { maxWidth: "88%", paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.md, flexDirection: "row", alignItems: "center", gap: spacing.sm },
@@ -157,4 +207,5 @@ const createStyles = (colors: ReturnType<typeof useTheme>["colors"]) => StyleShe
   inputBar: { padding: spacing.sm, paddingBottom: spacing.md, flexDirection: "row", alignItems: "flex-end", gap: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border },
   input: { flex: 1, maxHeight: 100, minHeight: 44, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, color: colors.onSurface, backgroundColor: colors.surfaceSecondary, fontFamily: fonts.regular },
   send: { width: 44, height: 44, borderRadius: radius.pill, alignItems: "center", justifyContent: "center", backgroundColor: colors.brand },
+  sendDisabled: { opacity: 0.45 },
 });

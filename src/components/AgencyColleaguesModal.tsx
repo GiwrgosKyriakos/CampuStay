@@ -1,13 +1,14 @@
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 
-import { getAgencyStaff, type AgencyStaffMember } from "@/src/api/agencyCollaboration";
+import { getAgencyCoAssignedStaff, type AgencyStaffMember } from "@/src/api/agencyCollaboration";
 import { useTheme } from "@/src/context/ThemeContext";
 import { fonts, fontSize, radius, spacing } from "@/src/theme";
+import BaseBottomSheet from "@/src/components/common/BaseBottomSheet";
 
-export default function AgencyColleaguesModal({ visible, agencyId, currentUserId, onClose, onSelect }: { visible: boolean; agencyId: string; currentUserId: string; onClose: () => void; onSelect: (colleague: AgencyStaffMember) => void }) {
+export default function AgencyColleaguesModal({ visible, agencyId, currentUserId, apartmentIds, onClose, onSelect }: { visible: boolean; agencyId: string; currentUserId: string; apartmentIds: string[]; onClose: () => void; onSelect: (colleague: AgencyStaffMember) => void }) {
   const { colors } = useTheme();
   const [colleagues, setColleagues] = useState<AgencyStaffMember[]>([]);
   const [loading, setLoading] = useState(false);
@@ -16,7 +17,7 @@ export default function AgencyColleaguesModal({ visible, agencyId, currentUserId
     if (!visible || !agencyId) return;
     let active = true;
     setLoading(true);
-    void getAgencyStaff(agencyId).then((members) => {
+    void getAgencyCoAssignedStaff(agencyId, currentUserId, apartmentIds).then((members) => {
       if (active) setColleagues(members.filter((member) => member.id !== currentUserId));
     }).catch(() => {
       if (active) setColleagues([]);
@@ -24,20 +25,17 @@ export default function AgencyColleaguesModal({ visible, agencyId, currentUserId
       if (active) setLoading(false);
     });
     return () => { active = false; };
-  }, [agencyId, currentUserId, visible]);
+  }, [agencyId, apartmentIds, currentUserId, visible]);
 
-  return <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-    <View style={styles.backdrop}><View style={[styles.sheet, { backgroundColor: colors.surface }]}>
+  return <BaseBottomSheet visible={visible} onClose={onClose} maxHeight="78%"><View style={styles.content}>
       <View style={styles.header}><Text style={[styles.title, { color: colors.onSurface }]}>Συνεργάτες</Text><Pressable onPress={onClose} hitSlop={8}><Ionicons name="close-outline" size={24} color={colors.onSurface} /></Pressable></View>
-      {loading ? <ActivityIndicator color={colors.brand} /> : <ScrollView contentContainerStyle={styles.list} bounces={false}>{colleagues.map((colleague) => <Pressable key={colleague.id} style={[styles.row, { backgroundColor: colors.surfaceSecondary }]} onPress={() => onSelect(colleague)} testID={`agency-colleague-${colleague.id}`}>{colleague.avatar ? <Image source={{ uri: colleague.avatar }} style={styles.avatar} /> : <View style={[styles.avatar, styles.avatarFallback]}><Ionicons name="person-outline" size={20} color={colors.onSurfaceTertiary} /></View>}<View style={styles.copy}><Text style={[styles.name, { color: colors.onSurface }]} numberOfLines={1}>{colleague.name}</Text><Text style={[styles.role, { color: colors.onSurfaceTertiary }]}>{colleague.agencyRole || "Μεσίτης"}</Text></View><Ionicons name="chatbubble-ellipses-outline" size={21} color={colors.brand} /></Pressable>)}</ScrollView>}
+      {loading ? <ActivityIndicator color={colors.brand} /> : <View style={styles.list}>{colleagues.map((colleague) => <Pressable key={colleague.id} style={[styles.row, { backgroundColor: colors.surfaceSecondary }]} onPress={() => onSelect(colleague)} testID={`agency-colleague-${colleague.id}`}>{colleague.avatar ? <Image source={{ uri: colleague.avatar }} style={styles.avatar} /> : <View style={[styles.avatar, styles.avatarFallback]}><Ionicons name="person-outline" size={20} color={colors.onSurfaceTertiary} /></View>}<View style={styles.copy}><Text style={[styles.name, { color: colors.onSurface }]} numberOfLines={1}>{colleague.name}</Text><Text style={[styles.role, { color: colors.onSurfaceTertiary }]}>{colleague.agencyRole || "Μεσίτης"}</Text></View><Ionicons name="chatbubble-ellipses-outline" size={21} color={colors.brand} /></Pressable>)}</View>}
       {!loading && colleagues.length === 0 ? <Text style={[styles.empty, { color: colors.onSurfaceTertiary }]}>Δεν βρέθηκαν ενεργοί συνεργάτες.</Text> : null}
-    </View></View>
-  </Modal>;
+    </View></BaseBottomSheet>;
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.45)" },
-  sheet: { maxHeight: "78%", borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg, gap: spacing.md },
+  content: { gap: spacing.md, padding: spacing.lg },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   title: { fontFamily: fonts.bold, fontSize: fontSize.xl },
   list: { gap: spacing.sm },

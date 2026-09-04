@@ -1,3 +1,7 @@
+import { DEFAULT_AGENCY_CONFIG, type AgencyPipelineConfig } from "./agencyConfig";
+
+export type { AgencyPipelineConfig } from "./agencyConfig";
+
 export type PipelineStageKey =
   | "new_lead"
   | "showing_scheduled"
@@ -25,7 +29,7 @@ export interface BrokerStagnationSettings {
 export const DEFAULT_BROKER_STAGNATION_SETTINGS: BrokerStagnationSettings = {
   stagnationAlertsEnabled: true,
   stagnationAlertStartTime: "11:00",
-  stagnationAlertIntervalMinutes: 10,
+  stagnationAlertIntervalMinutes: 15,
 };
 
 export interface PipelineStageConfig {
@@ -36,15 +40,33 @@ export interface PipelineStageConfig {
   badgeColor?: string;
 }
 
+export const DEFAULT_AGENCY_PIPELINE_CONFIG = DEFAULT_AGENCY_CONFIG;
+
+export type AgencyPipelineProbabilityStage = string;
+
+export function getPipelineProbabilityStage(key?: unknown): AgencyPipelineProbabilityStage {
+  if (key === "showing_scheduled") return "showing_scheduled";
+  if (key === "showing_completed" || key === "showing_planned") return "showing_completed";
+  if (key === "offer" || key === "offer_made") return "offer_made";
+  if (key === "docs_review") return "docs_review";
+  if (key === "negotiation_agreement" || key === "preliminary_signed" || key === "preliminary_signed_90") return "preliminary_signed_90";
+  if (key === "closed_won" || key === "deal_closed" || key === "contract_completed" || key === "contract_completed_100") return "contract_completed_100";
+  return "inquiry";
+}
+
+export function getPipelineStageProbability(key?: unknown, config: AgencyPipelineConfig = DEFAULT_AGENCY_PIPELINE_CONFIG): number {
+  return config.stageProbabilities[getPipelineProbabilityStage(key)];
+}
+
 export const PIPELINE_STAGES: PipelineStageConfig[] = [
-  { key: "new_lead", label: "Νέο Lead / Like", shortLabel: "Lead", probability: 0.1 },
-  { key: "showing_scheduled", label: "Προγραμματισμένη υπόδειξη", shortLabel: "Υπόδειξη (Προγρ.)", probability: 0.4 },
-  { key: "offer_made", label: "Πρόταση τιμής", shortLabel: "Πρόταση τιμής", probability: 0.6 },
-  { key: "showing_planned", label: "Υπόδειξη (Showing) Προγραμματισμός", shortLabel: "Υπόδειξη (Προγρ.)", probability: 0.25 },
-  { key: "showing_completed", label: "Υπόδειξη (Showing) Πραγματοποίηση", shortLabel: "Υπόδειξη (Ολοκλ.)", probability: 0.4 },
-  { key: "offer", label: "Προσφορά (Offer)", shortLabel: "Προσφορά", probability: 0.6 },
-  { key: "negotiation_agreement", label: "Διαπραγμάτευση / Προσύμφωνο (Έλεγχος τίτλων, προκαταβολή)", shortLabel: "Προσύμφωνο", probability: 0.9 },
-  { key: "closed_won", label: "Συμβόλαιο (Closed Won: Ολοκλήρωση μεταβίβασης / ενοικίασης)", shortLabel: "Συμβόλαιο", probability: 1 },
+  { key: "new_lead", label: "Νέο Lead / Like", shortLabel: "Lead", probability: getPipelineStageProbability("new_lead") },
+  { key: "showing_scheduled", label: "Προγραμματισμένη υπόδειξη", shortLabel: "Υπόδειξη (Προγρ.)", probability: getPipelineStageProbability("showing_scheduled") },
+  { key: "offer_made", label: "Πρόταση τιμής", shortLabel: "Πρόταση τιμής", probability: getPipelineStageProbability("offer_made") },
+  { key: "showing_planned", label: "Υπόδειξη (Showing) Προγραμματισμός", shortLabel: "Υπόδειξη (Προγρ.)", probability: getPipelineStageProbability("showing_planned") },
+  { key: "showing_completed", label: "Υπόδειξη (Showing) Πραγματοποίηση", shortLabel: "Υπόδειξη (Ολοκλ.)", probability: getPipelineStageProbability("showing_completed") },
+  { key: "offer", label: "Προσφορά (Offer)", shortLabel: "Προσφορά", probability: getPipelineStageProbability("offer") },
+  { key: "negotiation_agreement", label: "Διαπραγμάτευση / Προσύμφωνο (Έλεγχος τίτλων, προκαταβολή)", shortLabel: "Προσύμφωνο", probability: getPipelineStageProbability("negotiation_agreement") },
+  { key: "closed_won", label: "Συμβόλαιο (Closed Won: Ολοκλήρωση μεταβίβασης / ενοικίασης)", shortLabel: "Συμβόλαιο", probability: getPipelineStageProbability("closed_won") },
   { key: "closed_lost", label: "Απόρριψη (Closed Lost)", shortLabel: "Απόρριψη", probability: 0 },
 ];
 

@@ -1,4 +1,4 @@
-import { Platform } from "react-native";
+import { Linking, Platform } from "react-native";
 import * as Notifications from "expo-notifications";
 import * as Device from "expo-device";
 import Constants from "expo-constants";
@@ -9,6 +9,33 @@ import { db, firebaseAuth } from "@/src/config/firebase";
 export const ROOMMATE_MATCH_CATEGORY = "ROOMMATE_MATCH_100";
 export const ADD_ROOMMATE_ACTION = "ADD_ROOMMATE";
 export const VIEW_PROFILE_ACTION = "VIEW_PROFILE";
+
+const SCREEN_ROUTES: Record<string, string> = {
+  calendar: "/(tabs)/calendar",
+  broker: "/(tabs)/broker",
+  profile: "/(tabs)/profile",
+};
+
+function getNotificationRoute(screen: string): string {
+  return SCREEN_ROUTES[screen] ?? (screen.startsWith("/") ? screen : `/${screen}`);
+}
+
+async function openNavigationLink(params: Record<string, any>): Promise<void> {
+  const links = Platform.OS === "ios"
+    ? [params.appleMapsUrl, params.googleMapsUrl]
+    : [params.googleMapsUrl, params.appleMapsUrl];
+  for (const link of links) {
+    if (typeof link !== "string" || !link) continue;
+    try {
+      if (await Linking.canOpenURL(link)) {
+        await Linking.openURL(link);
+        return;
+      }
+    } catch {
+      continue;
+    }
+  }
+}
 
 let categoriesRegistered = false;
 
@@ -94,37 +121,85 @@ export async function handleNotificationResponse(
   const data = response.notification.request.content.data as Record<string, unknown>;
   const action = response.actionIdentifier;
 
+  let params: Record<string, any> = {};
+  if (typeof data.params === "string") {
+    try {
+      const parsed = JSON.parse(data.params) as unknown;
+      if (parsed && typeof parsed === "object") params = parsed as Record<string, any>;
+    } catch {
+      params = {};
+    }
+  } else if (data.params && typeof data.params === "object") {
+    params = data.params as Record<string, any>;
+  }
+  const type = typeof data.type === "string" ? data.type : "";
+  const screen = typeof data.screen === "string" ? data.screen : typeof data.targetScreen === "string" ? data.targetScreen : "";
+  const chatId = typeof params.chatId === "string" ? params.chatId : typeof data.conversationId === "string" ? data.conversationId : "";
+  const chatTargetId = typeof params.clientId === "string" ? params.clientId : typeof params.brokerId === "string" ? params.brokerId : typeof params.counterpartId === "string" ? params.counterpartId : chatId;
+
   if (action === ADD_ROOMMATE_ACTION) {
-    const candidateId = typeof data.candidateId === "string" ? data.candidateId : typeof data.targetUserId === "string" ? data.targetUserId : "";
-    await addRoommateConnection(candidateId, typeof data.matchId === "string" ? data.matchId : undefined);
+    const candidateId = typeof data.candidateId === "string" ? data.candidateId : typeof params.candidateId === "string" ? params.candidateId : typeof data.targetUserId === "string" ? data.targetUserId : "";
+    await addRoommateConnection(candidateId, typeof data.matchId === "string" ? data.matchId : typeof params.matchId === "string" ? params.matchId : undefined);
     return;
   }
 
-  if (action === VIEW_PROFILE_ACTION || data.type === "roommate_match") {
-    const profileId = typeof data.candidateId === "string" ? data.candidateId : typeof data.targetUserId === "string" ? data.targetUserId : "";
+  if (action === VIEW_PROFILE_ACTION || data.type === "roommate_match" || (type === "high_match" && screen === "roomie-profile")) {
+    const profileId = typeof data.candidateId === "string" ? data.candidateId : typeof params.candidateId === "string" ? params.candidateId : typeof data.targetUserId === "string" ? data.targetUserId : "";
     if (profileId) router.push({ pathname: "/roommates/[id]", params: { id: profileId } });
     return;
   }
 
-  if (data.type === "send_exact_address") {
-    const clientId = typeof data.clientId === "string" ? data.clientId : "";
-    router.push({ pathname: "/chat/[id]", params: { id: clientId, chatRoomId: data.chatRoomId as string, action: "send_exact_address", appointmentId: data.appointmentId as string } });
+  if (type === "visit_reminder" && (action === "send_exact_address" || data.action === "send_exact_address")) {
+    router.push({ pathname: "/chat/[id]", params: { id: chatTargetId, chatRoomId: chatId, action: "send_exact_address", appointmentId: params.appointmentId as string } });
     return;
   }
 
-  if (data.type === "post_visit_feedback" || data.type === "broker_visit_feedback") {
-    router.push({ pathname: data.type === "broker_visit_feedback" ? "/broker-client-detail" : "/(tabs)/calendar", params: { appointmentId: data.appointmentId as string } });
+  if (type === "post_visit_rating") {
+    router.push({ pathname: screen === "broker-client-detail" ? "/broker-client-detail" : "/(tabs)/calendar", params: { ...params, action: "open_modal" } });
+    return;
+  }
+
+  if (type === "visit_navigation") {
+    await openNavigationLink(params);
+    router.push({ pathname: getNotificationRoute(screen || "calendar"), params });
+    return;
+  }
+
+  if (type === "visit_confirmed" || type === "visit_cancelled" || type === "visit_request") {
+    router.push({ pathname: "/chat/[id]", params: { id: chatTargetId, chatRoomId: chatId, ...params } });
+    return;
+  }
+
+  if (type === "high_match" || type === "price_drop" || type === "new_offer" || type === "document_required" || type === "document_rejected" || type === "document_verified" || type === "notary_ready") {
+    if (screen === "broker-client-detail") {
+      router.push({ pathname: "/broker-client-detail", params: { ...params, clientUserId: params.clientUserId ?? params.clientId, action: typeof data.action === "string" ? data.action : undefined } });
+    } else if (screen === "chat/[id]" && chatTargetId) {
+      router.push({ pathname: "/chat/[id]", params: { id: chatTargetId, chatRoomId: chatId, ...params } });
+    } else if (screen === "roomie-profile") {
+      router.push({ pathname: "/roomie-profile", params });
+    } else {
+      router.push({ pathname: "/apartment-detail", params });
+    }
+    return;
+  }
+
+  if (type === "closed_deal" || type === "broker_registration" || type === "broker_approved" || type === "deal_stage_update") {
+    router.push({ pathname: getNotificationRoute(screen || "profile"), params });
     return;
   }
 
   if (typeof data.targetScreen === "string" || typeof data.screen === "string") {
-    if (data.targetScreen === "calendar") {
-      router.push({ pathname: "/(tabs)/calendar", params: { noteId: data.noteId as string } });
-    } else if (data.screen === "broker-client-detail") {
+    if (screen === "calendar") {
+      router.push({ pathname: "/(tabs)/calendar", params: { ...params, noteId: params.noteId ?? data.noteId as string } });
+    } else if (screen === "broker-client-detail") {
       router.push({ pathname: "/broker-client-detail", params: { profileId: data.profileId as string, clientUserId: data.clientId as string, scrollTo: data.scrollTo as string } });
+    } else if (screen === "chat/[id]" && chatTargetId) {
+      router.push({ pathname: "/chat/[id]", params: { id: chatTargetId, chatRoomId: chatId, ...params } });
+    } else if (screen) {
+      router.push({ pathname: getNotificationRoute(screen), params });
     }
-  } else if (typeof data.senderId === "string") {
-    router.push({ pathname: "/chat/[id]", params: { id: data.senderId, chatRoomId: data.chatRoomId as string } });
+  } else if (type === "chat_message" || typeof data.senderId === "string") {
+    router.push({ pathname: "/chat/[id]", params: { id: chatTargetId || data.senderId as string, chatRoomId: chatId, ...params } });
   }
 }
 

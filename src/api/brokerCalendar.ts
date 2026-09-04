@@ -3,10 +3,13 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
+  query,
   serverTimestamp,
   updateDoc,
   type FieldValue,
+  where,
 } from "firebase/firestore";
 
 import { db } from "@/src/config/firebase";
@@ -126,6 +129,7 @@ export interface BrokerNote {
   coveringBrokerName?: string;
   submittedByCoveringBrokerId?: string;
   feedbackSubmittedBy?: Record<string, boolean>;
+  appointmentStatus?: string;
   createdAt: FieldValue;
 }
 
@@ -164,6 +168,25 @@ type FirestoreBrokerNoteReadDoc = {
   coveringBrokerId?: string;
   coveringBrokerName?: string;
   submittedByCoveringBrokerId?: string;
+  feedbackSubmittedBy?: Record<string, boolean>;
+  appointmentStatus?: string;
+  createdAt?: unknown;
+};
+
+type FirestoreAppointmentReadDoc = {
+  brokerId?: string;
+  clientId?: string;
+  listingBrokerId?: string;
+  buyerBrokerId?: string;
+  coveringBrokerId?: string;
+  agencyId?: string;
+  apartmentId?: string;
+  apartmentTitle?: string;
+  apartmentAddress?: string;
+  appointmentDate?: string;
+  status?: string;
+  clientName?: string;
+  apartmentPrice?: number;
   feedbackSubmittedBy?: Record<string, boolean>;
   createdAt?: unknown;
 };
@@ -264,6 +287,44 @@ function mapFirestoreDocToBrokerNote(id: string, data: FirestoreBrokerNoteReadDo
     coveringBrokerName: typeof data.coveringBrokerName === "string" ? data.coveringBrokerName : undefined,
     submittedByCoveringBrokerId: typeof data.submittedByCoveringBrokerId === "string" ? data.submittedByCoveringBrokerId : undefined,
     feedbackSubmittedBy: data.feedbackSubmittedBy,
+    appointmentStatus: typeof data.appointmentStatus === "string" ? data.appointmentStatus : undefined,
+    createdAt: (data.createdAt as FieldValue) ?? serverTimestamp(),
+  };
+}
+
+function mapAppointmentToBrokerNote(id: string, data: FirestoreAppointmentReadDoc, calendarOwnerId: string): BrokerNote | null {
+  if (typeof data.appointmentDate !== "string" || !data.appointmentDate.trim() || typeof data.apartmentId !== "string" || typeof data.clientId !== "string") return null;
+  const appointmentDate = new Date(data.appointmentDate);
+  if (!Number.isFinite(appointmentDate.getTime())) return null;
+  const primaryBrokerId = data.listingBrokerId || data.brokerId || data.buyerBrokerId || calendarOwnerId;
+  return {
+    id: `appointment_${id}`,
+    title: `Επίσκεψη: ${data.apartmentTitle || "Ακίνητο"}`,
+    brokerId: primaryBrokerId,
+    calendarOwnerId,
+    agencyId: data.agencyId,
+    date: data.appointmentDate.slice(0, 10),
+    time: data.appointmentDate.slice(11, 16),
+    type: "showing",
+    category: "showing",
+    scheduledDate: data.appointmentDate.slice(0, 10),
+    scheduledTime: data.appointmentDate.slice(11, 16),
+    timestamp: appointmentDate.getTime(),
+    apartmentId: data.apartmentId,
+    apartmentTitle: data.apartmentTitle,
+    apartmentPrice: data.apartmentPrice,
+    appointmentId: id,
+    clientId: data.clientId,
+    clientName: data.clientName,
+    primaryBrokerId,
+    primaryBrokerName: "Μεσίτης",
+    listingBrokerId: data.listingBrokerId,
+    buyerBrokerId: data.buyerBrokerId,
+    coveringBrokerId: data.coveringBrokerId,
+    feedbackSubmittedBy: data.feedbackSubmittedBy,
+    appointmentStatus: data.status,
+    done: data.status === "completed",
+    isCompleted: data.status === "completed",
     createdAt: (data.createdAt as FieldValue) ?? serverTimestamp(),
   };
 }
@@ -418,7 +479,18 @@ export async function getBrokerNotesByDateRange(
       return mapFirestoreDocToBrokerNote(docSnap.id, data, brokerId);
     }).filter((note) => note.date >= startDate && note.date <= endDate);
 
-    return mapped.sort((a, b) => {
+    const appointmentQueries = ["brokerId", "listingBrokerId", "buyerBrokerId", "coveringBrokerId"].map((field) => getDocs(query(collection(db, "appointments"), where(field, "==", brokerId))));
+    const appointmentSnapshots = await Promise.all(appointmentQueries);
+    const appointmentNotes = new Map<string, BrokerNote>();
+    appointmentSnapshots.flatMap((result) => result.docs).forEach((appointmentSnapshot) => {
+      const appointmentNote = mapAppointmentToBrokerNote(appointmentSnapshot.id, appointmentSnapshot.data() as FirestoreAppointmentReadDoc, brokerId);
+      if (appointmentNote && appointmentNote.date >= startDate && appointmentNote.date <= endDate) appointmentNotes.set(appointmentNote.appointmentId!, appointmentNote);
+    });
+
+    const appointmentIds = new Set([...appointmentNotes.keys()]);
+    const notesWithoutAppointmentCopies = mapped.filter((note) => !note.appointmentId || !appointmentIds.has(note.appointmentId));
+
+    return [...notesWithoutAppointmentCopies, ...appointmentNotes.values()].sort((a, b) => {
       if (a.date === b.date) {
         return compareTimeAsc(a.time, b.time);
       }
@@ -427,6 +499,14 @@ export async function getBrokerNotesByDateRange(
   } catch (error: unknown) {
     throw new Error(`Failed to fetch broker notes by date range: ${toErrorMessage(error)}`);
   }
+}
+
+export async function getBrokerNoteById(brokerId: string, noteId: string): Promise<BrokerNote | null> {
+  ensureNonEmptyString(brokerId, "brokerId");
+  ensureNonEmptyString(noteId, "noteId");
+
+  const snapshot = await getDoc(doc(db, "users", brokerId, "calendarNotes", noteId));
+  return snapshot.exists() ? mapFirestoreDocToBrokerNote(snapshot.id, snapshot.data() as FirestoreBrokerNoteReadDoc, brokerId) : null;
 }
 
 export function getMostFrequentCategoryColor(notes: BrokerNote[]): string {

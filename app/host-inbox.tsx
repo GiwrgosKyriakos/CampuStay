@@ -185,6 +185,7 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
   const canSeeBrokerRoleMetadata = auth.isBroker === true || isBrokerOrAgencyUser(auth.user as Parameters<typeof isBrokerOrAgencyUser>[0]);
   const locallyDeletedChatIdsRef = useRef(new Set<string>());
   const hostInboxLoadMoreLockRef = useRef(false);
+  const scopedApartmentIds = useMemo(() => Array.from(new Set(items.map((item) => item.apartmentId).filter((apartmentId): apartmentId is string => !!apartmentId))), [items]);
 
   const handleHostInboxScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
@@ -782,6 +783,7 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
         visible={colleaguesVisible}
         agencyId={auth.agencyId ?? ""}
         currentUserId={auth.userId ?? ""}
+        apartmentIds={scopedApartmentIds}
         onClose={() => setColleaguesVisible(false)}
         onSelect={(colleague) => {
           if (!auth.userId) return;

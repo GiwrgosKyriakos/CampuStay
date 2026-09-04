@@ -45,7 +45,7 @@ import { subscribeUserLikedApartmentIds, toggleApartmentLike } from "@/src/api/a
 import { getUserSettings } from "@/src/api/accountSettings";
 import { deleteListingPermanently } from "@/src/api/listings";
 import { getUserProfile } from "@/src/api/userProfile";
-import { getBrokerDeals, upsertBrokerClientProfile, type BrokerDeal } from "@/src/api/brokerClientProfiles";
+import { getBrokerDeals, subscribeBrokerDeals, upsertBrokerClientProfile, type BrokerDeal } from "@/src/api/brokerClientProfiles";
 import {
   addPropertyInteraction,
   subscribePropertyInteractions,
@@ -60,6 +60,7 @@ import InquiryCandidatesSkeleton from "@/src/components/skeletons/InquiryCandida
 import ApartmentDetailSkeleton from "@/src/components/skeletons/ApartmentDetailSkeleton";
 import { t } from "@/src/locales";
 import { db } from "@/src/config/firebase";
+import { recordListingView } from "@/src/api/analyticsEvents";
 import { useLocationCoordinates } from "@/src/hooks/useLocationCoordinates";
 import { getExcludedUserIds } from "@/src/api/blocking";
 import { calculateMatchScore } from "@/src/utils/matchAlgorithm";
@@ -179,6 +180,8 @@ interface BrokerClientWithFilters {
 
 interface Apartment {
   id: string;
+  transactionType?: "sale" | "rent";
+  price?: number;
   title: string;
   about?: string;
   description?: string;
@@ -225,6 +228,8 @@ interface Apartment {
 }
 
 interface FirestoreApartmentDoc {
+  transactionType?: "sale" | "rent";
+  price?: number;
   title?: string;
   description?: string;
   about?: string;
@@ -235,7 +240,6 @@ interface FirestoreApartmentDoc {
   area?: string;
   city?: string;
   rent?: number;
-  price?: number;
   maxDiscountPercent?: number;
   rooms?: number;
   size?: number;
@@ -763,6 +767,8 @@ export default function ApartmentDetailScreen() {
   const [keySafeLocation, setKeySafeLocation] = useState(apt?.keySafeLocation || "");
   const [keySafeLogs, setKeySafeLogs] = useState<KeySafeLogEntry[]>(apt?.keySafeLogs || []);
   const [keySafeWorking, setKeySafeWorking] = useState(false);
+  const [checkoutNotes, setCheckoutNotes] = useState("");
+  const [checkoutNotesVisible, setCheckoutNotesVisible] = useState(false);
   const [assignmentSetupVisible, setAssignmentSetupVisible] = useState(false);
   const [contractDraft, setContractDraft] = useState<ContractDraftContext | null>(null);
 
@@ -781,20 +787,30 @@ export default function ApartmentDetailScreen() {
   const canCreateAssignmentOrder = Boolean(auth.isBroker && auth.userId && apt?.id && isListingOwner && auth.agencyId && resolvedAgencyId === auth.agencyId && resolvedHostId && resolvedHostId !== auth.userId);
   const [crossBrokerVisitVisible, setCrossBrokerVisitVisible] = useState(false);
   const [openHouseScannerVisible, setOpenHouseScannerVisible] = useState(false);
-  const activeKeySafeLog = keySafeLogs.find((log) => !log.returnedAt);
+  const activeKeySafeLog = keySafeLogs.find((log) => (log.action ?? "checkout") === "checkout" && !log.returnedAt);
+  const chronologicalKeySafeLogs = useMemo(
+    () => [...keySafeLogs].sort((first, second) => (first.timestamp ?? first.checkedOutAt) - (second.timestamp ?? second.checkedOutAt)),
+    [keySafeLogs],
+  );
 
-  const handleCheckoutKeys = useCallback(async () => {
+  const handleCheckoutKeys = useCallback(async (notes?: string) => {
     if (!canManageKeySafe || !apt?.id || !auth.userId || keySafeWorking || activeKeySafeLog) return;
     setKeySafeWorking(true);
     try {
-      const entry = await checkoutKeySafe({ apartmentId: apt.id, brokerId: auth.userId, brokerName: auth.user?.name?.trim() || "Μεσίτης" });
+      const entry = await checkoutKeySafe({ apartmentId: apt.id, brokerId: auth.userId, brokerName: auth.user?.name?.trim() || "Μεσίτης", notes: notes?.trim() || undefined });
       setKeySafeLogs((previous) => [...previous, entry]);
+      setCheckoutNotes("");
+      setCheckoutNotesVisible(false);
     } catch (error) {
       Alert.alert("Η παραλαβή απέτυχε", error instanceof Error ? error.message : "Δοκιμάστε ξανά.");
     } finally {
       setKeySafeWorking(false);
     }
   }, [activeKeySafeLog, apt?.id, auth.user?.name, auth.userId, canManageKeySafe, keySafeWorking]);
+
+  const openCheckoutNotes = useCallback(() => {
+    if (!keySafeWorking && !activeKeySafeLog) setCheckoutNotesVisible(true);
+  }, [activeKeySafeLog, keySafeWorking]);
 
   const handleReturnKeys = useCallback(async () => {
     if (!canManageKeySafe || !apt?.id || !auth.userId || keySafeWorking || !activeKeySafeLog || activeKeySafeLog.brokerId !== auth.userId) return;
@@ -860,6 +876,8 @@ export default function ApartmentDetailScreen() {
       ],
       contractPayload: {
         assignmentMode: values.mode,
+        durationMonths: 6,
+        agreedListingPrice: apt.rent,
         commissionRatePercentage: values.commissionRatePercentage,
         monthlyRentOrPrice: apt.rent,
         commissionAmountCalculated: apt.rent * values.commissionRatePercentage / 100,
@@ -1115,7 +1133,7 @@ export default function ApartmentDetailScreen() {
     void (async () => {
       try {
         const [deals, chatsSnap] = await Promise.all([
-          getBrokerDeals(currentUserId),
+          getBrokerDeals(currentUserId, auth.agencyId ?? undefined),
           getDocs(
             query(
               collection(db, "chats"),
@@ -1198,7 +1216,7 @@ export default function ApartmentDetailScreen() {
     })();
 
     return () => { mounted = false; };
-  }, [auth.isBroker, auth.userId, currentApartmentId, isListingOwner, listingOwnerIds]);
+  }, [auth.agencyId, auth.isBroker, auth.userId, currentApartmentId, isListingOwner, listingOwnerIds]);
 
   useEffect(() => {
     if (!auth.isBroker || !isListingOwner || !auth.userId || !currentApartmentId || brokerDealsForStrategy.length === 0) {
@@ -1263,6 +1281,11 @@ export default function ApartmentDetailScreen() {
 
     return () => { mounted = false; };
   }, [auth.isBroker, auth.userId, brokerDealsForStrategy, clientPool, currentApartmentId, isListingOwner]);
+
+  useEffect(() => {
+    if (!auth.isBroker || !isListingOwner || !auth.userId || !auth.agencyId || !currentApartmentId) return;
+    return subscribeBrokerDeals(auth.agencyId, auth.userId, setBrokerDealsForStrategy);
+  }, [auth.agencyId, auth.isBroker, auth.userId, currentApartmentId, isListingOwner]);
 
   useEffect(() => {
     if (auth.isBroker || !isListingOwner || !auth.userId || !currentApartmentId) {
@@ -1577,6 +1600,13 @@ export default function ApartmentDetailScreen() {
       mounted = false;
     };
   }, [apt?.id]);
+
+  useEffect(() => {
+    const apartmentId = apt?.id;
+    const agencyId = typeof apt?.agencyId === "string" ? apt.agencyId : "";
+    if (!apartmentId || !agencyId) return;
+    void recordListingView({ agencyId, listingId: apartmentId, viewerId: auth.userId ?? undefined }).catch(() => undefined);
+  }, [apt?.agencyId, apt?.id, auth.userId]);
 
   useEffect(() => {
     const apartmentId = apt?.id;
@@ -3422,6 +3452,7 @@ export default function ApartmentDetailScreen() {
             longitude={apt.longitude}
             cityCoordinates={cityCoordinates}
             hasExactLocation={apt.hasExactLocation === true && showExactAddress}
+            transactionType={apt.transactionType}
             height={300}
           />
           <View style={styles.locationMetaRow}>
@@ -3565,13 +3596,29 @@ export default function ApartmentDetailScreen() {
               <Text style={[styles.keySafeStatusText, { color: activeKeySafeLog ? colors.warning : colors.success }]}>{activeKeySafeLog ? `Παραλήφθηκε από ${activeKeySafeLog.brokerName}` : "Στο Γραφείο"}</Text>
             </View>
             <View style={styles.keySafeActions}>
-              <Pressable style={[styles.keySafeButton, activeKeySafeLog && styles.keySafeButtonDisabled]} onPress={() => void handleCheckoutKeys()} disabled={keySafeWorking || !!activeKeySafeLog} testID="key-safe-checkout-button"><Ionicons name="log-out-outline" size={17} color={activeKeySafeLog ? colors.onSurfaceTertiary : colors.onBrand} /><Text style={[styles.keySafeButtonText, activeKeySafeLog && styles.keySafeButtonTextDisabled]}>Παραλαβή Κλειδιών</Text></Pressable>
+              <Pressable style={[styles.keySafeButton, activeKeySafeLog && styles.keySafeButtonDisabled]} onPress={openCheckoutNotes} disabled={keySafeWorking || !!activeKeySafeLog} testID="key-safe-checkout-button"><Ionicons name="log-out-outline" size={17} color={activeKeySafeLog ? colors.onSurfaceTertiary : colors.onBrand} /><Text style={[styles.keySafeButtonText, activeKeySafeLog && styles.keySafeButtonTextDisabled]}>Παραλαβή Κλειδιών</Text></Pressable>
               <Pressable style={[styles.keySafeButton, (!activeKeySafeLog || activeKeySafeLog.brokerId !== auth.userId) && styles.keySafeButtonDisabled]} onPress={() => void handleReturnKeys()} disabled={keySafeWorking || !activeKeySafeLog || activeKeySafeLog.brokerId !== auth.userId} testID="key-safe-return-button"><Ionicons name="log-in-outline" size={17} color={!activeKeySafeLog || activeKeySafeLog.brokerId !== auth.userId ? colors.onSurfaceTertiary : colors.onBrand} /><Text style={[styles.keySafeButtonText, (!activeKeySafeLog || activeKeySafeLog.brokerId !== auth.userId) && styles.keySafeButtonTextDisabled]}>Επιστροφή Κλειδιών</Text></Pressable>
             </View>
-            {keySafeLogs.slice(-10).reverse().map((log) => <View key={log.id} style={styles.keySafeLogRow}><View style={styles.keySafeLogCopy}><Text style={styles.keySafeLogName}>{log.brokerName}</Text><Text style={styles.keySafeLogDate}>Παραλαβή: {new Date(log.checkedOutAt).toLocaleString("el-GR")}</Text></View><Text style={styles.keySafeLogDate}>{log.returnedAt ? `Επιστροφή: ${new Date(log.returnedAt).toLocaleString("el-GR")}` : "Ενεργό"}</Text></View>)}
+            {chronologicalKeySafeLogs.map((log) => <View key={log.id} style={styles.keySafeLogRow}><View style={styles.keySafeLogCopy}><Text style={styles.keySafeLogName}>{log.brokerName}</Text><Text style={styles.keySafeLogDate}>{log.action === "checkin" ? `Επιστροφή: ${new Date(log.timestamp ?? log.checkedOutAt).toLocaleString("el-GR")}` : `Παραλαβή: ${new Date(log.timestamp ?? log.checkedOutAt).toLocaleString("el-GR")}`}</Text>{log.notes ? <Text style={styles.keySafeLogNote}>{log.notes}</Text> : null}</View><Text style={styles.keySafeLogDate}>{log.action === "checkin" || log.returnedAt ? "Επιστράφηκε" : "Ενεργό"}</Text></View>)}
           </View>
         ) : null}
       </ScrollView>
+
+      <Modal transparent animationType="fade" visible={checkoutNotesVisible} onRequestClose={() => { if (!keySafeWorking) setCheckoutNotesVisible(false); }}>
+        <View style={styles.keySafeModalBackdrop}>
+          <View style={styles.keySafeModalCard}>
+            <View style={styles.interactionModalTitleRow}>
+              <Text style={styles.interactionModalTitle}>Σημείωση παραλαβής</Text>
+              <Pressable onPress={() => setCheckoutNotesVisible(false)} disabled={keySafeWorking} hitSlop={8}><Ionicons name="close" size={24} color={colors.onSurface} /></Pressable>
+            </View>
+            <TextInput value={checkoutNotes} onChangeText={setCheckoutNotes} multiline autoFocus placeholder="π.χ. Υπόδειξη με πελάτη Παπαδόπουλο" placeholderTextColor={colors.onSurfaceTertiary} style={styles.keySafeNotesInput} testID="key-safe-checkout-notes" />
+            <View style={styles.keySafeModalActions}>
+              <Pressable style={styles.keySafeCancelButton} onPress={() => setCheckoutNotesVisible(false)} disabled={keySafeWorking}><Text style={styles.keySafeCancelText}>Ακύρωση</Text></Pressable>
+              <Pressable style={styles.keySafeConfirmButton} onPress={() => void handleCheckoutKeys(checkoutNotes)} disabled={keySafeWorking}><Text style={styles.keySafeConfirmText}>{keySafeWorking ? "Αποθήκευση..." : "Παραλαβή"}</Text></Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {canRateApartment ? <Pressable style={[styles.ratingFab, { bottom: insets.bottom + 76 }, userRating ? styles.ratingFabActive : null]} onPress={() => { setRatingDraft(userRating ?? 8); setIsRatingModalVisible(true); }} hitSlop={6} testID="apartment-rating-fab" accessibilityLabel={t("apartmentDetail.rateLabel")}>
         <Ionicons name={userRating ? "star" : "star-outline"} size={22} color={userRating ? "#F59E0B" : colors.onBrand} />
@@ -3623,7 +3670,8 @@ export default function ApartmentDetailScreen() {
         visible={isCmaVisible}
         onClose={() => setIsCmaVisible(false)}
         apartmentId={apt.id}
-        targetPrice={displayRentPrice}
+          transactionType={apt.transactionType === "sale" ? "sale" : "rent"}
+          targetPrice={apt.transactionType === "sale" ? apt.price ?? displayRentPrice : displayRentPrice}
         area={apt.area || apt.city}
         sqm={apt.size}
         rooms={displayRooms}
@@ -4397,6 +4445,15 @@ function createStyles(colors: ThemeColors) {
     keySafeLogCopy: { flex: 1, gap: 2 },
     keySafeLogName: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface },
     keySafeLogDate: { fontFamily: fonts.regular, fontSize: fontSize.xs, color: colors.onSurfaceTertiary, textAlign: "right" },
+    keySafeLogNote: { fontFamily: fonts.regular, fontSize: fontSize.xs, color: colors.onSurface },
+    keySafeModalBackdrop: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.lg, backgroundColor: "rgba(0,0,0,0.45)" },
+    keySafeModalCard: { width: "100%", maxWidth: 460, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md, backgroundColor: colors.surface },
+    keySafeNotesInput: { minHeight: 110, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, color: colors.onSurface, backgroundColor: colors.surfaceSecondary, textAlignVertical: "top" },
+    keySafeModalActions: { flexDirection: "row", justifyContent: "flex-end", gap: spacing.sm },
+    keySafeCancelButton: { minHeight: 42, justifyContent: "center", paddingHorizontal: spacing.md },
+    keySafeCancelText: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
+    keySafeConfirmButton: { minHeight: 42, justifyContent: "center", paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.brand },
+    keySafeConfirmText: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onBrand },
     coManagingBanner: { marginTop: spacing.sm, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceSecondary, flexDirection: "row", alignItems: "center", gap: spacing.sm },
     coManagingAvatarRow: { flexDirection: "row", alignItems: "center" },
     coManagingAvatar: { width: 30, height: 30, borderRadius: radius.pill, borderWidth: 2, borderColor: colors.surface, marginLeft: -5, backgroundColor: colors.surfaceTertiary },

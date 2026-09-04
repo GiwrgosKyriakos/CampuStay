@@ -1,6 +1,8 @@
-import { collection, collectionGroup, doc, getDoc, getDocs, query, serverTimestamp, setDoc, where } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, setDoc, where } from "firebase/firestore";
+import { httpsCallable } from "firebase/functions";
 
 import { db } from "@/src/config/firebase";
+import { firebaseFunctions } from "@/src/config/functions";
 import { scanHighMatchForBrokerClient } from "@/src/utils/brokerAutomations";
 
 export type BrokerRelationshipRole = "client" | "owner";
@@ -58,17 +60,11 @@ export function getBrokerClientProfileId(brokerId: string, clientId: string): st
   return `${brokerId}_${clientId}`;
 }
 
-export function getDealId(apartmentId: string): string {
-  return apartmentId.trim();
-}
-
-function getDealStage(stage?: BrokerPipelineStage): DealPipelineStage {
-  if (stage === "showing_scheduled" || stage === "showing_planned" || stage === "showing_completed") return "showing_scheduled";
-  if (stage === "negotiation_agreement") return "negotiation_agreement";
-  if (stage === "offer_made" || stage === "offer") return "offer_made";
-  if (stage === "closed_won") return "deal_closed";
-  if (stage === "closed_lost") return "lost";
-  return "lead";
+function getInitialStage(stage?: BrokerPipelineStage): number | undefined {
+  if (stage === "showing_scheduled" || stage === "showing_planned" || stage === "showing_completed") return 35;
+  if (stage === "offer_made" || stage === "offer") return 65;
+  if (stage === "new_lead") return 10;
+  return undefined;
 }
 
 function getProfileAvatar(data: UserProfileData | null): string {
@@ -124,26 +120,17 @@ export async function upsertBrokerClientProfile(input: {
     { merge: true },
   );
 
-  if (input.apartmentId?.trim()) {
-    const dealRef = doc(collection(profileRef, "deals"), getDealId(input.apartmentId));
-    const dealSnapshot = await getDoc(dealRef).catch(() => null);
-    await setDoc(
-      dealRef,
-      {
-        brokerId: input.brokerId,
-        clientId: input.clientId,
-        role: input.role,
-        ...(input.ownerId?.trim() ? { ownerId: input.ownerId.trim() } : {}),
-        ...(input.ownerId?.trim() ? { listingOwnerId: input.ownerId.trim() } : {}),
-        apartmentId: input.apartmentId.trim(),
-        ...(input.apartmentTitle?.trim() ? { apartmentTitle: input.apartmentTitle.trim() } : {}),
-        ...(typeof input.rent === "number" && Number.isFinite(input.rent) ? { rent: input.rent } : {}),
-        ...(input.pipelineStage ? { pipelineStage: getDealStage(input.pipelineStage) } : {}),
-        ...(!dealSnapshot?.exists() ? { createdAt: serverTimestamp() } : {}),
-        updatedAt: serverTimestamp(),
-      },
-      { merge: true },
-    );
+  if (input.apartmentId?.trim() && input.role === "client") {
+    const initializeDeal = httpsCallable<Record<string, unknown>, { dealId: string }>(firebaseFunctions, "initializeDealCallable");
+    const startingStage = getInitialStage(input.pipelineStage);
+    await initializeDeal({
+      apartmentId: input.apartmentId.trim(),
+      brokerId: input.brokerId,
+      clientId: input.clientId,
+      ...(input.apartmentTitle?.trim() ? { apartmentTitle: input.apartmentTitle.trim() } : {}),
+      ...(typeof input.rent === "number" && Number.isFinite(input.rent) ? { dealAmount: input.rent } : {}),
+      ...(startingStage === undefined ? {} : { initialStage: startingStage }),
+    });
   }
 
   if (input.role === "client") {
@@ -217,20 +204,88 @@ export async function getBrokerClientProfiles(brokerId: string): Promise<BrokerC
   }));
 }
 
-export async function getBrokerDeals(brokerId: string): Promise<BrokerDeal[]> {
-  if (!brokerId.trim()) return [];
-  const snapshot = await getDocs(query(collectionGroup(db, "deals"), where("brokerId", "==", brokerId)));
-  return snapshot.docs.map((dealSnapshot) => {
-    const data = dealSnapshot.data() as Omit<BrokerDeal, "id">;
-    return { id: dealSnapshot.id, ...data, apartmentId: data.apartmentId || dealSnapshot.id };
-  });
+function mapAuthoritativeDeal(dealId: string, data: Record<string, unknown>, brokerId: string): BrokerDeal | null {
+  const clientId = typeof data.clientId === "string" ? data.clientId : "";
+  const apartmentId = typeof data.apartmentId === "string" ? data.apartmentId : "";
+  if (!clientId || !apartmentId) return null;
+  const stage = typeof data.stage === "number" ? data.stage : 0;
+  const pipelineStage: DealPipelineStage = data.status === "closed" || stage >= 100
+    ? "deal_closed"
+    : stage >= 80
+      ? "negotiation_agreement"
+      : stage >= 60
+        ? "offer_made"
+        : stage >= 40
+          ? "showing_scheduled"
+          : "lead";
+  return {
+    id: dealId,
+    dealId,
+    brokerId,
+    clientId,
+    role: "client",
+    apartmentId,
+    ...(typeof data.apartmentTitle === "string" ? { apartmentTitle: data.apartmentTitle } : {}),
+    ...(typeof data.dealAmount === "number" ? { rent: data.dealAmount } : {}),
+    pipelineStage,
+    createdAt: data.createdAt,
+    updatedAt: data.updatedAt,
+  };
 }
 
-export async function getBrokerClientDeals(brokerId: string, clientId: string): Promise<BrokerDeal[]> {
-  if (!brokerId.trim() || !clientId.trim()) return [];
-  const snapshot = await getDocs(collection(db, "brokerClientProfiles", getBrokerClientProfileId(brokerId, clientId), "deals"));
-  return snapshot.docs.map((dealSnapshot) => {
-    const data = dealSnapshot.data() as Omit<BrokerDeal, "id">;
-    return { id: dealSnapshot.id, ...data, apartmentId: data.apartmentId || dealSnapshot.id };
+export async function getBrokerDeals(brokerId: string, agencyId?: string): Promise<BrokerDeal[]> {
+  if (!brokerId.trim()) return [];
+  const authoritativeSnapshot = agencyId?.trim() ? await getDocs(query(collection(db, "deals"), where("agencyId", "==", agencyId.trim()))) : null;
+  const authoritativeDeals = (authoritativeSnapshot?.docs ?? []).flatMap((dealSnapshot) => {
+    const data = dealSnapshot.data() as Record<string, unknown>;
+    const isParticipant = [data.listingBrokerId, data.buyerBrokerId, data.coveringBrokerId].includes(brokerId);
+    const deal = isParticipant ? mapAuthoritativeDeal(dealSnapshot.id, data, brokerId) : null;
+    return deal ? [deal] : [];
+  });
+  return authoritativeDeals;
+}
+
+export function subscribeBrokerDeals(agencyId: string, brokerId: string, onChange: (deals: BrokerDeal[]) => void): () => void {
+  if (!agencyId.trim() || !brokerId.trim()) {
+    onChange([]);
+    return () => undefined;
+  }
+  let legacyDeals: BrokerDeal[] = [];
+  let liveDeals: BrokerDeal[] = [];
+  let active = true;
+  const emit = () => {
+    if (!active) return;
+    const liveKeys = new Set(liveDeals.map((deal) => `${deal.apartmentId}_${deal.clientId}`));
+    onChange([...liveDeals, ...legacyDeals.filter((deal) => !liveKeys.has(`${deal.apartmentId}_${deal.clientId}`))]);
+  };
+  void getBrokerDeals(brokerId).then((deals) => {
+    legacyDeals = deals;
+    emit();
+  }).catch(() => undefined);
+  const unsubscribe = onSnapshot(query(collection(db, "deals"), where("agencyId", "==", agencyId.trim())), (snapshot) => {
+    liveDeals = snapshot.docs.flatMap((dealSnapshot) => {
+      const data = dealSnapshot.data() as Record<string, unknown>;
+      return [data.listingBrokerId, data.buyerBrokerId, data.coveringBrokerId].includes(brokerId) ? mapAuthoritativeDeal(dealSnapshot.id, data, brokerId) ?? [] : [];
+    });
+    emit();
+  }, () => {
+    liveDeals = [];
+    emit();
+  });
+  return () => {
+    active = false;
+    unsubscribe();
+  };
+}
+
+export async function getBrokerClientDeals(brokerId: string, clientId: string, apartmentIds: string[] = []): Promise<BrokerDeal[]> {
+  if (!brokerId.trim() || !clientId.trim() || apartmentIds.length === 0) return [];
+  const snapshots = await Promise.all(apartmentIds.map((apartmentId) => getDoc(doc(db, "deals", `${apartmentId}_${clientId}`)).catch(() => null)));
+  return snapshots.flatMap((dealSnapshot) => {
+    if (!dealSnapshot?.exists()) return [];
+    const data = dealSnapshot.data() as Record<string, unknown>;
+    if (![data.listingBrokerId, data.buyerBrokerId, data.coveringBrokerId].includes(brokerId)) return [];
+    const deal = mapAuthoritativeDeal(dealSnapshot.id, data, brokerId);
+    return deal ? [deal] : [];
   });
 }

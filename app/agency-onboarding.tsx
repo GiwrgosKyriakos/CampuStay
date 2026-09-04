@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -12,6 +12,7 @@ import { useAuth } from "@/src/context/auth";
 import { useTheme } from "@/src/context/ThemeContext";
 import { t } from "@/src/locales";
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
+import BaseBottomSheet from "@/src/components/common/BaseBottomSheet";
 
 type AgencyRole = "ceo" | "member" | "secretary";
 type Agency = { id: string; name: string; nameLower: string; passcode: string; ceoId: string };
@@ -117,8 +118,9 @@ export default function AgencyOnboardingScreen() {
       }
       auth.updateRoleStates(true, true);
       router.replace("/edit-profile");
-    } catch (submissionError: any) {
-      setError(submissionError?.code === "auth/email-already-in-use" ? t("agency.onboarding.emailInUse") : t("agency.onboarding.registrationFailed"));
+    } catch (submissionError: unknown) {
+      const code = submissionError instanceof Error && "code" in submissionError ? submissionError.code : undefined;
+      setError(code === "auth/email-already-in-use" ? t("agency.onboarding.emailInUse") : t("agency.onboarding.registrationFailed"));
     } finally {
       setSubmitting(false);
     }
@@ -140,7 +142,7 @@ export default function AgencyOnboardingScreen() {
         <View style={styles.info}><Ionicons name="information-circle-outline" size={22} color={colors.brand} /><Text style={styles.infoText}>{t("agency.onboarding.googleAuthNotice")}</Text></View>
         <Pressable style={styles.submit} onPress={() => void submit()} disabled={submitting}>{submitting ? <ActivityIndicator color={colors.onBrand} /> : <Text style={styles.submitText}>{t("agency.onboarding.completeButton")}</Text>}</Pressable>
       </>} />
-      <Modal visible={modalVisible} transparent animationType="slide" onRequestClose={() => setModalVisible(false)}><View style={styles.modalBackdrop}><View style={styles.modal}><Text style={styles.modalTitle}>{t("agency.onboarding.selectAgency")}</Text>{loadingAgencies ? <ActivityIndicator color={colors.brand} /> : agencies.map((agency) => <Pressable key={agency.id} style={styles.agencyOption} onPress={() => { setAgencyName(agency.name); setModalVisible(false); }}><Text style={styles.agencyOptionText}>{agency.name}</Text></Pressable>)}<Pressable onPress={() => setModalVisible(false)}><Text style={styles.closeText}>{t("common.actions.cancel")}</Text></Pressable></View></View></Modal>
+      <BaseBottomSheet visible={modalVisible} onClose={() => setModalVisible(false)} maxHeight="78%"><View style={styles.modal}><Text style={styles.modalTitle}>{t("agency.onboarding.selectAgency")}</Text>{loadingAgencies ? <ActivityIndicator color={colors.brand} /> : agencies.map((agency) => <Pressable key={agency.id} style={styles.agencyOption} onPress={() => { setAgencyName(agency.name); setModalVisible(false); }}><Text style={styles.agencyOptionText}>{agency.name}</Text></Pressable>)}<Pressable onPress={() => setModalVisible(false)}><Text style={styles.closeText}>{t("common.actions.cancel")}</Text></Pressable></View></BaseBottomSheet>
     </View>
   );
 }

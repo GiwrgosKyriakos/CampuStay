@@ -1,6 +1,5 @@
 import {
   collection,
-  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -14,7 +13,7 @@ import {
 } from "firebase/firestore";
 
 import { db } from "@/src/config/firebase";
-import { syncBrokerClientProfile, type DealPipelineStage } from "@/src/api/brokerClientProfiles";
+import { syncBrokerClientProfile } from "@/src/api/brokerClientProfiles";
 
 export type ApartmentLikeDoc = {
   userId: string;
@@ -29,19 +28,6 @@ type LikeApartmentData = {
   title?: unknown;
   rent?: unknown;
   price?: unknown;
-};
-
-type BrokerLikeDeal = {
-  dealId: string;
-  brokerId: string;
-  clientId: string;
-  ownerId: string | null;
-  apartmentId: string;
-  apartmentTitle: string;
-  rent: number;
-  pipelineStage?: DealPipelineStage;
-  updatedAt: ReturnType<typeof serverTimestamp>;
-  createdAt?: ReturnType<typeof serverTimestamp>;
 };
 
 function buildLikeDocId(userId: string, apartmentId: string): string {
@@ -73,25 +59,19 @@ async function syncLikedDeal(
 ): Promise<void> {
   await syncBrokerClientProfile({ brokerId, clientId, role: "client" });
 
-  const dealRef = doc(db, "brokerClientProfiles", `${brokerId}_${clientId}`, "deals", apartmentId);
-  const existingSnap = await getDoc(dealRef);
-  const existingStage = existingSnap.exists() ? (existingSnap.data()?.pipelineStage as DealPipelineStage | undefined) : undefined;
   const ownerId = typeof apartment.ownerId === "string" ? apartment.ownerId : typeof apartment.hostId === "string" ? apartment.hostId : null;
   const apartmentTitle = typeof apartment.title === "string" ? apartment.title : "";
   const rent = typeof apartment.rent === "number" ? apartment.rent : typeof apartment.price === "number" ? apartment.price : 0;
 
-  await setDoc(dealRef, {
-    dealId: apartmentId,
+  await syncBrokerClientProfile({
     brokerId,
     clientId,
-    ownerId,
+    role: "client",
     apartmentId,
     apartmentTitle,
     rent,
-    ...(!existingStage || existingStage === "liked" ? { pipelineStage: "liked" } : {}),
-    updatedAt: serverTimestamp(),
-    ...(!existingSnap.exists() ? { createdAt: serverTimestamp() } : {}),
-  } satisfies BrokerLikeDeal, { merge: true });
+    ownerId,
+  });
 }
 
 async function hasActiveChatMessages(brokerId: string, clientId: string, apartmentId: string): Promise<boolean> {
@@ -116,11 +96,7 @@ async function hasActiveChatMessages(brokerId: string, clientId: string, apartme
 }
 
 async function removeLikedDealIfUnengaged(brokerId: string, clientId: string, apartmentId: string): Promise<void> {
-  const dealRef = doc(db, "brokerClientProfiles", `${brokerId}_${clientId}`, "deals", apartmentId);
-  const dealSnap = await getDoc(dealRef);
-  if (!dealSnap.exists() || dealSnap.data()?.pipelineStage !== "liked") return;
   if (await hasActiveChatMessages(brokerId, clientId, apartmentId)) return;
-  await deleteDoc(dealRef);
 }
 
 export async function setApartmentLike(userId: string, apartmentId: string): Promise<void> {

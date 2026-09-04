@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.generateOwnerPerformanceReport = generateOwnerPerformanceReport;
+exports.persistOwnerReport = persistOwnerReport;
 exports.buildOwnerActivityPdfReport = buildOwnerActivityPdfReport;
 const firestore_1 = require("firebase-admin/firestore");
 const geminiClient_1 = require("./geminiClient");
@@ -39,7 +40,7 @@ function isWithinRange(data, startTime) {
         : typeof dateValue === "object" && "seconds" in dateValue ? numberValue(dateValue.seconds) * 1000 : new Date(String(dateValue)).getTime();
     return !Number.isFinite(candidate) || candidate >= startTime;
 }
-function fallbackReport(days, totalVisits, feedback, totalInquiries) {
+function fallbackReport(days, totalVisits, feedback, totalInquiries, totalViews) {
     const positiveSignalsCount = feedback.filter((entry) => entry.sentiment === "positive").length;
     const concernsCount = feedback.filter((entry) => entry.sentiment === "negative").length;
     return {
@@ -48,6 +49,9 @@ function fallbackReport(days, totalVisits, feedback, totalInquiries) {
             ? `Καταγράφηκαν ${totalVisits} υποδείξεις και ${totalInquiries} ερωτήματα για το ακίνητο. Η εικόνα βασίζεται στα διαθέσιμα στοιχεία της περιόδου.`
             : "Δεν καταγράφηκαν υποδείξεις στην επιλεγμένη περίοδο. Τα συμπεράσματα είναι περιορισμένα λόγω ανεπαρκών δεδομένων.",
         showingMetrics: { totalVisits, positiveSignalsCount, concernsCount },
+        totalViews,
+        totalInquiries,
+        averageRating: feedback.filter((entry) => entry.rating !== undefined).reduce((sum, entry, _index, entries) => sum + (entry.rating ?? 0) / entries.length, 0),
         buyerFeedbackThemes: [],
         strategicRecommendations: totalVisits > 0 ? ["Συνεχίστε την παρακολούθηση των υποδείξεων και των ερωτημάτων πριν από αλλαγή τιμής."] : ["Εξετάστε την προβολή της αγγελίας και την ανταγωνιστικότητα της τιμής για την προσέλκυση περισσότερων υποδείξεων."],
         ownerActionItems: ["Συζητήστε με τον μεσίτη τα επόμενα βήματα με βάση τα νέα δεδομένα."],
@@ -74,19 +78,23 @@ function normalizeResult(value, fallback) {
             positiveSignalsCount: Math.max(0, Math.round(numberValue(metrics.positiveSignalsCount, fallback.showingMetrics.positiveSignalsCount))),
             concernsCount: Math.max(0, Math.round(numberValue(metrics.concernsCount, fallback.showingMetrics.concernsCount))),
         },
+        totalViews: Math.max(0, Math.round(numberValue(value?.totalViews, fallback.totalViews))),
+        totalInquiries: Math.max(0, Math.round(numberValue(value?.totalInquiries, fallback.totalInquiries))),
+        averageRating: Math.max(0, Math.min(5, numberValue(value?.averageRating, fallback.averageRating))),
         buyerFeedbackThemes: themes,
         strategicRecommendations: list(value?.strategicRecommendations, fallback.strategicRecommendations),
         ownerActionItems: list(value?.ownerActionItems, fallback.ownerActionItems),
     };
 }
-async function generateOwnerPerformanceReport(input) {
+async function generateOwnerPerformanceReport(input, usage) {
     const days = Math.min(3650, Math.max(1, Math.round(numberValue(input?.timeRangeDays, 30))));
     const startTime = Date.now() - days * 24 * 60 * 60 * 1000;
     const db = (0, firestore_1.getFirestore)();
-    const [feedbackSnapshot, showingsSnapshot, inquiriesSnapshot] = await Promise.all([
+    const [feedbackSnapshot, showingsSnapshot, inquiriesSnapshot, viewsSnapshot] = await Promise.all([
         db.collection("post_visit_feedbacks").where("apartmentId", "==", input.apartmentId).limit(500).get().catch(() => null),
         db.collection("showings").where("apartmentId", "==", input.apartmentId).limit(5000).get().catch(() => null),
         db.collection("inquiries").where("apartmentId", "==", input.apartmentId).limit(5000).get().catch(() => null),
+        db.collection("apartment_views").where("apartmentId", "==", input.apartmentId).limit(5000).get().catch(() => null),
     ]);
     const feedback = (feedbackSnapshot?.docs ?? []).filter((document) => isWithinRange(document.data(), startTime)).map((document) => {
         const data = document.data();
@@ -94,15 +102,31 @@ async function generateOwnerPerformanceReport(input) {
     });
     const totalVisits = (showingsSnapshot?.docs ?? []).filter((document) => isWithinRange(document.data(), startTime)).length;
     const totalInquiries = (inquiriesSnapshot?.docs ?? []).filter((document) => isWithinRange(document.data(), startTime)).length;
-    const fallback = fallbackReport(days, totalVisits, feedback, totalInquiries);
+    const totalViews = (viewsSnapshot?.docs ?? []).filter((document) => isWithinRange(document.data(), startTime)).length;
+    const ratings = feedback.map((entry) => entry.rating).filter((rating) => rating !== undefined);
+    const fallback = fallbackReport(days, totalVisits, feedback, totalInquiries, totalViews);
+    fallback.averageRating = ratings.length ? Math.round(ratings.reduce((sum, rating) => sum + rating, 0) / ratings.length * 10) / 10 : 0;
     const prompt = `Είσαι σύμβουλος ενημέρωσης ιδιοκτητών σε επαγγελματικό ελληνικό μεσιτικό CRM. Σύνταξε ευγενική, διαφανή και data-driven αναφορά προς τον ιδιοκτήτη. Αν τα δεδομένα είναι λίγα, ανέφερε καθαρά τον περιορισμό και μην επινοήσεις συμπεράσματα. Χρησιμοποίησε τα θέματα των σχολίων χωρίς προσωπικά δεδομένα.\n\nΠερίοδος: τελευταίες ${days} ημέρες\nΥποδείξεις: ${totalVisits}\nΕρωτήματα: ${totalInquiries}\nΣχόλια: ${JSON.stringify(feedback.slice(0, 100))}\n\nΕπίστρεψε αυστηρά έγκυρο JSON χωρίς markdown ή άλλο κείμενο, με ακριβώς αυτή τη δομή. Όλα τα κείμενα στα Ελληνικά (EL-GR):\n{"reportPeriod":"Τελευταίες ${days} ημέρες","executiveSummary":"...","showingMetrics":{"totalVisits":0,"positiveSignalsCount":0,"concernsCount":0},"buyerFeedbackThemes":[{"theme":"...","sentiment":"positive" | "negative" | "neutral"}],"strategicRecommendations":["..."],"ownerActionItems":["..."]}`;
     try {
         const response = await (0, geminiClient_1.getGeminiModel)().generateContent(prompt);
+        (0, geminiClient_1.recordGeminiUsage)(response, usage);
         return normalizeResult(parseJsonObject(response.response.text()), fallback);
     }
     catch {
         return fallback;
     }
+}
+async function persistOwnerReport(apartmentId, timeRangeDays, report) {
+    const reportRef = (0, firestore_1.getFirestore)().collection(`apartments/${apartmentId}/owner_reports`).doc();
+    const createdAt = firestore_1.Timestamp.now();
+    await reportRef.set({
+        ...report,
+        reportId: reportRef.id,
+        apartmentId,
+        timeRangeDays,
+        createdAt,
+    });
+    return { reportId: reportRef.id, createdAt: createdAt.toMillis() };
 }
 async function buildOwnerActivityPdfReport(apartmentId) {
     const result = await generateOwnerPerformanceReport({ apartmentId, timeRangeDays: 30 });
@@ -115,15 +139,18 @@ async function buildOwnerActivityPdfReport(apartmentId) {
     const startTime = Date.now() - 30 * 24 * 60 * 60 * 1000;
     const views = (viewsSnapshot?.docs ?? []).filter((document) => isWithinRange(document.data(), startTime)).length;
     const inquiries = (inquiriesSnapshot?.docs ?? []).filter((document) => isWithinRange(document.data(), startTime)).length;
-    const ratings = (feedbackSnapshot?.docs ?? []).map((document) => numberValue(document.data().rating)).filter((rating) => rating > 0);
+    const ratings = (feedbackSnapshot?.docs ?? [])
+        .filter((document) => isWithinRange(document.data(), startTime))
+        .map((document) => numberValue(document.data().rating))
+        .filter((rating) => rating > 0);
     return {
         id: `report-${apartmentId}`,
         apartmentId,
         reportPeriod: result.reportPeriod,
-        totalViews: views,
-        totalInquiries: inquiries,
+        totalViews: result.totalViews || views,
+        totalInquiries: result.totalInquiries || inquiries,
         totalShowings: result.showingMetrics.totalVisits,
-        averageRating: ratings.length ? Math.round(ratings.reduce((sum, rating) => sum + rating, 0) / ratings.length * 10) / 10 : 0,
+        averageRating: ratings.length ? Math.round(ratings.reduce((sum, rating) => sum + rating, 0) / ratings.length * 10) / 10 : result.averageRating,
         sentimentSummary: {
             overallSentiment: result.showingMetrics.positiveSignalsCount > result.showingMetrics.concernsCount ? "positive" : result.showingMetrics.concernsCount > result.showingMetrics.positiveSignalsCount ? "negative" : "neutral",
             positivePoints: result.buyerFeedbackThemes.filter((theme) => theme.sentiment === "positive").map((theme) => theme.theme),

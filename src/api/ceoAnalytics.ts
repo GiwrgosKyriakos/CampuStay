@@ -3,15 +3,19 @@ import {
   doc,
   getDoc,
   getDocs,
+  onSnapshot,
   query,
   where,
   type Query,
   type DocumentData,
+  type Unsubscribe,
 } from "firebase/firestore";
 
 import { db } from "@/src/config/firebase";
+import { getAgencyPipelineConfig } from "@/src/api/pipelineConfig";
 import {
   calculateCEOAnalyticsSummary,
+  calculateFunnelAnalytics,
   normalizeLeadSource,
   normalizeLostDealReason,
   isExecutiveAnalyticsRole,
@@ -29,7 +33,13 @@ import type {
   AnalyticsTimeWindow,
   LostDealRecord,
   MarketingCampaignSpend,
+  SourceRoiSummary,
+  LeadSource,
+  LostDealReason,
 } from "@/src/types/analytics";
+
+const MATERIALIZED_SOURCES = ["spitogatos", "xe_gr", "meta_ads", "google_ads", "agency_website", "referral", "walk_in", "signboard", "other"] as const;
+const MATERIALIZED_LOST_REASONS = ["price_dispute", "legal_defect", "competitor_won", "buyer_withdrew", "owner_cancelled", "financial_issue"] as const;
 
 type UserRecord = Record<string, unknown>;
 
@@ -103,7 +113,7 @@ function mapLostDeal(id: string, data: UserRecord): LostDealRecord | null {
     brokerId,
     clientId,
     lostAt,
-    reason: normalizeLostDealReason(data.reason),
+    lostReason: normalizeLostDealReason(data.lostReason ?? data.reason),
     ...(stringValue(data.notes) ? { notes: stringValue(data.notes) } : {}),
     stageBeforeLoss: numberValue(data.stageBeforeLoss) ?? 0,
     potentialRevenueLoss: numberValue(data.potentialRevenueLoss) ?? numberValue(data.commissionTotal) ?? numberValue(data.dealCommission) ?? 0,
@@ -115,8 +125,11 @@ function mapCampaignSpend(id: string, data: UserRecord, agencyId: string): Marke
     id,
     agencyId,
     source: normalizeLeadSource(data.source ?? data.leadSource),
-    period: stringValue(data.period),
-    spentAmount: numberValue(data.spentAmount) ?? numberValue(data.amount) ?? 0,
+    month: stringValue(data.month ?? data.period),
+    spendAmount: numberValue(data.spendAmount) ?? numberValue(data.spentAmount) ?? numberValue(data.amount) ?? 0,
+    currency: "EUR",
+    recordedAt: numberValue(data.recordedAt) ?? 0,
+    recordedBy: stringValue(data.recordedBy),
   };
 }
 
@@ -155,7 +168,7 @@ export async function loadCEOAnalyticsDataset(userId: string, agencyIdOverride?:
     safeGetDocs(query(collection(db, "apartments"), where("agencyId", "==", agencyId))),
     safeGetDocs(query(collection(db, "deals"), where("agencyId", "==", agencyId))),
     safeGetDocs(query(collection(db, "leads"), where("agencyId", "==", agencyId))),
-    safeGetDocs(query(collection(db, "campaign_spends"), where("agencyId", "==", agencyId))),
+    safeGetDocs(query(collection(db, "agencies", agencyId, "campaign_spends"))),
     safeGetDocs(query(collection(db, "lost_deals"), where("agencyId", "==", agencyId))),
     safeGetDocs(query(collection(db, "users"), where("looking_for_roommate", "==", true))),
     safeGetDocs(query(collection(db, "roommateMatches"), where("agencyId", "==", agencyId))),
@@ -174,22 +187,8 @@ export async function loadCEOAnalyticsDataset(userId: string, agencyIdOverride?:
 
   const apartmentRows = (apartmentsRows ?? []) as (UserRecord & { id: string })[];
   const apartments = apartmentRows.map((row) => mapApartment(row.id, row));
-  const nestedDealRows = await Promise.all(agents.map(async (agent) => {
-    const profiles = await safeGetDocs(query(collection(db, "brokerClientProfiles"), where("brokerId", "==", agent.id)));
-    if (!profiles) return [] as AnalyticsDealRecord[];
-    const deals = await Promise.all(profiles.map(async (profile) => {
-      const profileData = profile as UserRecord & { id?: string };
-      if (!profileData.id) return [] as AnalyticsDealRecord[];
-      const rows = await safeGetDocs(collection(db, "brokerClientProfiles", profileData.id, "deals"));
-      return (rows ?? []).map((row) => mapDeal(String((row as { id?: string }).id ?? "deal"), row as UserRecord, agent.id));
-    }));
-    return deals.flat();
-  }));
   const topLevelDeals = (topLevelDealsRows ?? []).map((row) => mapDeal(String((row as { id?: string }).id ?? "deal"), row as UserRecord));
   const dealMap = new Map(topLevelDeals.map((deal) => [deal.id, deal]));
-  nestedDealRows.flat().forEach((deal) => {
-    if (!dealMap.has(deal.id)) dealMap.set(deal.id, deal);
-  });
 
   const interactionRows = await Promise.all(apartments.map(async (apartment) => {
     const rows = await safeGetDocs(collection(db, "apartments", apartment.id, "interactions"));
@@ -216,6 +215,113 @@ export async function loadCEOAnalyticsDataset(userId: string, agencyIdOverride?:
 }
 
 export async function loadCEOAnalyticsSummary(params: { userId: string; agencyId?: string | null; window?: AnalyticsTimeWindow; now?: number }): Promise<CEOAnalyticsSummary> {
-  const dataset = await loadCEOAnalyticsDataset(params.userId, params.agencyId ?? undefined);
-  return calculateCEOAnalyticsSummary(dataset, { window: params.window, now: params.now });
+  const userSnapshot = await getDoc(doc(db, "users", params.userId));
+  if (!userSnapshot.exists()) throw new Error("Ο χρήστης δεν βρέθηκε.");
+  const userData = userSnapshot.data() as UserRecord;
+  const role = stringValue(userData.agencyRole) || stringValue(userData.role);
+  if (!isExecutiveAnalyticsRole(role)) throw new Error("Δεν υπάρχει πρόσβαση στις αναφορές.");
+  const agencyId = params.agencyId?.trim() || stringValue(userData.agencyId);
+  if (!agencyId) throw new Error("Δεν βρέθηκε agency για τις αναφορές.");
+  const now = params.now ?? Date.now();
+  const currentDate = new Date(now);
+  const month = `${currentDate.getUTCFullYear()}-${String(currentDate.getUTCMonth() + 1).padStart(2, "0")}`;
+  const periodId = params.window === "quarter" ? `${currentDate.getUTCFullYear()}-Q${Math.floor(currentDate.getUTCMonth() / 3) + 1}` : params.window === "year" ? String(currentDate.getUTCFullYear()) : params.window === "all" ? "all" : month;
+  const summarySnapshot = await getDoc(doc(db, "agencies", agencyId, "analytics_summaries", periodId));
+  if (!summarySnapshot.exists()) {
+    const dataset = await loadCEOAnalyticsDataset(params.userId, agencyId);
+    return calculateCEOAnalyticsSummary(dataset, { window: params.window, now, pipelineConfig: await getAgencyPipelineConfig(agencyId) });
+  }
+  return mapMaterializedSummary(summarySnapshot.data() as Record<string, unknown>);
+}
+
+export function subscribeCEOAnalyticsSummary(params: { userId: string; agencyId?: string | null; window?: AnalyticsTimeWindow; now?: number }, onChange: (summary: CEOAnalyticsSummary) => void, onError: (error: Error) => void): Unsubscribe {
+  const agencyId = params.agencyId?.trim();
+  if (!agencyId) {
+    onError(new Error("Δεν βρέθηκε agency για τις αναφορές."));
+    return () => undefined;
+  }
+  const currentDate = new Date(params.now ?? Date.now());
+  const month = `${currentDate.getUTCFullYear()}-${String(currentDate.getUTCMonth() + 1).padStart(2, "0")}`;
+  const periodId = params.window === "quarter" ? `${currentDate.getUTCFullYear()}-Q${Math.floor(currentDate.getUTCMonth() / 3) + 1}` : params.window === "year" ? String(currentDate.getUTCFullYear()) : params.window === "all" ? "all" : month;
+  return onSnapshot(doc(db, "agencies", agencyId, "analytics_summaries", periodId), (snapshot) => {
+    if (snapshot.exists()) {
+      onChange(mapMaterializedSummary(snapshot.data() as Record<string, unknown>));
+      return;
+    }
+    void loadCEOAnalyticsSummary(params).then(onChange).catch((error: unknown) => onError(error instanceof Error ? error : new Error("Δεν ήταν δυνατή η φόρτωση των αναφορών.")));
+  }, (error) => onError(error));
+}
+
+function mapMaterializedSummary(data: Record<string, unknown>): CEOAnalyticsSummary {
+  const funnel = (data.funnel && typeof data.funnel === "object" ? data.funnel : {}) as Record<string, unknown>;
+  const readNumber = (value: unknown): number => typeof value === "number" && Number.isFinite(value) ? value : 0;
+  const readRecord = (value: unknown): Record<string, number> => value && typeof value === "object" ? Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, readNumber(item)])) : {};
+  const leadDistribution = Object.fromEntries(MATERIALIZED_SOURCES.map((source) => [source, readRecord(data.leadCountsBySource)[source] ?? 0])) as Record<LeadSource, number>;
+  const revenueBySource = Object.fromEntries(MATERIALIZED_SOURCES.map((source) => [source, readRecord(data.attributedRevenueBySource)[source] ?? 0])) as Record<LeadSource, number>;
+  const attributedDealsBySource = readRecord(data.attributedDealsBySource);
+  const spendBySource = readRecord(data.campaignSpendBySource);
+  const roiBySource = Object.fromEntries(MATERIALIZED_SOURCES.map((source) => {
+    const spend = spendBySource[source] ?? 0;
+    const revenue = revenueBySource[source];
+    return [source, { revenue, spend, roiRatio: spend > 0 ? revenue / spend : 0, roiPercent: spend > 0 ? ((revenue - spend) / spend) * 100 : 0, netMargin: revenue - spend, attributedDeals: attributedDealsBySource[source] ?? 0 }];
+  })) as Record<LeadSource, SourceRoiSummary>;
+  const reasons = readRecord(data.lostReasonCounts);
+  const reasonsBreakdown = Object.fromEntries(MATERIALIZED_LOST_REASONS.map((reason) => [reason, reasons[reason] ?? 0])) as Record<LostDealReason, number>;
+  const totalLost = Object.values(reasonsBreakdown).reduce((sum, value) => sum + value, 0);
+  const totalViews = readNumber(data.totalViews) || readNumber(funnel.views);
+  const totalInquiries = readNumber(data.totalInquiries) || readNumber(funnel.inquiries);
+  const normalizedFunnel = { views: totalViews, inquiries: totalInquiries, showings: readNumber(funnel.showings), offers: readNumber(funnel.offers), closedDeals: readNumber(funnel.closedDeals) };
+  const funnelAnalytics = data.funnelAnalytics && typeof data.funnelAnalytics === "object" ? data.funnelAnalytics as CEOAnalyticsSummary["funnelAnalytics"] : calculateFunnelAnalytics(normalizedFunnel);
+  const readSeries = (value: unknown): CEOAnalyticsSummary["revenueTimeSeries"]["month"] => value && typeof value === "object" ? Object.entries(value as Record<string, unknown>).map(([period, point]) => {
+    const values = point && typeof point === "object" ? point as Record<string, unknown> : {};
+    return { period, grossCommission: readNumber(values.grossCommission), saleCommission: readNumber(values.saleCommission), rentCommission: readNumber(values.rentCommission), agencyRetainedShare: readNumber(values.agencyRetainedShare), brokerSplitPayouts: readNumber(values.brokerSplitPayouts) };
+  }) : [];
+  const settlement = data.settlementAccounting && typeof data.settlementAccounting === "object" ? data.settlementAccounting as Record<string, unknown> : {};
+  const agentsMetrics = Array.isArray(data.agentMetrics) ? data.agentMetrics.map((agent) => {
+    const values = agent && typeof agent === "object" ? agent as Record<string, unknown> : {};
+    return {
+      brokerId: stringValue(values.brokerId),
+      brokerName: stringValue(values.brokerName) || "Συνεργάτης",
+      activeListingsCount: readNumber(values.activeListingsCount),
+      showingsCount: readNumber(values.showingsCount),
+      callsCount: readNumber(values.callsCount),
+      scheduledShowingsCount: readNumber(values.scheduledShowingsCount),
+      newListingsCount: readNumber(values.newListingsCount),
+      dealsClosedCount: readNumber(values.dealsClosedCount),
+      winRate: readNumber(values.winRate),
+      avgClosingTimeDays: readNumber(values.avgClosingTimeDays),
+    };
+  }).filter((agent) => agent.brokerId) : [];
+  return {
+    listingFunnel: { ...normalizedFunnel, lostDeals: totalLost },
+    funnelAnalytics,
+    totalActiveListings: readNumber(data.totalActiveListings),
+    totalViews,
+    totalInquiries,
+    listingConversionRate: readNumber(data.listingConversionRate),
+    averageDaysOnMarket: readNumber(data.averageDaysOnMarket),
+    domByArea: {},
+    averageDomByAreaAndCategory: readRecord(data.averageDomByAreaAndCategory),
+    longestPendingListings: [],
+    leadDistribution,
+    revenueBySource,
+    roiBySource,
+    agentsMetrics,
+    lostDealsSummary: { totalLost, reasonsBreakdown },
+    realizedRevenue: { totalRevenue: readNumber(data.realizedRevenue), salesCommission: 0, rentalsCommission: 0, agencyRetainedNet: 0 },
+    weightedForecastRevenue: readNumber(data.weightedForecastRevenue),
+    weightedForecast: { next30Days: readNumber((data.weightedForecast as Record<string, unknown> | undefined)?.next30Days), next60Days: readNumber((data.weightedForecast as Record<string, unknown> | undefined)?.next60Days) },
+    benchmarkMetrics: {
+      targetMonthlyRevenue: readNumber((data.benchmarkMetrics as Record<string, unknown> | undefined)?.targetMonthlyRevenue),
+      revenueAchievementPercent: readNumber((data.benchmarkMetrics as Record<string, unknown> | undefined)?.revenueAchievementPercent),
+      targetDaysOnMarket: readNumber((data.benchmarkMetrics as Record<string, unknown> | undefined)?.targetDaysOnMarket),
+      daysOnMarketDelta: readNumber((data.benchmarkMetrics as Record<string, unknown> | undefined)?.daysOnMarketDelta),
+      targetWinRate: readNumber((data.benchmarkMetrics as Record<string, unknown> | undefined)?.targetWinRate),
+      actualWinRate: readNumber((data.benchmarkMetrics as Record<string, unknown> | undefined)?.actualWinRate),
+      winRateDelta: readNumber((data.benchmarkMetrics as Record<string, unknown> | undefined)?.winRateDelta),
+    },
+    roommateAnalytics: { supplyDemandRatioByArea: {}, averageMatchTimeDays: 0, successfulMatchRate: 0, estimatedCAC: 0, estimatedLTV: 0 },
+    revenueTimeSeries: { month: readSeries(data.revenueByMonth), quarter: readSeries(data.revenueByQuarter), year: readSeries(data.revenueByYear) },
+    settlementAccounting: { grossCommission: readNumber(settlement.grossCommission), agencyRetainedShare: readNumber(settlement.agencyRetainedShare), brokerSplitPayouts: readNumber(settlement.brokerSplitPayouts), pendingInvoices: readNumber(settlement.pendingInvoices), settledInvoices: readNumber(settlement.settledInvoices) },
+  };
 }

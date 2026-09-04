@@ -1,9 +1,8 @@
-import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, getDocs, query, setDoc, where } from "firebase/firestore";
 
 import { calculateTenantCompatibilityScore, type ListingFormData } from "@/src/utils/compatibilityScore";
 import type { FilterSetPayload } from "@/src/types/filters";
 import { db } from "@/src/config/firebase";
-import { sendPushNotification } from "@/src/utils/notificationService";
 
 interface BrokerAutomationApartment extends ListingFormData {
   id: string;
@@ -57,15 +56,15 @@ async function getBrokerListings(brokerId: string): Promise<BrokerAutomationApar
 }
 
 async function notifyBrokerOfHighMatch(brokerId: string, clientId: string, clientName: string, apartment: BrokerAutomationApartment, score: number): Promise<void> {
-  const brokerSnapshot = await getDoc(doc(db, "users", brokerId));
-  const token = brokerSnapshot.exists() ? brokerSnapshot.data().expoPushToken : null;
-  if (typeof token !== "string" || !token.trim()) return;
-  await sendPushNotification(
-    token,
-    `Εξαιρετική Συμβατότητα (${score}%)!`,
-    `Το ακίνητο "${apartment.title}" ταιριάζει απόλυτα με τα κριτήρια του πελάτη ${clientName}.`,
-    { screen: "broker-client-detail", profileId: `${brokerId}_${clientId}`, clientId, scrollTo: "suggested_properties" },
-  );
+  await addDoc(collection(db, "matches"), {
+    brokerId,
+    clientId,
+    apartmentId: apartment.id,
+    score,
+    clientName,
+    createdAt: Date.now(),
+    source: "broker_high_match_scan",
+  });
 }
 
 export async function scanHighMatchForBrokerClient(brokerId: string, clientId: string, clientName = "Πελάτης"): Promise<void> {
@@ -102,26 +101,13 @@ export async function scanHighMatchForBrokerListing(brokerId: string, apartmentI
   }));
 }
 
-function listingIsUnavailable(data: Record<string, unknown>): boolean {
-  return data.isDeleted === true || data.isArchived === true || data.isOffMarket === true || data.status === "under_negotiation" || data.status === "closed_deal";
-}
-
 export async function notifyFavoriteClientsOfListingWithdrawal(apartmentId: string, apartmentTitle: string): Promise<void> {
-  const likes = await getDocs(query(collection(db, "liked_apartments"), where("apartmentId", "==", apartmentId)));
-  await Promise.all(likes.docs.map(async (likeSnapshot) => {
-    const userId = likeSnapshot.data().userId;
-    if (typeof userId !== "string" || !userId) return;
-    const userSnapshot = await getDoc(doc(db, "users", userId));
-    const token = userSnapshot.exists() ? userSnapshot.data().expoPushToken : null;
-    if (typeof token !== "string" || !token.trim()) return;
-    await sendPushNotification(token, "Αλλαγή Κατάστασης Ακινήτου", `Το ακίνητο "${apartmentTitle}" που έχετε στα αγαπημένα σας δεν είναι πλέον διαθέσιμο.`, { apartmentId, action: "listing_withdrawn" });
-  }));
-}
-
-export async function notifyListingStatusChange(apartmentId: string, previous: Record<string, unknown> | null, next: Record<string, unknown>): Promise<void> {
-  if (!listingIsUnavailable(next) || (previous && listingIsUnavailable(previous))) return;
-  const title = typeof next.title === "string" && next.title.trim() ? next.title : "Ακίνητο";
-  await notifyFavoriteClientsOfListingWithdrawal(apartmentId, title);
+  if (!apartmentId) return;
+  await setDoc(doc(db, "listingWithdrawalEvents", apartmentId), {
+    apartmentId,
+    apartmentTitle: apartmentTitle.trim() || "Ακίνητο",
+    createdAt: Date.now(),
+  }, { merge: true });
 }
 
 export async function markListingWithdrawalForDeletion(apartmentId: string, apartmentTitle: string): Promise<void> {

@@ -1,9 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 
-import { loadCEOAnalyticsSummary } from "@/src/api/ceoAnalytics";
+import { subscribeCEOAnalyticsSummary } from "@/src/api/ceoAnalytics";
 import { isExecutiveAnalyticsRole } from "@/src/utils/analyticsEngine";
 import { useAuth } from "@/src/context/auth";
 import { useTheme } from "@/src/context/ThemeContext";
@@ -20,22 +20,23 @@ const TIME_WINDOWS: { value: AnalyticsTimeWindow; label: string }[] = [
 
 const LEAD_SOURCE_LABELS: Record<LeadSource, string> = {
   spitogatos: "Σπιτόγατος",
-  xe: "ΧΕ",
-  social_ads: "Social Ads",
-  agency_website: "Website",
+  xe_gr: "ΧΕ",
+  meta_ads: "Meta Ads",
+  google_ads: "Google Ads",
+  agency_website: "Website agency",
   referral: "Συστάσεις",
-  yard_sign: "Πινακίδα",
   walk_in: "Walk-in",
+  signboard: "Πινακίδα",
   other: "Άλλο",
 };
 
 const LOST_REASON_LABELS: Record<LostDealReason, string> = {
-  price_too_high: "Υψηλή τιμή",
-  property_flaws: "Τεχνικό πρόβλημα",
-  legal_tax_issues: "Νομικό / φορολογικό",
+  price_dispute: "Διαφωνία τιμής",
+  legal_defect: "Νομικό ελάττωμα",
   competitor_won: "Ανταγωνισμός",
   buyer_withdrew: "Υπαναχώρηση πελάτη",
   owner_cancelled: "Ακύρωση ιδιοκτήτη",
+  financial_issue: "Οικονομικό ζήτημα",
 };
 
 function formatMoney(value: number): string {
@@ -59,29 +60,29 @@ export default function ExecutiveAnalyticsScreen() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const isExecutive = isExecutiveAnalyticsRole(auth.agencyRole);
   const [window, setWindow] = useState<AnalyticsTimeWindow>("month");
+  const [revenueGranularity, setRevenueGranularity] = useState<"month" | "quarter" | "year">("month");
+  const [revenueMode, setRevenueMode] = useState<"gross" | "sale" | "rent">("gross");
   const [summary, setSummary] = useState<CEOAnalyticsSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshToken, setRefreshToken] = useState(0);
 
-  const load = useCallback(async () => {
+  useEffect(() => {
     if (!isExecutive || !auth.userId) {
       setSummary(null);
       setLoading(false);
-      return;
+      return () => undefined;
     }
     setLoading(true);
     setError(null);
-    try {
-      setSummary(await loadCEOAnalyticsSummary({ userId: auth.userId, agencyId: auth.agencyId, window }));
-    } catch (loadError) {
-      setSummary(null);
-      setError(loadError instanceof Error ? loadError.message : "Δεν ήταν δυνατή η φόρτωση των αναφορών.");
-    } finally {
-      setLoading(false);
-    }
-  }, [auth.agencyId, auth.userId, isExecutive, window]);
-
-  useEffect(() => { void load(); }, [load]);
+    let subscribed = true;
+    const unsubscribe = subscribeCEOAnalyticsSummary(
+      { userId: auth.userId, agencyId: auth.agencyId, window },
+      (nextSummary) => { if (subscribed) { setSummary(nextSummary); setLoading(false); setError(null); } },
+      (subscriptionError) => { if (subscribed) { setSummary(null); setLoading(false); setError(subscriptionError.message); } },
+    );
+    return () => { subscribed = false; unsubscribe(); };
+  }, [auth.agencyId, auth.userId, isExecutive, refreshToken, window]);
 
   if (!isExecutive) return null;
 
@@ -91,6 +92,9 @@ export default function ExecutiveAnalyticsScreen() {
   const maxLeadCount = summary ? Math.max(1, ...Object.values(summary.leadDistribution)) : 1;
   const totalLost = summary?.lostDealsSummary.totalLost ?? 0;
   const maxAreaRatio = summary ? Math.max(1, ...Object.values(summary.roommateAnalytics.supplyDemandRatioByArea).map((area) => area.ratio)) : 1;
+  const revenuePoints = summary?.revenueTimeSeries[revenueGranularity] ?? [];
+  const maxRevenue = Math.max(1, ...revenuePoints.map((point) => revenueMode === "sale" ? point.saleCommission : revenueMode === "rent" ? point.rentCommission : point.grossCommission));
+  const frictionLabels = { views_to_inquiries: "Προβολές προς leads", inquiries_to_showings: "Leads προς υποδείξεις", showings_to_offers: "Υποδείξεις προς προσφορές", offers_to_closed: "Προσφορές προς κλειστά" };
 
   return (
     <View style={styles.container} testID="executive-analytics-screen">
@@ -101,7 +105,7 @@ export default function ExecutiveAnalyticsScreen() {
           <Text style={styles.subtitle}>Απόδοση agency, pipeline και αγορά συγκατοίκησης</Text>
         </View>
         <View style={styles.headerActions}>
-          <Pressable onPress={() => void load()} style={styles.iconButton} hitSlop={8} testID="analytics-refresh-button">
+          <Pressable onPress={() => setRefreshToken((value) => value + 1)} style={styles.iconButton} hitSlop={8} testID="analytics-refresh-button">
             <Ionicons name="refresh-outline" size={21} color={colors.onSurface} />
           </Pressable>
           <Pressable onPress={() => router.back()} style={styles.iconButton} hitSlop={8} testID="analytics-back-button">
@@ -118,21 +122,26 @@ export default function ExecutiveAnalyticsScreen() {
         ))}
       </ScrollView>
 
-      {loading ? <View style={styles.loadingState}><ActivityIndicator color={colors.brand} /><Text style={styles.loadingText}>Φόρτωση αναφορών...</Text></View> : error ? <View style={styles.errorState}><Ionicons name="alert-circle-outline" size={28} color={colors.error} /><Text style={styles.errorText}>{error}</Text><Pressable style={styles.retryButton} onPress={() => void load()}><Text style={styles.retryText}>Δοκιμή ξανά</Text></Pressable></View> : summary ? <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      {loading ? <View style={styles.loadingState}><ActivityIndicator color={colors.brand} /><Text style={styles.loadingText}>Φόρτωση αναφορών...</Text></View> : error ? <View style={styles.errorState}><Ionicons name="alert-circle-outline" size={28} color={colors.error} /><Text style={styles.errorText}>{error}</Text><Pressable style={styles.retryButton} onPress={() => setRefreshToken((value) => value + 1)}><Text style={styles.retryText}>Δοκιμή ξανά</Text></Pressable></View> : summary ? <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.kpiGrid}>
           <KpiCard icon="cash-outline" label={t("analytics.realizedRevenue")} value={formatMoney(summary.realizedRevenue.totalRevenue)} detail={`Agency net ${formatMoney(summary.realizedRevenue.agencyRetainedNet)} · Πωλήσεις ${formatMoney(summary.realizedRevenue.salesCommission)} · Ενοικιάσεις ${formatMoney(summary.realizedRevenue.rentalsCommission)}`} colors={colors} styles={styles} />
-          <KpiCard icon="trending-up-outline" label={t("analytics.weightedForecast")} value={formatMoney(summary.weightedForecastRevenue)} detail="Σταθμισμένο pipeline" colors={colors} styles={styles} />
+          <KpiCard icon="trending-up-outline" label={t("analytics.weightedForecast")} value={formatMoney(summary.weightedForecastRevenue)} detail={`30 ημέρες ${formatMoney(summary.weightedForecast.next30Days)} · 60 ημέρες ${formatMoney(summary.weightedForecast.next60Days)}`} colors={colors} styles={styles} />
           <KpiCard icon="flash-outline" label="Υποδείξεις & Leads" value={formatNumber(activePipelineActions)} detail={`${formatNumber(summary.totalInquiries)} εισερχόμενα leads`} colors={colors} styles={styles} />
-          <KpiCard icon="time-outline" label={t("analytics.daysOnMarket")} value={`${formatNumber(summary.averageDaysOnMarket)} ημέρες`} detail={summary.averageDaysOnMarket > 45 ? "Πάνω από το benchmark" : "Εντός benchmark"} colors={colors} styles={styles} />
+          <KpiCard icon="time-outline" label={t("analytics.daysOnMarket")} value={`${formatNumber(summary.averageDaysOnMarket)} ημέρες`} detail={summary.benchmarkMetrics.daysOnMarketDelta > 0 ? `+${formatNumber(summary.benchmarkMetrics.daysOnMarketDelta)} έναντι στόχου` : "Εντός benchmark"} colors={colors} styles={styles} />
         </View>
+
+        <Section title="Financial Forecast & Targets" icon="analytics-outline" styles={styles} colors={colors}>
+          <View style={styles.forecastTargetHeader}><View><Text style={styles.performanceLabel}>Πραγματοποιημένα έσοδα</Text><Text style={styles.performanceValue}>{formatMoney(summary.realizedRevenue.totalRevenue)}</Text></View><Text style={styles.forecastTargetValue}>{summary.benchmarkMetrics.revenueAchievementPercent.toFixed(0)}% του στόχου</Text></View>
+          <View style={styles.forecastTrack}><View style={[styles.forecastFill, { width: `${Math.min(100, Math.max(0, summary.benchmarkMetrics.revenueAchievementPercent))}%` }]} /></View>
+          <Text style={styles.forecastTargetMeta}>Μηνιαίος στόχος: {formatMoney(summary.benchmarkMetrics.targetMonthlyRevenue)} · Σταθμισμένη πρόβλεψη</Text>
+          <View style={styles.forecastGrid}><View style={styles.forecastMetric}><Text style={styles.forecastMetricLabel}>Επόμενες 30 ημέρες</Text><Text style={styles.forecastMetricValue}>{formatMoney(summary.weightedForecast.next30Days)}</Text></View><View style={styles.forecastMetric}><Text style={styles.forecastMetricLabel}>Επόμενες 60 ημέρες</Text><Text style={styles.forecastMetricValue}>{formatMoney(summary.weightedForecast.next60Days)}</Text></View><View style={styles.forecastMetric}><Text style={styles.forecastMetricLabel}>Win rate / στόχος</Text><Text style={styles.forecastMetricValue}>{(summary.benchmarkMetrics.actualWinRate * 100).toFixed(0)}% / {(summary.benchmarkMetrics.targetWinRate * 100).toFixed(0)}%</Text></View></View>
+        </Section>
 
         <Section title="Listing Performance & DOM" icon="business-outline" styles={styles} colors={colors}>
           <View style={styles.performanceStats}><View><Text style={styles.performanceValue}>{formatNumber(summary.totalActiveListings)}</Text><Text style={styles.performanceLabel}>Ενεργές αγγελίες</Text></View><View><Text style={styles.performanceValue}>{summary.listingConversionRate.toFixed(1)}%</Text><Text style={styles.performanceLabel}>Conversion</Text></View></View>
           <View style={styles.funnelBlock}>
-            <View style={styles.funnelLabelRow}><Text style={styles.funnelLabel}>Προβολές</Text><Text style={styles.funnelValue}>{formatNumber(summary.totalViews)}</Text></View>
-            <View style={styles.funnelTrack}><View style={[styles.funnelFillViews, { width: `${summary.totalViews > 0 ? 100 : 0}%` }]} /></View>
-            <View style={styles.funnelLabelRow}><Text style={styles.funnelLabel}>Ερωτήματα / Leads</Text><Text style={styles.funnelValue}>{formatNumber(summary.totalInquiries)} · {summary.listingConversionRate.toFixed(1)}%</Text></View>
-            <View style={styles.funnelTrack}><View style={[styles.funnelFillLeads, { width: `${Math.min(100, summary.listingConversionRate)}%` }]} /></View>
+            {[{ label: "Προβολές", value: summary.listingFunnel.views }, { label: "Ερωτήματα / Leads", value: summary.listingFunnel.inquiries }, { label: "Υποδείξεις", value: summary.listingFunnel.showings }, { label: "Προσφορές", value: summary.listingFunnel.offers }, { label: "Κλειστές συμφωνίες", value: summary.listingFunnel.closedDeals }].map((stage, index, stages) => <View key={stage.label}><View style={styles.funnelLabelRow}><Text style={styles.funnelLabel}>{stage.label}</Text><Text style={styles.funnelValue}>{formatNumber(stage.value)}{index > 0 ? ` · ${[summary.funnelAnalytics.viewsToInquiriesRate, summary.funnelAnalytics.inquiriesToShowingsRate, summary.funnelAnalytics.showingsToOffersRate, summary.funnelAnalytics.offersToClosedRate][index - 1].toFixed(1)}%` : ""}</Text></View><View style={styles.funnelTrack}><View style={[index === 0 ? styles.funnelFillViews : styles.funnelFillLeads, { width: `${Math.min(100, (stage.value / Math.max(1, stages[0].value)) * 100)}%` }]} /></View>{index > 0 ? <Text style={styles.funnelDropoff}>Μείωση: {formatNumber([summary.funnelAnalytics.viewsToInquiriesDropOff, summary.funnelAnalytics.inquiriesToShowingsDropOff, summary.funnelAnalytics.showingsToOffersDropOff, summary.funnelAnalytics.offersToClosedDropOff][index - 1])}</Text> : null}</View>)}
+            <View style={styles.funnelFriction}><Ionicons name="warning-outline" size={16} color={colors.warning} /><Text style={styles.funnelMetric}>Μεγαλύτερη τριβή: {frictionLabels[summary.funnelAnalytics.frictionStage]}</Text></View>
           </View>
           <Text style={styles.subsectionTitle}>Μεγαλύτερη παραμονή στην αγορά</Text>
           {summary.longestPendingListings.length === 0 ? <Text style={styles.muted}>Δεν υπάρχουν καταχωρίσεις στο επιλεγμένο διάστημα.</Text> : summary.longestPendingListings.map((listing) => <View key={listing.id} style={styles.pendingRow}><View style={styles.pendingCopy}><Text style={styles.pendingTitle} numberOfLines={1}>{listing.title}</Text><Text style={styles.pendingMeta}>{listing.area}</Text></View><Text style={[styles.pendingDays, listing.daysOnMarket > 45 && styles.alertText]}>{formatNumber(listing.daysOnMarket)} ημέρες</Text></View>)}
@@ -140,14 +149,21 @@ export default function ExecutiveAnalyticsScreen() {
         </Section>
 
         <Section title={`${t("analytics.leadSources")} · ${t("analytics.marketingRoi")}`} icon="megaphone-outline" styles={styles} colors={colors}>
-          {Object.entries(summary.leadDistribution).map(([source, count]) => { const typedSource = source as LeadSource; const roi = summary.roiBySource[typedSource]; return <View key={source} style={styles.sourceRow}><View style={styles.sourceHeader}><Text style={styles.sourceName}>{LEAD_SOURCE_LABELS[typedSource]}</Text><Text style={styles.sourceCount}>{formatNumber(count)}</Text></View><View style={styles.sourceTrack}><View style={[styles.sourceFill, { width: `${(count / maxLeadCount) * 100}%` }]} /></View><View style={styles.roiRow}><Text style={styles.roiRevenue}>{formatMoney(roi.revenue)} revenue · {formatMoney(roi.spend)} spend</Text><View style={[styles.roiPill, { backgroundColor: roi.roiRatio >= 1 ? colors.success : colors.surfaceTertiary }]}><Text style={[styles.roiText, { color: roi.roiRatio >= 1 ? colors.onBrand : colors.onSurfaceTertiary }]}>{roi.roiRatio > 0 ? `${roi.roiRatio.toFixed(1)}x ROI` : "No spend data"}</Text></View></View></View>; })}
+          {Object.entries(summary.leadDistribution).map(([source, count]) => { const typedSource = source as LeadSource; const roi = summary.roiBySource[typedSource]; return <View key={source} style={styles.sourceRow}><View style={styles.sourceHeader}><Text style={styles.sourceName}>{LEAD_SOURCE_LABELS[typedSource]}</Text><Text style={styles.sourceCount}>{formatNumber(count)} leads · {formatNumber(roi.attributedDeals)} deals</Text></View><View style={styles.sourceTrack}><View style={[styles.sourceFill, { width: `${(count / maxLeadCount) * 100}%` }]} /></View><View style={styles.roiRow}><Text style={styles.roiRevenue}>{formatMoney(roi.revenue)} revenue · {formatMoney(roi.spend)} spend · {formatMoney(roi.netMargin)} net</Text><View style={[styles.roiPill, { backgroundColor: roi.roiPercent >= 0 ? colors.success : colors.surfaceTertiary }]}><Text style={[styles.roiText, { color: roi.roiPercent >= 0 ? colors.onBrand : colors.onSurfaceTertiary }]}>{roi.spend > 0 ? `${roi.roiPercent.toFixed(1)}% ROI` : "No spend data"}</Text></View></View></View>; })}
         </Section>
 
         <Section title={t("analytics.agentProductivity")} icon="people-outline" styles={styles} colors={colors}>
-          {summary.agentsMetrics.length === 0 ? <Text style={styles.muted}>Δεν υπάρχουν δεδομένα συνεργατών.</Text> : summary.agentsMetrics.map((agent, index) => <View key={agent.brokerId} style={styles.agentRow}><View style={styles.rank}><Text style={styles.rankText}>{index + 1}</Text></View><View style={styles.agentCopy}><Text style={styles.agentName} numberOfLines={1}>{agent.brokerName}</Text><Text style={styles.agentMeta}>{agent.showingsCount} υποδείξεις · {agent.dealsClosedCount} κλειστά · {agent.activeListingsCount} ενεργές αγγελίες</Text></View><View style={styles.agentScore}><Text style={styles.agentWinRate}>{agent.winRate.toFixed(0)}%</Text><Text style={styles.agentScoreLabel}>win rate</Text></View></View>)}
+          {summary.agentsMetrics.length === 0 ? <Text style={styles.muted}>Δεν υπάρχουν δεδομένα συνεργατών.</Text> : summary.agentsMetrics.map((agent, index) => <View key={agent.brokerId} style={styles.agentRow}><View style={styles.rank}><Text style={styles.rankText}>{index + 1}</Text></View><View style={styles.agentCopy}><Text style={styles.agentName} numberOfLines={1}>{agent.brokerName}</Text><Text style={styles.agentMeta}>{agent.callsCount} κλήσεις · {agent.scheduledShowingsCount} προγραμματισμένες · {agent.showingsCount} ολοκληρωμένες</Text><Text style={styles.agentMeta}>{agent.newListingsCount} νέες αγγελίες · {agent.avgClosingTimeDays.toFixed(0)} ημέρες closing velocity</Text></View><View style={styles.agentScore}><Text style={styles.agentWinRate}>{agent.winRate.toFixed(0)}%</Text><Text style={styles.agentScoreLabel}>win rate</Text></View></View>)}
           <View style={styles.divider} />
           <Text style={styles.subsectionTitle}>{t("analytics.lostDealsTitle")}</Text>
           <View style={styles.lossSummary}><Text style={styles.lossTotal}>{formatNumber(totalLost)} συνολικά</Text><View style={styles.lossChips}>{Object.entries(summary.lostDealsSummary.reasonsBreakdown).filter(([, count]) => count > 0).map(([reason, count]) => <View key={reason} style={styles.lossChip}><Text style={styles.lossChipText}>{LOST_REASON_LABELS[reason as LostDealReason]} · {totalLost > 0 ? Math.round((count / totalLost) * 100) : 0}%</Text></View>)}</View></View>
+        </Section>
+
+        <Section title="Revenue & Settlements" icon="bar-chart-outline" styles={styles} colors={colors}>
+          <View style={styles.segmentRow}>{(["month", "quarter", "year"] as const).map((option) => <Pressable key={option} onPress={() => setRevenueGranularity(option)} style={[styles.segment, revenueGranularity === option && styles.segmentActive]}><Text style={[styles.segmentText, revenueGranularity === option && styles.segmentTextActive]}>{option === "month" ? "Μήνες" : option === "quarter" ? "Τρίμηνα" : "Έτη"}</Text></Pressable>)}</View>
+          <View style={styles.segmentRow}>{(["gross", "sale", "rent"] as const).map((option) => <Pressable key={option} onPress={() => setRevenueMode(option)} style={[styles.segment, revenueMode === option && styles.segmentActive]}><Text style={[styles.segmentText, revenueMode === option && styles.segmentTextActive]}>{option === "gross" ? "Σύνολο" : option === "sale" ? "Πωλήσεις" : "Ενοικιάσεις"}</Text></Pressable>)}</View>
+          {revenuePoints.length === 0 ? <Text style={styles.muted}>Δεν υπάρχουν ιστορικά έσοδα.</Text> : revenuePoints.slice(-12).map((point) => { const value = revenueMode === "sale" ? point.saleCommission : revenueMode === "rent" ? point.rentCommission : point.grossCommission; return <View key={point.period} style={styles.revenueRow}><Text style={styles.revenuePeriod}>{point.period}</Text><View style={styles.revenueTrack}><View style={[styles.revenueFill, { width: `${(value / maxRevenue) * 100}%` }]} /></View><Text style={styles.revenueValue}>{formatMoney(value)}</Text></View>; })}
+          <View style={styles.accountingGrid}><AccountingMetric label="Gross Commission" value={formatMoney(summary.settlementAccounting.grossCommission)} styles={styles} /><AccountingMetric label="Agency Retained" value={formatMoney(summary.settlementAccounting.agencyRetainedShare)} styles={styles} /><AccountingMetric label="Broker Payouts" value={formatMoney(summary.settlementAccounting.brokerSplitPayouts)} styles={styles} /><AccountingMetric label="Invoices" value={`${summary.settlementAccounting.settledInvoices} settled · ${summary.settlementAccounting.pendingInvoices} pending`} styles={styles} /></View>
         </Section>
 
         <Section title={t("analytics.roommatesMarket")} icon="home-outline" styles={styles} colors={colors}>
@@ -167,8 +183,12 @@ function Section({ title, icon, colors, styles, children }: { title: string; ico
   return <View style={styles.section}><View style={styles.sectionHeader}><View style={styles.sectionIcon}><Ionicons name={icon} size={18} color={colors.brand} /></View><Text style={styles.sectionTitle}>{title}</Text></View>{children}</View>;
 }
 
+function AccountingMetric({ label, value, styles }: { label: string; value: string; styles: ReturnType<typeof createStyles> }) {
+  return <View><Text style={styles.accountingLabel}>{label}</Text><Text style={styles.accountingValue}>{value}</Text></View>;
+}
+
 const createStyles = (colors: ReturnType<typeof useTheme>["colors"]) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.surface, paddingTop: spacing.xl },
+  container: { flex: 1, backgroundColor: colors.surface, paddingTop: spacing.xl, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, overflow: "hidden" },
   header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md, flexDirection: "row", alignItems: "flex-start", gap: spacing.md },
   headerCopy: { flex: 1, gap: 3 },
   headerActions: { flexDirection: "row", gap: spacing.xs },
@@ -203,6 +223,19 @@ const createStyles = (colors: ReturnType<typeof useTheme>["colors"]) => StyleShe
   funnelTrack: { height: 10, borderRadius: radius.pill, overflow: "hidden", backgroundColor: colors.surfaceTertiary, marginBottom: spacing.xs },
   funnelFillViews: { height: "100%", backgroundColor: colors.brandSecondary },
   funnelFillLeads: { height: "100%", backgroundColor: colors.brand },
+  funnelMetrics: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  funnelMetric: { fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
+  funnelDropoff: { fontFamily: fonts.regular, fontSize: 10, color: colors.onSurfaceTertiary, marginBottom: spacing.xs },
+  funnelFriction: { flexDirection: "row", alignItems: "center", gap: spacing.xs, paddingTop: spacing.xs },
+  forecastTargetHeader: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", gap: spacing.sm },
+  forecastTargetValue: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.brand },
+  forecastTrack: { height: 10, borderRadius: radius.pill, overflow: "hidden", backgroundColor: colors.surfaceTertiary },
+  forecastFill: { height: "100%", borderRadius: radius.pill, backgroundColor: colors.brandSecondary },
+  forecastTargetMeta: { fontFamily: fonts.regular, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
+  forecastGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  forecastMetric: { flex: 1, minWidth: 100, gap: 3 },
+  forecastMetricLabel: { fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
+  forecastMetricValue: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface },
   pendingRow: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingVertical: spacing.xs, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   pendingCopy: { flex: 1, gap: 2 },
   pendingTitle: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface },
@@ -230,6 +263,19 @@ const createStyles = (colors: ReturnType<typeof useTheme>["colors"]) => StyleShe
   agentScore: { minWidth: 54, alignItems: "flex-end" },
   agentWinRate: { fontFamily: fonts.displayExtra, fontSize: fontSize.lg, color: colors.brand },
   agentScoreLabel: { fontFamily: fonts.regular, fontSize: 10, color: colors.onSurfaceTertiary },
+  segmentRow: { flexDirection: "row", gap: spacing.xs, flexWrap: "wrap" },
+  segment: { minHeight: 34, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.sm, alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceSecondary },
+  segmentActive: { backgroundColor: colors.brand, borderColor: colors.brand },
+  segmentText: { fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.onSurface },
+  segmentTextActive: { color: colors.onBrand },
+  revenueRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, minHeight: 30 },
+  revenuePeriod: { width: 64, fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
+  revenueTrack: { flex: 1, height: 8, borderRadius: radius.pill, overflow: "hidden", backgroundColor: colors.surfaceTertiary },
+  revenueFill: { height: "100%", borderRadius: radius.pill, backgroundColor: colors.brandSecondary },
+  revenueValue: { width: 82, textAlign: "right", fontFamily: fonts.bold, fontSize: fontSize.xs, color: colors.onSurface },
+  accountingGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md, paddingTop: spacing.sm, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  accountingLabel: { fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
+  accountingValue: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface },
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border },
   lossSummary: { gap: spacing.sm },
   lossTotal: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface },

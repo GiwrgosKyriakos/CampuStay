@@ -1,13 +1,16 @@
-import React, { useEffect, useMemo, useRef } from "react";
+import React from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import { Animated, Linking, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import type { RoommateProfile } from "@/src/data/profiles";
 import { radius, spacing, fonts, fontSize } from "@/src/theme";
 import { useTheme } from "@/src/context/ThemeContext";
 import { t } from "@/src/locales";
 import type { FirestoreUserDoc } from "./types";
 import ShareProfileButton from "@/src/components/chat/ShareProfileButton";
+import BaseBottomSheet from "@/src/components/common/BaseBottomSheet";
+
+type SocialIconName = React.ComponentProps<typeof Ionicons>["name"];
 
 export interface UserProfileModalProps {
   visible: boolean;
@@ -17,7 +20,7 @@ export interface UserProfileModalProps {
   displayName: string;
   displayAbout: string;
   showAvatar: boolean;
-  socialLinks: { id: string; label: string; icon: any; url: string }[];
+  socialLinks: { id: string; label: string; icon: SocialIconName; url: string }[];
   canShare?: boolean;
   onShare?: () => void;
   onClose: () => void;
@@ -26,34 +29,13 @@ export interface UserProfileModalProps {
 export default function UserProfileModal({ visible, profile, details, compatibilityScore, displayName, displayAbout, showAvatar, socialLinks, canShare = false, onShare, onClose }: UserProfileModalProps) {
   const { colors } = useTheme();
   const styles = createStyles(colors);
-  const translateY = useRef(new Animated.Value(0)).current;
   const activeProfile = profile;
   const city = details?.city?.trim() || activeProfile?.city || t("common.values.notAvailable");
   const university = activeProfile?.university || t("common.values.notAvailable");
 
-  useEffect(() => {
-    if (visible) translateY.setValue(0);
-  }, [translateY, visible]);
-
-  const panResponder = useMemo(() => PanResponder.create({
-    onMoveShouldSetPanResponder: (_event, gestureState) => gestureState.dy > 8 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx),
-    onPanResponderMove: (_event, gestureState) => {
-      if (gestureState.dy > 0) translateY.setValue(gestureState.dy);
-    },
-    onPanResponderRelease: (_event, gestureState) => {
-      if (gestureState.dy > 120 || gestureState.vy > 1.1) {
-        Animated.timing(translateY, { toValue: 420, duration: 180, useNativeDriver: true }).start(onClose);
-      } else {
-        Animated.spring(translateY, { toValue: 0, bounciness: 6, useNativeDriver: true }).start();
-      }
-    },
-  }), [onClose, translateY]);
-
   return (
-    <Modal transparent animationType="slide" visible={visible} onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <Animated.View style={[styles.card, { transform: [{ translateY }] }]} {...panResponder.panHandlers}>
-          <ScrollView bounces={false} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+    <BaseBottomSheet visible={visible} onClose={onClose} scrollable>
+      <View style={styles.scrollContent}>
           <View style={styles.topRow}>
             <View style={styles.summary}>
               {showAvatar && activeProfile?.photo ? <Image source={{ uri: activeProfile.photo }} style={styles.avatar} contentFit="cover" /> : <View style={styles.avatarFallback}><Ionicons name="person-outline" size={28} color={colors.onSurfaceTertiary} /></View>}
@@ -69,17 +51,13 @@ export default function UserProfileModal({ visible, profile, details, compatibil
           <View style={styles.section}><Text style={styles.sectionTitle}>{t("chat.aboutMe")}</Text><Text style={styles.body}>{displayAbout}</Text></View>
           {socialLinks.length > 0 ? <View style={styles.section}><Text style={styles.sectionTitle}>{t("chat.socialLinks")}</Text><View style={styles.socialGrid}>{socialLinks.map((social) => <Pressable key={social.id} style={styles.socialPill} onPress={() => void Linking.openURL(social.url)} testID={`chat-social-link-${social.id}`}><Ionicons name={social.icon} size={16} color={colors.onBrandTertiary} /><Text style={styles.socialText}>{social.label}</Text></Pressable>)}</View></View> : null}
           <Pressable style={styles.close} onPress={onClose}><Text style={styles.closeText}>{t("common.actions.done")}</Text></Pressable>
-          </ScrollView>
-        </Animated.View>
       </View>
-    </Modal>
+    </BaseBottomSheet>
   );
 }
 
 const createStyles = (colors: ReturnType<typeof useTheme>["colors"]) => StyleSheet.create({
-  backdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.45)" },
-  card: { maxHeight: "88%", backgroundColor: colors.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg },
-  scrollContent: { gap: spacing.lg, paddingBottom: spacing.sm },
+  scrollContent: { gap: spacing.lg, padding: spacing.lg },
   topRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.md },
   summary: { flex: 1, flexDirection: "row", alignItems: "center", gap: spacing.md },
   avatar: { width: 64, height: 64, borderRadius: radius.pill, backgroundColor: colors.surfaceTertiary },

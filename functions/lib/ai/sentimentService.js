@@ -55,7 +55,7 @@ function parseSentimentResult(text) {
         return fallback;
     }
 }
-async function analyzeShowingFeedbackSentiment(apartmentId) {
+async function analyzeShowingFeedbackSentiment(apartmentId, usage) {
     let feedbackSnapshot;
     try {
         feedbackSnapshot = await (0, firestore_1.getFirestore)()
@@ -95,6 +95,7 @@ async function analyzeShowingFeedbackSentiment(apartmentId) {
   `;
     try {
         const result = await (0, geminiClient_1.getGeminiModel)().generateContent(prompt);
+        (0, geminiClient_1.recordGeminiUsage)(result, usage);
         return parseSentimentResult(result.response.text());
     }
     catch {

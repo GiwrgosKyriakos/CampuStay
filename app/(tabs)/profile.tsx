@@ -471,7 +471,7 @@ export default function ProfileScreen() {
 }
 
 const createStyles = (colors: ThemeColors) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.surface },
+  container: { flex: 1, backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, overflow: "hidden" },
   brokerHeaderRow: {
     flexDirection: "row",
     alignItems: "center",

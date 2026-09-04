@@ -85,10 +85,10 @@ export default function SecretariatPoolManagementScreen() {
 }
 
 const createStyles = (colors: ReturnType<typeof useTheme>["colors"]) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.surface, paddingTop: spacing.xl },
+  container: { flex: 1, backgroundColor: colors.surface, paddingTop: spacing.xl, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, overflow: "hidden" },
   header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.lg, flexDirection: "row", alignItems: "flex-start", gap: spacing.md },
   headerCopy: { flex: 1 },
-  title: { fontFamily: fonts.displayExtra, fontSize: fontSize.xl, color: colors.onSurface },
+  title: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface },
   subtitle: { marginTop: spacing.xs, fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
   tabs: { marginHorizontal: spacing.lg, padding: 4, borderRadius: radius.pill, backgroundColor: colors.surfaceSecondary, flexDirection: "row", gap: 4 },
   tab: { flex: 1, minHeight: 40, borderRadius: radius.pill, alignItems: "center", justifyContent: "center" },

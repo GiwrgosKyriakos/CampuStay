@@ -742,7 +742,7 @@ function DirectChatScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const auth = useAuth();
-  const { id, chatRoomId: chatRoomIdParam, action: notificationAction, appointmentId: notificationAppointmentId } = useLocalSearchParams<{ id: string; chatRoomId?: string; action?: string; appointmentId?: string }>();
+  const { id, chatRoomId: chatRoomIdParam, action: notificationAction, appointmentId: notificationAppointmentId, messageId: notificationMessageId } = useLocalSearchParams<{ id: string; chatRoomId?: string; action?: string; appointmentId?: string; messageId?: string }>();
   const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
 
   useEffect(() => {
@@ -844,6 +844,7 @@ function DirectChatScreen() {
   const [chatMetadataLoaded, setChatMetadataLoaded] = useState(false);
   const [chatMetadataRoomId, setChatMetadataRoomId] = useState<string | null>(null);
   const [messagesLoaded, setMessagesLoaded] = useState(false);
+  const [targetMessage, setTargetMessage] = useState<Message | null>(null);
   const [messageLimit, setMessageLimit] = useState(15);
   const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
   const [hasMoreOlderMessages, setHasMoreOlderMessages] = useState(true);
@@ -875,6 +876,7 @@ function DirectChatScreen() {
   const [visitToEdit, setVisitToEdit] = useState<Message | null>(null);
   const [isSavingVisit, setIsSavingVisit] = useState(false);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const targetedMessageHandledRef = useRef<string | null>(null);
   const [addressDisclosure, setAddressDisclosure] = useState<{ apartmentId: string; exactAddress: string; latitude?: number; longitude?: number } | null>(null);
   const [isSendingAddress, setIsSendingAddress] = useState(false);
   const addressActionHandledRef = useRef<string | null>(null);
@@ -1042,17 +1044,64 @@ function DirectChatScreen() {
   }, [activeViewList, proposalFeedbackMap]);
 
 
+  useEffect(() => {
+    setTargetMessage(null);
+    targetedMessageHandledRef.current = null;
+    if (!notificationMessageId || !chatRoomId || !currentUserId) return;
+
+    let active = true;
+    void getDoc(doc(db, "chats", chatRoomId, "messages", notificationMessageId)).then((snapshot) => {
+      if (!active || !snapshot.exists()) return;
+      const data = snapshot.data() as FirestoreMessageDoc;
+      setTargetMessage({
+        id: snapshot.id,
+        text: data.text ?? "",
+        noteText: typeof data.noteText === "string" ? data.noteText : undefined,
+        senderId: data.senderId ?? "",
+        createdAt: safeTimestampToMillis(data.createdAt, Date.now()),
+        isRead: data.isRead ?? true,
+        type: data.type,
+        status: data.status,
+        proposedPrice: typeof data.proposedPrice === "number" ? data.proposedPrice : undefined,
+        requestedDate: typeof data.requestedDate === "string" ? data.requestedDate : undefined,
+        requestedTime: typeof data.requestedTime === "string" ? data.requestedTime : undefined,
+        apartmentId: typeof data.apartmentId === "string" ? data.apartmentId : undefined,
+        apartmentData: isSharedApartmentData(data.apartmentData) ? data.apartmentData : undefined,
+        contractId: typeof data.contractId === "string" ? data.contractId : typeof data.metadata?.contractId === "string" ? data.metadata.contractId : undefined,
+        contractType: data.contractType,
+        contractTitle: typeof data.contractTitle === "string" ? data.contractTitle : typeof data.metadata?.contractTitle === "string" ? data.metadata.contractTitle : undefined,
+        filterSetData: data.filterSetData,
+        filterSetId: typeof data.filterSetId === "string" ? data.filterSetId : undefined,
+        listId: typeof data.listId === "string" ? data.listId : undefined,
+        listTitle: typeof data.listTitle === "string" ? data.listTitle : undefined,
+        apartmentIds: Array.isArray(data.apartmentIds) ? data.apartmentIds.filter((item): item is string => typeof item === "string") : undefined,
+        apartmentCount: typeof data.apartmentCount === "number" ? data.apartmentCount : undefined,
+        previewImages: Array.isArray(data.previewImages) ? data.previewImages.filter((item): item is string => typeof item === "string") : undefined,
+        hasClientInteracted: data.hasClientInteracted === true,
+        proposalFeedback: data.proposalFeedback,
+        metadata: data.metadata,
+      });
+    }).catch(() => undefined);
+
+    return () => {
+      active = false;
+    };
+  }, [chatRoomId, currentUserId, notificationMessageId]);
+
   const messages = useMemo(() => {
     if (!chatMetadataLoaded || chatMetadataRoomId !== chatRoomId || userDeleted) return [];
 
-    const sorted = [...rawMessages].sort(
+    const sourceMessages = targetMessage && !rawMessages.some((message) => message.id === targetMessage.id)
+      ? [...rawMessages, targetMessage]
+      : rawMessages;
+    const sorted = [...sourceMessages].sort(
       (a, b) => safeTimestampToMillis(a.createdAt) - safeTimestampToMillis(b.createdAt),
     );
 
     if (userClearedAt <= 0) return sorted;
 
     return sorted.filter((message) => safeTimestampToMillis(message.createdAt) > userClearedAt);
-  }, [chatMetadataLoaded, chatMetadataRoomId, chatRoomId, rawMessages, userClearedAt, userDeleted]);
+  }, [chatMetadataLoaded, chatMetadataRoomId, chatRoomId, rawMessages, targetMessage, userClearedAt, userDeleted]);
 
   // FlatList inverted={true} expects newest-first order (index 0 = latest message).
   const invertedMessages = useMemo(() => [...messages].reverse(), [messages]);
@@ -1065,10 +1114,25 @@ function DirectChatScreen() {
     return [...latestByAppointment.values()]
       .filter(({ message }) => {
         const appointmentDate = message.metadata?.appointmentDate ? Date.parse(message.metadata.appointmentDate) : NaN;
-        return message.metadata?.status === "confirmed" && Number.isFinite(appointmentDate) && appointmentDate > Date.now();
+        return (message.metadata?.status === "pending" || message.metadata?.status === "confirmed") && Number.isFinite(appointmentDate) && appointmentDate > Date.now();
       })
       .sort((first, second) => Date.parse(first.message.metadata?.appointmentDate ?? "") - Date.parse(second.message.metadata?.appointmentDate ?? ""))[0] ?? null;
   }, [messages]);
+
+  useEffect(() => {
+    if (!notificationMessageId || !messagesLoaded || targetedMessageHandledRef.current === notificationMessageId) return;
+    const targetIndex = messages.findIndex((message) => message.id === notificationMessageId);
+    if (targetIndex < 0) return;
+
+    targetedMessageHandledRef.current = notificationMessageId;
+    const invertedIndex = messages.length - 1 - targetIndex;
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollToIndex({ index: invertedIndex, animated: true, viewPosition: 0.5 });
+    });
+    setHighlightedMessageId(notificationMessageId);
+    const timeout = setTimeout(() => setHighlightedMessageId(null), 1500);
+    return () => clearTimeout(timeout);
+  }, [messages, messagesLoaded, notificationMessageId]);
 
   const handleLoadOlderMessages = useCallback(() => {
     if (isLoadingOlderMessages || !hasMoreOlderMessages || !messagesLoaded || olderLoadTriggeredRef.current) return;
@@ -3085,6 +3149,19 @@ function DirectChatScreen() {
           <Text style={{ flex: 1, fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface }} numberOfLines={1}>
             {`Επερχόμενη Υπόδειξη: ${new Date(activePinnedAppointment.message.metadata?.appointmentDate ?? "").toLocaleString("el-GR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })} - ${activePinnedAppointment.message.metadata?.apartmentTitle ?? "Ακίνητο"}`}
           </Text>
+          <View style={{ paddingHorizontal: spacing.xs, paddingVertical: 2, borderRadius: radius.sm, backgroundColor: colors.surface }}>
+            <Text style={{ fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.brand }}>{activePinnedAppointment.message.metadata?.status === "pending" ? "Εκκρεμές" : "Επιβεβαιωμένο"}</Text>
+          </View>
+          <Pressable
+            onPress={(event) => {
+              event.stopPropagation();
+              setVisitToEdit(activePinnedAppointment.message);
+            }}
+            hitSlop={8}
+            testID="chat-pinned-visit-edit"
+          >
+            <Ionicons name="create-outline" size={20} color={colors.brand} />
+          </Pressable>
         </Pressable>
       ) : null}
 

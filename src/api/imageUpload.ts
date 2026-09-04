@@ -1,4 +1,4 @@
-import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import { deleteObject, getDownloadURL, listAll, ref, uploadBytes } from "firebase/storage";
 import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 import { db, storage } from "@/src/config/firebase";
 
@@ -74,6 +74,31 @@ export async function uploadImageAsync(uri: string, path: string, contentType?: 
       (blob as any).close();
     }
   }
+}
+
+export async function deleteStorageFileAsync(uri: string): Promise<void> {
+  if (!uri?.trim() || !/^https?:\/\//i.test(uri)) return;
+
+  try {
+    await deleteObject(ref(storage, uri));
+  } catch (error) {
+    const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+    if (code !== "storage/object-not-found") throw error;
+  }
+}
+
+async function deleteStorageFolderAsync(path: string): Promise<void> {
+  const directory = await listAll(ref(storage, path));
+  await Promise.all(directory.items.map((item) => deleteObject(item).catch((error: unknown) => {
+    const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+    if (code !== "storage/object-not-found") throw error;
+  })));
+  await Promise.all(directory.prefixes.map((prefix) => deleteStorageFolderAsync(prefix.fullPath)));
+}
+
+export async function deleteListingTourScenesAsync(apartmentId: string): Promise<void> {
+  if (!apartmentId?.trim()) return;
+  await deleteStorageFolderAsync(`apartments/${apartmentId}/360_scenes`);
 }
 
 export async function uploadProfileImageAsync(uri: string, userId: string, index: number): Promise<string> {

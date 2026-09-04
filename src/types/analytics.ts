@@ -1,30 +1,67 @@
-export type LeadSource =
+export type AnalyticsEventType =
+  | "listing_view"
+  | "lead_inquiry"
+  | "showing_conducted"
+  | "offer_submitted"
+  | "deal_stage_changed"
+  | "deal_closed"
+  | "deal_lost";
+
+export type StandardLeadSource =
   | "spitogatos"
-  | "xe"
-  | "social_ads"
+  | "xe_gr"
+  | "meta_ads"
+  | "google_ads"
   | "agency_website"
   | "referral"
-  | "yard_sign"
   | "walk_in"
+  | "signboard"
   | "other";
 
 export type LostDealReason =
-  | "price_too_high"
-  | "property_flaws"
-  | "legal_tax_issues"
+  | "price_dispute"
+  | "legal_defect"
   | "competitor_won"
   | "buyer_withdrew"
-  | "owner_cancelled";
+  | "owner_cancelled"
+  | "financial_issue";
+
+/** Immutable event written once to analytics_events. */
+export interface AnalyticsEvent {
+  id: string;
+  agencyId: string;
+  eventType: AnalyticsEventType;
+  timestamp: number;
+  listingId?: string;
+  leadId?: string;
+  brokerId?: string;
+  source?: string;
+  transactionType?: "sale" | "rent";
+  amount?: number;
+  stageFrom?: number;
+  stageTo?: number;
+  lostReason?: string;
+  metadata?: Record<string, any>;
+}
+
+/** Backwards-compatible name for analytics consumers. */
+export type LeadSource = StandardLeadSource;
 
 export type AnalyticsTimeWindow = "month" | "quarter" | "year" | "all";
 
-export interface MarketingCampaignSpend {
+export interface CampaignSpend {
   id: string;
   agencyId: string;
-  source: LeadSource;
-  period: string;
-  spentAmount: number;
+  source: StandardLeadSource;
+  month: string;
+  spendAmount: number;
+  currency: "EUR";
+  recordedAt: number;
+  recordedBy: string;
 }
+
+/** @deprecated Use CampaignSpend. */
+export type MarketingCampaignSpend = CampaignSpend;
 
 export interface LostDealRecord {
   dealId: string;
@@ -33,7 +70,7 @@ export interface LostDealRecord {
   brokerId: string;
   clientId: string;
   lostAt: number;
-  reason: LostDealReason;
+  lostReason: LostDealReason;
   notes?: string;
   stageBeforeLoss: number;
   potentialRevenueLoss: number;
@@ -43,6 +80,9 @@ export interface SourceRoiSummary {
   revenue: number;
   roiRatio: number;
   spend: number;
+  roiPercent: number;
+  netMargin: number;
+  attributedDeals: number;
 }
 
 export interface AgentAnalyticsMetric {
@@ -52,9 +92,32 @@ export interface AgentAnalyticsMetric {
   activeListingsCount: number;
   showingsCount: number;
   callsCount: number;
+  scheduledShowingsCount: number;
+  newListingsCount: number;
   dealsClosedCount: number;
   winRate: number;
   avgClosingTimeDays: number;
+}
+
+export interface FunnelAnalytics {
+  viewsToInquiriesRate: number;
+  inquiriesToShowingsRate: number;
+  showingsToOffersRate: number;
+  offersToClosedRate: number;
+  viewsToInquiriesDropOff: number;
+  inquiriesToShowingsDropOff: number;
+  showingsToOffersDropOff: number;
+  offersToClosedDropOff: number;
+  frictionStage: "views_to_inquiries" | "inquiries_to_showings" | "showings_to_offers" | "offers_to_closed";
+}
+
+export interface RevenueTimeSeriesPoint {
+  period: string;
+  grossCommission: number;
+  saleCommission: number;
+  rentCommission: number;
+  agencyRetainedShare: number;
+  brokerSplitPayouts: number;
 }
 
 export interface RoommateAreaAnalytics {
@@ -64,12 +127,22 @@ export interface RoommateAreaAnalytics {
 }
 
 export interface CEOAnalyticsSummary {
+  listingFunnel: {
+    views: number;
+    inquiries: number;
+    showings: number;
+    offers: number;
+    closedDeals: number;
+    lostDeals: number;
+  };
+  funnelAnalytics: FunnelAnalytics;
   totalActiveListings: number;
   totalViews: number;
   totalInquiries: number;
   listingConversionRate: number;
   averageDaysOnMarket: number;
   domByArea: Record<string, number>;
+  averageDomByAreaAndCategory: Record<string, number>;
   longestPendingListings: { id: string; title: string; area: string; daysOnMarket: number }[];
   leadDistribution: Record<LeadSource, number>;
   revenueBySource: Record<LeadSource, number>;
@@ -86,12 +159,37 @@ export interface CEOAnalyticsSummary {
     agencyRetainedNet: number;
   };
   weightedForecastRevenue: number;
+  weightedForecast: {
+    next30Days: number;
+    next60Days: number;
+  };
+  benchmarkMetrics: {
+    targetMonthlyRevenue: number;
+    revenueAchievementPercent: number;
+    targetDaysOnMarket: number;
+    daysOnMarketDelta: number;
+    targetWinRate: number;
+    actualWinRate: number;
+    winRateDelta: number;
+  };
   roommateAnalytics: {
     supplyDemandRatioByArea: Record<string, RoommateAreaAnalytics>;
     averageMatchTimeDays: number;
     successfulMatchRate: number;
     estimatedCAC: number;
     estimatedLTV: number;
+  };
+  revenueTimeSeries: {
+    month: RevenueTimeSeriesPoint[];
+    quarter: RevenueTimeSeriesPoint[];
+    year: RevenueTimeSeriesPoint[];
+  };
+  settlementAccounting: {
+    grossCommission: number;
+    agencyRetainedShare: number;
+    brokerSplitPayouts: number;
+    pendingInvoices: number;
+    settledInvoices: number;
   };
 }
 
@@ -137,6 +235,9 @@ export interface AnalyticsDealRecord {
   pipelineStage?: string;
   status?: string;
   commissionTotal?: number;
+  commissionRate?: number;
+  commissionPercent?: number;
+  dealValue?: number;
   expectedCommission?: number;
   calculatedCommission?: number;
   dealCommission?: number;
@@ -147,6 +248,9 @@ export interface AnalyticsDealRecord {
   updatedAt?: unknown;
   source?: string;
   leadSource?: string;
+  leadId?: string;
+  lostReason?: string;
+  reason?: string;
   transactionType?: string;
   propertyCategory?: string;
   [key: string]: unknown;
@@ -206,9 +310,29 @@ export interface CEOAnalyticsDataset {
   deals: AnalyticsDealRecord[];
   agents: AnalyticsAgentRecord[];
   leads: AnalyticsLeadRecord[];
-  campaignSpends: MarketingCampaignSpend[];
+  campaignSpends: CampaignSpend[];
   lostDeals: LostDealRecord[];
   interactions: AnalyticsInteractionRecord[];
   roommateSeekers: AnalyticsRoommateSeekerRecord[];
   roommateMatches: AnalyticsRoommateMatchRecord[];
+}
+
+export interface MaterializedAnalyticsSummary {
+  periodId: string;
+  periodStart: number;
+  periodEnd: number;
+  funnel: {
+    views: number;
+    inquiries: number;
+    showings: number;
+    offers: number;
+    closedDeals: number;
+    lostDeals: number;
+  };
+  averageDomByAreaAndCategory: Record<string, number>;
+  leadCountsBySource: Record<StandardLeadSource, number>;
+  attributedRevenueBySource: Record<StandardLeadSource, number>;
+  attributedDealsBySource?: Record<StandardLeadSource, number>;
+  campaignSpendBySource: Record<StandardLeadSource, number>;
+  roiPercentBySource: Record<StandardLeadSource, number>;
 }

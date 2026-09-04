@@ -31,19 +31,25 @@ export default function GlassTabBar({ state, navigation, descriptors }: BottomTa
   const notLookingForRoommate = auth.notLookingForRoommate === true;
   const styles = useMemo(() => createStyles(colors), [colors]);
   const focusedRouteName = state.routes[state.index]?.name;
+  const isReelsTab = focusedRouteName === "explore-feed";
   const visibleRoutes = useMemo(() => {
     return state.routes
       .filter((route) => {
         const href = (descriptors[route.key]?.options as { href?: string | null } | undefined)?.href;
         if (href === null) return false;
-        if (isBroker || isExecutive) return ["calendar", "matches", "apartment-pool", "apartments", "broker", "settlements", "secretariat-pool", ...(isExecutive ? ["analytics"] : [])].includes(route.name);
-        if (notLookingForRoommate) return ["matches", "apartments", "profile"].includes(route.name);
+        if (isExecutive) return ["apartment-pool", "broker", "settlements", "secretariat-pool", "analytics"].includes(route.name);
+        if (isBroker) return ["calendar", "matches", "apartment-pool", "apartments", "broker", "settlements", "secretariat-pool"].includes(route.name);
+        if (notLookingForRoommate) return ["calendar", "matches", "explore-feed", "apartments", "profile"].includes(route.name);
         if (route.name === "roommates") return !notLookingForRoommate;
         return ["matches", "explore-feed", "apartments", "profile"].includes(route.name);
       })
       .sort((left, right) => {
-        const order = isBroker || isExecutive
-          ? ["calendar", "matches", "apartment-pool", "apartments", "broker", "settlements", "secretariat-pool", ...(isExecutive ? ["analytics"] : [])]
+        const order = isExecutive
+          ? ["apartment-pool", "broker", "settlements", "secretariat-pool", "analytics"]
+          : isBroker
+          ? ["calendar", "matches", "apartment-pool", "apartments", "broker", "settlements", "secretariat-pool"]
+          : notLookingForRoommate
+          ? ["calendar", "matches", "explore-feed", "apartments", "profile"]
           : ["roommates", "matches", "explore-feed", "apartments", "profile"];
         return order.indexOf(left.name) - order.indexOf(right.name);
       });
@@ -54,9 +60,9 @@ export default function GlassTabBar({ state, navigation, descriptors }: BottomTa
   }
 
   return (
-    <View style={[styles.wrap, { paddingBottom: Math.max(insets.bottom, spacing.md) }]} testID="bottom-tab-bar">
-      <View style={styles.bar}>
-        <View style={styles.row}>
+    <View style={isReelsTab ? styles.reelsWrap : [styles.wrap, { paddingBottom: Math.max(insets.bottom, spacing.md) }]} testID="bottom-tab-bar">
+      <View style={[isReelsTab ? styles.reelsBar : styles.bar, isReelsTab && { paddingBottom: insets.bottom }]}>
+        <View style={[styles.row, isReelsTab && styles.reelsRow]}>
           {visibleRoutes.map((route) => {
             const focused = state.routes[state.index]?.key === route.key;
             const cfg = route.name === "matches" && (isBroker || isExecutive)
@@ -70,7 +76,7 @@ export default function GlassTabBar({ state, navigation, descriptors }: BottomTa
               <Pressable
                 key={route.key}
                 onPress={onPress}
-                style={styles.tab}
+                style={[styles.tab, isReelsTab && styles.reelsTab]}
                 testID={`tab-${route.name}`}
                 hitSlop={8}
               >
@@ -78,13 +84,14 @@ export default function GlassTabBar({ state, navigation, descriptors }: BottomTa
                   style={[
                     styles.iconPill,
                     route.name === "explore-feed" && styles.reelIconPill,
+                    isReelsTab && styles.reelsIconPill,
                     focused ? { backgroundColor: colors.brand } : undefined,
                   ]}
                 >
                   <Ionicons
                     name={focused ? cfg.active : cfg.inactive}
                     size={24}
-                    color={focused ? colors.onBrand : "#0A3A45"}
+                    color={focused ? colors.onBrand : isReelsTab ? "rgba(255,255,255,0.82)" : "#0A3A45"}
                   />
                 </View>
               </Pressable>
@@ -104,10 +111,24 @@ function createStyles(colors: ThemeColors) {
       right: spacing.lg,
       bottom: 0,
     },
+    reelsWrap: {
+      position: "absolute",
+      left: 0,
+      right: 0,
+      bottom: 0,
+    },
     bar: {
       borderRadius: radius.pill,
       overflow: "hidden",
       backgroundColor: colors.muted,
+    },
+    reelsBar: {
+      overflow: "hidden",
+      backgroundColor: "rgba(5, 10, 14, 0.94)",
+      borderTopLeftRadius: 16,
+      borderTopRightRadius: 16,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: "rgba(255,255,255,0.16)",
     },
     row: {
       flexDirection: "row",
@@ -116,10 +137,17 @@ function createStyles(colors: ThemeColors) {
       paddingVertical: spacing.sm,
       paddingHorizontal: spacing.sm,
     },
+    reelsRow: {
+      paddingVertical: spacing.xs,
+      paddingHorizontal: spacing.xs,
+    },
     tab: {
       flex: 1,
       alignItems: "center",
       justifyContent: "center",
+    },
+    reelsTab: {
+      minHeight: 44,
     },
     iconPill: {
       width: 52,
@@ -138,6 +166,12 @@ function createStyles(colors: ThemeColors) {
       borderRadius: 29,
       borderWidth: 2,
       borderColor: colors.brand,
+    },
+    reelsIconPill: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      borderWidth: 0,
     },
   });
 }

@@ -10,7 +10,7 @@ export interface CommissionSettlementInvoice {
   agencyShare: number;
   brokerSplits: BrokerCommissionSplit[];
   invoiceNumber: string;
-  invoiceStatus: "pending_issue" | "issued" | "settled";
+  invoiceStatus: "pending_review" | "approved" | "issued" | "settled";
   issuedAt?: number;
   settledAt?: number;
   createdAt: number;

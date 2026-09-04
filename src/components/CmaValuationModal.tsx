@@ -1,10 +1,14 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { collection, limit, onSnapshot, orderBy, query } from "firebase/firestore";
 
 import { AiServiceError, fetchComparativeMarketAnalysis, type CmaAnalysisInput, type CmaAnalysisResult } from "@/src/services/aiFeatureService";
+import { db } from "@/src/config/firebase";
+import Dropdown from "@/src/components/Dropdown";
 import { useTheme } from "@/src/context/ThemeContext";
 import { fonts, fontSize, radius, spacing } from "@/src/theme";
+import BaseBottomSheet from "@/src/components/common/BaseBottomSheet";
 
 type CmaValuationModalProps = CmaAnalysisInput & {
   visible: boolean;
@@ -18,12 +22,53 @@ const competitivenessLabels: Record<CmaAnalysisResult["marketCompetitiveness"], 
   overpriced: "Υπερτιμημένο",
 };
 
-export default function CmaValuationModal({ visible, onClose, apartmentId, targetPrice, area, sqm, rooms, floor }: CmaValuationModalProps) {
+interface CmaHistoryEntry {
+  id: string;
+  createdAt?: unknown;
+  suggestedPriceRange: { min: number; max: number; optimal: number };
+  optimalPrice: number;
+  comparablesUsed: number;
+}
+
+function historyTimestamp(value: unknown): number {
+  if (typeof value === "number") return value;
+  if (value && typeof value === "object" && "toMillis" in value && typeof value.toMillis === "function") return value.toMillis();
+  return 0;
+}
+
+function historyLabel(entry: CmaHistoryEntry): string {
+  const date = historyTimestamp(entry.createdAt);
+  return `${date ? new Date(date).toLocaleDateString("el-GR") : "Παλαιότερη έκδοση"} · €${entry.optimalPrice.toLocaleString("el-GR")}`;
+}
+
+export default function CmaValuationModal({ visible, onClose, apartmentId, transactionType, targetPrice, area, sqm, rooms, floor }: CmaValuationModalProps) {
   const { colors } = useTheme();
   const [result, setResult] = useState<CmaAnalysisResult | null>(null);
   const [errorText, setErrorText] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [history, setHistory] = useState<CmaHistoryEntry[]>([]);
+  const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
   const nextAllowedRequest = useRef(0);
+
+  useEffect(() => {
+    if (!visible) return;
+    const unsubscribe = onSnapshot(
+      query(collection(db, "apartments", apartmentId, "cma_history"), orderBy("createdAt", "desc"), limit(20)),
+      (snapshot) => setHistory(snapshot.docs.map((document) => {
+        const data = document.data() as Record<string, unknown>;
+        const range = data.suggestedPriceRange && typeof data.suggestedPriceRange === "object" ? data.suggestedPriceRange as Record<string, unknown> : {};
+        return {
+          id: document.id,
+          createdAt: data.createdAt,
+          suggestedPriceRange: { min: Number(range.min) || 0, max: Number(range.max) || 0, optimal: Number(range.optimal) || Number(data.optimalPrice) || 0 },
+          optimalPrice: Number(data.optimalPrice) || Number(range.optimal) || 0,
+          comparablesUsed: Number(data.comparablesUsed) || 0,
+        };
+      })),
+      () => setHistory([]),
+    );
+    return unsubscribe;
+  }, [apartmentId, visible]);
 
   const runAnalysis = async () => {
     if (isLoading || Date.now() < nextAllowedRequest.current) return;
@@ -31,7 +76,8 @@ export default function CmaValuationModal({ visible, onClose, apartmentId, targe
     setIsLoading(true);
     setErrorText(null);
     try {
-      setResult(await fetchComparativeMarketAnalysis({ apartmentId, targetPrice, area, sqm, rooms, floor }));
+      setResult(await fetchComparativeMarketAnalysis({ apartmentId, transactionType, targetPrice, area, sqm, rooms, floor }));
+      setSelectedHistoryId(null);
     } catch (error) {
       setErrorText(error instanceof AiServiceError ? error.message : "Δεν ήταν δυνατή η εκτίμηση της αξίας του ακινήτου.");
     } finally {
@@ -44,7 +90,7 @@ export default function CmaValuationModal({ visible, onClose, apartmentId, targe
     setResult(null);
     setErrorText(null);
     void runAnalysis();
-  }, [visible, apartmentId]);
+  }, [visible, apartmentId, transactionType]);
 
   const badgeColor = result?.marketCompetitiveness === "overpriced"
     ? colors.error
@@ -55,9 +101,8 @@ export default function CmaValuationModal({ visible, onClose, apartmentId, targe
         : colors.onSurfaceTertiary;
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <View style={[styles.sheet, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+    <BaseBottomSheet visible={visible} onClose={onClose} maxHeight="86%">
+        <View style={styles.contentWrap}>
           <View style={styles.headerRow}>
             <View style={styles.headerCopy}>
               <Text style={[styles.title, { color: colors.onSurface }]}>AI Εκτίμηση Αξίας (CMA)</Text>
@@ -84,15 +129,15 @@ export default function CmaValuationModal({ visible, onClose, apartmentId, targe
               </Pressable>
             </View>
           ) : result ? (
-            <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+            <View style={styles.content}>
               <View style={[styles.priceCard, { backgroundColor: colors.brandTertiary, borderColor: colors.border }]}>
                 <Text style={[styles.cardLabel, { color: colors.onSurfaceTertiary }]}>Προτεινόμενο εύρος τιμής</Text>
                 <View style={styles.priceRow}>
-                  <View style={styles.priceCell}><Text style={[styles.priceCaption, { color: colors.onSurfaceTertiary }]}>Min</Text><Text style={[styles.priceValue, { color: colors.onSurface }]}>€{result.suggestedPriceRange.min.toLocaleString("el-GR")}</Text></View>
-                  <View style={[styles.optimalCell, { borderColor: colors.brand }]}><Text style={[styles.priceCaption, { color: colors.brand }]}>Optimal</Text><Text style={[styles.optimalValue, { color: colors.onSurface }]}>€{result.suggestedPriceRange.optimal.toLocaleString("el-GR")}</Text></View>
-                  <View style={styles.priceCell}><Text style={[styles.priceCaption, { color: colors.onSurfaceTertiary }]}>Max</Text><Text style={[styles.priceValue, { color: colors.onSurface }]}>€{result.suggestedPriceRange.max.toLocaleString("el-GR")}</Text></View>
+                    <View style={styles.priceCell}><Text style={[styles.priceCaption, { color: colors.onSurfaceTertiary }]}>Min</Text><Text style={[styles.priceValue, { color: colors.onSurface }]}>€{result.suggestedPriceRange.min.toLocaleString("el-GR")}</Text></View>
+                    <View style={[styles.optimalCell, { borderColor: colors.brand }]}><Text style={[styles.priceCaption, { color: colors.brand }]}>Optimal</Text><Text style={[styles.optimalValue, { color: colors.onSurface }]}>€{result.suggestedPriceRange.optimal.toLocaleString("el-GR")}</Text></View>
+                    <View style={styles.priceCell}><Text style={[styles.priceCaption, { color: colors.onSurfaceTertiary }]}>Max</Text><Text style={[styles.priceValue, { color: colors.onSurface }]}>€{result.suggestedPriceRange.max.toLocaleString("el-GR")}</Text></View>
                 </View>
-                <Text style={[styles.sqmValue, { color: colors.onSurfaceTertiary }]}>Εκτίμηση: €{result.pricePerSqmEstimate.toLocaleString("el-GR")} / τ.μ.</Text>
+                  <Text style={[styles.sqmValue, { color: colors.onSurfaceTertiary }]}>Εκτίμηση: €{result.pricePerSqmEstimate.toLocaleString("el-GR")} / τ.μ.{transactionType === "rent" ? " / μήνα" : ""}</Text>
               </View>
 
               <View style={[styles.badge, { backgroundColor: badgeColor }]}><Ionicons name="analytics-outline" size={16} color={colors.onBrand} /><Text style={[styles.badgeText, { color: colors.onBrand }]}>{competitivenessLabels[result.marketCompetitiveness]}</Text></View>
@@ -106,17 +151,33 @@ export default function CmaValuationModal({ visible, onClose, apartmentId, targe
                 <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>Εικόνα αγοράς</Text>
                 <Text style={[styles.insightText, { color: colors.onSurface }]}>{result.marketInsightsSummary}</Text>
               </View>
-            </ScrollView>
+
+              {history.length > 0 ? <View style={[styles.historySection, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}>
+                <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>Ιστορικό εκτιμήσεων</Text>
+                <Dropdown
+                  value={selectedHistoryId ? historyLabel(history.find((entry) => entry.id === selectedHistoryId) ?? history[0]) : null}
+                  options={history.map(historyLabel)}
+                  placeholder="Επιλέξτε παλαιότερη έκδοση"
+                  onSelect={(label) => setSelectedHistoryId(history.find((entry) => historyLabel(entry) === label)?.id ?? null)}
+                  testID="cma-history-dropdown"
+                />
+                {selectedHistoryId ? (() => {
+                  const selectedHistory = history.find((entry) => entry.id === selectedHistoryId);
+                  return selectedHistory ? <View style={styles.historySummary}>
+                    <Text style={[styles.historyText, { color: colors.onSurfaceTertiary }]}>Προηγούμενη πρόταση: <Text style={{ color: colors.onSurface, fontWeight: "700" }}>€{selectedHistory.optimalPrice.toLocaleString("el-GR")}</Text></Text>
+                    <Text style={[styles.historyText, { color: colors.onSurfaceTertiary }]}>Εύρος: €{selectedHistory.suggestedPriceRange.min.toLocaleString("el-GR")} - €{selectedHistory.suggestedPriceRange.max.toLocaleString("el-GR")} · {selectedHistory.comparablesUsed} συγκρίσιμα</Text>
+                  </View> : null;
+                })() : null}
+              </View> : null}
+            </View>
           ) : null}
         </View>
-      </View>
-    </Modal>
+    </BaseBottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.48)" },
-  sheet: { maxHeight: "86%", borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, borderWidth: 1, padding: spacing.lg, gap: spacing.md },
+  contentWrap: { padding: spacing.lg, gap: spacing.md },
   headerRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.md },
   headerCopy: { flex: 1, gap: spacing.xs },
   title: { fontFamily: fonts.bold, fontSize: fontSize.xl },
@@ -147,4 +208,7 @@ const styles = StyleSheet.create({
   emptyText: { fontFamily: fonts.regular, fontSize: fontSize.sm, lineHeight: 20 },
   insightBox: { borderLeftWidth: 3, borderRadius: radius.sm, padding: spacing.md, gap: spacing.sm },
   insightText: { fontFamily: fonts.regular, fontSize: fontSize.sm, lineHeight: 21 },
+  historySection: { borderRadius: radius.md, borderWidth: 1, padding: spacing.md, gap: spacing.sm },
+  historySummary: { gap: spacing.xs },
+  historyText: { fontFamily: fonts.regular, fontSize: fontSize.sm, lineHeight: 20 },
 });

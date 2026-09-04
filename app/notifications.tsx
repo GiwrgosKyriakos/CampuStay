@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 
 import { useAuth } from "@/src/context/auth";
@@ -21,7 +22,6 @@ import ScreenHeader from "@/src/components/ScreenHeader";
 import { t } from "@/src/locales";
 import { db } from "@/src/config/firebase";
 import { DEFAULT_BROKER_STAGNATION_SETTINGS, type BrokerStagnationSettings } from "@/src/constants/pipeline";
-import { scheduleBrokerDealStagnationAlertsAsync } from "@/src/utils/notificationService";
 
 const NOTIFICATION_ROWS = [
   {
@@ -125,7 +125,6 @@ export default function NotificationsScreen() {
     try {
       await setDoc(doc(db, "users", auth.userId), { brokerStagnationSettings: next }, { merge: true });
       await setDoc(doc(db, "settings", auth.userId), { brokerStagnationSettings: next }, { merge: true });
-      void scheduleBrokerDealStagnationAlertsAsync(auth.userId);
     } catch (saveError) {
       console.error("[Notifications] Error saving broker stagnation settings:", saveError);
       setError(t("notifications.errors.save"));
@@ -159,6 +158,11 @@ export default function NotificationsScreen() {
       >
         <View style={styles.header}>
           <Text style={styles.subtitle}>{t("notifications.subtitle")}</Text>
+          <Pressable style={styles.feedLink} onPress={() => router.push("/notification-feed" as never)} testID="open-notification-feed">
+            <Ionicons name="notifications-outline" size={18} color={colors.brand} />
+            <Text style={styles.feedLinkText}>Ιστορικό ειδοποιήσεων</Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.brand} />
+          </Pressable>
         </View>
 
         {isGuest && (
@@ -208,7 +212,7 @@ export default function NotificationsScreen() {
               </View>
             )
           ))}
-          {auth.isBroker ? <View style={styles.brokerSettingsSection} testID="broker-stagnation-settings"><Text style={styles.sectionTitle}>Προειδοποιήσεις Καθυστέρησης (Deal Stagnation)</Text><View style={styles.settingRow}><View style={styles.rowText}><Text style={styles.settingTitle}>Ενεργοποίηση ειδοποιήσεων καθυστέρησης</Text></View><Switch value={brokerStagnationSettings.stagnationAlertsEnabled} onValueChange={(value) => void updateBrokerStagnationSettings({ stagnationAlertsEnabled: value })} disabled={isGuest} /></View>{brokerStagnationSettings.stagnationAlertsEnabled ? <><View style={styles.inputRow}><Text style={styles.inputLabel}>Ώρα πρώτης ειδοποίησης</Text><TextInput value={brokerStagnationSettings.stagnationAlertStartTime} onChangeText={(value) => void updateBrokerStagnationSettings({ stagnationAlertStartTime: value.replace(/[^0-9:]/g, "").slice(0, 5) })} placeholder="11:00" placeholderTextColor={colors.onSurfaceTertiary} style={styles.timeInput} keyboardType="numbers-and-punctuation" testID="broker-stagnation-start-time" /></View><Text style={styles.inputLabel}>Συχνότητα αποστολής μεταξύ πελατών</Text><View style={styles.intervalOptions}>{[0, 5, 10, 15, 30].map((minutes) => <Pressable key={minutes} style={[styles.intervalOption, brokerStagnationSettings.stagnationAlertIntervalMinutes === minutes && { backgroundColor: colors.brand }]} onPress={() => void updateBrokerStagnationSettings({ stagnationAlertIntervalMinutes: minutes })} testID={`broker-stagnation-interval-${minutes}`}><Text style={[styles.intervalText, brokerStagnationSettings.stagnationAlertIntervalMinutes === minutes && { color: colors.onBrand }]}>{minutes === 0 ? "Κατευθείαν όλες μαζί (0 λεπτά)" : `Κάθε ${minutes} λεπτά${minutes === 10 ? " (Προτεινόμενο)" : ""}`}</Text></Pressable>)}</View></> : null}</View> : null}
+          {auth.isBroker ? <View style={styles.brokerSettingsSection} testID="broker-stagnation-settings"><Text style={styles.sectionTitle}>Προειδοποιήσεις Καθυστέρησης (Deal Stagnation)</Text><View style={styles.settingRow}><View style={styles.rowText}><Text style={styles.settingTitle}>Ενεργοποίηση ειδοποιήσεων καθυστέρησης</Text></View><Switch value={brokerStagnationSettings.stagnationAlertsEnabled} onValueChange={(value) => void updateBrokerStagnationSettings({ stagnationAlertsEnabled: value })} disabled={isGuest} /></View>{brokerStagnationSettings.stagnationAlertsEnabled ? <><View style={styles.inputRow}><Text style={styles.inputLabel}>Ώρα πρώτης ειδοποίησης</Text><TextInput value={brokerStagnationSettings.stagnationAlertStartTime} onChangeText={(value) => void updateBrokerStagnationSettings({ stagnationAlertStartTime: value.replace(/[^0-9:]/g, "").slice(0, 5) })} placeholder="11:00" placeholderTextColor={colors.onSurfaceTertiary} style={styles.timeInput} keyboardType="numbers-and-punctuation" testID="broker-stagnation-start-time" /></View><Text style={styles.inputLabel}>Συχνότητα ειδοποιήσεων</Text><View style={styles.intervalOptions}>{[15, 60].map((minutes) => <Pressable key={minutes} style={[styles.intervalOption, brokerStagnationSettings.stagnationAlertIntervalMinutes === minutes && { backgroundColor: colors.brand }]} onPress={() => void updateBrokerStagnationSettings({ stagnationAlertIntervalMinutes: minutes })} testID={`broker-stagnation-interval-${minutes}`}><Text style={[styles.intervalText, brokerStagnationSettings.stagnationAlertIntervalMinutes === minutes && { color: colors.onBrand }]}>{minutes === 15 ? "Κάθε 15 λεπτά" : "Κάθε 1 ώρα"}</Text></Pressable>)}</View></> : null}</View> : null}
         </View>
       </View>
 
@@ -242,6 +246,8 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: { backgroundColor: colors.surface, paddingHorizontal: spacing.lg },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   subtitle: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary, textAlign: "center" },
+  feedLink: { flexDirection: "row", alignItems: "center", gap: spacing.xs, marginTop: spacing.md },
+  feedLinkText: { color: colors.brand, fontFamily: fonts.semibold, fontSize: fontSize.sm },
   settingRow: {
     flexDirection: "row",
     alignItems: "center",

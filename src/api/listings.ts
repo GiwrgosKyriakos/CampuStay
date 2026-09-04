@@ -12,7 +12,8 @@ import {
 } from "firebase/firestore";
 
 import { db } from "@/src/config/firebase";
-import { markListingWithdrawalForDeletion, notifyListingStatusChange, scanHighMatchForBrokerListing } from "@/src/utils/brokerAutomations";
+import { deleteListingTourScenesAsync } from "@/src/api/imageUpload";
+import { markListingWithdrawalForDeletion, scanHighMatchForBrokerListing } from "@/src/utils/brokerAutomations";
 
 /**
  * Καθαρίζει αναδρομικά το αντικείμενο από πεδία που έχουν τιμή `undefined`,
@@ -114,7 +115,7 @@ async function markHostChatsUnavailable(apartmentId: string): Promise<void> {
 export async function deleteListingPermanently(apartmentId: string): Promise<void> {
   const snapshot = await getDoc(doc(db, "apartments", apartmentId));
   await markListingWithdrawalForDeletion(apartmentId, snapshot.exists() ? String(snapshot.data().title ?? "Ακίνητο") : "Ακίνητο").catch(() => undefined);
-  await Promise.all([deleteListingLikes(apartmentId), markHostChatsUnavailable(apartmentId)]);
+  await Promise.all([deleteListingLikes(apartmentId), markHostChatsUnavailable(apartmentId), deleteListingTourScenesAsync(apartmentId)]);
   await deleteDoc(doc(db, "apartments", apartmentId));
 }
 
@@ -131,16 +132,17 @@ export async function upsertListing(params: {
     const aptRef = doc(db, "apartments", apartmentId);
     const previousSnapshot = await getDoc(aptRef);
     const previousData = previousSnapshot.exists() ? previousSnapshot.data() : null;
+    const lifecycleFields = new Set(["assignedBrokerIds", "assignmentStatus", "pendingClaimBrokerId", "rejectedBrokerIds", "currentKeyHolderId", "keySafeLogs"]);
+    const editablePayload = Object.fromEntries(Object.entries(cleanPayload).filter(([key]) => !lifecycleFields.has(key)));
     await setDoc(
       aptRef,
       {
-        ...cleanPayload,
+        ...editablePayload,
         updatedAt: serverTimestamp(),
       },
       { merge: true },
     );
     const nextData = { ...previousData, ...cleanPayload };
-    await notifyListingStatusChange(apartmentId, previousData, nextData).catch(() => undefined);
     const brokerIds = new Set<string>([
       typeof nextData.hostId === "string" ? nextData.hostId : "",
       ...(Array.isArray(nextData.assignedBrokerIds) ? nextData.assignedBrokerIds.filter((id): id is string => typeof id === "string") : []),
@@ -156,7 +158,6 @@ export async function upsertListing(params: {
     publishedAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
-  await notifyListingStatusChange(newRef.id, null, cleanPayload).catch(() => undefined);
   const brokerIds = new Set<string>([
     typeof cleanPayload.hostId === "string" ? cleanPayload.hostId : "",
     ...(Array.isArray(cleanPayload.assignedBrokerIds) ? cleanPayload.assignedBrokerIds.filter((id): id is string => typeof id === "string") : []),

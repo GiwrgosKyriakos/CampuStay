@@ -1,5 +1,5 @@
 import { getFirestore } from "firebase-admin/firestore";
-import { getGeminiModel } from "./geminiClient";
+import { getGeminiModel, recordGeminiUsage, type AiUsage } from "./geminiClient";
 
 export interface FeedbackSentimentAnalysis {
   overallSentiment: "positive" | "neutral" | "negative";
@@ -72,6 +72,7 @@ function parseSentimentResult(text: string): FeedbackSentimentAnalysis {
 
 export async function analyzeShowingFeedbackSentiment(
   apartmentId: string,
+  usage?: AiUsage,
 ): Promise<FeedbackSentimentAnalysis> {
   let feedbackSnapshot;
   try {
@@ -114,6 +115,7 @@ export async function analyzeShowingFeedbackSentiment(
 
   try {
     const result = await getGeminiModel().generateContent(prompt);
+    recordGeminiUsage(result, usage);
     return parseSentimentResult(result.response.text());
   } catch {
     return fallbackSentiment("Η υπηρεσία ανάλυσης δεν είναι διαθέσιμη αυτή τη στιγμή.");

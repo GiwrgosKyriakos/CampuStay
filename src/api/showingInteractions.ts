@@ -1,6 +1,8 @@
 import { addDoc, collection, doc, serverTimestamp, setDoc } from "firebase/firestore";
+import { httpsCallable } from "firebase/functions";
 
 import { db } from "@/src/config/firebase";
+import { firebaseFunctions } from "@/src/config/functions";
 import { updateBrokerNote, type BrokerNote } from "@/src/api/brokerCalendar";
 
 export interface PostVisitFeedbackInput {
@@ -21,10 +23,14 @@ export interface PostVisitFeedbackInput {
   submittedByCoveringBrokerId?: string;
 }
 
+export async function markShowingFeedbackSubmitted(appointmentId: string): Promise<void> {
+  const callable = httpsCallable<{ appointmentId: string }, { appointmentId: string; submittedBy: string }>(firebaseFunctions, "recordShowingFeedbackCallable");
+  await callable({ appointmentId });
+}
+
 export async function savePostVisitFeedback(input: PostVisitFeedbackInput): Promise<string> {
   const apartmentId = input.note.apartmentId;
   if (!apartmentId) throw new Error("Δεν βρέθηκε διαμέρισμα για την επίσκεψη.");
-
   const clientId = input.note.clientId ?? (input.isClient ? input.loggedByUserId : "");
   const brokerId = input.note.brokerId;
   const scores = [input.clientPriceScore, input.clientLayoutScore, input.clientConditionScore];
@@ -39,6 +45,7 @@ export async function savePostVisitFeedback(input: PostVisitFeedbackInput): Prom
     clientName: input.clientName,
     brokerId,
     type: "showing",
+    note: input.isClient ? input.clientNotes ?? "" : input.brokerAssessmentNotes ?? "",
     loggedByUserId: input.loggedByUserId,
     createdAt: serverTimestamp(),
     scheduledDate: input.note.scheduledDate ?? input.note.date,
@@ -94,15 +101,19 @@ export async function savePostVisitFeedback(input: PostVisitFeedbackInput): Prom
   }
 
   const submittedBy = { ...(input.note.feedbackSubmittedBy ?? {}), [input.loggedByUserId]: true };
-  await updateBrokerNote(input.note.calendarOwnerId ?? input.note.brokerId, input.note.id, {
-    feedbackSubmittedBy: submittedBy,
-    ...(input.submittedByCoveringBrokerId ? { submittedByCoveringBrokerId: input.submittedByCoveringBrokerId } : {}),
-  });
-  if (input.note.primaryBrokerId && input.note.primaryNoteId && input.note.primaryBrokerId !== input.note.calendarOwnerId) {
-    await updateBrokerNote(input.note.primaryBrokerId, input.note.primaryNoteId, {
-      feedbackSubmittedBy: { ...(input.note.feedbackSubmittedBy ?? {}), [input.loggedByUserId]: true },
+  if (input.note.appointmentId) {
+    await markShowingFeedbackSubmitted(input.note.appointmentId);
+  } else {
+    await updateBrokerNote(input.note.calendarOwnerId ?? input.note.brokerId, input.note.id, {
+      feedbackSubmittedBy: submittedBy,
       ...(input.submittedByCoveringBrokerId ? { submittedByCoveringBrokerId: input.submittedByCoveringBrokerId } : {}),
     });
+    if (input.note.primaryBrokerId && input.note.primaryNoteId && input.note.primaryBrokerId !== input.note.calendarOwnerId) {
+      await updateBrokerNote(input.note.primaryBrokerId, input.note.primaryNoteId, {
+        feedbackSubmittedBy: { ...(input.note.feedbackSubmittedBy ?? {}), [input.loggedByUserId]: true },
+        ...(input.submittedByCoveringBrokerId ? { submittedByCoveringBrokerId: input.submittedByCoveringBrokerId } : {}),
+      });
+    }
   }
   return interaction.id;
 }

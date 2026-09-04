@@ -11,10 +11,12 @@ import {
   type User as FirebaseUser,
 } from "firebase/auth";
 import { collection, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, setDoc, where, writeBatch } from "firebase/firestore";
+import { httpsCallable } from "firebase/functions";
 
 import { storage } from "@/src/utils/storage";
 import { setUserIdCache } from "@/src/utils/userId";
 import { db, firebaseAuth } from "@/src/config/firebase";
+import { firebaseFunctions } from "@/src/config/functions";
 import { isBrokerOrAgencyUser } from "@/src/utils/roles";
 
 const TOKEN_KEY = "auth_token";
@@ -189,9 +191,10 @@ async function claimManualClientData(firebaseUser: FirebaseUser): Promise<void> 
         updatedAt: Date.now(),
       }, { merge: true });
 
+      const migrateLegacyDeals = httpsCallable<{ profileId: string; clientId: string }, { migrated: number; skipped: number }>(firebaseFunctions, "migrateLegacyDealsCallable");
+      await migrateLegacyDeals({ profileId: profileDoc.id, clientId: firebaseUser.uid });
       const dealsSnapshot = await getDocs(collection(profileDoc.ref, "deals"));
       for (const deal of dealsSnapshot.docs) {
-        batch.set(doc(newProfileRef, "deals", deal.id), { ...deal.data(), clientId: firebaseUser.uid }, { merge: true });
         batch.delete(deal.ref);
       }
       batch.delete(profileDoc.ref);

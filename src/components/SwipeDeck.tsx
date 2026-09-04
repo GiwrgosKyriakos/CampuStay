@@ -26,7 +26,7 @@ const SWIPE_THRESHOLD = SCREEN_W * 0.28;
 const OUT_X = SCREEN_W * 1.5;
 
 function getQuizAnswer(answers: Record<string, string>, key: "smoking" | "pets"): string | null {
-  const aliases = key === "smoking" ? ["q7_smoke", "q7"] : ["q8_pets", "q8"];
+  const aliases = key === "smoking" ? ["q7_smoke", "q7", "q5"] : ["q8_pets", "q8", "q13"];
   return aliases.map((alias) => answers[alias]?.trim()).find(Boolean) ?? null;
 }
 
@@ -284,6 +284,8 @@ const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck(
             </Text>
           </View>
         </View>
+      </View>
+      <View style={styles.criteriaOverlay} pointerEvents="none">
         <QuizCompatibilityBadges profileAnswers={p.quizAnswers ?? {}} currentAnswers={currentQuizAnswers} colors={colors} styles={styles} />
       </View>
     </View>
@@ -339,7 +341,8 @@ function createStyles(colors: ThemeColors) {
       elevation: 4,
     },
     matchBadgeText: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onSurfaceInverse },
-    quizBadgesRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4, flexWrap: "wrap" },
+    criteriaOverlay: { position: "absolute", top: spacing.md + 38, right: spacing.md, zIndex: 2, maxWidth: "48%" },
+    quizBadgesRow: { alignItems: "flex-end", gap: 6 },
     quizPillBadge: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(26, 26, 26, 0.78)", paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.pill, borderWidth: 1, borderColor: "rgba(255, 255, 255, 0.18)" },
     quizPillBadgeMutualMatch: { backgroundColor: colors.brand, borderColor: colors.brandSecondary },
     quizPillText: { fontFamily: fonts.bold, fontSize: 10, color: "#FFFFFF" },

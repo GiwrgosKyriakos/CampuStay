@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.analyzeComparativeMarket = analyzeComparativeMarket;
+exports.persistCmaHistory = persistCmaHistory;
 exports.generateCmaReport = generateCmaReport;
 const firestore_1 = require("firebase-admin/firestore");
 const geminiClient_1 = require("./geminiClient");
@@ -74,15 +75,15 @@ async function loadCmaData(input) {
         sqm: (input.sqm ?? numberValue(apartmentData.sqm ?? apartmentData.size)) || undefined,
         rooms: (input.rooms ?? numberValue(apartmentData.rooms ?? apartmentData.bedrooms)) || undefined,
         floor: (input.floor ?? numberValue(apartmentData.floor)) || undefined,
-        targetPrice: (input.targetPrice ?? numberValue(apartmentData.price ?? apartmentData.rent)) || undefined,
+        targetPrice: (input.targetPrice ?? numberValue(apartmentData[input.transactionType === "sale" ? "price" : "rent"])) || undefined,
     };
     let listingSnapshot = null;
     try {
         const query = input.area || storedArea
-            ? db.collection("apartments").where("area", "==", input.area ?? storedArea).limit(25)
+            ? db.collection("apartments").where("transactionType", "==", input.transactionType).where("area", "==", input.area ?? storedArea).limit(25)
             : storedMunicipality
-                ? db.collection("apartments").where("municipality", "==", storedMunicipality).limit(25)
-                : db.collection("apartments").limit(25);
+                ? db.collection("apartments").where("transactionType", "==", input.transactionType).where("municipality", "==", storedMunicipality).limit(25)
+                : db.collection("apartments").where("transactionType", "==", input.transactionType).limit(25);
         listingSnapshot = await query.get();
     }
     catch {
@@ -92,7 +93,7 @@ async function loadCmaData(input) {
     const comparables = (listingSnapshot?.docs ?? []).filter((document) => document.id !== input.apartmentId).map((document) => {
         const data = document.data();
         const sqm = numberValue(data.sqm ?? data.size);
-        const price = numberValue(data.price ?? data.rent);
+        const price = numberValue(data[input.transactionType === "sale" ? "price" : "rent"]);
         if (sqm <= 0 || price <= 0)
             return null;
         const comparable = {
@@ -120,9 +121,10 @@ async function loadCmaData(input) {
     }).filter((value) => value !== null).slice(0, 10);
     return { subject, comparables, legacyComparables };
 }
-async function analyzeComparativeMarket(input) {
+async function analyzeComparativeMarket(input, usage) {
     const normalizedInput = {
         apartmentId: stringValue(input?.apartmentId),
+        transactionType: input?.transactionType,
         targetPrice: numberValue(input?.targetPrice) || undefined,
         area: stringValue(input?.area) || undefined,
         sqm: numberValue(input?.sqm) || undefined,
@@ -131,17 +133,33 @@ async function analyzeComparativeMarket(input) {
     };
     const { subject, comparables } = await loadCmaData(normalizedInput);
     const fallback = buildFallback(subject, comparables);
-    const prompt = `Είσαι πιστοποιημένος αναλυτής αποτίμησης ακινήτων στην ελληνική αγορά.\nΑνάλυσε το ακίνητο-στόχο και τα συγκρίσιμα ακίνητα. Υπολόγισε προσαρμογές για τετραγωνικά, δωμάτια, όροφο, κατάσταση και τοπική θέση. Μην επινοήσεις δεδομένα.\n\nΑκίνητο-στόχος: ${JSON.stringify(subject)}\nΣυγκρίσιμα: ${JSON.stringify(comparables)}\n\nΕπίστρεψε αυστηρά έγκυρο JSON χωρίς markdown ή άλλο κείμενο, με ακριβώς αυτή τη δομή. Όλα τα κείμενα στα Ελληνικά (EL-GR):\n{"suggestedPriceRange":{"min":0,"max":0,"optimal":0},"pricePerSqmEstimate":0,"marketCompetitiveness":"low" | "fair" | "high" | "overpriced","keyDifferentiators":["..."],"marketInsightsSummary":"..."}`;
+    const unit = normalizedInput.transactionType === "rent" ? "μηνιαίο μίσθωμα σε €/μήνα" : "τιμή πώλησης σε €";
+    const prompt = `Είσαι πιστοποιημένος αναλυτής αποτίμησης ακινήτων στην ελληνική αγορά.\nΑνάλυσε το ακίνητο-στόχο και τα συγκρίσιμα ακίνητα. Η συναλλαγή είναι ${normalizedInput.transactionType}: όλες οι τιμές αφορούν αποκλειστικά ${unit}. Υπολόγισε προσαρμογές για τετραγωνικά, δωμάτια, όροφο, κατάσταση και τοπική θέση. Μην επινοήσεις δεδομένα και μην αναμείξεις μισθώματα με τιμές πώλησης.\n\nΑκίνητο-στόχος: ${JSON.stringify(subject)}\nΣυγκρίσιμα: ${JSON.stringify(comparables)}\n\nΕπίστρεψε αυστηρά έγκυρο JSON χωρίς markdown ή άλλο κείμενο, με ακριβώς αυτή τη δομή. Όλα τα κείμενα στα Ελληνικά (EL-GR):\n{"suggestedPriceRange":{"min":0,"max":0,"optimal":0},"pricePerSqmEstimate":0,"marketCompetitiveness":"low" | "fair" | "high" | "overpriced","keyDifferentiators":["..."],"marketInsightsSummary":"..."}`;
     try {
         const response = await (0, geminiClient_1.getGeminiModel)().generateContent(prompt);
-        return normalizeResult(parseJsonObject(response.response.text()), fallback);
+        (0, geminiClient_1.recordGeminiUsage)(response, usage);
+        return { ...normalizeResult(parseJsonObject(response.response.text()), fallback), comparablesUsed: comparables.length };
     }
     catch {
-        return fallback;
+        return { ...fallback, comparablesUsed: comparables.length };
     }
 }
-async function generateCmaReport(apartmentId) {
-    const { subject, comparables, legacyComparables } = await loadCmaData({ apartmentId });
+async function persistCmaHistory(apartmentId, transactionType, result) {
+    const reportRef = (0, firestore_1.getFirestore)().collection(`apartments/${apartmentId}/cma_history`).doc();
+    const createdAt = firestore_1.Timestamp.now();
+    await reportRef.set({
+        reportId: reportRef.id,
+        apartmentId,
+        transactionType,
+        createdAt,
+        suggestedPriceRange: result.suggestedPriceRange,
+        comparablesUsed: result.comparablesUsed ?? 0,
+        optimalPrice: result.suggestedPriceRange.optimal,
+    });
+    return { reportId: reportRef.id, createdAt: createdAt.toMillis() };
+}
+async function generateCmaReport(apartmentId, transactionType) {
+    const { subject, comparables, legacyComparables } = await loadCmaData({ apartmentId, transactionType });
     const analysis = await analyzeComparativeMarket(subject);
     return {
         id: `cma-${apartmentId}`,

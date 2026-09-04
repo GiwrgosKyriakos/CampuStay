@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
@@ -8,6 +8,7 @@ import { db } from "@/src/config/firebase";
 import { createRoommateGroupChat } from "@/src/api/chat";
 import { radius, spacing, fonts, fontSize } from "@/src/theme";
 import { useTheme } from "@/src/context/ThemeContext";
+import BaseBottomSheet from "@/src/components/common/BaseBottomSheet";
 
 type GroupCandidate = {
   id: string;
@@ -107,16 +108,15 @@ export default function CreateRoommateGroupModal({ visible, userId, onClose, onC
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <View style={styles.sheet} testID="create-roommate-group-modal">
+    <BaseBottomSheet visible={visible} onClose={onClose} scrollable>
+        <View style={styles.content} testID="create-roommate-group-modal">
           <View style={styles.header}>
             <View><Text style={styles.title}>Δημιουργία Ομαδικής</Text><Text style={styles.subtitle}>Επίλεξε τουλάχιστον 2 συμμετέχοντες</Text></View>
             <Pressable onPress={onClose} hitSlop={10}><Ionicons name="close-outline" size={24} color={colors.onSurface} /></Pressable>
           </View>
           {selectedHost ? <Text style={styles.warning}>Μπορεί να προστεθεί το πολύ 1 Host με ακίνητο στην ομαδική</Text> : null}
           {loading ? <ActivityIndicator color={colors.brand} /> : (
-            <ScrollView contentContainerStyle={styles.list} bounces={false}>
+            <View style={styles.list}>
               {candidates.map((candidate) => {
                 const selected = selectedIds.includes(candidate.id);
                 const disabled = candidate.isHost && !!selectedHost && !selected;
@@ -127,20 +127,18 @@ export default function CreateRoommateGroupModal({ visible, userId, onClose, onC
                 </Pressable>;
               })}
               {candidates.length === 0 ? <Text style={styles.empty}>Δεν υπάρχουν διαθέσιμα matches.</Text> : null}
-            </ScrollView>
+            </View>
           )}
           <Pressable style={[styles.createButton, selectedIds.length < 2 && styles.createDisabled]} disabled={selectedIds.length < 2 || creating} onPress={() => void createGroup()} testID="create-roommate-group-submit">
             {creating ? <ActivityIndicator color={colors.onBrand} /> : <><Ionicons name="people-circle-outline" size={20} color={colors.onBrand} /><Text style={styles.createText}>Δημιουργία Ομαδικής</Text></>}
           </Pressable>
         </View>
-      </View>
-    </Modal>
+    </BaseBottomSheet>
   );
 }
 
 const createStyles = (colors: ReturnType<typeof useTheme>["colors"]) => StyleSheet.create({
-  backdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.45)" },
-  sheet: { maxHeight: "85%", backgroundColor: colors.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg, gap: spacing.md },
+  content: { gap: spacing.md, padding: spacing.lg },
   header: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
   title: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface },
   subtitle: { marginTop: spacing.xs, fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },

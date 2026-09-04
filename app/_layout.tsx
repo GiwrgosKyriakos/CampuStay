@@ -2,7 +2,7 @@ import * as Notifications from 'expo-notifications';
 import { Stack, useRouter, useSegments, useRootNavigationState } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import * as NavigationBar from "expo-navigation-bar";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Animated, Easing, LogBox, Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -331,16 +331,38 @@ function AppContent() {
 export default function RootLayout() {
   const [splashReady, setSplashReady] = useState(false);
   const router = useRouter();
+  const rootNavigationState = useRootNavigationState();
+  const [pendingNotificationResponse, setPendingNotificationResponse] = useState<Notifications.NotificationResponse | null>(null);
+  const queuedNotificationKeyRef = useRef<string | null>(null);
+
+  const queueNotificationResponse = (response: Notifications.NotificationResponse) => {
+    const responseKey = `${response.notification.request.identifier}:${response.actionIdentifier}`;
+    if (queuedNotificationKeyRef.current === responseKey) return;
+    queuedNotificationKeyRef.current = responseKey;
+    setPendingNotificationResponse(response);
+  };
 
   useEffect(() => {
-    // Listener για όταν ο χρήστης ΠΑΤΑΕΙ την ειδοποίηση
+    let mounted = true;
+    void Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (mounted && response) queueNotificationResponse(response);
+    });
     const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
-      setTimeout(() => { void handleNotificationResponse(response, router).catch((error) => console.warn("[Notifications] Response handling failed:", error)); }, 100);
+      queueNotificationResponse(response);
     });
 
-    // Cleanup του listener όταν το component γίνει unmount
-    return () => subscription.remove();
-  }, [router]);
+    return () => {
+      mounted = false;
+      subscription.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!pendingNotificationResponse || !rootNavigationState?.key) return;
+    const response = pendingNotificationResponse;
+    setPendingNotificationResponse(null);
+    void handleNotificationResponse(response, router).catch((error) => console.warn("[Notifications] Response handling failed:", error));
+  }, [pendingNotificationResponse, rootNavigationState?.key, router]);
 
   //useEffect(() => {
   //  SplashScreen.preventAutoHideAsync()

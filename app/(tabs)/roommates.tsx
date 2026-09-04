@@ -38,21 +38,18 @@ function normalizeMatchGender(gender: string | null | undefined): MatchUserProfi
 }
 
 function buildCompatibilityQuiz(answers: Record<string, string>): CompatibilityQuizAnswers {
-  // 1. Δηλώνουμε το quiz ως any προσωρινά για να μας αφήσει να το γεμίσουμε ελεύθερα
-  const quiz: any = {};
-
-  // 2. Κάνουμε ένα απλό, καθαρό loop χωρίς πολύπλοκα τρέιλερ από casts
-  Object.keys(answers).forEach((key) => {
+  const quiz: CompatibilityQuizAnswers = {};
+  const knownKeys: (keyof CompatibilityQuiz)[] = [
+    "q1_bills", "q2_sharing", "q3_food", "q4_cleanliness", "q5_cleaning_freq", "q6_dishes", "q7_smoke", "q8_pets",
+    "q9_sleep", "q10_quiet", "q11_guests", "q12_parties", "q13_cook", "q14_drinking", "q15_roommate_type",
+  ];
+  knownKeys.forEach((key) => {
     const value = answers[key];
-    
-    if (typeof value === "string" && value.trim().length > 0) {
-      // Τώρα το TypeScript δεν παραπονιέται καθόλου εδώ!
-      quiz[key] = value;
+    if (value?.trim()) {
+      Object.assign(quiz, { [key]: value as CompatibilityQuiz[typeof key] });
     }
   });
-
-  // 3. Εδώ γίνεται η μαγεία: Επιστρέφουμε το έτοιμο αντικείμενο κάνοντάς το cast ΜΙΑ ΚΑΙ ΕΞΩ
-  return quiz as CompatibilityQuizAnswers;
+  return quiz;
 }
 
 //function buildCompatibilityQuiz(answers: Record<string, string>): CompatibilityQuizAnswers {
@@ -236,10 +233,10 @@ useEffect(() => {
       candidates
         .filter(
           (p) =>
-            (filters.gender === "all" ||
-              (filters.gender === "female" && p.gender === "Female") ||
-              (filters.gender === "male" && p.gender === "Male") ||
-              (filters.gender === "nonBinary" && p.gender === "Non-binary")) &&
+            (filters.gender.length === 0 ||
+              (filters.gender.includes("female") && p.gender === "Female") ||
+              (filters.gender.includes("male") && p.gender === "Male") ||
+              (filters.gender.includes("nonBinary") && p.gender === "Non-binary")) &&
             p.age >= filters.ageMin &&
             p.age <= filters.ageMax &&
             p.budget >= filters.budgetMin &&
@@ -249,7 +246,7 @@ useEffect(() => {
     [candidates, filters],
   );
 
-  const deckKey = `${filters.gender}-${filters.ageMin}-${filters.ageMax}-${filters.budgetMin}-${filters.budgetMax}-${candidates.length}`;
+  const deckKey = `${filters.gender.join(",")}-${filters.ageMin}-${filters.ageMax}-${filters.budgetMin}-${filters.budgetMax}-${candidates.length}`;
 
   const openSheet = useCallback(() => setSheetVisible(true), []);
   const closeSheet = useCallback(() => setSheetVisible(false), []);
@@ -372,9 +369,11 @@ useEffect(() => {
             ) : null}
           </View>
         </View>
-        <Pressable style={styles.filterPill} onPress={openSheet} testID="filter-open-button">
-          <Text style={styles.filterText}>{t("roommates.preferences")}</Text>
-        </Pressable>
+        {activeView === "deck" ? (
+          <Pressable style={styles.filterPill} onPress={openSheet} testID="filter-open-button">
+            <Text style={styles.filterText}>{t("roommates.preferences")}</Text>
+          </Pressable>
+        ) : null}
       </View>
 
       {activeView === "calendar" && canUseCalendar ? (
@@ -443,7 +442,7 @@ useEffect(() => {
 }
 
 const createStyles = (colors: ThemeColors) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.surface },
+  container: { flex: 1, backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, overflow: "hidden" },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md, gap: spacing.md },
   brandRow: { flexDirection: "row", alignItems: "center" },

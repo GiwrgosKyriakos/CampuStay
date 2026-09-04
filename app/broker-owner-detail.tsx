@@ -12,6 +12,7 @@ import { uploadListingDocumentAsync } from "@/src/api/imageUpload";
 import { useTheme } from "@/src/context/ThemeContext";
 import { useAuth } from "@/src/context/auth";
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
+import BaseBottomSheet from "@/src/components/common/BaseBottomSheet";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import { OWNER_MOTIVATION_OPTIONS } from "@/src/screens/CreateListingScreen";
 import type { BrokerApartment, BrokerDocument } from "./(tabs)/broker";
@@ -144,10 +145,10 @@ export default function BrokerOwnerDetailScreen() {
       })}
       {!loading && apartments.length === 0 ? <Text style={styles.emptyHint}>Δεν βρέθηκαν ακίνητα.</Text> : null}
     </ScrollView>
-    <Modal visible={selectedApartment !== null} animationType="slide" transparent onRequestClose={() => setDocumentApartmentId(null)}><View style={styles.modalBackdrop}><View style={[styles.repositorySheet, { paddingBottom: insets.bottom + spacing.lg }]}>
+    <BaseBottomSheet visible={selectedApartment !== null} onClose={() => setDocumentApartmentId(null)} maxHeight="90%" scrollable={false}><View style={[styles.repositorySheet, { paddingBottom: insets.bottom + spacing.lg }]}>
       <View style={styles.modalHeader}><View><Text style={styles.modalTitle}>Αρχειοθήκη Εγγράφων</Text><Text style={styles.modalSubtitle}>{selectedApartment?.title} · {documentCount}/{DOCUMENT_CATEGORIES.length}</Text></View><Pressable onPress={() => setDocumentApartmentId(null)} hitSlop={8}><Ionicons name="close" size={24} color={colors.onSurface} /></Pressable></View>
       <ScrollView showsVerticalScrollIndicator={false}>{selectedApartment ? DOCUMENT_CATEGORIES.map((category) => { const files = selectedApartment.documents?.[category.key] ?? []; return <View key={category.key} style={styles.documentBlock}><View style={styles.documentRow}><Text style={styles.documentTitle}>{category.title}</Text><Pressable onPress={() => void attachDocument(selectedApartment, category.key)} disabled={uploadingCategory === category.key} hitSlop={8} testID={`broker-owner-document-attach-${category.key}`}>{uploadingCategory === category.key ? <ActivityIndicator size="small" color={colors.brand} /> : <Ionicons name="attach-outline" size={21} color={colors.brand} />}</Pressable></View>{files.map((file) => <View key={file.id} style={styles.fileRow}><Pressable style={styles.fileNameWrap} onPress={() => void Linking.openURL(file.url)}><Ionicons name="document-outline" size={18} color={colors.onSurfaceTertiary} /><Text style={styles.fileName} numberOfLines={1}>{file.name}</Text></Pressable><Pressable onPress={() => void removeDocument(selectedApartment, category.key, file.id)} hitSlop={8}><Ionicons name="trash-outline" size={18} color={colors.error} /></Pressable></View>)}</View>; }) : null}</ScrollView>
-    </View></View></Modal>
+    </View></BaseBottomSheet>
     <Modal visible={motivationApartmentId !== null} transparent animationType="fade" onRequestClose={() => setMotivationApartmentId(null)}><View style={styles.modalBackdrop}><View style={[styles.motivationSheet, { paddingBottom: insets.bottom + spacing.lg }]}><Text style={styles.modalTitle}>Κίνητρο ιδιοκτήτη</Text>{OWNER_MOTIVATION_OPTIONS.map((option) => <Pressable key={option} style={styles.motivationOption} onPress={() => { const apartment = apartments.find((item) => item.id === motivationApartmentId); if (!apartment) return; void updateDoc(doc(db, "apartments", apartment.id), { "ownerDetails.motivationType": option, "ownerDetails.motivation": option, updatedAt: serverTimestamp() }).then(() => { setApartments((previous) => previous.map((item) => item.id === apartment.id ? { ...item, ownerDetails: { ...item.ownerDetails, motivation: option } } : item)); setMotivationApartmentId(null); }); }}><Text style={styles.motivationOptionText}>{option}</Text><Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} /></Pressable>)}<Pressable style={styles.cancelButton} onPress={() => setMotivationApartmentId(null)}><Text style={styles.cancelButtonText}>Ακύρωση</Text></Pressable></View></View></Modal>
   </View>;
 }

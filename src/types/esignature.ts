@@ -7,6 +7,20 @@ export type ContractType =
 export type ContractStatus = "draft" | "pending_signatures" | "signed" | "cancelled";
 
 export type ContractSignerRole = "client" | "owner" | "roommate" | "broker";
+export type IdDocumentType = "national_id" | "passport";
+
+export interface IdCaptureSideMetadata {
+  width: number;
+  height: number;
+  fileSizeBytes: number;
+  idCaptureTimestamp: number;
+  idDocumentType: IdDocumentType;
+}
+
+export interface IdCaptureMetadata {
+  front?: IdCaptureSideMetadata;
+  back?: IdCaptureSideMetadata;
+}
 
 export interface SignatureSignerEvidence {
   signerId: string;
@@ -24,11 +38,18 @@ export interface SignatureSignerEvidence {
     accuracyMeters: number;
   };
   otpVerified: boolean;
+  otpVerificationId?: string;
   otpVerifiedAt?: number;
   idCardPhotoUrl?: string;
   idCardBackPhotoUrl?: string;
+  idCaptureTimestamp?: number;
+  idDocumentType?: IdDocumentType;
+  idCaptureMetadata?: IdCaptureMetadata;
   ipAddress?: string;
   deviceInfo?: string;
+  evidenceId?: string;
+  serverTimestamp?: number;
+  deviceAttestation?: string;
 }
 
 export interface DigitalContractDocument {
@@ -36,6 +57,8 @@ export interface DigitalContractDocument {
   agencyId: string;
   contractType: ContractType;
   title: string;
+  templateVersion?: string;
+  propertyCode?: string;
   apartmentId?: string;
   apartmentAddress?: string;
   dealId?: string;
@@ -54,6 +77,13 @@ export interface DigitalContractDocument {
     houseRulesConfig?: Record<string, unknown>;
     holdingDepositAmount?: number;
     assignmentMode?: "simple" | "exclusive";
+    durationMonths?: number;
+    agreedListingPrice?: number;
+    utilitySplitPercentages?: Record<string, number>;
+    holdingDepositTerms?: { amount: number; refundabilityConditions: string; [key: string]: unknown };
+    bankReference?: string;
+    cashReceiptNote?: string;
+    refundabilityConditions?: string;
     [key: string]: unknown;
   };
   signers: SignatureSignerEvidence[];
@@ -61,6 +91,7 @@ export interface DigitalContractDocument {
   pdfStoragePath?: string;
   pdfStorageUrl?: string;
   pdfSha256Hash?: string;
+  finalDocumentHash?: string;
   finalPdfStoragePath?: string;
   createdAt: number;
   completedAt?: number;
@@ -100,7 +131,7 @@ export interface ContractAgencyData {
 }
 
 export interface ContractTemplateData {
-  document: Pick<DigitalContractDocument, "id" | "contractType" | "title" | "contractPayload" | "signers" | "createdAt">;
+  document: Pick<DigitalContractDocument, "id" | "contractType" | "title" | "templateVersion" | "propertyCode" | "apartmentAddress" | "contractPayload" | "signers" | "createdAt" | "pdfSha256Hash" | "finalDocumentHash">;
   agency: ContractAgencyData;
   property?: ContractPropertyData;
   participants: ContractParticipant[];
@@ -111,6 +142,8 @@ export interface CreateContractInput {
   agencyId: string;
   contractType: ContractType;
   title: string;
+  templateVersion?: string;
+  propertyCode?: string;
   createdByUserId: string;
   brokerId?: string;
   clientId?: string;
@@ -127,6 +160,9 @@ export interface CreateContractInput {
 
 export interface ContractDocumentReference {
   contractId: string;
+  type?: ContractType;
+  signedAt?: number;
+  documentUrl?: string;
   contractType: ContractType;
   title: string;
   url?: string;

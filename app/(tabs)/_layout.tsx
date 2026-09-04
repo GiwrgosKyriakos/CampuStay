@@ -16,7 +16,7 @@ export default function TabsLayout() {
   const isExecutive = auth.agencyRole === "ceo" || auth.agencyRole === "secretary";
   const effectiveBroker = isBroker || isExecutive;
   const isSeekerUser = !isBroker && !notLookingForRoommate;
-  const initialRouteName = isExecutive ? "analytics" : effectiveBroker ? "calendar" : isSeekerUser ? "explore-feed" : notLookingForRoommate ? "apartments" : "roommates";
+  const initialRouteName = isExecutive ? "analytics" : effectiveBroker ? "calendar" : isSeekerUser ? "explore-feed" : "apartments";
 
   return (
     <Tabs
@@ -36,7 +36,7 @@ export default function TabsLayout() {
         options={{
           title: "Calendar",
           tabBarIcon: ({ color, size }) => <Ionicons color={color} name="calendar-outline" size={size} />,
-          href: effectiveBroker ? undefined : null,
+          href: effectiveBroker && !isExecutive ? undefined : notLookingForRoommate ? undefined : null,
         }}
       />
       <Tabs.Screen
@@ -50,6 +50,7 @@ export default function TabsLayout() {
         name="matches"
         options={{
           title: t("tabs.matches"),
+          href: effectiveBroker && !isExecutive ? undefined : !effectiveBroker ? undefined : null,
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons color={color} name={isBroker ? (focused ? "mail" : "mail-outline") : (focused ? "heart" : "heart-outline")} size={size} />
           ),
@@ -60,7 +61,7 @@ export default function TabsLayout() {
         options={{
           title: t("feed.reelsTitle"),
           tabBarIcon: ({ color, size, focused }) => <Ionicons color={color} name={focused ? "play-circle" : "play-circle-outline"} size={size} />,
-          href: isSeekerUser ? undefined : null,
+          href: !effectiveBroker ? undefined : null,
         }}
       />
       <Tabs.Screen
@@ -83,6 +84,7 @@ export default function TabsLayout() {
         name="apartments"
         options={{
           title: t("tabs.apartments"),
+          href: isExecutive ? null : undefined,
         }}
       />
       <Tabs.Screen
@@ -106,6 +108,14 @@ export default function TabsLayout() {
         options={{
           title: "Pool Oversight",
           tabBarIcon: ({ color, size }) => <Ionicons color={color} name="shield-checkmark-outline" size={size} />,
+          href: canViewSettlements ? undefined : null,
+        }}
+      />
+      <Tabs.Screen
+        name="marketing-spend"
+        options={{
+          title: "Marketing spend",
+          tabBarIcon: ({ color, size }) => <Ionicons color={color} name="megaphone-outline" size={size} />,
           href: canViewSettlements ? undefined : null,
         }}
       />

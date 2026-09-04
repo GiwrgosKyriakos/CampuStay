@@ -11,6 +11,7 @@ interface ApartmentLocationMapProps {
   longitude?: number;
   cityCoordinates: { latitude: number; longitude: number };
   hasExactLocation: boolean;
+  transactionType?: "sale" | "rent";
   height?: number;
 }
 

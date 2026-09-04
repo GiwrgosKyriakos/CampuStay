@@ -11,6 +11,7 @@ export interface FeedbackSentimentAnalysis {
 
 export interface CmaAnalysisInput {
   apartmentId: string;
+  transactionType: "sale" | "rent";
   targetPrice?: number;
   area?: string;
   sqm?: number;
@@ -24,10 +25,13 @@ export interface CmaAnalysisResult {
   marketCompetitiveness: "low" | "fair" | "high" | "overpriced";
   keyDifferentiators: string[];
   marketInsightsSummary: string;
+  comparablesUsed?: number;
+  reportId?: string;
+  createdAt?: number;
 }
 
 export interface CopywriterInput {
-  apartmentId?: string;
+  apartmentId: string;
   title: string;
   area: string;
   sqm: number;
@@ -54,9 +58,15 @@ export interface OwnerReportResult {
   reportPeriod: string;
   executiveSummary: string;
   showingMetrics: { totalVisits: number; positiveSignalsCount: number; concernsCount: number };
+  totalViews: number;
+  totalInquiries: number;
+  averageRating: number;
+  generatedPdfUrl?: string;
   buyerFeedbackThemes: { theme: string; sentiment: "positive" | "negative" | "neutral" }[];
   strategicRecommendations: string[];
   ownerActionItems: string[];
+  reportId?: string;
+  createdAt?: number;
 }
 
 export type AiErrorCode =
@@ -139,6 +149,9 @@ function normalizeCma(value: unknown): CmaAnalysisResult {
     marketCompetitiveness,
     keyDifferentiators: asStringList(value.keyDifferentiators, "διαφοροποιητικά στοιχεία"),
     marketInsightsSummary: asString(value.marketInsightsSummary, "σύνοψη αγοράς"),
+    ...(typeof value.comparablesUsed === "number" ? { comparablesUsed: value.comparablesUsed } : {}),
+    ...(typeof value.reportId === "string" ? { reportId: value.reportId } : {}),
+    ...(typeof value.createdAt === "number" ? { createdAt: value.createdAt } : {}),
   };
 }
 
@@ -165,9 +178,15 @@ function normalizeOwnerReport(value: unknown): OwnerReportResult {
     reportPeriod: asString(value.reportPeriod, "περίοδο"),
     executiveSummary: asString(value.executiveSummary, "σύνοψη"),
     showingMetrics: { totalVisits: asNumber(showingMetrics.totalVisits, "υποδείξεις"), positiveSignalsCount: asNumber(showingMetrics.positiveSignalsCount, "θετικά σήματα"), concernsCount: asNumber(showingMetrics.concernsCount, "ανησυχίες") },
+    totalViews: asNumber(value.totalViews, "προβολές"),
+    totalInquiries: asNumber(value.totalInquiries, "ερωτήματα"),
+    averageRating: asNumber(value.averageRating, "μέση αξιολόγηση"),
+    ...(typeof value.generatedPdfUrl === "string" && value.generatedPdfUrl.trim() ? { generatedPdfUrl: value.generatedPdfUrl.trim() } : {}),
     buyerFeedbackThemes,
     strategicRecommendations: asStringList(value.strategicRecommendations, "στρατηγικές προτάσεις"),
     ownerActionItems: asStringList(value.ownerActionItems, "ενέργειες ιδιοκτήτη"),
+    ...(typeof value.reportId === "string" ? { reportId: value.reportId } : {}),
+    ...(typeof value.createdAt === "number" ? { createdAt: value.createdAt } : {}),
   };
 }
 
@@ -207,10 +226,12 @@ export function fetchComparativeMarketAnalysis(params: CmaAnalysisInput): Promis
   requireNonNegative(params.sqm, "sqm");
   requireNonNegative(params.rooms, "rooms");
   requireNonNegative(params.floor, "floor");
+  if (params.transactionType !== "sale" && params.transactionType !== "rent") throw new AiServiceError("invalid-argument", "Η παράμετρος transactionType πρέπει να είναι sale ή rent.");
   return callAiFunction("getComparativeMarketAnalysis", { ...params, apartmentId }, normalizeCma);
 }
 
 export function fetchPropertyListingCopy(params: CopywriterInput): Promise<CopywriterResult> {
+  const apartmentId = requireText(params?.apartmentId, "apartmentId");
   const title = requireText(params?.title, "title");
   const area = requireText(params?.area, "area");
   if (!Array.isArray(params?.features) || !params.features.every((feature) => typeof feature === "string")) throw new AiServiceError("invalid-argument", "Η παράμετρος features πρέπει να είναι λίστα κειμένων.");
@@ -218,7 +239,7 @@ export function fetchPropertyListingCopy(params: CopywriterInput): Promise<Copyw
   requireNonNegative(params.bedrooms, "bedrooms");
   requireNonNegative(params.price, "price");
   if (params.tone !== undefined && params.tone !== "professional" && params.tone !== "luxury" && params.tone !== "student_friendly") throw new AiServiceError("invalid-argument", "Η παράμετρος tone δεν είναι έγκυρη.");
-  return callAiFunction("generatePropertyListingCopy", { ...params, title, area }, normalizeCopy);
+  return callAiFunction("generatePropertyListingCopy", { ...params, apartmentId, title, area }, normalizeCopy);
 }
 
 export function fetchOwnerPerformanceReport(apartmentId: string, timeRangeDays?: number): Promise<OwnerReportResult> {

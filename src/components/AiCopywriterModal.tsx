@@ -1,15 +1,18 @@
 import React, { useRef, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import * as Clipboard from "expo-clipboard";
 import { useTheme } from "@/src/context/ThemeContext";
 import { t } from "@/src/locales";
 import { AiServiceError, fetchPropertyListingCopy, type CopywriterResult } from "@/src/services/aiFeatureService";
+import BaseBottomSheet from "@/src/components/common/BaseBottomSheet";
 
 export interface AiCopywriterModalProps {
   visible: boolean;
   onClose: () => void;
   onApply: (value: CopywriterResult) => void;
   specs?: {
+    apartmentId?: string;
     title?: string;
     rooms?: number;
     sqm?: number;
@@ -25,12 +28,16 @@ const tones = [
   { key: "student_friendly", label: "Student friendly" },
 ] as const;
 
+type CopywriterTab = "portal" | "social" | "seo";
+
 export default function AiCopywriterModal({ visible, onClose, onApply, specs }: AiCopywriterModalProps) {
   const { colors } = useTheme();
   const [selectedTone, setSelectedTone] = useState<(typeof tones)[number]["key"]>("professional");
   const [generated, setGenerated] = useState<CopywriterResult | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<CopywriterTab>("portal");
+  const [copiedField, setCopiedField] = useState<"social" | "seo" | null>(null);
   const nextAllowedRequest = useRef(0);
 
   const handleGenerate = async () => {
@@ -40,6 +47,7 @@ export default function AiCopywriterModal({ visible, onClose, onApply, specs }: 
     setErrorText(null);
     try {
       const result = await fetchPropertyListingCopy({
+        apartmentId: specs?.apartmentId ?? "",
         title: specs?.title ?? "Ακίνητο",
         area: specs?.area ?? "Ελλάδα",
         sqm: specs?.sqm ?? 0,
@@ -49,6 +57,8 @@ export default function AiCopywriterModal({ visible, onClose, onApply, specs }: 
         tone: selectedTone,
       });
       setGenerated(result);
+      setActiveTab("portal");
+      setCopiedField(null);
     } catch (error) {
       setErrorText(error instanceof AiServiceError ? error.message : "Δεν ήταν δυνατή η δημιουργία κειμένου.");
     } finally {
@@ -57,9 +67,8 @@ export default function AiCopywriterModal({ visible, onClose, onApply, specs }: 
   };
 
   return (
-    <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <View style={[styles.sheet, { backgroundColor: colors.surface, borderColor: colors.border }]}> 
+    <BaseBottomSheet visible={visible} onClose={onClose} maxHeight="80%">
+        <View style={styles.content}>
           <View style={styles.headerRow}>
             <Text style={[styles.title, { color: colors.onSurface }]}>{t("ai.aiCopywriterTitle")}</Text>
             <Pressable onPress={onClose}>
@@ -88,14 +97,35 @@ export default function AiCopywriterModal({ visible, onClose, onApply, specs }: 
           {errorText ? <View style={styles.errorBlock}><Text style={[styles.errorText, { color: colors.error }]}>{errorText}</Text><Pressable style={[styles.retryButton, { borderColor: colors.error }]} onPress={() => void handleGenerate()} disabled={isGenerating}><Text style={[styles.retryText, { color: colors.error }]}>Επανάληψη</Text></Pressable></View> : null}
 
           {generated ? (
-            <ScrollView style={styles.preview}>
-              <Text style={[styles.headline, { color: colors.onSurface }]}>{generated.portalTitle}</Text>
-              <Text style={[styles.body, { color: colors.onSurfaceTertiary }]}>{generated.portalDescription}</Text>
-              <Text style={[styles.highlightsTitle, { color: colors.onSurface }]}>Highlights</Text>
-              {generated.bulletHighlights.map((highlight) => (
-                <Text key={highlight} style={[styles.highlight, { color: colors.onSurfaceTertiary }]}>• {highlight}</Text>
-              ))}
-            </ScrollView>
+            <View style={styles.preview}>
+              <View style={styles.tabRow}>
+                {(["portal", "social", "seo"] as CopywriterTab[]).map((tab) => (
+                  <Pressable key={tab} onPress={() => setActiveTab(tab)} style={[styles.tab, { borderColor: activeTab === tab ? colors.brand : colors.border, backgroundColor: activeTab === tab ? colors.brandTertiary : colors.surfaceSecondary }]}>
+                    <Text style={[styles.tabText, { color: activeTab === tab ? colors.brand : colors.onSurfaceTertiary }]}>{tab === "portal" ? "Portal Copy" : tab === "social" ? "Social Media" : "SEO & Meta"}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              {activeTab === "portal" ? <>
+                <Text style={[styles.headline, { color: colors.onSurface }]}>{generated.portalTitle}</Text>
+                <Text style={[styles.body, { color: colors.onSurfaceTertiary }]}>{generated.portalDescription}</Text>
+                <Text style={[styles.highlightsTitle, { color: colors.onSurface }]}>Highlights</Text>
+                {generated.bulletHighlights.map((highlight) => <Text key={highlight} style={[styles.highlight, { color: colors.onSurfaceTertiary }]}>• {highlight}</Text>)}
+              </> : null}
+              {activeTab === "social" ? <View style={styles.contentBlock}>
+                <Text style={[styles.fieldLabel, { color: colors.onSurfaceTertiary }]}>Instagram / Facebook caption</Text>
+                <Text style={[styles.body, { color: colors.onSurface }]}>{generated.socialCaption}</Text>
+                <Pressable style={[styles.copyButton, { borderColor: colors.brand }]} onPress={async () => { await Clipboard.setStringAsync(generated.socialCaption); setCopiedField("social"); }}>
+                  <Ionicons name="copy-outline" size={17} color={colors.brand} /><Text style={[styles.copyButtonText, { color: colors.brand }]}>{copiedField === "social" ? "Αντιγράφηκε" : "Copy to Clipboard"}</Text>
+                </Pressable>
+              </View> : null}
+              {activeTab === "seo" ? <View style={styles.contentBlock}>
+                <Text style={[styles.fieldLabel, { color: colors.onSurfaceTertiary }]}>Search tags and keywords</Text>
+                <Text style={[styles.body, { color: colors.onSurface }]}>{generated.seoTags.join(", ")}</Text>
+                <Pressable style={[styles.copyButton, { borderColor: colors.brand }]} onPress={async () => { await Clipboard.setStringAsync(generated.seoTags.join(", ")); setCopiedField("seo"); }}>
+                  <Ionicons name="copy-outline" size={17} color={colors.brand} /><Text style={[styles.copyButtonText, { color: colors.brand }]}>{copiedField === "seo" ? "Αντιγράφηκε" : "Copy to Clipboard"}</Text>
+                </Pressable>
+              </View> : null}
+            </View>
           ) : null}
 
           {generated ? (
@@ -104,14 +134,12 @@ export default function AiCopywriterModal({ visible, onClose, onApply, specs }: 
             </Pressable>
           ) : null}
         </View>
-      </View>
-    </Modal>
+    </BaseBottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, alignItems: "center", justifyContent: "flex-end", backgroundColor: "rgba(15,18,26,0.55)" },
-  sheet: { width: "100%", maxHeight: "80%", borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: 1, padding: 18, gap: 12 },
+  content: { padding: 18, gap: 12 },
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   title: { fontSize: 22, fontWeight: "700" },
   sectionLabel: { fontSize: 13, fontWeight: "700" },
@@ -124,11 +152,18 @@ const styles = StyleSheet.create({
   errorBlock: { gap: 8 },
   retryButton: { alignSelf: "flex-start", borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
   retryText: { fontSize: 13, fontWeight: "700" },
-  preview: { maxHeight: 240, borderRadius: 12, padding: 12 },
+  preview: { borderRadius: 12, padding: 12 },
   headline: { fontSize: 18, fontWeight: "700", marginBottom: 8 },
   body: { fontSize: 14, lineHeight: 22 },
   highlightsTitle: { fontSize: 14, fontWeight: "700", marginTop: 14, marginBottom: 4 },
   highlight: { fontSize: 14, lineHeight: 22 },
+  tabRow: { flexDirection: "row", gap: 6, marginBottom: 14 },
+  tab: { flex: 1, borderWidth: 1, borderRadius: 8, paddingVertical: 9, alignItems: "center" },
+  tabText: { fontSize: 12, fontWeight: "700" },
+  contentBlock: { gap: 10 },
+  fieldLabel: { fontSize: 12, fontWeight: "700" },
+  copyButton: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 7, borderWidth: 1, borderRadius: 9, paddingHorizontal: 11, paddingVertical: 9 },
+  copyButtonText: { fontSize: 12, fontWeight: "700" },
   applyButton: { borderRadius: 12, paddingVertical: 12, alignItems: "center" },
   applyButtonText: { fontWeight: "700" },
 });

@@ -9,13 +9,14 @@ export async function recordLostDeal(params: {
   apartmentId: string;
   brokerId: string;
   clientId: string;
-  reason: LostDealReason;
+  lostReason: LostDealReason;
   notes?: string;
   stageBeforeLoss: number;
   potentialRevenueLoss: number;
 }): Promise<string> {
   const reference = await addDoc(collection(db, "lost_deals"), {
     ...params,
+    lostReason: params.lostReason,
     lostAt: Date.now(),
     createdAt: serverTimestamp(),
   });

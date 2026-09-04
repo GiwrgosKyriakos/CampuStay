@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Modal, Pressable, Share, StyleSheet, Text, View } from "react-native";
+import { Animated, Pressable, Share, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { Image } from "expo-image";
@@ -12,6 +12,7 @@ import { db } from "@/src/config/firebase";
 import { sendPropertyProposalViaMessaging } from "@/src/utils/messagingAutomation";
 import { t } from "@/src/locales";
 import type { Apartment, VirtualTourData } from "@/src/types/apartment";
+import BaseBottomSheet from "@/src/components/common/BaseBottomSheet";
 
 type ReelApartment = Apartment & {
   photos?: string[];
@@ -214,17 +215,15 @@ export default function ApartmentReelCard({
         </Pressable>
       </View>
 
-      <Modal transparent visible={shareVisible} animationType="slide" onRequestClose={() => setShareVisible(false)}>
-        <Pressable style={styles.shareBackdrop} onPress={() => setShareVisible(false)}>
-          <Pressable style={styles.shareSheet} onPress={(event) => event.stopPropagation()}>
+      <BaseBottomSheet visible={shareVisible} onClose={() => setShareVisible(false)} scrollable={false} maxHeight="45%">
+          <View style={styles.shareSheet}>
             <Text style={styles.shareTitle}>Share property</Text>
             <Pressable style={styles.shareRow} onPress={() => void handleNativeShare()}><Ionicons name="share-outline" size={21} color="#18343c" /><Text style={styles.shareRowText}>More sharing options</Text></Pressable>
             <Pressable style={styles.shareRow} onPress={() => void handleMessagingShare("whatsapp")}><Ionicons name="logo-whatsapp" size={21} color="#25D366" /><Text style={styles.shareRowText}>WhatsApp</Text></Pressable>
             <Pressable style={styles.shareRow} onPress={() => void handleMessagingShare("viber")}><Ionicons name="chatbubble-ellipses-outline" size={21} color="#665CAC" /><Text style={styles.shareRowText}>Viber</Text></Pressable>
             <Pressable style={styles.shareRow} onPress={() => void handleMessagingShare("sms")}><Ionicons name="chatbox-outline" size={21} color="#168AAD" /><Text style={styles.shareRowText}>SMS</Text></Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
+          </View>
+      </BaseBottomSheet>
     </View>
   );
 }
@@ -253,8 +252,7 @@ const styles = StyleSheet.create({
   chipText: { color: "#fff", fontSize: 11, fontWeight: "600" },
   detailsButton: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(255,255,255,0.18)", borderRadius: 12, paddingHorizontal: 13, paddingVertical: 9, borderWidth: 1, borderColor: "rgba(255,255,255,0.38)" },
   detailsButtonText: { color: "#fff", fontWeight: "700" },
-  shareBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.56)" },
-  shareSheet: { padding: 20, gap: 8, backgroundColor: "#fff", borderTopLeftRadius: 22, borderTopRightRadius: 22 },
+  shareSheet: { padding: 20, gap: 8 },
   shareTitle: { color: "#18343c", fontSize: 20, fontWeight: "800", marginBottom: 6 },
   shareRow: { minHeight: 46, flexDirection: "row", alignItems: "center", gap: 12 },
   shareRowText: { color: "#18343c", fontSize: 15, fontWeight: "600" },

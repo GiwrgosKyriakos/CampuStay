@@ -12,25 +12,27 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
 import { useTheme } from "@/src/context/ThemeContext";
 import { t } from "@/src/locales";
-import type { HardCriteriaKey } from "@/src/types/filters";
+import { QUIZ_SECTIONS, type QuizQuestionId } from "@/src/data/quiz";
 
-export type GenderFilter = "all" | "male" | "female" | "nonBinary";
+export type GenderFilter = "male" | "female" | "nonBinary";
+export type RoommateHardCriteriaKey = QuizQuestionId;
 
 export interface Filters {
-  gender: GenderFilter;
+  gender: GenderFilter[];
   ageMin: number;
   ageMax: number;
   budgetMin: number;
   budgetMax: number;
-  userHardCriteria?: HardCriteriaKey[];
+  userHardCriteria?: RoommateHardCriteriaKey[];
 }
 
 export const DEFAULT_FILTERS: Filters = {
-  gender: "all",
+  gender: [],
   ageMin: 18,
   ageMax: 30,
   budgetMin: 0,
   budgetMax: 1000,
+  userHardCriteria: ["q5", "q13"],
 };
 
 const AGE_VALUES = Array.from({ length: 82 }, (_, index) => index + 18);
@@ -43,19 +45,7 @@ type RangeField = "min" | "max";
 type PickerTarget = { range: RangeName; field: RangeField };
 type NumericInputValues = Record<"ageMin" | "ageMax" | "budgetMin" | "budgetMax", string>;
 
-const HARD_CRITERIA_OPTIONS: { key: HardCriteriaKey; label: string }[] = [
-  { key: "rent", label: "filters.hardCriteria.options.rent" },
-  { key: "size", label: "filters.hardCriteria.options.size" },
-  { key: "floor", label: "filters.hardCriteria.options.floor" },
-  { key: "propertyType", label: "filters.hardCriteria.options.propertyType" },
-  { key: "bedrooms", label: "filters.hardCriteria.options.bedrooms" },
-  { key: "bathrooms", label: "filters.hardCriteria.options.bathrooms" },
-  { key: "furnished", label: "filters.hardCriteria.options.furnished" },
-  { key: "heating", label: "filters.hardCriteria.options.heating" },
-  { key: "petFriendly", label: "filters.hardCriteria.options.petFriendly" },
-  { key: "nearMetro", label: "filters.hardCriteria.options.nearMetro" },
-  { key: "amenities", label: "filters.hardCriteria.options.amenities" },
-];
+const HARD_CRITERIA_OPTIONS = QUIZ_SECTIONS.flatMap((section) => section.questions.map((question) => ({ key: question.id, label: question.question })));
 
 function inputValuesFromFilters(filters: Filters): NumericInputValues {
   return {
@@ -71,9 +61,9 @@ function parseNumericInput(value: string): number | null {
   return value.trim() !== "" && Number.isFinite(parsed) ? Math.round(parsed) : null;
 }
 
-const GENDERS: GenderFilter[] = ["all", "female", "male", "nonBinary"];
+const GENDERS: GenderFilter[] = ["female", "male", "nonBinary"];
 
-function getGenderLabel(value: GenderFilter): string {
+function getGenderLabel(value: GenderFilter | "all"): string {
   switch (value) {
     case "female":
       return t("filters.options.female");
@@ -250,7 +240,6 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
               <Text style={styles.title} testID="filter-sheet-title">
                 {t("filters.title")}
               </Text>
-              <Text style={styles.subtitle}>{t("filters.subtitle")}</Text>
             </View>
             <Pressable onPress={close} hitSlop={12} testID="filter-close-button">
               <Text style={styles.closeText}>{t("common.actions.done")}</Text>
@@ -261,12 +250,21 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
         <View style={styles.content}>
             <Text style={styles.label}>{t("filters.gender")}</Text>
             <View style={styles.chipRow}>
-              {GENDERS.map((g) => {
-                const active = draft.gender === g;
+              {["all" as const, ...GENDERS].map((g) => {
+                const active = g === "all" ? draft.gender.length === 0 : draft.gender.includes(g);
                 return (
                   <Pressable
                     key={g}
-                    onPress={() => setAndCommit({ gender: g })}
+                    onPress={() => {
+                      if (g === "all") {
+                        setAndCommit({ gender: [] });
+                        return;
+                      }
+                      const nextGender = draft.gender.includes(g)
+                        ? draft.gender.filter((value) => value !== g)
+                        : [...draft.gender, g];
+                      setAndCommit({ gender: nextGender });
+                    }}
                     style={[styles.chip, active && styles.chipActive]}
                     testID={`filter-gender-${g}`}
                   >
@@ -318,8 +316,13 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
             />
 
             <View style={styles.hardCriteriaSection}>
-              <Text style={styles.hardCriteriaTitle}>{t("filters.hardCriteria.title")}</Text>
-              <Text style={styles.hardCriteriaDescription}>{t("filters.hardCriteria.selectedDescription")}</Text>
+              <View style={styles.hardCriteriaHeaderRow}>
+                <Text style={styles.hardCriteriaTitle}>{t("filters.hardCriteria.title")}</Text>
+                <Pressable style={styles.hardCriteriaEditButton} onPress={() => setHardCriteriaModalVisible(true)} testID="hard-criteria-edit-button">
+                  <Ionicons name="add" size={15} color={colors.brand} />
+                  <Text style={styles.hardCriteriaEditText}>{(draft.userHardCriteria ?? []).length > 0 ? "Επεξεργασία" : "Προσθήκη"}</Text>
+                </Pressable>
+              </View>
               <View style={styles.hardCriteriaPills}>
                 {(draft.userHardCriteria ?? []).map((key) => {
                   const option = HARD_CRITERIA_OPTIONS.find((item) => item.key === key);
@@ -333,10 +336,6 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
                     </View>
                   );
                 })}
-                <Pressable style={styles.hardCriteriaEditButton} onPress={() => setHardCriteriaModalVisible(true)} testID="hard-criteria-edit-button">
-                  <Ionicons name="add" size={15} color={colors.brand} />
-                  <Text style={styles.hardCriteriaEditText}>{(draft.userHardCriteria ?? []).length > 0 ? "Επεξεργασία" : "Προσθήκη"}</Text>
-                </Pressable>
               </View>
             </View>
 
@@ -472,9 +471,9 @@ function NumericInputCard({ fieldLabel, value, prefix, onChangeText, onBlur, onO
 
 interface HardCriteriaSelectionModalProps {
   visible: boolean;
-  selected: HardCriteriaKey[];
+  selected: RoommateHardCriteriaKey[];
   onClose: () => void;
-  onToggle: (key: HardCriteriaKey) => void;
+  onToggle: (key: RoommateHardCriteriaKey) => void;
 }
 
 function HardCriteriaSelectionModal({ visible, selected, onClose, onToggle }: HardCriteriaSelectionModalProps) {
@@ -488,7 +487,6 @@ function HardCriteriaSelectionModal({ visible, selected, onClose, onToggle }: Ha
           <View style={styles.hardCriteriaHeader}>
             <View style={styles.hardCriteriaHeaderText}>
               <Text style={styles.hardCriteriaModalTitle}>{t("filters.hardCriteria.title")}</Text>
-              <Text style={styles.hardCriteriaDescription}>{t("filters.hardCriteria.description")}</Text>
             </View>
             <Pressable onPress={onClose} hitSlop={8} testID="hard-criteria-close-button">
               <Ionicons name="close-outline" size={24} color={colors.onSurfaceTertiary} />
@@ -622,7 +620,7 @@ function createStyles(colors: ThemeColors) {
     pickerTrigger: { position: "absolute", right: spacing.sm, bottom: spacing.md },
     hardCriteriaSection: { marginTop: spacing.md, paddingTop: spacing.md, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, gap: spacing.xs },
     hardCriteriaTitle: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface },
-    hardCriteriaDescription: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
+    hardCriteriaHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
     hardCriteriaPills: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: spacing.xs, marginTop: spacing.xs },
     hardCriteriaPill: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, backgroundColor: colors.brandTertiary },
     hardCriteriaPillText: { fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.brand },

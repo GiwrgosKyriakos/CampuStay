@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Alert, FlatList, StyleSheet, Text, View, type ViewToken } from "react-native";
 import { StatusBar } from "expo-status-bar";
-import { collection, onSnapshot } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query } from "firebase/firestore";
 import { useRouter } from "expo-router";
 import { useWindowDimensions } from "react-native";
 
@@ -14,9 +14,18 @@ import { db } from "@/src/config/firebase";
 import { useAuth } from "@/src/context/auth";
 import { useTheme } from "@/src/context/ThemeContext";
 import { t } from "@/src/locales";
+import { radius } from "@/src/theme";
 import type { Apartment, VirtualTourData } from "@/src/types/apartment";
+import type { FilterSetPayload } from "@/src/types/filters";
+import { isApartmentEligibleForClient } from "@/src/utils/apartmentEligibility";
 
 type FirestoreRecord = Record<string, unknown>;
+
+interface HostRoommateProfile {
+  looking_for_roommate?: boolean;
+  isLookingForRoommate?: boolean;
+  not_looking_for_roommate?: boolean;
+}
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
@@ -81,31 +90,73 @@ export default function ExploreFeedScreen() {
 
     let active = true;
     setLoading(true);
-    const unsubscribe = onSnapshot(
-      collection(db, "apartments"),
-      async (snapshot) => {
+    let latestFilterSet: FilterSetPayload | null = null;
+
+    const loadLatestFilterSet = async (): Promise<void> => {
+      if (!auth.userId) return;
+      try {
+        const filterSnapshot = await getDocs(query(
+          collection(db, "users", auth.userId, "savedFilterSets"),
+          orderBy("updatedAt", "desc"),
+          limit(1),
+        ));
+        latestFilterSet = filterSnapshot.empty ? null : filterSnapshot.docs[0].data() as FilterSetPayload;
+      } catch {
+        latestFilterSet = null;
+      }
+    };
+
+    let unsubscribe: (() => void) | null = null;
+    void (async () => {
+      await loadLatestFilterSet();
+      if (!active) return;
+      unsubscribe = onSnapshot(
+        collection(db, "apartments"),
+        async (snapshot) => {
         const excludedUserIds = await getExcludedUserIds(auth.userId!).catch(() => new Set<string>());
         if (!active) return;
         const nextListings = snapshot.docs
           .map((document) => toApartment(document.id, document.data()))
           .filter((apartment): apartment is Apartment => apartment !== null)
           .filter((apartment) => !excludedUserIds.has(apartment.hostId));
-        setListings(nextListings);
-        setActiveIndex((current) => Math.min(current, Math.max(0, nextListings.length - 1)));
+        const hostProfiles = await Promise.all(nextListings.map(async (apartment) => {
+          const hostSnapshot = await getDoc(doc(db, "users", apartment.hostId));
+          return [apartment.id ?? "", hostSnapshot.exists() ? hostSnapshot.data() as HostRoommateProfile : null] as const;
+        }));
+        const hostProfileByApartmentId = new Map(hostProfiles);
+        const eligibleListings = nextListings.filter((apartment) => {
+          const hostProfile = hostProfileByApartmentId.get(apartment.id ?? "") ?? null;
+          const hostRequiresRoommate = hostProfile !== null && (
+            hostProfile.looking_for_roommate === true
+            || hostProfile.isLookingForRoommate === true
+            || (hostProfile.not_looking_for_roommate !== true
+              && hostProfile.looking_for_roommate === undefined
+              && hostProfile.isLookingForRoommate === undefined)
+          );
+          return isApartmentEligibleForClient(apartment, {
+            excludedUserIds,
+            filterSet: latestFilterSet,
+            notLookingForRoommate: auth.notLookingForRoommate,
+            hostRequiresRoommate,
+          });
+        });
+        setListings(eligibleListings);
+        setActiveIndex((current) => Math.min(current, Math.max(0, eligibleListings.length - 1)));
         setLoading(false);
-      },
-      () => {
-        if (!active) return;
-        setListings([]);
-        setLoading(false);
-      },
-    );
+        },
+        () => {
+          if (!active) return;
+          setListings([]);
+          setLoading(false);
+        },
+      );
+    })();
 
     return () => {
       active = false;
-      unsubscribe();
+      unsubscribe?.();
     };
-  }, [auth.isGuest, auth.isLoading, auth.userId]);
+  }, [auth.isGuest, auth.isLoading, auth.notLookingForRoommate, auth.userId]);
 
   useEffect(() => {
     if (auth.isGuest || !auth.userId) {
@@ -179,7 +230,7 @@ export default function ExploreFeedScreen() {
   }
 
   return (
-    <View style={styles.root}>
+    <View style={[styles.root, { borderColor: colors.border }]}>
       <StatusBar style="light" />
       <FlatList
         data={listings}
@@ -221,7 +272,7 @@ export default function ExploreFeedScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#0b0e13" },
+  root: { flex: 1, backgroundColor: "#0b0e13", borderRadius: radius.lg, borderWidth: 1, overflow: "hidden" },
   state: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
   emptyText: { textAlign: "center", fontSize: 16, fontWeight: "700" },
 });

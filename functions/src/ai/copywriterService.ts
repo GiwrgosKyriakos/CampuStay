@@ -1,4 +1,4 @@
-import { getGeminiModel } from "./geminiClient";
+import { getGeminiModel, recordGeminiUsage, type AiUsage } from "./geminiClient";
 
 export interface CopywriterInput {
   apartmentId?: string;
@@ -102,12 +102,13 @@ function normalizeResult(value: Record<string, unknown> | null, fallback: Copywr
   };
 }
 
-export async function generatePropertyListingCopy(input: CopywriterInput): Promise<CopywriterResult> {
+export async function generatePropertyListingCopy(input: CopywriterInput, usage?: AiUsage): Promise<CopywriterResult> {
   const normalizedInput = normalizeInput(input);
   const fallback = fallbackCopy(normalizedInput);
   const prompt = `Είσαι επαγγελματίας copywriter για ελληνικό μεσιτικό CRM. Δημιούργησε ακριβές marketing copy για αγγελία σε Spitogatos, Xe και social media. Χρησιμοποίησε μόνο τα στοιχεία που δίνονται, χωρίς επινοημένες παροχές, αποστάσεις, ενεργειακή κλάση ή κατάσταση ανακαίνισης. Τήρησε τον τόνο: ${normalizedInput.tone}.\n\nΣτοιχεία ακινήτου: ${JSON.stringify(normalizedInput)}\n\nΕπίστρεψε αυστηρά έγκυρο JSON χωρίς markdown ή άλλο κείμενο, με ακριβώς αυτή τη δομή. Όλα τα κείμενα στα Ελληνικά (EL-GR):\n{"portalTitle":"Σύντομος τίτλος","portalDescription":"Ακριβής περιγραφή αγγελίας","socialCaption":"Σύντομη λεζάντα","bulletHighlights":["Βασικό χαρακτηριστικό"],"seoTags":["λέξη-κλειδί"]}`;
   try {
     const response = await getGeminiModel().generateContent(prompt);
+    recordGeminiUsage(response, usage);
     return normalizeResult(parseJsonObject(response.response.text()), fallback);
   } catch {
     return fallback;

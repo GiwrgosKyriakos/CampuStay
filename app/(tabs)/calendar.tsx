@@ -1,14 +1,15 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { BackHandler, Text, View, StyleSheet, Pressable, Modal, ScrollView, ActivityIndicator, DimensionValue } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import { useFocusEffect, useRouter } from "expo-router";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { collection, getDocs, onSnapshot, query, where } from "firebase/firestore";
 import { runOnJS } from "react-native-reanimated";
 
 import {
   calculateGridLayout,
+  getBrokerNoteById,
   getBrokerNotesByDateRange,
   getMostFrequentCategoryColor,
   noteCategoryColorMap,
@@ -20,6 +21,7 @@ import SignContractModal from "@/src/components/SignContractModal";
 import PostVisitFeedbackModal from "@/src/components/calendar/PostVisitFeedbackModal";
 import CenteredActionModal from "@/src/components/CenteredActionModal";
 import { getBrokerClientProfiles } from "@/src/api/brokerClientProfiles";
+import { getVisitAppointment, updateVisitAppointment, type VisitAppointment } from "@/src/api/visitAppointments";
 import { db } from "@/src/config/firebase";
 import { useAuth } from "@/src/context/auth";
 import { fontSize, fonts, radius, spacing, type ThemeColors } from "@/src/theme";
@@ -252,7 +254,7 @@ function buildMonthWeeks(date: Date): CalendarWeek[] {
   });
 }
 
-function CalendarView({
+export function CalendarView({
   colors,
   userId,
   currentDate,
@@ -760,9 +762,83 @@ function CalendarView({
   );
 }
 
-export default function CalendarScreen() {
+function ClientCalendarScreen() {
+  const auth = useAuth();
+  const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
+  const [appointments, setAppointments] = useState<VisitAppointment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const clientId = auth.userId ?? auth.user?.user_id ?? "";
+
+  useEffect(() => {
+    if (!clientId || auth.isGuest) {
+      setAppointments([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    const unsubscribe = onSnapshot(
+      query(collection(db, "appointments"), where("clientId", "==", clientId)),
+      (snapshot) => {
+        const nextAppointments = snapshot.docs
+          .map((appointmentSnapshot) => ({ id: appointmentSnapshot.id, ...appointmentSnapshot.data() } as VisitAppointment))
+          .filter((appointment) => appointment.status !== "cancelled")
+          .sort((left, right) => left.appointmentDate.localeCompare(right.appointmentDate));
+        setAppointments(nextAppointments);
+        setLoading(false);
+      },
+      () => {
+        setAppointments([]);
+        setLoading(false);
+      },
+    );
+
+    return unsubscribe;
+  }, [auth.isGuest, clientId]);
+
+  return (
+    <View style={[clientCalendarStyles.container, { backgroundColor: colors.surface, paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + spacing.lg }]} testID="client-calendar-screen">
+      <View style={clientCalendarStyles.header}>
+        <Ionicons name="calendar-outline" size={26} color={colors.brand} />
+        <View style={clientCalendarStyles.headerCopy}>
+          <Text style={[clientCalendarStyles.title, { color: colors.onSurface }]}>Το ημερολόγιό μου</Text>
+          <Text style={[clientCalendarStyles.subtitle, { color: colors.onSurfaceTertiary }]}>Προγραμματισμένες επισκέψεις και υπενθυμίσεις</Text>
+        </View>
+      </View>
+      {loading ? <ActivityIndicator color={colors.brand} /> : appointments.length === 0 ? (
+        <View style={clientCalendarStyles.emptyState}>
+          <Ionicons name="time-outline" size={32} color={colors.onSurfaceTertiary} />
+          <Text style={[clientCalendarStyles.emptyText, { color: colors.onSurfaceTertiary }]}>Δεν υπάρχουν προγραμματισμένες επισκέψεις.</Text>
+        </View>
+      ) : (
+        <ScrollView contentContainerStyle={clientCalendarStyles.list} showsVerticalScrollIndicator={false}>
+          {appointments.map((appointment) => {
+            const date = new Date(appointment.appointmentDate);
+            const dateLabel = Number.isNaN(date.getTime()) ? appointment.appointmentDate : date.toLocaleString("el-GR", { dateStyle: "medium", timeStyle: "short" });
+            return (
+              <View key={appointment.id} style={[clientCalendarStyles.appointment, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+                <View style={[clientCalendarStyles.dateBadge, { backgroundColor: colors.brandTertiary }]}>
+                  <Ionicons name="location-outline" size={20} color={colors.brand} />
+                </View>
+                <View style={clientCalendarStyles.appointmentCopy}>
+                  <Text style={[clientCalendarStyles.appointmentTitle, { color: colors.onSurface }]} numberOfLines={1}>{appointment.apartmentTitle}</Text>
+                  <Text style={[clientCalendarStyles.appointmentDate, { color: colors.brand }]}>{dateLabel}</Text>
+                  <Text style={[clientCalendarStyles.appointmentAddress, { color: colors.onSurfaceTertiary }]} numberOfLines={2}>{appointment.apartmentAddress}</Text>
+                </View>
+              </View>
+            );
+          })}
+        </ScrollView>
+      )}
+    </View>
+  );
+}
+
+function BrokerCalendarScreen() {
   const auth = useAuth();
   const router = useRouter();
+  const routeParams = useLocalSearchParams<{ appointmentId?: string | string[]; noteId?: string | string[] }>();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const [calendarViewMode, setCalendarViewMode] = useState<CalendarViewMode>("month");
@@ -790,6 +866,10 @@ export default function CalendarScreen() {
   const [realListings, setRealListings] = useState<BrokerListingItem[]>([]);
   const [realClients, setRealClients] = useState<BrokerClientItem[]>([]);
   const [contractDraft, setContractDraft] = useState<ContractDraftContext | null>(null);
+  const appointmentId = typeof routeParams.appointmentId === "string" ? routeParams.appointmentId : undefined;
+  const noteId = typeof routeParams.noteId === "string" ? routeParams.noteId : undefined;
+  const deepLinkKey = appointmentId || noteId ? `${appointmentId ?? ""}:${noteId ?? ""}` : "";
+  const handledDeepLinkRef = useRef("");
   useFocusEffect(
     useCallback(() => {
       setNotesRefreshToken((previous) => previous + 1);
@@ -848,6 +928,39 @@ export default function CalendarScreen() {
       isMounted = false;
     };
   }, [brokerId, notesRefreshToken, visibleRange.end, visibleRange.start]);
+
+  useEffect(() => {
+    if (!brokerId || !deepLinkKey || handledDeepLinkRef.current === deepLinkKey) return;
+    let isMounted = true;
+
+    const openDeepLinkedAppointment = async () => {
+      const [linkedNote, appointment] = await Promise.all([
+        noteId ? getBrokerNoteById(brokerId, noteId) : Promise.resolve(null),
+        appointmentId ? getVisitAppointment(appointmentId) : Promise.resolve(null),
+      ]);
+      if (!isMounted) return;
+
+      const targetDate = linkedNote
+        ? getCalendarNoteDate(linkedNote.scheduledDate ?? linkedNote.date, linkedNote.scheduledTime ?? linkedNote.time, linkedNote.timestamp)
+        : appointment ? new Date(appointment.appointmentDate) : null;
+      if (targetDate && Number.isFinite(targetDate.getTime())) {
+        setCurrentDate(targetDate);
+        setCalendarViewMode("day");
+      }
+
+      const matchingNote = linkedNote ?? visibleNotes.find((note) => (appointmentId && note.appointmentId === appointmentId) || (noteId && note.id === noteId));
+      if (!matchingNote) return;
+      handledDeepLinkRef.current = deepLinkKey;
+      setSelectedNoteToEdit(matchingNote);
+      setNoteModalDate(matchingNote.date);
+      setIsNoteModalVisible(true);
+    };
+
+    void openDeepLinkedAppointment().catch((error) => console.warn("[Calendar] Deep-link appointment lookup failed:", error));
+    return () => {
+      isMounted = false;
+    };
+  }, [appointmentId, brokerId, deepLinkKey, noteId, visibleNotes]);
 
   useEffect(() => {
     let isMounted = true;
@@ -984,7 +1097,11 @@ export default function CalendarScreen() {
       });
 
       try {
-        await updateBrokerNote(brokerId, note.id, { done: nextDone });
+        if (note.appointmentId) {
+          await updateVisitAppointment(note.appointmentId, { status: nextDone ? "completed" : "confirmed" });
+        } else {
+          await updateBrokerNote(brokerId, note.id, { done: nextDone });
+        }
       } catch {
         setVisibleNotes((previous) => {
           const reverted = previous.map((item) => (item.id === note.id ? { ...item, done: note.done } : item));
@@ -1045,7 +1162,7 @@ export default function CalendarScreen() {
   );
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.surface, paddingTop: insets.top + spacing.lg }]}>
+    <View style={[styles.container, { backgroundColor: colors.surface, borderColor: colors.border, paddingTop: insets.top + spacing.lg }]}>
       <View style={styles.header}>
         <View style={styles.headerTopRow}>
           <Text style={[styles.brandTitle, { color: colors.onSurface }]}>
@@ -1058,7 +1175,7 @@ export default function CalendarScreen() {
           <Pressable style={styles.headerArrowButton} onPress={goToPrevious} hitSlop={8}>
             <Ionicons name="chevron-back" size={22} color={colors.onSurface} />
           </Pressable>
-          <Pressable style={styles.headerTitleButton} onPress={calendarViewMode === "month" ? openPicker : undefined}>
+          <Pressable style={[styles.headerTitleButton, calendarViewMode === "month" && { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 3 }]} onPress={calendarViewMode === "month" ? openPicker : undefined}>
             <Text style={[styles.headerTitleText, { color: colors.onSurface }]}>{headerTitle}</Text>
           </Pressable>
           <Pressable style={styles.headerArrowButton} onPress={goToNext} hitSlop={8}>
@@ -1202,9 +1319,35 @@ export default function CalendarScreen() {
   );
 }
 
+const clientCalendarStyles = StyleSheet.create({
+  container: { flex: 1, padding: spacing.lg },
+  header: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingTop: spacing.lg, paddingBottom: spacing.xl },
+  headerCopy: { flex: 1, gap: spacing.xs },
+  title: { fontFamily: fonts.bold, fontSize: fontSize["2xl"] },
+  subtitle: { fontFamily: fonts.regular, fontSize: fontSize.sm },
+  emptyState: { flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.md, paddingBottom: spacing.xl },
+  emptyText: { fontFamily: fonts.regular, fontSize: fontSize.base, textAlign: "center" },
+  list: { gap: spacing.md, paddingBottom: spacing.xl },
+  appointment: { flexDirection: "row", alignItems: "center", gap: spacing.md, borderWidth: 1, borderRadius: radius.md, padding: spacing.md },
+  dateBadge: { width: 44, height: 44, borderRadius: radius.md, alignItems: "center", justifyContent: "center" },
+  appointmentCopy: { flex: 1, gap: spacing.xs },
+  appointmentTitle: { fontFamily: fonts.bold, fontSize: fontSize.base },
+  appointmentDate: { fontFamily: fonts.semibold, fontSize: fontSize.sm },
+  appointmentAddress: { fontFamily: fonts.regular, fontSize: fontSize.sm },
+});
+
+export default function CalendarScreen() {
+  const auth = useAuth();
+  return auth.isBroker ? <BrokerCalendarScreen /> : <ClientCalendarScreen />;
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: "transparent",
+    overflow: "hidden",
   },
   calendarHeader: {
     minHeight: 48,

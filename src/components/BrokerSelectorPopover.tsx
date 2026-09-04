@@ -1,9 +1,10 @@
 import React from "react";
-import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/context/ThemeContext";
 import { fonts, fontSize, radius, spacing } from "@/src/theme";
 import { t } from "@/src/locales";
+import BaseBottomSheet from "@/src/components/common/BaseBottomSheet";
 
 export interface BrokerSelectorItem {
   id: string;
@@ -28,23 +29,18 @@ export default function BrokerSelectorPopover({
 }) {
   const { colors } = useTheme();
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable style={[styles.sheet, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={(event) => event.stopPropagation()}>
-          <View style={styles.handle} />
+    <BaseBottomSheet visible={visible} onClose={onClose} maxHeight="78%">
+          <View style={styles.content}>
           <View style={styles.header}><View style={styles.titleWrap}><Ionicons name="people-outline" size={21} color={colors.brand} /><Text style={[styles.title, { color: colors.onSurface }]}>{t("apartments.selectManagingBrokerTitle")}</Text></View><Pressable onPress={onClose} hitSlop={8}><Ionicons name="close" size={22} color={colors.onSurface} /></Pressable></View>
           <Text style={[styles.subtitle, { color: colors.onSurfaceTertiary }]}>{t("apartments.selectManagingBrokerSubtitle")}</Text>
-          {loading ? <ActivityIndicator color={colors.brand} /> : <ScrollView contentContainerStyle={styles.list}>{brokers.map((broker) => <View key={broker.id} style={[styles.row, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}><View style={[styles.avatarFallback, { backgroundColor: colors.brandTertiary }]}>{broker.avatar ? <Image source={{ uri: broker.avatar }} style={styles.avatar} /> : <Ionicons name="person-outline" size={21} color={colors.brand} />}</View><View style={styles.info}><Text style={[styles.name, { color: colors.onSurface }]} numberOfLines={1}>{broker.name}</Text>{broker.agencyName ? <Text style={[styles.agency, { color: colors.brand }]} numberOfLines={1}>{broker.agencyName}</Text> : null}{typeof broker.rating === "number" ? <View style={styles.rating}><Ionicons name="star" size={13} color="#F59E0B" /><Text style={[styles.ratingText, { color: colors.onSurfaceTertiary }]}>{broker.rating.toFixed(1)}</Text></View> : null}</View><Pressable style={[styles.chatButton, { backgroundColor: colors.brand }]} onPress={() => onSelect(broker)} testID={`broker-selector-chat-${broker.id}`}><Ionicons name="chatbubble-ellipses-outline" size={16} color={colors.onBrand} /><Text style={[styles.chatButtonText, { color: colors.onBrand }]}>Συνομιλία</Text></Pressable></View>)}</ScrollView>}
-        </Pressable>
-      </Pressable>
-    </Modal>
+          {loading ? <ActivityIndicator color={colors.brand} /> : <View style={styles.list}>{brokers.map((broker) => <View key={broker.id} style={[styles.row, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}><View style={[styles.avatarFallback, { backgroundColor: colors.brandTertiary }]}>{broker.avatar ? <Image source={{ uri: broker.avatar }} style={styles.avatar} /> : <Ionicons name="person-outline" size={21} color={colors.brand} />}</View><View style={styles.info}><Text style={[styles.name, { color: colors.onSurface }]} numberOfLines={1}>{broker.name}</Text>{broker.agencyName ? <Text style={[styles.agency, { color: colors.brand }]} numberOfLines={1}>{broker.agencyName}</Text> : null}{typeof broker.rating === "number" ? <View style={styles.rating}><Ionicons name="star" size={13} color="#F59E0B" /><Text style={[styles.ratingText, { color: colors.onSurfaceTertiary }]}>{broker.rating.toFixed(1)}</Text></View> : null}</View><Pressable style={[styles.chatButton, { backgroundColor: colors.brand }]} onPress={() => onSelect(broker)} testID={`broker-selector-chat-${broker.id}`}><Ionicons name="chatbubble-ellipses-outline" size={16} color={colors.onBrand} /><Text style={[styles.chatButtonText, { color: colors.onBrand }]}>Συνομιλία</Text></Pressable></View>)}</View>}
+          </View>
+    </BaseBottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.45)" },
-  sheet: { maxHeight: "78%", borderWidth: 1, borderBottomWidth: 0, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg, gap: spacing.sm },
-  handle: { alignSelf: "center", width: 42, height: 4, borderRadius: radius.pill, backgroundColor: "#B8C4C9", marginBottom: spacing.xs },
+  content: { gap: spacing.sm, padding: spacing.lg },
   header: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.sm },
   titleWrap: { flexDirection: "row", alignItems: "center", gap: spacing.sm, flex: 1 },
   title: { fontFamily: fonts.bold, fontSize: fontSize.lg, flex: 1 },

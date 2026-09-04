@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   ActivityIndicator,
   Alert,
+  Image as NativeImage,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -15,6 +16,8 @@ import {
   Linking,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import Slider from "@react-native-community/slider";
+import { File } from "expo-file-system";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { addDoc, arrayUnion, collection, deleteField, doc, getDoc, getDocs, limit, orderBy, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
@@ -32,19 +35,23 @@ import { db } from "@/src/config/firebase";
 import { useAuth } from "@/src/context/auth";
 import { useTheme } from "@/src/context/ThemeContext";
 // import { useLocationCoordinates } from "@/src/hooks/useLocationCoordinates";
-import { uploadBrokerPrivateImageAsync, uploadImageAsync, uploadListingDocumentAsync, uploadListingImageAsync, uploadListingReelAsync } from "@/src/api/imageUpload";
+import { deleteStorageFileAsync, uploadBrokerPrivateImageAsync, uploadImageAsync, uploadListingDocumentAsync, uploadListingImageAsync, uploadListingReelAsync } from "@/src/api/imageUpload";
 import { upsertListing } from "@/src/api/listings";
+import { publishListingAssignment } from "@/src/api/agencyCollaboration";
 import { syncBrokerClientProfile, upsertBrokerClientProfile } from "@/src/api/brokerClientProfiles";
 import { getUserProfile, type UserProfile } from "@/src/api/userProfile";
 import { t } from "@/src/locales";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
+import VoiceInputButton from "@/src/components/common/VoiceInputButton";
+import { useVoiceInputPreview } from "@/src/hooks/useVoiceInputPreview";
 import AiCopywriterModal from "@/src/components/AiCopywriterModal";
 import type { CopywriterResult } from "@/src/services/aiFeatureService";
 import { calculateTenantCompatibilityScore } from "@/src/utils/compatibilityScore";
 import type { FilterSetPayload } from "@/src/types/filters";
 import type { RealEstateAgency } from "@/src/types/agency";
 import type { LogoWatermarkStyle, WatermarkConfig, WatermarkType } from "@/src/types/listing";
-import type { ApartmentReelMedia, TourScene, VirtualTourData } from "@/src/types/apartment";
+import type { ApartmentReelMedia, TourScene, VirtualTourData, VirtualTourHotspot } from "@/src/types/apartment";
+import { buildTourSceneStoragePath, isValidEquirectangularDimensions } from "@/src/utils/virtualTour";
 
 type AmenityKey = "petFriendly" | "nearMetro" | "furnished" | "balcony" | "parking";
 type AmenitySlug = "pet_friendly" | "near_metro" | "furnished" | "balcony" | "parking";
@@ -170,6 +177,32 @@ function filterMatchesListing(filter: ClientFilterVersion, rent: number, size: n
   if (filter.nearMetro === true && amenities.nearMetro) matchedCriteriaCount++;
 
   return !hasConflict && matchedCriteriaCount >= 1;
+}
+
+const MAX_TOUR_IMAGE_BYTES = 20 * 1024 * 1024;
+type TourImageMimeType = "image/jpeg" | "image/png";
+
+async function validateTourPanorama(uri: string, mimeType: string | null | undefined): Promise<void> {
+  if (mimeType !== "image/jpeg" && mimeType !== "image/png") {
+    throw new Error("tour_invalid_format");
+  }
+
+  const fileSize = new File(uri).size;
+  if (!Number.isFinite(fileSize) || fileSize <= 0) throw new Error("tour_unreadable");
+  if (fileSize > MAX_TOUR_IMAGE_BYTES) throw new Error("tour_file_too_large");
+
+  const { width, height } = await NativeImage.getSize(uri);
+  if (!isValidEquirectangularDimensions(width, height)) {
+    throw new Error("tour_invalid_aspect");
+  }
+}
+
+function getTourValidationMessage(error: unknown): string {
+  const code = error instanceof Error ? error.message : "tour_unreadable";
+  if (code === "tour_invalid_format") return t("createListing.alerts.tourInvalidFormat");
+  if (code === "tour_file_too_large") return t("createListing.alerts.tourFileTooLarge");
+  if (code === "tour_invalid_aspect") return t("createListing.alerts.tourInvalidAspect");
+  return t("createListing.alerts.tourUnreadable");
 }
 
 interface FirestoreApartmentDoc {
@@ -723,6 +756,8 @@ export default function CreateListingScreen() {
   // 2. Προσθήκη των States μέσα στο CreateListingScreen component
   const [title, setTitle] = useState("");             
   const [description, setDescription] = useState(""); 
+  const titleVoice = useVoiceInputPreview(title, setTitle);
+  const descriptionVoice = useVoiceInputPreview(description, setDescription);
   const [isExtraInfoExpanded, setIsExtraInfoExpanded] = useState(false);
   const [isExtraDetailsExpanded, setIsExtraDetailsExpanded] = useState(false);
   const [isExtraInformationExpanded, setIsExtraInformationExpanded] = useState(false);
@@ -800,6 +835,7 @@ export default function CreateListingScreen() {
   const [files2d3d, setFiles2d3d] = useState<string[]>([]);
   const [enableVirtualTour, setEnableVirtualTour] = useState(false);
   const [tourScenes, setTourScenes] = useState<TourScene[]>([]);
+  const [persistedTourScenes, setPersistedTourScenes] = useState<TourScene[]>([]);
   const [defaultTourSceneId, setDefaultTourSceneId] = useState("");
   const [tourUploadLoading, setTourUploadLoading] = useState(false);
   const [files2d3dLoading, setFiles2d3dLoading] = useState(false);
@@ -882,16 +918,90 @@ export default function CreateListingScreen() {
     }
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsMultipleSelection: true, quality: 1 });
     if (result.canceled) return;
-    const nextScenes = result.assets.map((asset, index) => ({
+    const validatedAssets: Array<{ uri: string; mimeType: TourImageMimeType }> = [];
+    for (const asset of result.assets) {
+      try {
+        const mimeType = asset.mimeType?.toLowerCase();
+        await validateTourPanorama(asset.uri, mimeType);
+        validatedAssets.push({ uri: asset.uri, mimeType: mimeType as TourImageMimeType });
+      } catch (validationError) {
+        Alert.alert(t("createListing.alerts.tourValidationTitle"), getTourValidationMessage(validationError));
+        return;
+      }
+    }
+    const nextScenes = validatedAssets.map((asset, index) => ({
       id: `scene-${Date.now()}-${tourScenes.length + index}`,
       title: `Χώρος ${tourScenes.length + index + 1}`,
       imageUrl: asset.uri,
+      mimeType: asset.mimeType,
       hotspots: [],
     } satisfies TourScene));
     setTourScenes((previous) => [...previous, ...nextScenes]);
     if (!defaultTourSceneId && nextScenes[0]) setDefaultTourSceneId(nextScenes[0].id);
     setEnableVirtualTour(true);
   }, [defaultTourSceneId, tourScenes.length]);
+
+  const handleReplaceTourScene = useCallback(async (sceneId: string) => {
+    const scene = tourScenes.find((item) => item.id === sceneId);
+    if (!scene) return;
+
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsMultipleSelection: false, quality: 1 });
+    if (result.canceled || !result.assets[0]) return;
+
+    const asset = result.assets[0];
+    try {
+      const mimeType = asset.mimeType?.toLowerCase();
+      await validateTourPanorama(asset.uri, mimeType);
+      await deleteStorageFileAsync(scene.imageUrl);
+      setTourScenes((previous) => previous.map((item) => item.id === sceneId ? { ...item, imageUrl: asset.uri, mimeType: mimeType as TourImageMimeType } : item));
+    } catch (replaceError) {
+      Alert.alert(t("createListing.alerts.tourValidationTitle"), getTourValidationMessage(replaceError));
+    }
+  }, [tourScenes]);
+
+  const handleRemoveTourScene = useCallback(async (sceneId: string) => {
+    const scene = tourScenes.find((item) => item.id === sceneId);
+    if (!scene) return;
+
+    try {
+      await deleteStorageFileAsync(scene.imageUrl);
+      setTourScenes((previous) => previous
+        .filter((item) => item.id !== sceneId)
+        .map((item) => ({
+          ...item,
+          hotspots: (item.hotspots ?? []).filter((hotspot) => hotspot.targetSceneId !== sceneId),
+        })));
+      if (defaultTourSceneId === sceneId) {
+        setDefaultTourSceneId(tourScenes.find((item) => item.id !== sceneId)?.id ?? "");
+      }
+    } catch {
+      setError("Δεν ήταν δυνατή η διαγραφή του πανοράματος από το Storage.");
+    }
+  }, [defaultTourSceneId, tourScenes]);
+
+  const addTourHotspot = useCallback((sceneId: string) => {
+    setTourScenes((previous) => previous.map((scene) => {
+      if (scene.id !== sceneId) return scene;
+      const target = previous.find((item) => item.id !== sceneId);
+      if (!target) return scene;
+      const hotspot: VirtualTourHotspot = { pitch: 0, yaw: 0, type: "scene", text: target.title, targetSceneId: target.id };
+      return { ...scene, hotspots: [...(scene.hotspots ?? []), hotspot] };
+    }));
+  }, []);
+
+  const updateTourHotspot = useCallback((sceneId: string, hotspotIndex: number, patch: Partial<VirtualTourHotspot>) => {
+    setTourScenes((previous) => previous.map((scene) => scene.id !== sceneId ? scene : {
+      ...scene,
+      hotspots: (scene.hotspots ?? []).map((hotspot, index) => index === hotspotIndex ? { ...hotspot, ...patch } : hotspot),
+    }));
+  }, []);
+
+  const removeTourHotspot = useCallback((sceneId: string, hotspotIndex: number) => {
+    setTourScenes((previous) => previous.map((scene) => scene.id !== sceneId ? scene : {
+      ...scene,
+      hotspots: (scene.hotspots ?? []).filter((_, index) => index !== hotspotIndex),
+    }));
+  }, []);
 
   const currentPriceHistory = useMemo(() => {
     if (priceHistory.length > 0) return priceHistory;
@@ -1564,7 +1674,12 @@ export default function CreateListingScreen() {
           ? savedTour.scenes.filter((scene): scene is TourScene => !!scene && typeof scene.id === "string" && typeof scene.title === "string" && typeof scene.imageUrl === "string")
           : [];
         setEnableVirtualTour(savedTour?.enabled === true && savedScenes.length > 0);
-        setTourScenes(savedScenes);
+        const normalizedSavedScenes = savedScenes.map((scene) => ({
+          ...scene,
+          hotspots: (scene.hotspots ?? []).map((hotspot) => ({ ...hotspot, type: hotspot.type ?? "scene" })),
+        }));
+        setTourScenes(normalizedSavedScenes);
+        setPersistedTourScenes(normalizedSavedScenes);
         setDefaultTourSceneId(savedTour?.defaultSceneId || savedScenes[0]?.id || "");
         const savedWatermark = data.watermarkConfig;
         setWatermarkEnabled(savedWatermark?.enabled === true);
@@ -1898,6 +2013,7 @@ export default function CreateListingScreen() {
       hasExactLocation,
       rent: Number(monthlyRent) || 0,
       price: Number(monthlyRent) || 0,
+      transactionType: "rent",
       maxDiscountPercent: parsedMaxDiscount,
       rooms: normalizedRooms,
       size: Number(sizeSqm) || 0,
@@ -1996,7 +2112,6 @@ export default function CreateListingScreen() {
     }
     await updateDoc(doc(db, "apartments", apartmentId), {
       ownerId: ownerUserId,
-      ...(options.addToBroker !== false ? { assignedBrokerIds: arrayUnion(auth.userId) } : {}),
       "ownerDetails.name": cleanName,
       ...(cleanPhone ? { "ownerDetails.phone": cleanPhone } : {}),
       updatedAt: serverTimestamp(),
@@ -2273,6 +2388,7 @@ export default function CreateListingScreen() {
       setIsOffMarket(false);
       if (isBrokerMode) {
         await ensureOwnerForListing(savedApartmentId, { addToBroker: !publishToPool });
+        if (publishMode) await publishListingAssignment({ apartmentId: savedApartmentId, brokerId: currentUserId, mode: publishMode });
       }
       if (isBrokerMode) {
         setPriceHistory(nextPriceHistory);
@@ -2348,10 +2464,13 @@ export default function CreateListingScreen() {
 
       setTourUploadLoading(true);
       const uploadedTourScenes = enableVirtualTour
-        ? await Promise.all(tourScenes.map(async (scene) => ({
-          ...scene,
-          imageUrl: await uploadImageAsync(scene.imageUrl, `apartments/${savedApartmentId}/360_scenes/${scene.id}.jpg`),
-        })))
+        ? await Promise.all(tourScenes.map(async (scene) => {
+          if (!/^https?:\/\//i.test(scene.imageUrl)) await validateTourPanorama(scene.imageUrl, scene.mimeType);
+          return {
+            ...scene,
+            imageUrl: await uploadImageAsync(scene.imageUrl, buildTourSceneStoragePath(savedApartmentId, scene.id), scene.mimeType),
+          };
+        }))
         : [];
       const virtualTour: VirtualTourData = {
         enabled: enableVirtualTour && uploadedTourScenes.length > 0,
@@ -2359,7 +2478,15 @@ export default function CreateListingScreen() {
         scenes: uploadedTourScenes,
       };
       await upsertListing({ apartmentId: savedApartmentId, payload: { virtualTour } });
+      const nextTourUrls = new Set(uploadedTourScenes.map((scene) => scene.imageUrl));
+      await Promise.all(
+        persistedTourScenes
+          .map((scene) => scene.imageUrl)
+          .filter((imageUrl) => /^https?:\/\//i.test(imageUrl) && !nextTourUrls.has(imageUrl))
+          .map((imageUrl) => deleteStorageFileAsync(imageUrl)),
+      );
       setTourScenes(uploadedTourScenes);
+      setPersistedTourScenes(uploadedTourScenes);
       setDefaultTourSceneId(virtualTour.defaultSceneId);
       setEnableVirtualTour(virtualTour.enabled);
       setTourUploadLoading(false);
@@ -2401,7 +2528,7 @@ export default function CreateListingScreen() {
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.flexOne}>
         <ScrollView
           ref={scrollViewRef}
-          contentContainerStyle={[styles.content, { paddingBottom: spacing["2xl"] + insets.bottom }]}
+          contentContainerStyle={[styles.content, { paddingBottom: spacing["3xl"] + 100 + insets.bottom }]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           testID="create-listing-screen"
@@ -2444,15 +2571,20 @@ export default function CreateListingScreen() {
           {/* 1. ΚΑΡΤΑ ΤΙΤΛΟΥ ΑΓΓΕΛΙΑΣ */}
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Τίτλος Αγγελίας (Προαιρετικό)</Text>
-            <TextInput
-              value={title}
-              onChangeText={setTitle}
-              placeholder={`π.χ. ${t("createListing.listingTitle", { area: area || "Περιοχή" })}`}
-              placeholderTextColor={colors.onSurfaceTertiary}
-              style={styles.input}
-              maxLength={60}
-              testID="create-listing-title-input"
-            />
+            <View style={styles.voiceInputWrap}>
+              <TextInput
+                value={titleVoice.value}
+                onChangeText={titleVoice.onChangeText}
+                placeholder={`π.χ. ${t("createListing.listingTitle", { area: area || "Περιοχή" })}`}
+                placeholderTextColor={colors.onSurfaceTertiary}
+                style={[styles.input, styles.voiceInput]}
+                maxLength={60}
+                testID="create-listing-title-input"
+              />
+              <View style={styles.voiceButtonWrap}>
+                <VoiceInputButton onTextAppend={titleVoice.onFinalResult} onPartialResult={titleVoice.onPartialResult} onAbort={titleVoice.onAbort} color={colors.onSurfaceTertiary} disabled={submitting} />
+              </View>
+            </View>
             <Text style={styles.fieldHint}>
               Αν το αφήσεις κενό, θα δημιουργηθεί αυτόματος τίτλος βάσει περιοχής.
             </Text>
@@ -2479,17 +2611,22 @@ export default function CreateListingScreen() {
               </Pressable>
             </View>
             {aiCopywriterValidation ? <Text style={[styles.fieldHint, { color: colors.error }]}>{aiCopywriterValidation}</Text> : null}
-            <TextInput
-              value={description}
-              onChangeText={setDescription}
-              placeholder={t("createListing.detailsPlaceholder")}
-              placeholderTextColor={colors.onSurfaceTertiary}
-              multiline
-              numberOfLines={4}
-              textAlignVertical="top"
-              style={[styles.input, { minHeight: 90, paddingTop: spacing.md }]}
-              testID="create-listing-description-input"
-            />
+            <View style={styles.voiceInputWrap}>
+              <TextInput
+                value={descriptionVoice.value}
+                onChangeText={descriptionVoice.onChangeText}
+                placeholder={t("createListing.detailsPlaceholder")}
+                placeholderTextColor={colors.onSurfaceTertiary}
+                multiline
+                numberOfLines={4}
+                textAlignVertical="top"
+                style={[styles.input, styles.voiceInput, { minHeight: 90, paddingTop: spacing.md }]}
+                testID="create-listing-description-input"
+              />
+              <View style={styles.voiceButtonWrap}>
+                <VoiceInputButton onTextAppend={descriptionVoice.onFinalResult} onPartialResult={descriptionVoice.onPartialResult} onAbort={descriptionVoice.onAbort} color={colors.onSurfaceTertiary} disabled={submitting} />
+              </View>
+            </View>
             <Text style={styles.fieldHint}>
               Γράψε επιπλέον πληροφορίες αν θέλεις να αντικαταστήσεις την προεπιλεγμένη περιγραφή.
             </Text>
@@ -2817,8 +2954,52 @@ export default function CreateListingScreen() {
                         <Ionicons name={defaultTourSceneId === scene.id ? "radio-button-on" : "radio-button-off"} size={18} color={defaultTourSceneId === scene.id ? colors.brand : colors.onSurfaceTertiary} />
                         <Text style={styles.tourDefaultText}>Προεπιλεγμένος χώρος</Text>
                       </Pressable>
+                      <Pressable style={styles.tourSecondaryButton} onPress={() => void handleReplaceTourScene(scene.id)} disabled={tourUploadLoading} testID={`tour-scene-replace-${scene.id}`}>
+                        <Ionicons name="sync-outline" size={16} color={colors.brand} />
+                        <Text style={styles.tourSecondaryButtonText}>Αντικατάσταση πανοράματος</Text>
+                      </Pressable>
+                      {tourScenes.length > 1 ? (
+                        <View style={styles.hotspotEditor}>
+                          <View style={styles.hotspotHeader}>
+                            <Text style={styles.hotspotTitle}>Συνδέσεις χώρων</Text>
+                            <Pressable style={styles.hotspotAddButton} onPress={() => addTourHotspot(scene.id)} testID={`tour-scene-add-hotspot-${scene.id}`}>
+                              <Ionicons name="add" size={16} color={colors.onBrand} />
+                              <Text style={styles.hotspotAddButtonText}>Προσθήκη hotspot</Text>
+                            </Pressable>
+                          </View>
+                          {(scene.hotspots ?? []).map((hotspot, hotspotIndex) => {
+                            const target = tourScenes.find((item) => item.id === hotspot.targetSceneId);
+                            const targetOptions = tourScenes.filter((item) => item.id !== scene.id).map((item) => item.title);
+                            return (
+                              <View key={`${scene.id}-hotspot-${hotspotIndex}`} style={styles.hotspotCard}>
+                                <View style={styles.hotspotCardHeader}>
+                                  <Text style={styles.hotspotLabel}>Μετάβαση σε χώρο</Text>
+                                  <Pressable onPress={() => removeTourHotspot(scene.id, hotspotIndex)} hitSlop={8} testID={`tour-hotspot-remove-${scene.id}-${hotspotIndex}`}>
+                                    <Ionicons name="trash-outline" size={17} color={colors.error} />
+                                  </Pressable>
+                                </View>
+                                <Dropdown
+                                  value={target?.title ?? null}
+                                  options={targetOptions}
+                                  placeholder="Επιλογή χώρου"
+                                  onSelect={(title) => {
+                                    const nextTarget = tourScenes.find((item) => item.id !== scene.id && item.title === title);
+                                    if (nextTarget) updateTourHotspot(scene.id, hotspotIndex, { targetSceneId: nextTarget.id, text: nextTarget.title });
+                                  }}
+                                  testID={`tour-hotspot-target-${scene.id}-${hotspotIndex}`}
+                                />
+                                <TextInput value={hotspot.text} onChangeText={(text) => updateTourHotspot(scene.id, hotspotIndex, { text })} style={styles.hotspotTextInput} placeholder="Ετικέτα (προαιρετικό)" placeholderTextColor={colors.onSurfaceTertiary} testID={`tour-hotspot-label-${scene.id}-${hotspotIndex}`} />
+                                <View style={styles.sliderHeader}><Text style={styles.hotspotSliderLabel}>Pitch</Text><Text style={styles.hotspotSliderValue}>{Math.round(hotspot.pitch)}°</Text></View>
+                                <Slider minimumValue={-90} maximumValue={90} step={1} value={hotspot.pitch} onValueChange={(pitch) => updateTourHotspot(scene.id, hotspotIndex, { pitch })} minimumTrackTintColor={colors.brand} maximumTrackTintColor={colors.border} thumbTintColor={colors.brand} testID={`tour-hotspot-pitch-${scene.id}-${hotspotIndex}`} />
+                                <View style={styles.sliderHeader}><Text style={styles.hotspotSliderLabel}>Yaw</Text><Text style={styles.hotspotSliderValue}>{Math.round(hotspot.yaw)}°</Text></View>
+                                <Slider minimumValue={-180} maximumValue={180} step={1} value={hotspot.yaw} onValueChange={(yaw) => updateTourHotspot(scene.id, hotspotIndex, { yaw })} minimumTrackTintColor={colors.brand} maximumTrackTintColor={colors.border} thumbTintColor={colors.brand} testID={`tour-hotspot-yaw-${scene.id}-${hotspotIndex}`} />
+                              </View>
+                            );
+                          })}
+                        </View>
+                      ) : null}
                     </View>
-                    <Pressable onPress={() => { setTourScenes((previous) => previous.filter((item) => item.id !== scene.id)); if (defaultTourSceneId === scene.id) setDefaultTourSceneId(tourScenes.find((item) => item.id !== scene.id)?.id ?? ""); }} hitSlop={8} testID={`tour-scene-remove-${scene.id}`}><Ionicons name="trash-outline" size={19} color={colors.error} /></Pressable>
+                    <Pressable onPress={() => void handleRemoveTourScene(scene.id)} hitSlop={8} testID={`tour-scene-remove-${scene.id}`}><Ionicons name="trash-outline" size={19} color={colors.error} /></Pressable>
                   </View>
                 ))}
                 {tourScenes.length === 0 ? <Text style={styles.fieldHint}>Δεν έχουν προστεθεί ακόμη πανοράματα.</Text> : null}
@@ -3825,6 +4006,7 @@ export default function CreateListingScreen() {
           setDescription((previous) => (previous && previous.trim().length > 0 ? `${previous}\n\n${nextDescription}` : nextDescription));
         }}
         specs={{
+          apartmentId: currentListingId || undefined,
           title: title.trim() || `Διαμέρισμα στην ${area.trim()}`,
           rooms: Number(rooms) || 0,
           sqm: Number(sizeSqm),
@@ -4021,12 +4203,26 @@ function createStyles(colors: ThemeColors) {
     reelUploadButtonText: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onBrand },
     tourAddButton: { minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.xs, borderRadius: radius.md, backgroundColor: colors.brand },
     tourAddButtonText: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onBrand },
-    tourSceneRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceSecondary },
+    tourSceneRow: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm, padding: spacing.sm, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceSecondary },
     tourSceneThumb: { width: 72, height: 52, borderRadius: radius.sm, backgroundColor: colors.surfaceTertiary },
     tourSceneDetails: { flex: 1, gap: spacing.xs },
     tourSceneTitleInput: { minHeight: 34, paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurface },
     tourDefaultRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
     tourDefaultText: { fontFamily: fonts.regular, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
+    tourSecondaryButton: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: spacing.xs, paddingVertical: spacing.xs },
+    tourSecondaryButtonText: { fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.brand },
+    hotspotEditor: { marginTop: spacing.xs, gap: spacing.sm },
+    hotspotHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
+    hotspotTitle: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onSurface },
+    hotspotAddButton: { minHeight: 32, flexDirection: "row", alignItems: "center", gap: 2, paddingHorizontal: spacing.sm, borderRadius: radius.sm, backgroundColor: colors.brand },
+    hotspotAddButtonText: { fontFamily: fonts.bold, fontSize: fontSize.xs, color: colors.onBrand },
+    hotspotCard: { gap: spacing.xs, padding: spacing.sm, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+    hotspotCardHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+    hotspotLabel: { fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
+    hotspotTextInput: { minHeight: 42, paddingHorizontal: spacing.sm, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, color: colors.onSurface, fontFamily: fonts.regular, fontSize: fontSize.sm },
+    sliderHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+    hotspotSliderLabel: { fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.onSurface },
+    hotspotSliderValue: { fontFamily: fonts.bold, fontSize: fontSize.xs, color: colors.brand },
     attachmentSubtitle: { fontFamily: fonts.regular, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
     attachIconButton: {
       width: 36,
@@ -4655,6 +4851,9 @@ function createStyles(colors: ThemeColors) {
       fontFamily: fonts.semibold,
       fontSize: fontSize.base,
     },
+    voiceInputWrap: { position: "relative" },
+    voiceInput: { paddingRight: 58 },
+    voiceButtonWrap: { position: "absolute", top: 4, right: 4 },
     discountRow: {
       marginTop: spacing.sm,
     },

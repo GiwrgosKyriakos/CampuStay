@@ -96,6 +96,10 @@
     "errors": {
       "permissionDenied": "Microphone access was not granted.",
       "unavailable": "Speech recognition is not available on this device.",
+      "network": "Speech recognition requires an internet connection.",
+      "silenceTimeout": "No speech was detected.",
+      "unsupportedLocale": "The dictation language is not supported on this device.",
+      "busy": "Dictation is already in use by another field.",
       "startFailed": "Dictation could not be started.",
       "generic": "A speech recognition error occurred."
     }
@@ -917,6 +921,11 @@
       "chooseLibrary": "Choose from Library",
       "permissionTitle": "Permission required",
       "permissionMessage": "Photo library access is needed to attach 2D/3D files.",
+      "tourValidationTitle": "Invalid 360° panorama",
+      "tourInvalidAspect": "This photo is not a 360° panorama (a 2:1 ratio is required).",
+      "tourInvalidFormat": "A JPEG or PNG file is required for a 360° panorama.",
+      "tourFileTooLarge": "A 360° panorama cannot be larger than 20 MB.",
+      "tourUnreadable": "We could not read this 360° panorama. Please try another photo.",
       "missingDetailsTitle": "Missing details",
       "missingDetailsMessage": "Please complete Monthly Rent, City, Area, and Size before publishing.",
       "signInRequiredTitle": "Sign in required",

@@ -1,5 +1,6 @@
 import type { RoommateProfile } from "@/src/data/profiles";
 import {
+  addDoc,
   collection,
   deleteDoc,
   doc,
@@ -13,7 +14,6 @@ import {
 
 import { db } from "@/src/config/firebase";
 import { normalizeCity } from "@/src/utils/cityNormalization";
-import { sendPushNotification } from "@/src/utils/notificationService";
 import { isBrokerOrAgencyUser } from "@/src/utils/roles";
 
 interface FirestoreUserDoc {
@@ -215,28 +215,8 @@ export async function postSwipe(
       { merge: true },
     );
 
-    // ΑΠΟΣΤΟΛΗ PUSH NOTIFICATION ΟΤΑΝ Ο ΧΡΗΣΤΗΣ Α ΚΑΝΕΙ LIKE ΣΤΟΝ ΧΡΗΣΤΗ Β
     try {
-      const targetUserSnap = await getDoc(doc(db, "users", targetId));
-      if (targetUserSnap.exists()) {
-        const targetUserData = targetUserSnap.data() as FirestoreUserDoc;
-        const newMatchesEnabled = targetUserData.newMatchesEnabled ?? true;
-        const pushToken = targetUserData.expoPushToken;
-
-        if (newMatchesEnabled && pushToken) {
-          const currentUserSnap = await getDoc(doc(db, "users", userId));
-          const senderName = currentUserSnap.exists()
-            ? ((currentUserSnap.data() as FirestoreUserDoc).name?.trim() || "Κάποιος")
-            : "Κάποιος";
-
-          await sendPushNotification(
-            pushToken,
-            "Έχεις νέο match!",
-            `Έχεις νέο match: ${senderName}`,
-            { chatRoomId, senderId: userId, type: "match" }
-          );
-        }
-      }
+      await addDoc(collection(db, "matches"), { recipientId: targetId, candidateId: userId, userId, score: 100, chatRoomId, source: "roommate_swipe", createdAt: Date.now() });
     } catch (notifErr) {
       console.error("[postSwipe] Σφάλμα αποστολής notification match:", notifErr);
     }

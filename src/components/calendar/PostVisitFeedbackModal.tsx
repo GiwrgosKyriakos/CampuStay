@@ -1,14 +1,17 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { doc, updateDoc } from "firebase/firestore";
+import { httpsCallable } from "firebase/functions";
 
 import type { BrokerNote } from "@/src/api/brokerCalendar";
-import { savePostVisitFeedback } from "@/src/api/showingInteractions";
-import { doc, updateDoc } from "firebase/firestore";
 import { db } from "@/src/config/firebase";
+import { firebaseFunctions } from "@/src/config/functions";
+import { savePostVisitFeedback } from "@/src/api/showingInteractions";
 import { useTheme } from "@/src/context/ThemeContext";
 import { t } from "@/src/locales";
 import VoiceInputButton from "@/src/components/common/VoiceInputButton";
+import { useVoiceInputPreview } from "@/src/hooks/useVoiceInputPreview";
 import { fontSize, fonts, radius, spacing } from "@/src/theme";
 
 type SecondVisitChoice = "yes" | "no" | "maybe";
@@ -58,6 +61,8 @@ export default function PostVisitFeedbackModal({ visible, note, isClient, userId
   const [followUpIntent, setFollowUpIntent] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
+  const notesVoice = useVoiceInputPreview(notesText, setNotesText);
+  const { onAbort: resetNotesVoice } = notesVoice;
   const listingValue = listingPrice ?? note?.apartmentPrice ?? 0;
   const offerNum = Number.parseFloat(oralOfferAmount) || 0;
   const minAcceptablePrice = listingValue * (1 - maxDiscountPercent / 100);
@@ -66,6 +71,7 @@ export default function PostVisitFeedbackModal({ visible, note, isClient, userId
 
   useEffect(() => {
     if (!visible) return;
+    resetNotesVoice();
     setScores([0, 0, 0]);
     setSelectedTags([]);
     setNotesText("");
@@ -74,7 +80,7 @@ export default function PostVisitFeedbackModal({ visible, note, isClient, userId
     setOralOfferAmount("");
     setFollowUpIntent("");
     setErrorText(null);
-  }, [visible, note?.id]);
+  }, [note?.id, resetNotesVoice, visible]);
 
   useEffect(() => {
     if (!visible || !propertyId || !clientId || !profileId) return;
@@ -85,10 +91,19 @@ export default function PostVisitFeedbackModal({ visible, note, isClient, userId
       visitCompletedAt: Date.now(),
       updatedAt: Date.now(),
     };
-    void Promise.all([
-      updateDoc(doc(db, "brokerClientProfiles", profileId), profileUpdates),
-      updateDoc(doc(db, "brokerClientProfiles", profileId, "deals", propertyId), profileUpdates),
-    ]).catch((error) => console.warn("Auto-update deal stage on feedback open failed:", error));
+    void (async () => {
+      try {
+        await updateDoc(doc(db, "brokerClientProfiles", profileId), profileUpdates);
+        const brokerId = clientId && profileId.endsWith(`_${clientId}`) ? profileId.slice(0, -(clientId.length + 1)) : "";
+        if (!brokerId) return;
+        const initializeDeal = httpsCallable<Record<string, unknown>, { dealId: string }>(firebaseFunctions, "initializeDealCallable");
+        const advanceDealStage = httpsCallable<Record<string, unknown>, { dealId: string; stage: number }>(firebaseFunctions, "advanceDealStageCallable");
+        await initializeDeal({ apartmentId: propertyId, brokerId, clientId, initialStage: 0 });
+        await advanceDealStage({ dealId: `${propertyId}_${clientId}`, targetStage: 35 });
+      } catch (error) {
+        console.warn("Auto-update deal stage on feedback open failed:", error);
+      }
+    })();
   }, [clientId, isClient, profileId, propertyId, visible]);
 
   const canSave = !!note && !!userId && (isClient ? scores.every((score) => score > 0) : notesText.trim().length > 0 && (!hasOralOffer || (offerNum > 0 && !isBelowMaxDiscount)));
@@ -162,14 +177,14 @@ export default function PostVisitFeedbackModal({ visible, note, isClient, userId
                   })}
                 </View>
                 <Text style={styles.label}>{t("calendar.postVisit.notesLabel")}</Text>
-                <View style={styles.voiceInputWrap}><TextInput value={notesText} onChangeText={setNotesText} multiline textAlignVertical="top" style={[styles.input, styles.voiceInput]} placeholder={t("calendar.postVisit.clientNotesPlaceholder")} placeholderTextColor={colors.onSurfaceTertiary} testID="post-visit-client-notes" /><View style={styles.voiceButtonWrap}><VoiceInputButton onTextAppend={(spokenText) => setNotesText((current) => current.trim() ? `${current.trim()} ${spokenText}` : spokenText)} color={colors.onSurfaceTertiary} disabled={isSaving} /></View></View>
+                <View style={styles.voiceInputWrap}><TextInput value={notesVoice.value} onChangeText={notesVoice.onChangeText} multiline textAlignVertical="top" style={[styles.input, styles.voiceInput]} placeholder={t("calendar.postVisit.clientNotesPlaceholder")} placeholderTextColor={colors.onSurfaceTertiary} testID="post-visit-client-notes" /><View style={styles.voiceButtonWrap}><VoiceInputButton onTextAppend={notesVoice.onFinalResult} onPartialResult={notesVoice.onPartialResult} onAbort={notesVoice.onAbort} color={colors.onSurfaceTertiary} disabled={isSaving} /></View></View>
                 <Text style={styles.label}>{t("calendar.postVisit.secondVisitQuestion")}</Text>
                 <ChoiceRow options={[{ value: "yes", label: t("common.actions.yes") }, { value: "no", label: t("common.actions.no") }, { value: "maybe", label: t("calendar.postVisit.maybe") }]} selected={secondVisitChoice} onSelect={(value) => setSecondVisitChoice(value as SecondVisitChoice)} styles={styles} />
               </>
             ) : (
               <>
                 <Text style={styles.label}>{t("calendar.postVisit.brokerNotesLabel")}</Text>
-                <View style={styles.voiceInputWrap}><TextInput value={notesText} onChangeText={setNotesText} multiline textAlignVertical="top" style={[styles.input, styles.voiceInput]} placeholder={t("calendar.postVisit.brokerNotesPlaceholder")} placeholderTextColor={colors.onSurfaceTertiary} testID="post-visit-broker-notes" /><View style={styles.voiceButtonWrap}><VoiceInputButton onTextAppend={(spokenText) => setNotesText((current) => current.trim() ? `${current.trim()} ${spokenText}` : spokenText)} color={colors.onSurfaceTertiary} disabled={isSaving} /></View></View>
+                <View style={styles.voiceInputWrap}><TextInput value={notesVoice.value} onChangeText={notesVoice.onChangeText} multiline textAlignVertical="top" style={[styles.input, styles.voiceInput]} placeholder={t("calendar.postVisit.brokerNotesPlaceholder")} placeholderTextColor={colors.onSurfaceTertiary} testID="post-visit-broker-notes" /><View style={styles.voiceButtonWrap}><VoiceInputButton onTextAppend={notesVoice.onFinalResult} onPartialResult={notesVoice.onPartialResult} onAbort={notesVoice.onAbort} color={colors.onSurfaceTertiary} disabled={isSaving} /></View></View>
                 <View style={styles.switchRow}><Text style={styles.label}>{t("calendar.postVisit.oralOfferQuestion")}</Text><Switch value={hasOralOffer} onValueChange={setHasOralOffer} trackColor={{ false: colors.surfaceTertiary, true: colors.brandTertiary }} thumbColor={hasOralOffer ? colors.brand : colors.onSurfaceTertiary} testID="post-visit-oral-offer-toggle" /></View>
                 {hasOralOffer ? <><TextInput value={oralOfferAmount} onChangeText={setOralOfferAmount} keyboardType="decimal-pad" style={styles.amountInput} placeholder={t("calendar.postVisit.offerAmountPlaceholder")} placeholderTextColor={colors.onSurfaceTertiary} testID="post-visit-oral-offer-amount" />{isBelowMaxDiscount ? <View style={styles.discountWarningBanner}><Ionicons color="#EF4444" name="alert-circle-outline" size={18} /><View style={styles.discountWarningTextCol}><Text style={styles.discountWarningTitle}>{t("calendar.postVisit.discountWarningTitle")}</Text><Text style={styles.discountWarningDesc}>{t("calendar.postVisit.discountWarningDescription", { offer: offerNum.toLocaleString("el-GR"), discount: calculatedDiscountPercent, maxDiscount: maxDiscountPercent, minimum: minAcceptablePrice.toLocaleString("el-GR") })}</Text></View></View> : null}</> : null}
                 <Text style={styles.label}>{t("calendar.postVisit.nextStep")}</Text>

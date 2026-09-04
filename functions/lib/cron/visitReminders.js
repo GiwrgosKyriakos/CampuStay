@@ -61,24 +61,18 @@ async function processAppointment(appointmentId, data, now) {
     const time = date.toLocaleTimeString("el-GR", { hour: "2-digit", minute: "2-digit" });
     if (isInWindow(date, now, 24 * 60 * 60 * 1000) && await claimPhase(appointmentId, "24h", now)) {
         await Promise.all([
-            (0, push_1.sendPushToUser)(brokerId, "Υπόδειξη αύριο", `Υπόδειξη αύριο στις ${time} με τον πελάτη. Αποστείλατε την ακριβή διεύθυνση;`, { type: "send_exact_address", appointmentId, apartmentId: listingId, clientId, chatRoomId: data.chatRoomId, channelId: "visit_reminders" }),
-            (0, push_1.sendPushToUser)(clientId, "Υπενθύμιση υπόδειξης", `Υπενθύμιση υπόδειξης αύριο στις ${time} στην περιοχή ${address}.`, { type: "visit_reminder", appointmentId, channelId: "visit_reminders" }),
+            (0, push_1.sendPushToUser)(brokerId, { type: "visit_reminder", title: "Υπόδειξη αύριο", body: `Υπόδειξη αύριο στις ${time} με τον πελάτη. Αποστείλατε την ακριβή διεύθυνση;`, screen: "chat/[id]", params: { appointmentId, apartmentId: listingId, clientId, chatId: data.chatRoomId }, entityId: appointmentId, action: "send_exact_address" }, "visit_reminders"),
+            (0, push_1.sendPushToUser)(clientId, { type: "visit_reminder", title: "Υπενθύμιση υπόδειξης", body: `Υπενθύμιση υπόδειξης αύριο στις ${time} στην περιοχή ${address}.`, screen: "chat/[id]", params: { appointmentId, chatId: data.chatRoomId }, entityId: appointmentId }, "visit_reminders"),
         ]);
     }
     if (isInWindow(date, now, 2 * 60 * 60 * 1000) && await claimPhase(appointmentId, "2h", now)) {
         const encodedAddress = encodeURIComponent(address);
-        await (0, push_1.sendPushToUser)(clientId, "Η υπόδειξή σας είναι σε 2 ώρες", `Η επίσκεψη στο ${title} είναι στις ${time}.`, {
-            type: "visit_navigation",
-            appointmentId,
-            googleMapsUrl: `https://www.google.com/maps/search/?api=1&query=${encodedAddress}`,
-            appleMapsUrl: `maps://?q=${encodedAddress}`,
-            channelId: "visit_reminders",
-        });
+        await (0, push_1.sendPushToUser)(clientId, { type: "visit_navigation", title: "Η υπόδειξή σας είναι σε 2 ώρες", body: `Η επίσκεψη στο ${title} είναι στις ${time}.`, screen: "calendar", params: { appointmentId, googleMapsUrl: `https://www.google.com/maps/search/?api=1&query=${encodedAddress}`, appleMapsUrl: `maps://?q=${encodedAddress}` }, entityId: appointmentId }, "visit_reminders");
     }
-    if ((data.status === "confirmed" || data.status === "showing_completed") && isInWindow(date, now, -2 * 60 * 60 * 1000) && await claimPhase(appointmentId, "postVisit", now)) {
+    if (data.status === "completed" && isInWindow(date, now, -2 * 60 * 60 * 1000) && await claimPhase(appointmentId, "postVisit", now)) {
         await Promise.all([
-            (0, push_1.sendPushToUser)(clientId, "Αξιολόγηση επίσκεψης", "Πώς ήταν η επίσκεψη στο ακίνητο; Βαθμολόγησε την εμπειρία σου", { type: "post_visit_feedback", appointmentId, channelId: "visit_reminders" }),
-            (0, push_1.sendPushToUser)(brokerId, "Feedback υπόδειξης", "Ολοκληρώθηκε η υπόδειξη; Κατάγραψε feedback και τυχόν προφορική προσφορά", { type: "broker_visit_feedback", appointmentId, channelId: "visit_reminders" }),
+            (0, push_1.sendPushToUser)(clientId, { type: "post_visit_rating", title: "Αξιολόγηση επίσκεψης", body: "Πώς ήταν η επίσκεψη στο ακίνητο; Βαθμολόγησε την εμπειρία σου", screen: "calendar", params: { appointmentId }, entityId: appointmentId, action: "open_modal" }, "visit_reminders"),
+            (0, push_1.sendPushToUser)(brokerId, { type: "post_visit_rating", title: "Feedback υπόδειξης", body: "Ολοκληρώθηκε η υπόδειξη; Κατάγραψε feedback και τυχόν προφορική προσφορά", screen: "broker-client-detail", params: { appointmentId }, entityId: appointmentId, action: "open_modal" }, "visit_reminders"),
         ]);
     }
 }
@@ -86,7 +80,7 @@ exports.processScheduledVisitReminders = (0, scheduler_1.onSchedule)("every 15 m
     const now = Date.now();
     const [confirmed, completed] = await Promise.all([
         db.collection("appointments").where("status", "==", "confirmed").get(),
-        db.collection("appointments").where("status", "==", "showing_completed").get(),
+        db.collection("appointments").where("status", "==", "completed").get(),
     ]);
     const appointments = new Map([...confirmed.docs, ...completed.docs].map((snapshot) => [snapshot.id, snapshot]));
     await Promise.all([...appointments.values()].map((snapshot) => processAppointment(snapshot.id, snapshot.data(), now)));

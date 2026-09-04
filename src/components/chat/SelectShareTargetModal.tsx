@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/src/config/firebase";
@@ -7,6 +7,7 @@ import { sendSharedRoommateProfile } from "@/src/api/chat";
 import type { SharedProfileMessageMetadata } from "@/src/types/chat";
 import { useTheme } from "@/src/context/ThemeContext";
 import { radius, spacing, fonts, fontSize } from "@/src/theme";
+import BaseBottomSheet from "@/src/components/common/BaseBottomSheet";
 
 type Target = { id: string; label: string; kind: "roommate" | "host" };
 export default function SelectShareTargetModal({ visible, currentUserId, profile, onClose, onSent }: { visible: boolean; currentUserId: string; profile: SharedProfileMessageMetadata; onClose: () => void; onSent: () => void }) {
@@ -36,11 +37,10 @@ export default function SelectShareTargetModal({ visible, currentUserId, profile
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [currentUserId, visible]);
-  return <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}><View style={styles.backdrop}><View style={[styles.sheet, { backgroundColor: colors.surface }]}><View style={styles.header}><Text style={[styles.title, { color: colors.onSurface }]}>Κοινοποίηση προφίλ</Text><Pressable onPress={onClose}><Ionicons name="close-outline" size={24} color={colors.onSurface} /></Pressable></View>{loading ? <ActivityIndicator color={colors.brand} /> : <ScrollView contentContainerStyle={styles.list} bounces={false}>{targets.map((target) => <Pressable key={target.id} style={[styles.row, { backgroundColor: colors.surfaceSecondary }]} disabled={!!sending} onPress={() => { setSending(target.id); void sendSharedRoommateProfile({ chatRoomId: target.id, senderId: currentUserId, metadata: profile }).then(onSent).finally(() => setSending(null)); }}><Ionicons name={target.kind === "host" ? "home-outline" : "people-outline"} size={22} color={colors.brand} /><Text style={[styles.label, { color: colors.onSurface }]}>{target.label}</Text>{sending === target.id ? <ActivityIndicator color={colors.brand} /> : <Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />}</Pressable>)}</ScrollView>}{!loading && targets.length === 0 ? <Text style={[styles.empty, { color: colors.onSurfaceTertiary }]}>Δεν υπάρχουν ενεργές συνομιλίες.</Text> : null}</View></View></Modal>;
+  return <BaseBottomSheet visible={visible} onClose={onClose} maxHeight="78%"><View style={styles.content}><View style={styles.header}><Text style={[styles.title, { color: colors.onSurface }]}>Κοινοποίηση προφίλ</Text><Pressable onPress={onClose}><Ionicons name="close-outline" size={24} color={colors.onSurface} /></Pressable></View>{loading ? <ActivityIndicator color={colors.brand} /> : <View style={styles.list}>{targets.map((target) => <Pressable key={target.id} style={[styles.row, { backgroundColor: colors.surfaceSecondary }]} disabled={!!sending} onPress={() => { setSending(target.id); void sendSharedRoommateProfile({ chatRoomId: target.id, senderId: currentUserId, metadata: profile }).then(onSent).finally(() => setSending(null)); }}><Ionicons name={target.kind === "host" ? "home-outline" : "people-outline"} size={22} color={colors.brand} /><Text style={[styles.label, { color: colors.onSurface }]}>{target.label}</Text>{sending === target.id ? <ActivityIndicator color={colors.brand} /> : <Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />}</Pressable>)}</View>}{!loading && targets.length === 0 ? <Text style={[styles.empty, { color: colors.onSurfaceTertiary }]}>Δεν υπάρχουν ενεργές συνομιλίες.</Text> : null}</View></BaseBottomSheet>;
 }
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.45)" },
-  sheet: { maxHeight: "78%", borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg, gap: spacing.md },
+  content: { gap: spacing.md, padding: spacing.lg },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   title: { fontFamily: fonts.bold, fontSize: fontSize.lg },
   list: { gap: spacing.sm },

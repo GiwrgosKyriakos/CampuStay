@@ -27,7 +27,7 @@ import { getWordCount, isNoteBodyValid, isNoteTitleValid, MAX_NOTE_BODY_CHARS, M
 import { NOTE_REMINDER_OPTIONS, scheduleCalendarNoteReminder } from "@/src/utils/calendarNoteReminders";
 import VoiceInputButton from "@/src/components/common/VoiceInputButton";
 import SelectCoveringBrokerModal from "@/src/components/SelectCoveringBrokerModal";
-import { getAgencyStaff, type AgencyStaffMember } from "@/src/api/agencyCollaboration";
+import { delegateShowing, getAgencyStaff, type AgencyStaffMember } from "@/src/api/agencyCollaboration";
 import { getUserProfile } from "@/src/api/userProfile";
 
 export interface BrokerListingItem {
@@ -262,7 +262,7 @@ export default function BrokerNoteModal({
         const newId = await saveBrokerNote(brokerId, payload);
         onSaved?.(newId);
         savedNoteId = newId;
-        if (coveringBroker) {
+        if (coveringBroker && !note?.appointmentId) {
           await saveBrokerNote(coveringBroker.id, {
             ...payload,
             brokerId,
@@ -274,6 +274,9 @@ export default function BrokerNoteModal({
             primaryNoteId: savedNoteId,
           });
         }
+      }
+      if (coveringBroker && note?.appointmentId) {
+        await delegateShowing({ appointmentId: note.appointmentId, coveringBrokerId: coveringBroker.id });
       }
 
       const reminderNotificationId = enablePushReminder

@@ -1,23 +1,28 @@
-export interface TourHotspot {
-  id: string;
+export interface VirtualTourHotspot {
   pitch: number;
   yaw: number;
-  targetSceneId: string;
+  type: "scene";
   text: string;
+  targetSceneId: string;
 }
 
-export interface TourScene {
+export interface VirtualTourScene {
   id: string;
   title: string;
   imageUrl: string;
-  hotspots?: TourHotspot[];
+  mimeType?: "image/jpeg" | "image/png";
+  hotspots?: VirtualTourHotspot[];
 }
 
 export interface VirtualTourData {
   enabled: boolean;
   defaultSceneId: string;
-  scenes: TourScene[];
+  scenes: VirtualTourScene[];
 }
+
+export type VirtualTour = VirtualTourData;
+export type TourHotspot = VirtualTourHotspot;
+export type TourScene = VirtualTourScene;
 
 export interface ApartmentReelMedia {
   videoUrl?: string;
@@ -37,6 +42,8 @@ export interface KeySafeLogEntry {
   id: string;
   brokerId: string;
   brokerName: string;
+  action?: "checkout" | "checkin";
+  timestamp?: number;
   checkedOutAt: number;
   returnedAt?: number;
   notes?: string;
@@ -57,16 +64,19 @@ export interface Apartment {
   city?: string;
   showExactAddress: boolean;
   hostId: string;
+  hostRequiresRoommate?: boolean;
   assignedBrokerIds?: string[];
   agencyId?: string;
   assignmentStatus?: "unassigned_pool" | "claim_pending" | "assigned";
   pendingClaimBrokerId?: string;
   rejectedBrokerIds?: string[];
   keySafeLocation?: string;
+  currentKeyHolderId?: string;
   keySafeLogs?: KeySafeLogEntry[];
   openHouseConfig?: OpenHouseConfig;
   status: "active" | "under_negotiation" | "withdrawn" | "rented" | "sold" | "closed_deal";
   withdrawalMetadata?: ListingWithdrawalMetadata;
   reelMedia?: ApartmentReelMedia;
+  virtualTour?: VirtualTourData;
   [key: string]: unknown;
 }

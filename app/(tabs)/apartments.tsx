@@ -6,7 +6,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { addDoc, collection, doc, getDocs, onSnapshot, orderBy, query, serverTimestamp, setDoc, where, limit } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, getDocs, onSnapshot, orderBy, query, serverTimestamp, setDoc, where, limit } from "firebase/firestore";
 import DraggableFlatList, { ScaleDecorator } from "react-native-draggable-flatlist";
 import MapView, { Marker, PROVIDER_DEFAULT, type ApartmentMapRef, type ApartmentMapRegion as Region } from "../../src/components/ApartmentMapView";
 
@@ -25,6 +25,7 @@ import { getUserApartmentNotes, updateNotesOrder, type Apartment as ApartmentNot
 import { storage } from "@/src/utils/storage";
 import { calculatePricePerSqm } from "@/src/utils/pricing";
 import { calculateTenantCompatibilityScore } from "@/src/utils/compatibilityScore";
+import { isHostCompatibleForClient } from "@/src/utils/apartmentEligibility";
 import { resolveLocationCoordinates } from "@/src/hooks/useLocationCoordinates";
 import { isPointInPolygon, type LatLng } from "@/src/utils/geometry";
 import MapPolygonDrawModal from "@/src/components/MapPolygonDrawModal";
@@ -38,6 +39,7 @@ import AgencyPickerModal, { type AgencyItem } from "@/src/components/filters/Age
 import ProposalListsPickerModal, { type ReceivedProposalList } from "@/src/components/filters/ProposalListsPickerModal";
 import HardCriteriaSelectionModal, { HARD_CRITERIA_OPTIONS } from "@/src/components/HardCriteriaSelectionModal";
 import VoiceInputButton from "@/src/components/common/VoiceInputButton";
+import { useVoiceInputPreview } from "@/src/hooks/useVoiceInputPreview";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 100;
@@ -375,6 +377,7 @@ interface Apartment {
   amenities: string[];
   extraDetails?: Record<string, boolean>;
   extraInformation?: ApartmentExtraInformation;
+  hostRequiresRoommate?: boolean;
   hostId?: string;
   ownerId?: string;
   agencyId?: string;
@@ -454,6 +457,12 @@ type ApartmentQuickChatMeta = {
 interface FirestoreHostInboxUserDoc {
   already_have_apartment_to_share?: boolean;
   has_place?: boolean;
+}
+
+interface FirestoreHostRoommateDoc {
+  looking_for_roommate?: boolean;
+  isLookingForRoommate?: boolean;
+  not_looking_for_roommate?: boolean;
 }
 
 const LEGACY_TAG_TO_SLUG: Record<string, string> = {
@@ -708,6 +717,7 @@ export default function ApartmentsScreen() {
   const [showFilters, setShowFilters] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const searchVoice = useVoiceInputPreview(searchQuery, setSearchQuery);
   const [showRecentSearches, setShowRecentSearches] = useState(false);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [rentMin, setRentMin] = useState("");
@@ -1449,6 +1459,17 @@ export default function ApartmentsScreen() {
                 const data = snap.data() as FirestoreApartmentDoc;
                 const hostOrOwnerId = data.hostId || data.ownerId;
                 if (hostOrOwnerId && excludedUserIds.has(hostOrOwnerId)) return null;
+                const hostSnapshot = !auth.isBroker && auth.notLookingForRoommate && hostOrOwnerId
+                  ? await getDoc(doc(db, "users", hostOrOwnerId))
+                  : null;
+                const hostData = hostSnapshot?.exists() ? hostSnapshot.data() as FirestoreHostRoommateDoc : null;
+                const hostRequiresRoommate = hostData !== null && (
+                  hostData.looking_for_roommate === true
+                  || hostData.isLookingForRoommate === true
+                  || (hostData.not_looking_for_roommate !== true
+                    && hostData.looking_for_roommate === undefined
+                    && hostData.isLookingForRoommate === undefined)
+                );
 
                 const amenities = Array.isArray(data.amenities) ? data.amenities : [];
                 const rawTags = Array.isArray(data.tags) ? data.tags : amenities;
@@ -1506,6 +1527,7 @@ export default function ApartmentsScreen() {
                   available,
                   watermarkConfig: data.watermarkConfig,
                   virtualTour: data.virtualTour,
+                  hostRequiresRoommate,
                 };
               })
             );
@@ -1536,7 +1558,7 @@ export default function ApartmentsScreen() {
     return () => {
       active = false;
     };
-  }, [auth.userId, auth.isLoading]);
+  }, [auth.isBroker, auth.isLoading, auth.notLookingForRoommate, auth.userId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -1795,6 +1817,7 @@ export default function ApartmentsScreen() {
       const isDirectOwner = !!currentUid && (apt.ownerId === currentUid || apt.hostId === currentUid);
       const isAssignedBroker = !!currentUid && auth.isBroker === true && Array.isArray(apt.assignedBrokerIds) && apt.assignedBrokerIds.includes(currentUid);
       const isOwnListing = isDirectOwner || isAssignedBroker;
+      if (!isHostCompatibleForClient(auth.notLookingForRoommate, apt.hostRequiresRoommate === true)) return false;
       const isPrivilegedClient = !!currentUid && Array.isArray(apt.offMarketAccessUserIds) && apt.offMarketAccessUserIds.includes(currentUid);
       if ((apt.isOffMarket || apt.status === "under_negotiation") && !isOwnListing && !isPrivilegedClient) return false;
       if (proposalApartmentIds.length > 0 && !proposalApartmentIds.includes(apt.id)) return false;
@@ -1915,6 +1938,7 @@ export default function ApartmentsScreen() {
     activeTab,
     apartments,
     auth.isBroker,
+    auth.notLookingForRoommate,
     auth.userId,
     bathroomsMin,
     bedroomsMin,
@@ -2204,10 +2228,10 @@ export default function ApartmentsScreen() {
               <Ionicons name="search-outline" size={18} color={colors.onSurfaceTertiary} />
               <TextInput
                 style={styles.searchInput}
-                value={searchQuery}
-                onChangeText={setSearchQuery}
+                value={searchVoice.value}
+                onChangeText={searchVoice.onChangeText}
                 onSubmitEditing={() => {
-                  void handlePersistedSearch(searchQuery);
+                  if (!searchVoice.isPreviewing) void handlePersistedSearch(searchVoice.value);
                 }}
                 placeholder={t("apartments.searchPlaceholder")}
                 placeholderTextColor={colors.onSurfaceTertiary}
@@ -2217,7 +2241,9 @@ export default function ApartmentsScreen() {
                 testID="apartments-search-input"
               />
               <VoiceInputButton
-                onTextAppend={(spokenText) => setSearchQuery((current) => current.trim() ? `${current.trim()} ${spokenText}` : spokenText)}
+                onTextAppend={searchVoice.onFinalResult}
+                onPartialResult={searchVoice.onPartialResult}
+                onAbort={searchVoice.onAbort}
                 color={colors.onSurfaceTertiary}
               />
               <View style={styles.searchActionsWrap}>
@@ -3244,7 +3270,7 @@ export default function ApartmentsScreen() {
 }
 
 const createStyles = (colors: ThemeColors) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.surface },
+  container: { flex: 1, backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, overflow: "hidden" },
   flexOne: { flex: 1 },
   header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md, gap: spacing.xs, borderBottomLeftRadius: radius.lg, borderBottomRightRadius: radius.lg, overflow: "hidden", backgroundColor: colors.surface },
   titleRowTop: {

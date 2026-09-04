@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/context/ThemeContext";
 import { fonts, fontSize, radius, spacing } from "@/src/theme";
 import CalendarNoteModal from "@/src/components/calendar/CalendarNoteModal";
 import { getBrokerNotesByDateRange, type BrokerNote } from "@/src/api/brokerCalendar";
 import type { BrokerClientItem, BrokerListingItem } from "@/src/components/BrokerNoteModal";
+import BaseBottomSheet from "@/src/components/common/BaseBottomSheet";
 
 export default function ClientCalendarNotesModal({
   visible,
@@ -46,8 +47,7 @@ export default function ClientCalendarNotesModal({
 
   const closeEditor = () => { setEditorVisible(false); setSelectedNote(null); };
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.backdrop}>
+    <BaseBottomSheet visible={visible} onClose={onClose} scrollable={false} maxHeight="88%">
         <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <View style={styles.header}>
             <View style={styles.titleWrap}>
@@ -69,14 +69,12 @@ export default function ClientCalendarNotesModal({
             ))}
           </ScrollView>}
         </View>
-      </View>
       <CalendarNoteModal visible={editorVisible} isBroker brokerId={brokerId} userId={brokerId} date={selectedNote?.date || new Date().toISOString().slice(0, 10)} note={selectedNote} listings={listings} clients={clients} onClose={closeEditor} onSaved={() => { closeEditor(); void loadNotes(); }} onUpdated={() => { closeEditor(); void loadNotes(); }} onDeleted={() => { closeEditor(); void loadNotes(); }} />
-    </Modal>
+    </BaseBottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.45)" },
   card: { maxHeight: "82%", borderWidth: 1, borderBottomWidth: 0, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg, gap: spacing.md },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   titleWrap: { flexDirection: "row", alignItems: "center", gap: spacing.sm },

@@ -1,7 +1,10 @@
+import type { DealChecklistItem } from "./checklist";
+
 export interface PropertyDealLead {
   id: string;
   apartmentId: string;
   clientId: string;
+  leadId: string;
   clientName: string;
   clientAvatar?: string;
   assignedBrokerId: string;
@@ -35,6 +38,8 @@ export interface Deal {
   agencyCutPercentage: number;
   agencyCutAmount: number;
   brokerSplits: BrokerCommissionSplit[];
+  settlementStatus?: "pending_review" | "approved" | "issued" | "settled";
   status: "active" | "under_negotiation" | "closed" | "cancelled";
+  checklist?: DealChecklistItem[];
   createdAt: number;
 }
