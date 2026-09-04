@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, TextInput, Modal, Switch } from "react-native";
+import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, TextInput, Switch } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { addDoc, collection, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 
@@ -15,6 +16,7 @@ import { useTheme } from "@/src/context/ThemeContext";
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import CenteredActionModal from "@/src/components/CenteredActionModal";
+import KeyboardAwareModal from "@/src/components/common/KeyboardAwareModal";
 import { type LossReasonKey, type PipelineStageKey } from "@/src/constants/pipeline";
 import type { LostDealReason } from "@/src/types/analytics";
 import type { BrokerApartment } from "./(tabs)/broker";
@@ -391,7 +393,7 @@ export interface ClientPurchasingPowerData {
 
 export default function BrokerClientDetailScreen() {
   const insets = useSafeAreaInsets(); const router = useRouter(); const auth = useAuth(); const params = useLocalSearchParams<{ clientUserId?: string; clientId?: string; profileId?: string; clientName?: string; clientAvatar?: string; chatRoomId?: string; sharedFilterSet?: string; scrollTo?: string; dealId?: string; highlightItemId?: string }>(); const { colors } = useTheme(); const styles = useMemo(() => createStyles(colors), [colors]);
-  const scrollViewRef = useRef<ScrollView>(null);
+  const scrollViewRef = useRef<React.ElementRef<typeof KeyboardAwareScrollView> | null>(null);
   const [suggestedSectionY, setSuggestedSectionY] = useState(0);
   const [brokerManagedApartments, setBrokerManagedApartments] = useState<BrokerApartment[]>([]); const [loading, setLoading] = useState(true);
   const resolvedClientUserId = params.clientUserId || params.clientId || (params.profileId?.includes("_") ? params.profileId.split("_").slice(1).join("_") : undefined);
@@ -1304,7 +1306,7 @@ export default function BrokerClientDetailScreen() {
         </Pressable>
       </View>
     </View>
-    <ScrollView ref={scrollViewRef} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    <KeyboardAwareScrollView ref={scrollViewRef} contentContainerStyle={[styles.content, { flexGrow: 1, paddingBottom: spacing["3xl"] + insets.bottom }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
       <View style={styles.profileCard}>
         {params.clientAvatar ? <Image source={{ uri: params.clientAvatar }} style={styles.avatar} /> : <DefaultProfileAvatar size={64} iconSize={28} />}
         <Text numberOfLines={1} style={styles.clientName}>{params.clientName || t("brokerClient.clientFallback")}</Text>
@@ -1656,8 +1658,8 @@ export default function BrokerClientDetailScreen() {
         {!loading && rankedPortfolio.length === 0 ? <Text style={styles.emptyHint}>Δεν βρέθηκαν διαθέσιμα ακίνητα στο χαρτοφυλάκιό σας που να πληρούν όλα τα κριτήρια.</Text> : null}
       </View>
       </> : null}
-      </ScrollView>
-    <Modal visible={addInteractionModalVisible} transparent animationType="fade" onRequestClose={() => { if (!isSavingInteraction) setAddInteractionModalVisible(false); }}>
+      </KeyboardAwareScrollView>
+    <KeyboardAwareModal visible={addInteractionModalVisible} transparent animationType="fade" onRequestClose={() => { if (!isSavingInteraction) setAddInteractionModalVisible(false); }}>
       <Pressable style={styles.modalBackdrop} onPress={() => { if (!isSavingInteraction) setAddInteractionModalVisible(false); }}>
         <Pressable style={styles.interactionModal} onPress={(event) => event.stopPropagation()}>
           <View style={styles.interactionModalHeader}>
@@ -1707,7 +1709,7 @@ export default function BrokerClientDetailScreen() {
           </View>
         </Pressable>
       </Pressable>
-    </Modal>
+    </KeyboardAwareModal>
     <DocumentPreviewModal
       visible={!!previewDocument}
       fileUrl={previewDocument?.fileUrl}
@@ -1788,7 +1790,7 @@ export default function BrokerClientDetailScreen() {
       }}
       onConfirm={(lostReason, notes) => void handleConfirmLostDeal(lostReason, notes)}
     />
-    <Modal visible={isNameListModalVisible} transparent animationType="fade" onRequestClose={() => setIsNameListModalVisible(false)}><Pressable style={styles.modalBackdrop} onPress={() => setIsNameListModalVisible(false)}><Pressable style={styles.stageModal} onPress={(event) => event.stopPropagation()}><Text style={styles.modalTitle}>Όνομα λίστας ακινήτων</Text><TextInput value={newListName} onChangeText={setNewListName} autoFocus placeholder="π.χ. Επιλογές για τον πελάτη" placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} testID="property-list-name-input" /><Pressable style={styles.purchasingPowerSaveButton} onPress={() => void handleSavePropertyList()} disabled={savingList} testID="save-property-list"><Ionicons name="save-outline" size={18} color={colors.onBrand} /><Text style={styles.purchasingPowerSaveText}>{savingList ? "Αποθήκευση..." : "Αποθήκευση λίστας"}</Text></Pressable></Pressable></Pressable></Modal>
+    <KeyboardAwareModal visible={isNameListModalVisible} transparent animationType="fade" onRequestClose={() => setIsNameListModalVisible(false)}><Pressable style={styles.modalBackdrop} onPress={() => setIsNameListModalVisible(false)}><Pressable style={styles.stageModal} onPress={(event) => event.stopPropagation()}><Text style={styles.modalTitle}>Όνομα λίστας ακινήτων</Text><TextInput value={newListName} onChangeText={setNewListName} autoFocus placeholder="π.χ. Επιλογές για τον πελάτη" placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} testID="property-list-name-input" /><Pressable style={styles.purchasingPowerSaveButton} onPress={() => void handleSavePropertyList()} disabled={savingList} testID="save-property-list"><Ionicons name="save-outline" size={18} color={colors.onBrand} /><Text style={styles.purchasingPowerSaveText}>{savingList ? "Αποθήκευση..." : "Αποθήκευση λίστας"}</Text></Pressable></Pressable></Pressable></KeyboardAwareModal>
     <BrokerFilterSetEditorModal
       visible={isNewFilterSetModalOpen}
       draft={editingFilterSet}
@@ -1850,7 +1852,7 @@ function BrokerFilterSetEditorModal({ visible, draft, form, editing, saving, onC
   ];
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <KeyboardAwareModal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.modalBackdrop}>
         <View style={styles.filterSetEditorModal} testID="broker-filter-set-editor-modal">
           <View style={styles.interactionModalHeader}>
@@ -1883,7 +1885,7 @@ function BrokerFilterSetEditorModal({ visible, draft, form, editing, saving, onC
           </View>
         </View>
       </View>
-    </Modal>
+    </KeyboardAwareModal>
   );
 }
 

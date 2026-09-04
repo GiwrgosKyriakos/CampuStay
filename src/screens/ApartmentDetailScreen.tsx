@@ -5,7 +5,6 @@ import {
   Alert,
   Dimensions,
   Linking,
-  Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Pressable,
@@ -40,6 +39,7 @@ import {
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
 import { useAuth } from "@/src/context/auth";
 import { useTheme } from "@/src/context/ThemeContext";
+import KeyboardAwareModal from "@/src/components/common/KeyboardAwareModal";
 import { getOrCreateHostChat } from "@/src/api/chat";
 import { subscribeUserLikedApartmentIds, toggleApartmentLike } from "@/src/api/apartmentLikes";
 import { getUserSettings } from "@/src/api/accountSettings";
@@ -59,6 +59,8 @@ import ApartmentLocationMap from "@/src/components/ApartmentLocationMap";
 import InquiryCandidatesSkeleton from "@/src/components/skeletons/InquiryCandidatesSkeleton";
 import ApartmentDetailSkeleton from "@/src/components/skeletons/ApartmentDetailSkeleton";
 import { t } from "@/src/locales";
+
+const Modal = KeyboardAwareModal;
 import { db } from "@/src/config/firebase";
 import { recordListingView } from "@/src/api/analyticsEvents";
 import { useLocationCoordinates } from "@/src/hooks/useLocationCoordinates";

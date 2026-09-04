@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { doc, serverTimestamp, updateDoc } from "firebase/firestore";
 
@@ -7,6 +7,7 @@ import { db } from "@/src/config/firebase";
 import { useTheme } from "@/src/context/ThemeContext";
 import { t } from "@/src/locales";
 import { fonts, fontSize, radius, spacing } from "@/src/theme";
+import KeyboardAwareModal from "@/src/components/common/KeyboardAwareModal";
 
 interface AssignClientEmailModalProps {
   visible: boolean;
@@ -59,7 +60,7 @@ export default function AssignClientEmailModal({ visible, brokerId, clientUserId
   };
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <KeyboardAwareModal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <View style={styles.card} testID="assign-client-email-modal">
           <View style={styles.header}>
@@ -78,7 +79,7 @@ export default function AssignClientEmailModal({ visible, brokerId, clientUserId
           </View>
         </View>
       </View>
-    </Modal>
+    </KeyboardAwareModal>
   );
 }
 

@@ -10,6 +10,7 @@ import { doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
 import { db } from "@/src/config/firebase";
 import { uploadListingDocumentAsync } from "@/src/api/imageUpload";
 import { useTheme } from "@/src/context/ThemeContext";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useAuth } from "@/src/context/auth";
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
 import BaseBottomSheet from "@/src/components/common/BaseBottomSheet";
@@ -123,7 +124,7 @@ export default function BrokerOwnerDetailScreen() {
 
   return <View style={[styles.container, { paddingTop: insets.top }]} testID="broker-owner-detail-screen">
     <View style={styles.header}><Pressable style={styles.iconButton} onPress={() => router.back()} testID="broker-owner-back-btn"><Ionicons name="chevron-back" size={24} color={colors.onSurface} /></Pressable><Text style={styles.headerTitle}>Στοιχεία Ιδιοκτήτη</Text><View style={styles.iconSpacer} /></View>
-    <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    <KeyboardAwareScrollView contentContainerStyle={[styles.content, { flexGrow: 1, paddingBottom: spacing["3xl"] + insets.bottom }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
       <View style={styles.profileCard}><View style={styles.profileHeader}>{params.ownerAvatar ? <Image source={{ uri: params.ownerAvatar }} style={styles.ownerAvatar} contentFit="cover" /> : <DefaultProfileAvatar size={64} iconSize={30} />}<View style={styles.profileInfo}><Text style={styles.ownerName}>{params.ownerName || "Ιδιοκτήτης"}</Text><View style={styles.profileBadge}><Ionicons name="briefcase-outline" size={14} color={colors.brand} /><Text style={styles.profileBadgeText}>Ιδιοκτήτης</Text></View></View></View></View>
       <Text style={styles.sectionTitle}>Ακίνητα Ιδιοκτήτη</Text>
       {loading ? <ActivityIndicator color={colors.brand} /> : apartments.map((apartment) => {
@@ -144,7 +145,7 @@ export default function BrokerOwnerDetailScreen() {
         </View>;
       })}
       {!loading && apartments.length === 0 ? <Text style={styles.emptyHint}>Δεν βρέθηκαν ακίνητα.</Text> : null}
-    </ScrollView>
+    </KeyboardAwareScrollView>
     <BaseBottomSheet visible={selectedApartment !== null} onClose={() => setDocumentApartmentId(null)} maxHeight="90%" scrollable={false}><View style={[styles.repositorySheet, { paddingBottom: insets.bottom + spacing.lg }]}>
       <View style={styles.modalHeader}><View><Text style={styles.modalTitle}>Αρχειοθήκη Εγγράφων</Text><Text style={styles.modalSubtitle}>{selectedApartment?.title} · {documentCount}/{DOCUMENT_CATEGORIES.length}</Text></View><Pressable onPress={() => setDocumentApartmentId(null)} hitSlop={8}><Ionicons name="close" size={24} color={colors.onSurface} /></Pressable></View>
       <ScrollView showsVerticalScrollIndicator={false}>{selectedApartment ? DOCUMENT_CATEGORIES.map((category) => { const files = selectedApartment.documents?.[category.key] ?? []; return <View key={category.key} style={styles.documentBlock}><View style={styles.documentRow}><Text style={styles.documentTitle}>{category.title}</Text><Pressable onPress={() => void attachDocument(selectedApartment, category.key)} disabled={uploadingCategory === category.key} hitSlop={8} testID={`broker-owner-document-attach-${category.key}`}>{uploadingCategory === category.key ? <ActivityIndicator size="small" color={colors.brand} /> : <Ionicons name="attach-outline" size={21} color={colors.brand} />}</Pressable></View>{files.map((file) => <View key={file.id} style={styles.fileRow}><Pressable style={styles.fileNameWrap} onPress={() => void Linking.openURL(file.url)}><Ionicons name="document-outline" size={18} color={colors.onSurfaceTertiary} /><Text style={styles.fileName} numberOfLines={1}>{file.name}</Text></Pressable><Pressable onPress={() => void removeDocument(selectedApartment, category.key, file.id)} hitSlop={8}><Ionicons name="trash-outline" size={18} color={colors.error} /></Pressable></View>)}</View>; }) : null}</ScrollView>

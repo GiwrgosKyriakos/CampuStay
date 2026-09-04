@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { addDoc, collection, collectionGroup, doc, getDocs, query, serverTimestamp, updateDoc, where } from "firebase/firestore";
 
@@ -11,6 +11,7 @@ import type { LatLng } from "@/src/utils/geometry";
 import type { HardCriteriaKey } from "@/src/types/filters";
 import { BrokerModificationBadge } from "@/src/components/BrokerModificationBadge";
 import { t } from "@/src/locales";
+import KeyboardAwareModal from "@/src/components/common/KeyboardAwareModal";
 
 export type FilterSetSortOption = "newest" | "oldest" | "price_asc" | "price_desc" | "size_asc" | "size_desc" | "price_sqm_asc" | "price_sqm_desc";
 
@@ -194,7 +195,7 @@ export default function FilterSetVersionModal({ visible, filterSet, onClose, onU
   const setDraftValue = (key: keyof FilterSetVersionData, value: string | boolean) => setDraft((previous) => previous ? { ...previous, [key]: value } : previous);
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <KeyboardAwareModal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         <View style={[styles.card, editing && styles.cardEditing]} testID="filter-set-version-modal">
@@ -203,7 +204,7 @@ export default function FilterSetVersionModal({ visible, filterSet, onClose, onU
             <Pressable onPress={onClose} hitSlop={8}><Ionicons name="close-outline" size={24} color={colors.onSurface} /></Pressable>
           </View>
           {editing && draft ? (
-            <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="handled">
+            <ScrollView contentContainerStyle={[styles.form, { flexGrow: 1 }]} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
               {([['rentMin', 'Ελάχιστο ενοίκιο'], ['rentMax', 'Μέγιστο ενοίκιο'], ['minSqmPrice', 'Ελάχιστη τιμή/τ.μ.'], ['maxSqmPrice', 'Μέγιστη τιμή/τ.μ.'], ['cityQuery', 'Πόλη / περιοχή'], ['sizeMin', 'Ελάχιστο εμβαδόν'], ['sizeMax', 'Μέγιστο εμβαδόν']] as const).map(([key, label]) => (
                 <View key={key} style={styles.field}><Text style={styles.label}>{label}</Text><TextInput style={styles.input} value={String(draft[key] ?? "")} onChangeText={(value) => setDraftValue(key, value)} placeholderTextColor={colors.onSurfaceTertiary} /></View>
               ))}
@@ -232,7 +233,7 @@ export default function FilterSetVersionModal({ visible, filterSet, onClose, onU
           {brokers.length > 0 ? <View style={styles.brokerPicker}><Text style={styles.label}>Επιλογή μεσίτη</Text>{brokers.map((broker) => <Pressable key={broker.id} style={styles.brokerRow} onPress={() => void shareWithBroker(broker)}>{broker.avatar ? <Image source={{ uri: broker.avatar }} style={styles.avatar} /> : <Ionicons name="person-circle-outline" size={38} color={colors.onSurfaceTertiary} />}<Text style={styles.brokerName}>{broker.name}</Text><Ionicons name="paper-plane-outline" size={18} color={colors.brand} /></Pressable>)}</View> : null}
         </View>
       </View>
-    </Modal>
+    </KeyboardAwareModal>
   );
 }
 

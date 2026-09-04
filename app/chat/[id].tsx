@@ -1792,6 +1792,10 @@ function DirectChatScreen() {
         chatRef,
         {
           lastMessage: trimmed,
+          lastMessageType: "text",
+          lastMessageSenderId: currentUserId,
+          lastMessageIsRead: false,
+          lastMessageReadBy: [currentUserId],
           lastMessageTimestamp: Date.now(),
           updatedAt: Date.now(),
           deletedUsers: { [id]: false },
@@ -3432,7 +3436,7 @@ function DirectChatScreen() {
       ) : (
         <KeyboardAvoidingView
           style={styles.flex}
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
           keyboardVerticalOffset={Platform.OS === "ios" ? insets.top + 8 : 0}
         >
           {isBrokerClientChat && !auth.isBroker && !hasSharedSearchHistory && !searchHistoryBannerDismissed ? (
@@ -3458,6 +3462,8 @@ function DirectChatScreen() {
               style={styles.flex}
               contentContainerStyle={styles.invertedMessagesContainer}
               showsVerticalScrollIndicator={false}
+              keyboardDismissMode="on-drag"
+              keyboardShouldPersistTaps="handled"
               inverted
               data={invertedMessages}
               keyExtractor={(item) => item.id}

@@ -33,6 +33,7 @@ import { useAuth } from "@/src/context/auth";
 import { db } from "@/src/config/firebase";
 import { saveApartmentNote, getApartmentNoteDetails, type Apartment } from "@/src/api/apartmentNotes";
 import { getWordCount, isNoteBodyValid, isNoteTitleValid, MAX_NOTE_BODY_CHARS, MAX_NOTE_BODY_WORDS, MAX_NOTE_TITLE_CHARS, MAX_NOTE_TITLE_WORDS } from "@/src/utils/noteValidation";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
 import { t } from "@/src/locales";
 
@@ -367,9 +368,11 @@ export default function ApartmentNoteScreen() {
         </View>
       </View>
 
-      <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: spacing.xl + insets.bottom }]}
+      <KeyboardAwareScrollView
+        contentContainerStyle={[styles.content, { flexGrow: 1, paddingBottom: spacing.xl + insets.bottom }]}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
       >
         {isBrokerOwnerNote || initialText === "" ? (
           <View style={styles.infoBanner}>
@@ -426,7 +429,7 @@ export default function ApartmentNoteScreen() {
             </>
           )}
         </View>
-      </ScrollView>
+      </KeyboardAwareScrollView>
 
       {saveFeedbackVisible ? (
         <View style={[styles.toastWrap, { bottom: spacing.lg + insets.bottom }]} pointerEvents="none">

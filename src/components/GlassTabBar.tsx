@@ -8,6 +8,8 @@ import { radius, spacing, type ThemeColors } from "@/src/theme";
 import { useTheme } from "@/src/context/ThemeContext";
 import { useAuth } from "@/src/context/auth";
 
+export const TAB_BAR_HEIGHT = 60;
+
 const ICONS: Record<string, { active: keyof typeof Ionicons.glyphMap; inactive: keyof typeof Ionicons.glyphMap }> = {
   roommates: { active: "flame", inactive: "flame-outline" },
   calendar: { active: "calendar", inactive: "calendar-outline" },
@@ -19,6 +21,7 @@ const ICONS: Record<string, { active: keyof typeof Ionicons.glyphMap; inactive: 
   settlements: { active: "receipt", inactive: "receipt-outline" },
   "secretariat-pool": { active: "shield-checkmark", inactive: "shield-checkmark-outline" },
   analytics: { active: "bar-chart", inactive: "bar-chart-outline" },
+  "marketing-spend": { active: "megaphone", inactive: "megaphone-outline" },
   profile: { active: "person", inactive: "person-outline" },
 };
 
@@ -37,17 +40,17 @@ export default function GlassTabBar({ state, navigation, descriptors }: BottomTa
       .filter((route) => {
         const href = (descriptors[route.key]?.options as { href?: string | null } | undefined)?.href;
         if (href === null) return false;
-        if (isExecutive) return ["apartment-pool", "broker", "settlements", "secretariat-pool", "analytics"].includes(route.name);
-        if (isBroker) return ["calendar", "matches", "apartment-pool", "apartments", "broker", "settlements", "secretariat-pool"].includes(route.name);
+        if (isExecutive) return ["apartment-pool", "settlements", "secretariat-pool", "marketing-spend", "analytics"].includes(route.name);
+        if (isBroker) return ["calendar", "matches", "apartments", "broker"].includes(route.name);
         if (notLookingForRoommate) return ["calendar", "matches", "explore-feed", "apartments", "profile"].includes(route.name);
         if (route.name === "roommates") return !notLookingForRoommate;
         return ["matches", "explore-feed", "apartments", "profile"].includes(route.name);
       })
       .sort((left, right) => {
         const order = isExecutive
-          ? ["apartment-pool", "broker", "settlements", "secretariat-pool", "analytics"]
+          ? ["apartment-pool", "settlements", "secretariat-pool", "marketing-spend", "analytics"]
           : isBroker
-          ? ["calendar", "matches", "apartment-pool", "apartments", "broker", "settlements", "secretariat-pool"]
+          ? ["calendar", "matches", "apartments", "broker"]
           : notLookingForRoommate
           ? ["calendar", "matches", "explore-feed", "apartments", "profile"]
           : ["roommates", "matches", "explore-feed", "apartments", "profile"];
@@ -124,11 +127,12 @@ function createStyles(colors: ThemeColors) {
     },
     reelsBar: {
       overflow: "hidden",
-      backgroundColor: "rgba(5, 10, 14, 0.94)",
+      backgroundColor: colors.surfaceSecondary,
       borderTopLeftRadius: 16,
       borderTopRightRadius: 16,
       borderTopWidth: StyleSheet.hairlineWidth,
       borderTopColor: "rgba(255,255,255,0.16)",
+      minHeight: TAB_BAR_HEIGHT,
     },
     row: {
       flexDirection: "row",

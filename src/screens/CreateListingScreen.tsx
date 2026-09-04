@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Alert,
   Image as NativeImage,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -44,6 +43,7 @@ import { t } from "@/src/locales";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import VoiceInputButton from "@/src/components/common/VoiceInputButton";
 import { useVoiceInputPreview } from "@/src/hooks/useVoiceInputPreview";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import AiCopywriterModal from "@/src/components/AiCopywriterModal";
 import type { CopywriterResult } from "@/src/services/aiFeatureService";
 import { calculateTenantCompatibilityScore } from "@/src/utils/compatibilityScore";
@@ -873,7 +873,7 @@ export default function CreateListingScreen() {
   const [isOffMarket, setIsOffMarket] = useState(false);
   const [offMarketAccessUserIds, setOffMarketAccessUserIds] = useState<string[]>([]);
   const [sendingOffMarketClientId, setSendingOffMarketClientId] = useState<string | null>(null);
-  const scrollViewRef = useRef<ScrollView>(null);
+  const scrollViewRef = useRef<React.ElementRef<typeof KeyboardAwareScrollView> | null>(null);
   const matchingSectionY = useRef(0);
   const [clientPool, setClientPool] = useState<BrokerClientWithFilters[]>([]);
   const [loadingClientPool, setLoadingClientPool] = useState(false);
@@ -2525,12 +2525,12 @@ export default function CreateListingScreen() {
         <View style={[styles.progressFill, { width: `${listingProgress.percent}%` }]} />
       </View>
 
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.flexOne}>
-        <ScrollView
+      <KeyboardAwareScrollView
           ref={scrollViewRef}
-          contentContainerStyle={[styles.content, { paddingBottom: spacing["3xl"] + 100 + insets.bottom }]}
+          contentContainerStyle={[styles.content, { flexGrow: 1, paddingBottom: spacing["3xl"] + 100 + insets.bottom }]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
           testID="create-listing-screen"
         >
           <View style={styles.headerRow}>
@@ -3943,7 +3943,7 @@ export default function CreateListingScreen() {
               ) : null}
             </View>
           ) : null}
-        </ScrollView>
+        </KeyboardAwareScrollView>
 
         {isBrokerMode ? (
           <Pressable
@@ -3994,7 +3994,6 @@ export default function CreateListingScreen() {
             )}
           </Pressable>
         </View>
-      </KeyboardAvoidingView>
 
       <AiCopywriterModal
         visible={aiCopywriterVisible}

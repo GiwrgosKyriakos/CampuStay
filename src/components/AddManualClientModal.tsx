@@ -10,6 +10,7 @@ import { fonts, fontSize, radius, spacing } from "@/src/theme";
 import Dropdown from "@/src/components/Dropdown";
 import StandardLeadSourcePicker from "@/src/components/StandardLeadSourcePicker";
 import type { StandardLeadSource } from "@/src/types/analytics";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 interface AddManualClientModalProps {
   visible: boolean;
@@ -20,6 +21,7 @@ interface AddManualClientModalProps {
 
 export default function AddManualClientModal({ visible, brokerId, onClose, onCreated }: AddManualClientModalProps) {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const styles = createStyles(colors);
   const cities = t("editProfile.options.cities") as unknown as string[];
   const [name, setName] = useState("");
@@ -98,9 +100,9 @@ export default function AddManualClientModal({ visible, brokerId, onClose, onCre
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
-      <KeyboardAvoidingView style={styles.backdrop} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <KeyboardAvoidingView style={styles.backdrop} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={Platform.OS === "ios" ? insets.top : 0}>
         <View style={styles.card} testID="add-manual-client-modal">
-          <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <ScrollView contentContainerStyle={[styles.scrollContent, { flexGrow: 1, paddingBottom: Math.max(insets.bottom, spacing.md) }]} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false}>
             <View style={styles.header}>
               <Text style={styles.title}>{t("manualClient.title")}</Text>
               <Pressable onPress={close} disabled={saving} hitSlop={8} testID="add-manual-client-close">

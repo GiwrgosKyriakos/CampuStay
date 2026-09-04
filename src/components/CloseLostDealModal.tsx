@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import type { LostDealReason } from "@/src/types/analytics";
 import { useTheme } from "@/src/context/ThemeContext";
 import { fonts, fontSize, radius, spacing } from "@/src/theme";
+import KeyboardAwareModal from "@/src/components/common/KeyboardAwareModal";
 
 const LOSS_OPTIONS: { value: LostDealReason; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { value: "price_dispute", label: "Διαφωνία τιμής", icon: "pricetag-outline" },
@@ -25,7 +26,7 @@ export default function CloseLostDealModal({ visible, apartmentTitle, onClose, o
       setNotes("");
     }
   }, [visible]);
-  return <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+  return <KeyboardAwareModal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
     <View style={styles.backdrop}><View style={[styles.card, { backgroundColor: colors.surface }]}>
       <View style={styles.header}><View style={styles.headerCopy}><Text style={[styles.title, { color: colors.onSurface }]}>Αιτιολογία Απώλειας Συμφωνίας</Text><Text style={[styles.subtitle, { color: colors.onSurfaceTertiary }]} numberOfLines={1}>{apartmentTitle}</Text></View><Pressable onPress={onClose} hitSlop={8}><Ionicons name="close-outline" size={24} color={colors.onSurface} /></Pressable></View>
       <ScrollView contentContainerStyle={styles.options} bounces={false}>{LOSS_OPTIONS.map((option, index) => {
@@ -35,7 +36,7 @@ export default function CloseLostDealModal({ visible, apartmentTitle, onClose, o
       <TextInput value={notes} onChangeText={setNotes} placeholder="Προαιρετικές σημειώσεις" placeholderTextColor={colors.onSurfaceTertiary} multiline style={[styles.notesInput, { borderColor: colors.border, color: colors.onSurface, backgroundColor: colors.surfaceSecondary }]} />
       <View style={styles.actions}><Pressable style={[styles.cancelButton, { borderColor: colors.border }]} onPress={onClose}><Text style={[styles.cancelText, { color: colors.onSurface }]}>Ακύρωση</Text></Pressable><Pressable style={[styles.confirmButton, { backgroundColor: colors.error }, selectedOptionIndex === null && styles.disabled]} disabled={selectedOptionIndex === null} onPress={() => selectedOptionIndex !== null && onConfirm(LOSS_OPTIONS[selectedOptionIndex].value, notes.trim() || undefined)} testID="close-lost-deal-confirm"><Ionicons name="archive-outline" size={18} color={colors.onBrand} /><Text style={[styles.confirmText, { color: colors.onBrand }]}>Καταχώριση</Text></Pressable></View>
     </View></View>
-  </Modal>;
+  </KeyboardAwareModal>;
 }
 
 const styles = StyleSheet.create({

@@ -234,19 +234,6 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {(profile?.not_looking_for_roommate === true || notLookingForRoommate) && !auth.isBroker && !auth.isGuest ? (
-          <Pressable onPress={() => router.push("/user-calendar")} style={styles.profileCalendarTile} testID="profile-calendar-tile">
-            <View style={styles.profileCalendarTileIconWrap}>
-              <Ionicons color={colors.brand} name="calendar-outline" size={22} />
-            </View>
-            <View style={styles.profileCalendarTileTextCol}>
-              <Text style={styles.profileCalendarTileTitle}>Ημερολόγιο</Text>
-              <Text style={styles.profileCalendarTileSubtitle}>Προγραμματισμένες επισκέψεις &amp; υπενθυμίσεις</Text>
-            </View>
-            <Ionicons color={colors.onSurfaceTertiary} name="chevron-forward" size={20} />
-          </Pressable>
-        ) : null}
-
         {!auth.isGuest && !auth.isBroker && !notLookingForRoommate ? (
           <View style={styles.statsCard}>
             <View style={styles.statItem}>
@@ -471,7 +458,7 @@ export default function ProfileScreen() {
 }
 
 const createStyles = (colors: ThemeColors) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, overflow: "hidden" },
+  container: { flex: 1, backgroundColor: colors.surface },
   brokerHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -484,11 +471,6 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     justifyContent: "center",
   },
   hero: { alignItems: "center", paddingTop: spacing["3xl"], paddingBottom: spacing.xl, gap: spacing.sm },
-  profileCalendarTile: { flexDirection: "row", alignItems: "center", backgroundColor: colors.surfaceSecondary, padding: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, marginHorizontal: spacing.lg, marginBottom: spacing.md, gap: spacing.md },
-  profileCalendarTileIconWrap: { width: 44, height: 44, borderRadius: radius.md, backgroundColor: colors.brandTertiary, alignItems: "center", justifyContent: "center" },
-  profileCalendarTileTextCol: { flex: 1, gap: 2 },
-  profileCalendarTileTitle: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface },
-  profileCalendarTileSubtitle: { fontFamily: fonts.regular, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
   avatarWrap: { marginTop: spacing.lg, marginBottom: spacing.sm },
   avatarButton: { alignItems: "center", justifyContent: "center" },
   avatarButtonPressed: { transform: [{ scale: 0.98 }] },

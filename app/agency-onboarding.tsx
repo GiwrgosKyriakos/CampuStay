@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -13,6 +13,7 @@ import { useTheme } from "@/src/context/ThemeContext";
 import { t } from "@/src/locales";
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
 import BaseBottomSheet from "@/src/components/common/BaseBottomSheet";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 
 type AgencyRole = "ceo" | "member" | "secretary";
 type Agency = { id: string; name: string; nameLower: string; passcode: string; ceoId: string };
@@ -126,7 +127,13 @@ export default function AgencyOnboardingScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}><Pressable onPress={() => router.back()}><Ionicons name="chevron-back" size={28} color={colors.onSurface} /></Pressable><Text style={styles.title}>{role === "ceo" ? t("agency.onboarding.registerAgencyTitle") : t("agency.onboarding.registerBrokerTitle")}</Text><View style={{ width: 28 }} /></View>
-      <FlatList data={[]} renderItem={null} contentContainerStyle={styles.content} ListHeaderComponent={<>
+      <KeyboardAwareScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: spacing["3xl"] + insets.bottom }]}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        showsVerticalScrollIndicator={false}
+        testID="agency-onboarding-form"
+      >
         <Text style={styles.subtitle}>{t("agency.onboarding.subtitle")}</Text>
         <View style={styles.badges}><Text style={styles.badge}>{email}</Text><Text style={styles.badge}>{t("agency.onboarding.passwordProtected")}</Text></View>
         <Text style={styles.label}>{role === "ceo" ? t("agency.onboarding.agencyNameLabel") : t("agency.onboarding.agencyLabel")}</Text>
@@ -138,7 +145,7 @@ export default function AgencyOnboardingScreen() {
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <View style={styles.info}><Ionicons name="information-circle-outline" size={22} color={colors.brand} /><Text style={styles.infoText}>{t("agency.onboarding.googleAuthNotice")}</Text></View>
         <Pressable style={styles.submit} onPress={() => void submit()} disabled={submitting}>{submitting ? <ActivityIndicator color={colors.onBrand} /> : <Text style={styles.submitText}>{t("agency.onboarding.completeButton")}</Text>}</Pressable>
-      </>} />
+      </KeyboardAwareScrollView>
       <BaseBottomSheet visible={modalVisible} onClose={() => setModalVisible(false)} maxHeight="78%"><View style={styles.modal}><Text style={styles.modalTitle}>{t("agency.onboarding.selectAgency")}</Text>{loadingAgencies ? <ActivityIndicator color={colors.brand} /> : agencies.map((agency) => <Pressable key={agency.id} style={styles.agencyOption} onPress={() => { setAgencyName(agency.name); setModalVisible(false); }}><Text style={styles.agencyOptionText}>{agency.name}</Text></Pressable>)}<Pressable onPress={() => setModalVisible(false)}><Text style={styles.closeText}>{t("common.actions.cancel")}</Text></Pressable></View></BaseBottomSheet>
     </View>
   );

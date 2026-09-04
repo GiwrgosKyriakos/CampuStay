@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import { useTheme } from "@/src/context/ThemeContext";
@@ -7,6 +7,7 @@ import { t } from "@/src/locales";
 import VoiceInputButton from "@/src/components/common/VoiceInputButton";
 import { fontSize, fonts, radius, spacing } from "@/src/theme";
 import { getWordCount } from "@/src/utils/noteValidation";
+import KeyboardAwareModal from "@/src/components/common/KeyboardAwareModal";
 
 const MAX_CALL_FEEDBACK_CHARS = 500;
 
@@ -38,7 +39,7 @@ export default function CallFeedbackModal({ visible, pendingCall, isSubmitting, 
   const wordCount = getWordCount(text);
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCallNotPlaced}>
+    <KeyboardAwareModal visible={visible} transparent animationType="fade" onRequestClose={onCallNotPlaced}>
       <View style={styles.backdrop}>
         <View style={styles.card} testID="call-feedback-modal">
           <View style={styles.header}>
@@ -84,7 +85,7 @@ export default function CallFeedbackModal({ visible, pendingCall, isSubmitting, 
           </Pressable>
         </View>
       </View>
-    </Modal>
+    </KeyboardAwareModal>
   );
 }
 

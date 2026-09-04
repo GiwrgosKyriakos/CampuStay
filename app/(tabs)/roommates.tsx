@@ -442,7 +442,7 @@ useEffect(() => {
 }
 
 const createStyles = (colors: ThemeColors) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, overflow: "hidden" },
+  container: { flex: 1, backgroundColor: colors.surface },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md, gap: spacing.md },
   brandRow: { flexDirection: "row", alignItems: "center" },

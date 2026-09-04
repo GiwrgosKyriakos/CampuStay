@@ -401,6 +401,8 @@ export default function EditProfileScreen() {
         ref={scrollRef}
         bottomOffset={120}
         contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + STICKY_FOOTER_PADDING }]}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         showsVerticalScrollIndicator={false}
       >
         {guestLocked && (

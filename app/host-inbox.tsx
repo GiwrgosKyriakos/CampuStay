@@ -5,7 +5,7 @@ import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { collection, doc, getDoc, getDocs, onSnapshot, query, setDoc, where, orderBy, limit, updateDoc, FieldPath, deleteField } from "firebase/firestore";
+import { collection, doc, getDoc, onSnapshot, query, setDoc, where, orderBy, limit, updateDoc, FieldPath, deleteField } from "firebase/firestore";
 
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
 import { useAuth } from "@/src/context/auth";
@@ -43,6 +43,11 @@ interface FirestoreHostChatDoc {
   brokerChatRole?: "client" | "owner" | string;
   status?: "pending" | "active" | "rejected";
   initiatedBy?: string | null;
+  lastMessage?: string;
+  lastMessageType?: string;
+  lastMessageSenderId?: string;
+  lastMessageReadBy?: string[];
+  lastMessageIsRead?: boolean;
   lastMessageTimestamp?: { toMillis?: () => number } | number | null;
   updatedAt?: { toMillis?: () => number } | number | null;
   createdAt?: { toMillis?: () => number } | number | null;
@@ -159,6 +164,27 @@ const normalizeText = (text: string): string =>
     .toLowerCase()
     .trim();
 
+const INBOX_PAGE_SIZE = 10;
+
+// Module-level profile cache so repeat snapshots and pagination never refetch
+// a user document we have already read once this session.
+const userProfileCache = new Map<string, FirestoreUserDoc | null>();
+
+async function fetchUserProfile(uid: string): Promise<FirestoreUserDoc | null> {
+  if (userProfileCache.has(uid)) {
+    return userProfileCache.get(uid) ?? null;
+  }
+  try {
+    const snap = await getDoc(doc(db, "users", uid));
+    const data = snap.exists() ? (snap.data() as FirestoreUserDoc) : null;
+    userProfileCache.set(uid, data);
+    return data;
+  } catch (error) {
+    console.warn("[HostInbox] Failed to fetch user profile:", uid, error);
+    return null; // Do not cache failures — the next snapshot retries.
+  }
+}
+
 type HostInboxContentProps = {
   titleOverride?: string;
   showBackButton?: boolean;
@@ -171,7 +197,7 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
   const router = useRouter();
   const auth = useAuth();
   const [items, setItems] = useState<HostInboxItem[]>([]);
-  const [hostInboxLimit, setHostInboxLimit] = useState(15);
+  const [hostInboxLimit, setHostInboxLimit] = useState(INBOX_PAGE_SIZE);
   const [hasMoreHostInbox, setHasMoreHostInbox] = useState(true);
   const [loading, setLoading] = useState(true);
   const [activeContextChatId, setActiveContextChatId] = useState<string | null>(null);
@@ -193,7 +219,7 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
     if (!isNearBottom || !hasMoreHostInbox || hostInboxLoadMoreLockRef.current) return;
 
     hostInboxLoadMoreLockRef.current = true;
-    setHostInboxLimit((previous) => previous + 15);
+    setHostInboxLimit((previous) => previous + INBOX_PAGE_SIZE);
   }, [hasMoreHostInbox]);
 
   const normalizedQuery = useMemo(() => normalizeText(searchQuery), [searchQuery]);
@@ -268,6 +294,19 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
               return !shouldHide;
             });
 
+            // Cache-first profile warm-up: every uncached customer is fetched once,
+            // in parallel, instead of one getDoc per chat row (kills N+1 reads).
+            const customerIds = Array.from(new Set(
+              approvedDocs
+                .map((chatDoc) => {
+                  const chatData = chatDoc.data() as FirestoreHostChatDoc;
+                  const users = Array.isArray(chatData.users) ? chatData.users : [];
+                  return users.find((uid) => uid !== currentUid) ?? null;
+                })
+                .filter((id): id is string => typeof id === "string" && !!id),
+            ));
+            await Promise.all(customerIds.map((id) => fetchUserProfile(id)));
+
             // 2. Επεξεργαζόμαστε ΜΟΝΟ τα εγκεκριμένα με απόλυτη ασφάλεια (try/catch ανά chat)
             const rows = await Promise.all(
               approvedDocs.map(async (chatDoc) => {
@@ -279,27 +318,23 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
                   
                   if (!customerId) return null; // Λείπει ο χρήστης
 
-                  const customerSnap = await getDoc(doc(db, "users", customerId));
-                  const customerData = customerSnap.exists() ? (customerSnap.data() as FirestoreUserDoc) : null;
+                  const customerData = await fetchUserProfile(customerId);
                   if (!isColleagueChat && isBrokerOrAgencyUser(customerData) && chatData.brokerChatRole !== "client" && !chatData.apartmentId) {
                     return null;
                   }
                   
-                  let isUnread = false;
-                  let lastMessageText = "";
-
-                  try {
-                    const lastMsgSnap = await getDocs(
-                      query(collection(db, "chats", chatDoc.id, "messages"), orderBy("createdAt", "desc"), limit(1))
-                    );
-                    if (!lastMsgSnap.empty) {
-                      const lastMsg = lastMsgSnap.docs[0].data() as FirestoreInboxMessageDoc;
-                      lastMessageText = formatInboxMessage(lastMsg);
-                      isUnread = lastMsg.senderId === customerId && lastMsg.isRead === false;
-                    }
-                  } catch (msgError) {
-                    console.log(`[HostInbox] Σφάλμα ανάγνωσης μηνυμάτων για chat ${chatDoc.id}:`, msgError);
-                  }
+                  // Preview + unread state come straight from denormalized chat doc
+                  // fields — no per-row message sub-collection queries.
+                  const rawLastMessage = typeof chatData.lastMessage === "string" ? chatData.lastMessage.trim() : "";
+                  const lastMessageType = typeof chatData.lastMessageType === "string" ? chatData.lastMessageType : undefined;
+                  const lastMessageText = rawLastMessage || formatInboxMessage({ text: rawLastMessage, type: lastMessageType });
+                  const lastMessageReadBy = Array.isArray(chatData.lastMessageReadBy) ? chatData.lastMessageReadBy : undefined;
+                  const lastMessageIsRead = lastMessageReadBy
+                    ? lastMessageReadBy.includes(currentUid)
+                    : typeof chatData.lastMessageIsRead === "boolean"
+                    ? chatData.lastMessageIsRead
+                    : true;
+                  const isUnread = !!chatData.lastMessageSenderId && chatData.lastMessageSenderId === customerId && !lastMessageIsRead;
 
                   const apartmentTitle = isColleagueChat ? "Συνεργάτης" : chatData.apartmentTitle?.trim() || "Apartment";
                   const brokerChatRole = chatData.brokerChatRole === "client" || chatData.brokerChatRole === "owner"

@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { radius, spacing, fonts, fontSize } from "@/src/theme";
 import { useTheme } from "@/src/context/ThemeContext";
 import { t } from "@/src/locales";
+import KeyboardAwareModal from "@/src/components/common/KeyboardAwareModal";
 
 export interface PriceProposalModalProps {
   visible: boolean;
@@ -34,7 +35,7 @@ export default function PriceProposalModal({
   const isValid = Number.isFinite(price) && price > 0;
 
   return (
-    <Modal transparent animationType="fade" visible={visible} onRequestClose={() => { if (!isSubmitting) onClose(); }}>
+    <KeyboardAwareModal transparent animationType="fade" visible={visible} onRequestClose={() => { if (!isSubmitting) onClose(); }}>
       <View style={styles.backdrop}>
         <View style={styles.card}>
           <Text style={styles.title}>{t("chat.priceProposal.title")}</Text>
@@ -66,7 +67,7 @@ export default function PriceProposalModal({
           </View>
         </View>
       </View>
-    </Modal>
+    </KeyboardAwareModal>
   );
 }
 

@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import {
   BottomSheetBackdrop,
   BottomSheetModal,
   BottomSheetView,
+  BottomSheetTextInput,
   type BottomSheetBackdropProps,
 } from "@gorhom/bottom-sheet";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -450,7 +451,7 @@ function NumericInputCard({ fieldLabel, value, prefix, onChangeText, onBlur, onO
       <Text style={styles.inputLabel}>{fieldLabel}</Text>
       <View style={styles.inputValueRow}>
         {prefix ? <Text style={styles.inputPrefix}>{prefix}</Text> : null}
-        <TextInput
+        <BottomSheetTextInput
           style={styles.numericInput}
           value={value}
           onChangeText={onChangeText}

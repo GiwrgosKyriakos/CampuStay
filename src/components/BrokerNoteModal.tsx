@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -29,6 +31,7 @@ import VoiceInputButton from "@/src/components/common/VoiceInputButton";
 import SelectCoveringBrokerModal from "@/src/components/SelectCoveringBrokerModal";
 import { delegateShowing, getAgencyStaff, type AgencyStaffMember } from "@/src/api/agencyCollaboration";
 import { getUserProfile } from "@/src/api/userProfile";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export interface BrokerListingItem {
   id: string;
@@ -116,6 +119,7 @@ export default function BrokerNoteModal({
 }: BrokerNoteModalProps) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const insets = useSafeAreaInsets();
 
   const isEditMode = !!note?.id;
 
@@ -334,6 +338,7 @@ export default function BrokerNoteModal({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={closeWithReset}>
+      <KeyboardAvoidingView style={styles.keyboardAvoiding} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={Platform.OS === "ios" ? insets.top : 0}>
       <Pressable style={styles.modalBackdrop} onPress={closeWithReset}>
         <Pressable
           style={styles.modalCard}
@@ -346,7 +351,7 @@ export default function BrokerNoteModal({
             <Text style={styles.previewDate}>{date}</Text>
           </View>
 
-          <ScrollView style={styles.scrollBody} contentContainerStyle={styles.contentWrap} showsVerticalScrollIndicator={false}>
+          <ScrollView style={styles.scrollBody} contentContainerStyle={[styles.contentWrap, { flexGrow: 1, paddingBottom: Math.max(insets.bottom, spacing.md) }]} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false}>
             <View style={styles.fieldBlock}>
               <Text style={styles.fieldLabel}>{t("calendar.noteModal.titleLabel")}</Text>
               <TextInput value={noteTitle} onChangeText={setNoteTitle} placeholder={t("calendar.noteModal.titlePlaceholder")} placeholderTextColor={colors.onSurfaceTertiary} style={[styles.notesInput, styles.titleInput, titleInvalid && styles.inputErrorBorder]} maxLength={MAX_NOTE_TITLE_CHARS} testID="calendar-note-title-input" />
@@ -576,6 +581,7 @@ export default function BrokerNoteModal({
           </View>
         </Pressable>
       </Pressable>
+      </KeyboardAvoidingView>
       <SelectCoveringBrokerModal
         visible={coveringBrokerModalVisible}
         agencyId={agencyId}
@@ -600,6 +606,7 @@ function createStyles(colors: ThemeColors) {
       justifyContent: "center",
       paddingHorizontal: spacing.lg,
     },
+    keyboardAvoiding: { flex: 1 },
     modalCard: {
       width: "92%",
       maxWidth: 480,

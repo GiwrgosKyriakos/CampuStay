@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -11,6 +11,7 @@ import { t } from "@/src/locales";
 import { db } from "@/src/config/firebase";
 import { useAuth } from "@/src/context/auth";
 import CenteredActionModal from "@/src/components/CenteredActionModal";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 
 const MAX_FEEDBACK_LENGTH = 500;
 
@@ -67,10 +68,11 @@ export default function FeedbackScreen() {
         <View style={styles.headerSpacer} />
       </View>
 
-      <ScrollView
+      <KeyboardAwareScrollView
         style={styles.scroll}
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xl }]}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        contentContainerStyle={[styles.content, { flexGrow: 1, paddingBottom: insets.bottom + spacing.xl }]}
         showsVerticalScrollIndicator={false}
         testID="feedback-screen"
       >
@@ -110,7 +112,7 @@ export default function FeedbackScreen() {
             <Text style={styles.sendButtonText}>{t("feedback.send")}</Text>
           )}
         </Pressable>
-      </ScrollView>
+      </KeyboardAwareScrollView>
 
       <CenteredActionModal
         visible={successModalVisible}

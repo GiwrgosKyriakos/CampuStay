@@ -188,7 +188,7 @@ function AccountingMetric({ label, value, styles }: { label: string; value: stri
 }
 
 const createStyles = (colors: ReturnType<typeof useTheme>["colors"]) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.surface, paddingTop: spacing.xl, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, overflow: "hidden" },
+  container: { flex: 1, backgroundColor: colors.surface, paddingTop: spacing.xl },
   header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md, flexDirection: "row", alignItems: "flex-start", gap: spacing.md },
   headerCopy: { flex: 1, gap: 3 },
   headerActions: { flexDirection: "row", gap: spacing.xs },

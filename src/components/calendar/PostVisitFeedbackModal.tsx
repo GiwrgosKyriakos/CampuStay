@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { doc, updateDoc } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
@@ -13,6 +13,7 @@ import { t } from "@/src/locales";
 import VoiceInputButton from "@/src/components/common/VoiceInputButton";
 import { useVoiceInputPreview } from "@/src/hooks/useVoiceInputPreview";
 import { fontSize, fonts, radius, spacing } from "@/src/theme";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type SecondVisitChoice = "yes" | "no" | "maybe";
 
@@ -52,6 +53,7 @@ export interface PostVisitFeedbackModalProps {
 export default function PostVisitFeedbackModal({ visible, note, isClient, userId, clientName, propertyId, clientId, profileId, listingPrice, maxDiscountPercent = 10, onClose, onSaved, onSentimentInvalidated }: PostVisitFeedbackModalProps) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const insets = useSafeAreaInsets();
   const [scores, setScores] = useState<[number, number, number]>([0, 0, 0]);
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [notesText, setNotesText] = useState("");
@@ -142,6 +144,7 @@ export default function PostVisitFeedbackModal({ visible, note, isClient, userId
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <KeyboardAvoidingView style={styles.keyboardAvoiding} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={Platform.OS === "ios" ? insets.top : 0}>
       <View style={styles.backdrop}>
         <View style={styles.card}>
           <View style={styles.header}>
@@ -154,7 +157,7 @@ export default function PostVisitFeedbackModal({ visible, note, isClient, userId
             </Pressable>
           </View>
 
-          <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <ScrollView contentContainerStyle={[styles.content, { flexGrow: 1, paddingBottom: Math.max(insets.bottom, spacing.md) }]} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false}>
             {isClient ? (
               <>
                 {["calendar.postVisit.ratings.price", "calendar.postVisit.ratings.layout", "calendar.postVisit.ratings.condition"].map((label, index) => (
@@ -198,16 +201,18 @@ export default function PostVisitFeedbackModal({ visible, note, isClient, userId
           </Pressable>
         </View>
       </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
 
-function ChoiceRow({ options, selected, onSelect, styles }: { options: { value: string; label: string }[]; selected: string | null; onSelect: (value: string) => void; styles: Record<string, any> }) {
+function ChoiceRow({ options, selected, onSelect, styles }: { options: { value: string; label: string }[]; selected: string | null; onSelect: (value: string) => void; styles: ReturnType<typeof createStyles> }) {
   return <View style={styles.choiceRow}>{options.map((option) => <Pressable key={option.value} onPress={() => onSelect(option.value)} style={[styles.choice, selected === option.value && styles.choiceActive]}><Text style={[styles.choiceText, selected === option.value && styles.choiceTextActive]}>{option.label}</Text></Pressable>)}</View>;
 }
 
 function createStyles(colors: ReturnType<typeof useTheme>["colors"]) {
   return StyleSheet.create({
+    keyboardAvoiding: { flex: 1 },
     backdrop: { flex: 1, justifyContent: "center", padding: spacing.lg, backgroundColor: "rgba(0,0,0,0.48)" },
     card: { maxHeight: "90%", borderRadius: radius.lg, backgroundColor: colors.surface, padding: spacing.lg, gap: spacing.sm },
     header: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.sm },

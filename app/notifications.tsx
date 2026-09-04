@@ -22,6 +22,7 @@ import ScreenHeader from "@/src/components/ScreenHeader";
 import { t } from "@/src/locales";
 import { db } from "@/src/config/firebase";
 import { DEFAULT_BROKER_STAGNATION_SETTINGS, type BrokerStagnationSettings } from "@/src/constants/pipeline";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 
 const NOTIFICATION_ROWS = [
   {
@@ -149,11 +150,14 @@ export default function NotificationsScreen() {
         backButtonTestID="notifications-back-button"
       />
 
-      <View
+      <KeyboardAwareScrollView
         style={[
           styles.contentContainer,
           { paddingBottom: insets.bottom + (isGuest ? STICKY_FOOTER_PADDING : spacing.xl) },
         ]}
+        contentContainerStyle={{ flexGrow: 1, paddingBottom: insets.bottom + spacing.xl }}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         testID="notifications-screen"
       >
         <View style={styles.header}>
@@ -214,7 +218,7 @@ export default function NotificationsScreen() {
           ))}
           {auth.isBroker ? <View style={styles.brokerSettingsSection} testID="broker-stagnation-settings"><Text style={styles.sectionTitle}>Προειδοποιήσεις Καθυστέρησης (Deal Stagnation)</Text><View style={styles.settingRow}><View style={styles.rowText}><Text style={styles.settingTitle}>Ενεργοποίηση ειδοποιήσεων καθυστέρησης</Text></View><Switch value={brokerStagnationSettings.stagnationAlertsEnabled} onValueChange={(value) => void updateBrokerStagnationSettings({ stagnationAlertsEnabled: value })} disabled={isGuest} /></View>{brokerStagnationSettings.stagnationAlertsEnabled ? <><View style={styles.inputRow}><Text style={styles.inputLabel}>Ώρα πρώτης ειδοποίησης</Text><TextInput value={brokerStagnationSettings.stagnationAlertStartTime} onChangeText={(value) => void updateBrokerStagnationSettings({ stagnationAlertStartTime: value.replace(/[^0-9:]/g, "").slice(0, 5) })} placeholder="11:00" placeholderTextColor={colors.onSurfaceTertiary} style={styles.timeInput} keyboardType="numbers-and-punctuation" testID="broker-stagnation-start-time" /></View><Text style={styles.inputLabel}>Συχνότητα ειδοποιήσεων</Text><View style={styles.intervalOptions}>{[15, 60].map((minutes) => <Pressable key={minutes} style={[styles.intervalOption, brokerStagnationSettings.stagnationAlertIntervalMinutes === minutes && { backgroundColor: colors.brand }]} onPress={() => void updateBrokerStagnationSettings({ stagnationAlertIntervalMinutes: minutes })} testID={`broker-stagnation-interval-${minutes}`}><Text style={[styles.intervalText, brokerStagnationSettings.stagnationAlertIntervalMinutes === minutes && { color: colors.onBrand }]}>{minutes === 15 ? "Κάθε 15 λεπτά" : "Κάθε 1 ώρα"}</Text></Pressable>)}</View></> : null}</View> : null}
         </View>
-      </View>
+      </KeyboardAwareScrollView>
 
       <View
         style={[

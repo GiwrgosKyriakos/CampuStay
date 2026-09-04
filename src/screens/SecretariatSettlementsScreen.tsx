@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Alert,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -22,6 +21,8 @@ import type { Deal } from "@/src/types/deal";
 import { useAuth } from "@/src/context/auth";
 import { useTheme } from "@/src/context/ThemeContext";
 import { fonts, fontSize, radius, spacing } from "@/src/theme";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type SplitInputs = {
   agency: string;
@@ -94,6 +95,7 @@ export default function SecretariatSettlementsScreen() {
   const auth = useAuth();
   const router = useRouter();
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [deals, setDeals] = useState<Deal[]>([]);
   const [inputs, setInputs] = useState<Record<string, SplitInputs>>({});
@@ -232,9 +234,11 @@ export default function SecretariatSettlementsScreen() {
           </Text>
         </View>
       ) : (
-        <ScrollView
-          contentContainerStyle={styles.list}
+        <KeyboardAwareScrollView
+          contentContainerStyle={[styles.list, { flexGrow: 1, paddingBottom: spacing["3xl"] + insets.bottom }]}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
         >
           {deals.map((deal) => {
             const values = inputs[deal.id] ?? defaultInputs(deal);
@@ -346,7 +350,7 @@ export default function SecretariatSettlementsScreen() {
               </View>
             );
           })}
-        </ScrollView>
+        </KeyboardAwareScrollView>
       )}
     </View>
   );

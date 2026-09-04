@@ -20,6 +20,7 @@ import { saveRecentSearch, subscribeRecentSearches } from "@/src/api/recentSearc
 import CenteredActionModal from "@/src/components/CenteredActionModal";
 import { t } from "@/src/locales";
 import { getExcludedUserIds } from "@/src/api/blocking";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { syncBrokerClientProfile } from "@/src/api/brokerClientProfiles";
 import { getUserApartmentNotes, updateNotesOrder, type Apartment as ApartmentNoteData } from "@/src/api/apartmentNotes";
 import { storage } from "@/src/utils/storage";
@@ -2301,11 +2302,12 @@ export default function ApartmentsScreen() {
           </View>
         )}
         {showFilters && (
-          <ScrollView
+          <KeyboardAwareScrollView
             style={styles.filterPanel}
-            contentContainerStyle={styles.filterPanelContent}
+            contentContainerStyle={[styles.filterPanelContent, { flexGrow: 1, paddingBottom: spacing["3xl"] + insets.bottom }]}
             showsVerticalScrollIndicator={true}
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
             bounces={true}
             nestedScrollEnabled={true}
             testID="apartments-filter-panel"
@@ -2648,7 +2650,7 @@ export default function ApartmentsScreen() {
                 <Pressable style={styles.hardCriteriaEditButton} onPress={() => setHardCriteriaModalVisible(true)} testID="apartments-hard-criteria-edit"><Ionicons name="add" size={15} color={colors.brand} /><Text style={styles.hardCriteriaEditText}>{userHardCriteria.length ? "Επεξεργασία" : "Προσθήκη"}</Text></Pressable>
               </View>
             </View>
-          </ScrollView>
+          </KeyboardAwareScrollView>
         )}
       </View>
       <HardCriteriaSelectionModal
@@ -3270,9 +3272,9 @@ export default function ApartmentsScreen() {
 }
 
 const createStyles = (colors: ThemeColors) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, overflow: "hidden" },
+  container: { flex: 1, backgroundColor: colors.surface },
   flexOne: { flex: 1 },
-  header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md, gap: spacing.xs, borderBottomLeftRadius: radius.lg, borderBottomRightRadius: radius.lg, overflow: "hidden", backgroundColor: colors.surface },
+  header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md, gap: spacing.xs, borderBottomLeftRadius: 24, borderBottomRightRadius: 24, backgroundColor: colors.surface, shadowColor: "#000000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 5, elevation: 3 },
   titleRowTop: {
     flexDirection: "row",
     alignItems: "center",

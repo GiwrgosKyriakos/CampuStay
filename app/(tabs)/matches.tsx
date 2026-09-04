@@ -25,6 +25,7 @@ import CreateRoommateGroupModal from "@/src/components/chat/CreateRoommateGroupM
 import { getUserProfile } from "@/src/api/userProfile";
 
 const TAB_BAR_SPACE = 100;
+const INBOX_PAGE_SIZE = 10;
 
 function isDeletedCounterpart(profile: RoommateProfile): boolean {
   return !!profile.deleted;
@@ -78,6 +79,11 @@ interface FirestoreChatDoc {
   clearedAt?: Record<string, unknown>;
   deletedUsers?: Record<string, boolean>;
   participantDisplayNames?: Record<string, string>;
+  lastMessage?: string;
+  lastMessageType?: string;
+  lastMessageSenderId?: string;
+  lastMessageReadBy?: string[];
+  lastMessageIsRead?: boolean;
   lastMessageTimestamp?: { toMillis?: () => number } | number | null;
   updatedAt?: { toMillis?: () => number } | number | null;
   createdAt?: { toMillis?: () => number } | number | null;
@@ -238,6 +244,25 @@ function mapUserToChatItem(
   };
 }
 
+// Module-level profile cache so repeat snapshots and pagination never refetch
+// a user document we have already read once this session.
+const userProfileCache = new Map<string, FirestoreUserDoc | null>();
+
+async function fetchUserProfile(uid: string): Promise<FirestoreUserDoc | null> {
+  if (userProfileCache.has(uid)) {
+    return userProfileCache.get(uid) ?? null;
+  }
+  try {
+    const snap = await getDoc(doc(db, "users", uid));
+    const data = snap.exists() ? (snap.data() as FirestoreUserDoc) : null;
+    userProfileCache.set(uid, data);
+    return data;
+  } catch (error) {
+    console.warn("[Matches] Failed to fetch user profile:", uid, error);
+    return null; // Do not cache failures — the next snapshot retries.
+  }
+}
+
 export default function MatchesScreen() {
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -245,7 +270,7 @@ export default function MatchesScreen() {
   const router = useRouter();
   const auth = useAuth();
   const [selectedChatType, setSelectedChatType] = useState<"roommate" | "host">("roommate");
-  const [inboxLimit, setInboxLimit] = useState(15);
+  const [inboxLimit, setInboxLimit] = useState(INBOX_PAGE_SIZE);
   const [hasMoreInbox, setHasMoreInbox] = useState(true);
   const [isBrokersView, setIsBrokersView] = useState(false);
   const [matches, setMatches] = useState<ChatListItem[]>(() => memoryMatchesCache[getInboxCacheKey(false, "roommate")] ?? []);
@@ -267,7 +292,6 @@ export default function MatchesScreen() {
   const [showGroupModal, setShowGroupModal] = useState(false);
   const swipeX = React.useRef(new Animated.Value(0)).current;
   const SWIPE_THRESHOLD = 56;
-  const messageUnsubsRef = React.useRef<Record<string, () => void>>({});
   const locallyDeletedChatIdsRef = React.useRef(new Set<string>());
   const chatSnapshotVersionRef = React.useRef(0);
   const inboxLoadMoreLockRef = React.useRef(false);
@@ -294,7 +318,7 @@ export default function MatchesScreen() {
     if (!isNearBottom || !hasMoreInbox || inboxLoadMoreLockRef.current) return;
 
     inboxLoadMoreLockRef.current = true;
-    setInboxLimit((previous) => previous + 15);
+    setInboxLimit((prev) => prev + INBOX_PAGE_SIZE);
   }, [hasMoreInbox]);
 
   useEffect(() => {
@@ -436,7 +460,7 @@ export default function MatchesScreen() {
   }, [notLookingForRoommate]);
 
   React.useEffect(() => {
-    setInboxLimit(15);
+    setInboxLimit(INBOX_PAGE_SIZE);
     setHasMoreInbox(true);
     inboxLoadMoreLockRef.current = false;
   }, [isBrokersView, notLookingForRoommate, selectedChatType]);
@@ -514,12 +538,11 @@ export default function MatchesScreen() {
           resolvedUid: uid,
         });
 
-        // Reconcile any previously liked users into roommate chats so they always appear in Matches.
-        try {
-          await ensureRoommateChatsFromLikes(uid);
-        } catch (reconcileError) {
-          console.warn("[Matches] Roommate chat backfill skipped", reconcileError);
-        }
+        // Reconcile liked users into roommate chats in the background so the chats
+        // query below (and the initial 10-item render) starts immediately.
+        void ensureRoommateChatsFromLikes(uid).catch((reconcileError) => {
+          console.warn("[Matches] Background chat backfill skipped:", reconcileError);
+        });
 
         const chatsQ = query(
           collection(db, "chats"),
@@ -537,7 +560,6 @@ export default function MatchesScreen() {
             selectedChatType,
             totalChats: snapshot.docs.length,
           });
-          const activeChatIds = new Set(snapshot.docs.map((d) => d.id));
           const visibleChatDocs = snapshot.docs.filter((chatDoc) => {
             const chatData = chatDoc.data() as FirestoreChatDoc;
             const isExplicitlyDeleted = isDeletedForUser(chatData, uid);
@@ -580,57 +602,46 @@ export default function MatchesScreen() {
             return isVisibleForTab && !shouldHideForClear;
           });
 
-          Object.entries(messageUnsubsRef.current).forEach(([chatId, off]) => {
-            if (!activeChatIds.has(chatId)) {
-              off();
-              delete messageUnsubsRef.current[chatId];
-              setLastMessageByChat((prev) => {
-                if (!(chatId in prev)) return prev;
-                const next = { ...prev };
-                delete next[chatId];
-                return next;
-              });
-            }
-          });
-
+          // Preview + unread state resolve from denormalized chat doc fields —
+          // no per-row message sub-collection listeners (kills N+1 subscriptions).
+          const nextLastMessages: Record<string, LastMessageMeta> = {};
           snapshot.docs.forEach((chatDoc) => {
-            const chatId = chatDoc.id;
-            if (messageUnsubsRef.current[chatId]) return;
-
-            const lastMessageQ = query(
-              collection(db, "chats", chatId, "messages"),
-              orderBy("createdAt", "desc"),
-              limit(1),
-            );
-
-            messageUnsubsRef.current[chatId] = onSnapshot(lastMessageQ, (messageSnap) => {
-              const lastDoc = messageSnap.docs[0];
-              if (!lastDoc) {
-                setLastMessageByChat((prev) => {
-                  if (!(chatId in prev)) return prev;
-                  const next = { ...prev };
-                  delete next[chatId];
-                  return next;
-                });
-                return;
-              }
-
-              const data = lastDoc.data() as FirestoreLastMessageDoc;
-              setLastMessageByChat((prev) => ({
-                ...prev,
-                [chatId]: {
-                  text: formatInboxMessage(data),
-                  senderId: data.senderId || "",
-                  isRead: isMessageRead(data, uid),
-                  type: data.type,
-                  appointmentDate: data.metadata?.appointmentDate ?? data.requestedDate,
-                },
-              }));
-            });
+            const chatData = chatDoc.data() as FirestoreChatDoc;
+            const rawText = typeof chatData.lastMessage === "string" ? chatData.lastMessage.trim() : "";
+            const messageType = typeof chatData.lastMessageType === "string" ? chatData.lastMessageType : undefined;
+            const senderId = typeof chatData.lastMessageSenderId === "string" ? chatData.lastMessageSenderId : "";
+            const text = rawText || formatInboxMessage({ text: rawText, type: messageType });
+            if (!text && !senderId) return; // No denormalized preview yet — the row falls back to a localized placeholder.
+            const readBy = Array.isArray(chatData.lastMessageReadBy) ? chatData.lastMessageReadBy : undefined;
+            nextLastMessages[chatDoc.id] = {
+              text,
+              senderId,
+              isRead: readBy
+                ? isMessageRead({ readBy }, uid)
+                : typeof chatData.lastMessageIsRead === "boolean"
+                ? chatData.lastMessageIsRead
+                : true, // Legacy docs without read-state fields render as read (no false unread dots).
+              type: messageType,
+            };
           });
+          setLastMessageByChat(nextLastMessages);
 
           void (async () => {
             try { // ΠΡΟΣΘΗΚΗ ΤΟΥ TRY ΓΙΑ ΑΣΦΑΛΕΙΑ
+              // Batch-warm the profile cache: every uncached counterpart is fetched
+              // once, in parallel, instead of one getDoc per chat row (kills N+1 reads).
+              const counterpartUids = Array.from(new Set(
+                visibleChatDocs
+                  .map((chatDoc) => {
+                    const chatData = chatDoc.data() as FirestoreChatDoc;
+                    if (chatData.type === "roommate_group") return null;
+                    const users = Array.isArray(chatData.users) ? chatData.users : [];
+                    return users.find((u) => u !== uid) ?? null;
+                  })
+                  .filter((id): id is string => typeof id === "string" && !!id),
+              ));
+              await Promise.all(counterpartUids.map((id) => fetchUserProfile(id)));
+
               const rows = await Promise.all(
                 visibleChatDocs.map(async (chatDoc) => {
                   const chatData = chatDoc.data() as FirestoreChatDoc;
@@ -658,8 +669,7 @@ export default function MatchesScreen() {
                     return null;
                   }
 
-                  const userSnap = await getDoc(doc(db, "users", counterpartUid));
-                  const userData = userSnap.exists() ? (userSnap.data() as FirestoreUserDoc) : null;
+                  const userData = await fetchUserProfile(counterpartUid);
                   const isCounterpartAgencyMember = isBrokerOrAgencyUser(userData);
                   const isEffectiveHostChat = chatData.type === "host" || isCounterpartAgencyMember;
                   if (isBrokersView && !isCounterpartAgencyMember && !chatData.brokerChatRole) return null;
@@ -721,8 +731,7 @@ export default function MatchesScreen() {
                     const existingChat = await getDoc(doc(db, "chats", chatRoomId));
                     const existingChatData = existingChat.exists() ? existingChat.data() as FirestoreChatDoc : null;
                     if (existingChatData && (isDeletedForUser(existingChatData, uid) || getClearedAtForUser(existingChatData, uid) > 0)) return null;
-                    const userSnap = await getDoc(doc(db, "users", targetUid));
-                    const userData = userSnap.exists() ? (userSnap.data() as FirestoreUserDoc) : null;
+                    const userData = await fetchUserProfile(targetUid);
 
                     return {
                       sortKey: 0,
@@ -751,6 +760,15 @@ export default function MatchesScreen() {
               if (mounted) setLoading(false);
             }
           })();
+        },
+        (error) => {
+          // Missing composite index or permission failure: log loudly (Firestore
+          // prints the index-creation URL here) and unblock the UI immediately.
+          console.error("[Matches] Chats subscription failed:", error);
+          if (mounted) {
+            setLoading(false);
+            setMatches([]);
+          }
         });
       } catch (error) {
         console.error("[Matches] Failed to initialize chats subscription", error);
@@ -763,8 +781,6 @@ export default function MatchesScreen() {
     return () => {
       mounted = false;
       if (unsub) unsub();
-      Object.values(messageUnsubsRef.current).forEach((off) => off());
-      messageUnsubsRef.current = {};
     };
   }, [auth.isGuest, auth.userId, ensureRoommateChatsFromLikes, inboxLimit, isBrokersView, notLookingForRoommate, selectedChatType]);
 
@@ -840,8 +856,7 @@ export default function MatchesScreen() {
             {isBrokersView ? <Pressable style={styles.circularHistoryBtn} onPress={() => setShowGlobalFilterHistoryModal(true)} testID="matches-global-filter-history-btn" hitSlop={8}><Ionicons name="time-outline" size={20} color={colors.onSurface} /></Pressable> : null}
             {!auth.isGuest && isLookingForRoommate && !isBrokersView && selectedChatType === "roommate" ? (
               <Pressable style={styles.groupAction} onPress={() => setShowGroupModal(true)} testID="matches-create-group-button">
-                <Ionicons name="people-circle-outline" size={18} color={colors.onBrand} />
-                <Text style={styles.groupActionText}>Δημιουργία Ομαδικής</Text>
+                <Ionicons name="people-circle-outline" size={20} color={colors.onBrand} />
               </Pressable>
             ) : null}
             <Pressable
@@ -849,8 +864,7 @@ export default function MatchesScreen() {
               onPress={() => setIsBrokersView((previous) => !previous)}
               testID="matches-brokers-view-toggle"
             >
-              <Ionicons name="briefcase-outline" size={16} color={isBrokersView ? colors.onBrand : colors.onSurface} />
-              <Text style={[styles.brokersToggleBtnText, isBrokersView && styles.brokersToggleBtnTextActive]}>Brokers</Text>
+              <Ionicons name="briefcase-outline" size={18} color={isBrokersView ? colors.onBrand : colors.onSurface} />
             </Pressable>
           </View>
         </View>
@@ -1165,7 +1179,7 @@ export default function MatchesScreen() {
 }
 
 const createStyles = (colors: ThemeColors) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.surface, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, overflow: "hidden" },
+  container: { flex: 1, backgroundColor: colors.surface },
   flexOne: { flex: 1 },
   toggleShell: {
     flexDirection: "row",
@@ -1196,12 +1210,9 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   headerTitleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md },
   title: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface },
   subtitle: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary },
-  groupAction: { minHeight: 44, borderRadius: radius.md, backgroundColor: colors.brand, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm },
-  groupActionText: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onBrand },
-  brokersToggleBtn: { flexDirection: "row", alignItems: "center", gap: spacing.xs, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, backgroundColor: colors.surfaceSecondary },
+  groupAction: { width: 40, height: 40, borderRadius: radius.pill, backgroundColor: colors.brand, alignItems: "center", justifyContent: "center" },
+  brokersToggleBtn: { width: 40, height: 40, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceSecondary },
   brokersToggleBtnActive: { borderColor: colors.brand, backgroundColor: colors.brand },
-  brokersToggleBtnText: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface },
-  brokersToggleBtnTextActive: { color: colors.onBrand },
   brokersHeaderActions: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
   circularHistoryBtn: { width: 36, height: 36, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceSecondary },
   filterHistoryBackdrop: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.lg, backgroundColor: "rgba(0,0,0,0.48)" },

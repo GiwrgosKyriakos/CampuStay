@@ -4,6 +4,7 @@ import { StatusBar } from "expo-status-bar";
 import { collection, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query } from "firebase/firestore";
 import { useRouter } from "expo-router";
 import { useWindowDimensions } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import ApartmentReelCard from "@/src/components/feed/ApartmentReelCard";
 import VirtualTourViewerModal from "@/src/components/VirtualTourViewerModal";
@@ -15,6 +16,7 @@ import { useAuth } from "@/src/context/auth";
 import { useTheme } from "@/src/context/ThemeContext";
 import { t } from "@/src/locales";
 import { radius } from "@/src/theme";
+import { TAB_BAR_HEIGHT } from "@/src/components/GlassTabBar";
 import type { Apartment, VirtualTourData } from "@/src/types/apartment";
 import type { FilterSetPayload } from "@/src/types/filters";
 import { isApartmentEligibleForClient } from "@/src/utils/apartmentEligibility";
@@ -65,6 +67,9 @@ function toApartment(id: string, data: FirestoreRecord): Apartment | null {
 
 export default function ExploreFeedScreen() {
   const { height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const bottomOffset = TAB_BAR_HEIGHT + insets.bottom;
+  const reelHeight = Math.max(1, height - bottomOffset);
   const { colors } = useTheme();
   const auth = useAuth();
   const router = useRouter();
@@ -238,7 +243,7 @@ export default function ExploreFeedScreen() {
         renderItem={({ item, index }) => (
           <ApartmentReelCard
             apartment={item}
-            height={height}
+            height={reelHeight}
             isActive={index === activeIndex}
             isLiked={item.id ? likedApartmentIds.has(item.id) : false}
             onToggleLike={() => item.id && void toggleLike(item.id)}
@@ -254,7 +259,7 @@ export default function ExploreFeedScreen() {
           />
         )}
         pagingEnabled
-        snapToInterval={height}
+        snapToInterval={reelHeight}
         snapToAlignment="start"
         decelerationRate="fast"
         showsVerticalScrollIndicator={false}
@@ -264,7 +269,7 @@ export default function ExploreFeedScreen() {
         removeClippedSubviews
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
-        getItemLayout={(_, index) => ({ length: height, offset: height * index, index })}
+        getItemLayout={(_, index) => ({ length: reelHeight, offset: reelHeight * index, index })}
       />
       <VirtualTourViewerModal visible={tourVisible} tourData={tourData} onClose={() => setTourVisible(false)} />
     </View>
@@ -272,7 +277,7 @@ export default function ExploreFeedScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#0b0e13", borderRadius: radius.lg, borderWidth: 1, overflow: "hidden" },
+  root: { flex: 1, backgroundColor: "#0b0e13" },
   state: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
   emptyText: { textAlign: "center", fontSize: 16, fontWeight: "700" },
 });

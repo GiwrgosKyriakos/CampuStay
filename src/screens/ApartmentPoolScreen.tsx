@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { claimApartmentFromPool, subscribeAgencyPoolApartments } from "@/src/api/agencyCollaboration";
 import { getUserProfile } from "@/src/api/userProfile";
@@ -33,6 +34,7 @@ export default function ApartmentPoolScreen() {
   const auth = useAuth();
   const router = useRouter();
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [agencyId, setAgencyId] = useState<string | null>(null);
   const [apartments, setApartments] = useState<PoolApartment[]>([]);
@@ -96,7 +98,7 @@ export default function ApartmentPoolScreen() {
   if (!auth.isBroker) return <View style={styles.center}><Ionicons name="lock-closed-outline" size={34} color={colors.onSurfaceTertiary} /><Text style={styles.empty}>Το Apartment Pool είναι διαθέσιμο μόνο σε συνεργάτες agency.</Text></View>;
 
   return <View style={styles.container} testID="apartment-pool-screen">
-    <View style={styles.header}><View><Text style={styles.title}>Apartment Pool</Text><Text style={styles.subtitle}>Ακίνητα διαθέσιμα για ανάληψη από το γραφείο</Text></View><Pressable onPress={() => void load()} hitSlop={8}><Ionicons name="refresh-outline" size={23} color={colors.onSurface} /></Pressable></View>
+    <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}><View><Text style={styles.title}>Apartment Pool</Text><Text style={styles.subtitle}>Ακίνητα διαθέσιμα για ανάληψη από το γραφείο</Text></View><Pressable onPress={() => void load()} hitSlop={8}><Ionicons name="refresh-outline" size={23} color={colors.onSurface} /></Pressable></View>
     {errorText ? <Text style={styles.error}>{errorText}</Text> : null}
     {loading ? <View style={styles.center}><ActivityIndicator color={colors.brand} /></View> : apartments.length === 0 ? <View style={styles.center}><Ionicons name="business-outline" size={38} color={colors.onSurfaceTertiary} /><Text style={styles.empty}>Δεν υπάρχουν διαθέσιμα ακίνητα στο pool.</Text></View> : <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>{apartments.map((apartment) => {
       const image = apartment.image || apartment.imageUrl || apartment.images?.[0] || "";
@@ -109,7 +111,7 @@ export default function ApartmentPoolScreen() {
 }
 
 const createStyles = (colors: ReturnType<typeof useTheme>["colors"]) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.surface, paddingTop: spacing.xl, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, overflow: "hidden" },
+  container: { flex: 1, backgroundColor: colors.surface, paddingTop: spacing.xl },
   header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.lg, flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.md },
   title: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface },
   subtitle: { marginTop: spacing.xs, fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },

@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/context/ThemeContext";
 import { fonts, fontSize, radius, spacing } from "@/src/theme";
+import KeyboardAwareModal from "@/src/components/common/KeyboardAwareModal";
 
 export default function EditVisitModal({
   visible,
@@ -23,7 +24,7 @@ export default function EditVisitModal({
   const [date, setDate] = useState(appointmentDate ?? "");
   useEffect(() => { if (visible) setDate(appointmentDate ?? ""); }, [appointmentDate, visible]);
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <KeyboardAwareModal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <View style={styles.header}>
@@ -38,7 +39,7 @@ export default function EditVisitModal({
           </View>
         </View>
       </View>
-    </Modal>
+    </KeyboardAwareModal>
   );
 }
 

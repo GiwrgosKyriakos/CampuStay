@@ -5,6 +5,7 @@ import {
   Easing,
   KeyboardAvoidingView,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -57,6 +58,31 @@ export default function BaseBottomSheet({
   const isClosingRef = useRef(false);
   const translateY = useRef(new Animated.Value(screenHeight)).current;
   const backdropOpacity = useRef(new Animated.Value(0)).current;
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_event, gestureState) => gestureState.dy > 8 && gestureState.dy > Math.abs(gestureState.dx),
+      onPanResponderMove: (_event, gestureState) => {
+        translateY.setValue(Math.max(0, gestureState.dy));
+        backdropOpacity.setValue(Math.max(0, 0.5 - gestureState.dy / screenHeight));
+      },
+      onPanResponderRelease: (_event, gestureState) => {
+        if (gestureState.dy > Math.min(120, screenHeight * 0.16)) {
+          requestClose();
+          return;
+        }
+        Animated.parallel([
+          Animated.spring(translateY, { toValue: 0, useNativeDriver: true, bounciness: 4 }),
+          Animated.timing(backdropOpacity, { toValue: 0.5, duration: 120, useNativeDriver: true }),
+        ]).start();
+      },
+      onPanResponderTerminate: () => {
+        Animated.parallel([
+          Animated.spring(translateY, { toValue: 0, useNativeDriver: true, bounciness: 4 }),
+          Animated.timing(backdropOpacity, { toValue: 0.5, duration: 120, useNativeDriver: true }),
+        ]).start();
+      },
+    }),
+  ).current;
 
   const finishClose = useCallback(() => {
     isClosingRef.current = false;
@@ -121,7 +147,8 @@ export default function BaseBottomSheet({
     >
       <KeyboardAvoidingView
         style={styles.root}
-        behavior={avoidKeyboard ? (Platform.OS === "ios" ? "padding" : "height") : undefined}
+        behavior={avoidKeyboard && Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={avoidKeyboard && Platform.OS === "ios" ? insets.top : 0}
       >
         <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]}>
           <Pressable
@@ -133,6 +160,7 @@ export default function BaseBottomSheet({
           />
         </Animated.View>
         <Animated.View
+          {...panResponder.panHandlers}
           style={[
             styles.sheet,
             { backgroundColor: colors.surface, borderColor: colors.border, maxHeight, transform: [{ translateY }] },
@@ -152,8 +180,9 @@ export default function BaseBottomSheet({
             {scrollable ? (
               <ScrollView
                 style={styles.scrollView}
-                contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, spacing.md) }}
+                contentContainerStyle={{ flexGrow: 1, paddingBottom: Math.max(insets.bottom, spacing.md) + spacing.md }}
                 keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
                 showsVerticalScrollIndicator={false}
               >
                 {children}

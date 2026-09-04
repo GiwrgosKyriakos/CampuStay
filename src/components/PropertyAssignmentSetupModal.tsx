@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from "react";
-import { Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import { useTheme } from "@/src/context/ThemeContext";
 import { t } from "@/src/locales";
+import KeyboardAwareModal from "@/src/components/common/KeyboardAwareModal";
 import { fontSize, fonts, radius, spacing } from "@/src/theme";
 
 export type AssignmentMode = "simple" | "exclusive";
@@ -39,7 +40,7 @@ export default function PropertyAssignmentSetupModal({ visible, apartmentTitle, 
   };
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <KeyboardAwareModal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <View style={styles.headerRow}>
@@ -63,7 +64,7 @@ export default function PropertyAssignmentSetupModal({ visible, apartmentTitle, 
           <View style={styles.actions}><Pressable style={[styles.cancelButton, { borderColor: colors.border }]} onPress={onClose} testID="assignment-setup-cancel"><Text style={[styles.cancelText, { color: colors.onSurface }]}>{t("common.actions.cancel")}</Text></Pressable><Pressable style={[styles.continueButton, { backgroundColor: colors.brand }]} onPress={handleContinue} testID="assignment-setup-continue"><Ionicons name="document-text-outline" size={18} color={colors.onBrand} /><Text style={[styles.continueText, { color: colors.onBrand }]}>{t("esign.startSigning")}</Text></Pressable></View>
         </View>
       </View>
-    </Modal>
+    </KeyboardAwareModal>
   );
 }
 

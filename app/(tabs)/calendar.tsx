@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { BackHandler, Text, View, StyleSheet, Pressable, Modal, ScrollView, ActivityIndicator, DimensionValue } from "react-native";
+import { Alert, BackHandler, Linking, Text, View, StyleSheet, Pressable, Modal, ScrollView, ActivityIndicator, DimensionValue } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
@@ -764,11 +764,39 @@ export function CalendarView({
 
 function ClientCalendarScreen() {
   const auth = useAuth();
+  const router = useRouter();
+  const routeParams = useLocalSearchParams<{ appointmentId?: string | string[] }>();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [appointments, setAppointments] = useState<VisitAppointment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedMonth, setSelectedMonth] = useState(() => new Date());
   const clientId = auth.userId ?? auth.user?.user_id ?? "";
+  const appointmentId = typeof routeParams.appointmentId === "string" ? routeParams.appointmentId : undefined;
+  const visibleAppointments = appointments.filter((appointment) => {
+    const date = new Date(appointment.appointmentDate);
+    return date.getFullYear() === selectedMonth.getFullYear() && date.getMonth() === selectedMonth.getMonth();
+  });
+
+  const shiftMonth = (direction: -1 | 1) => {
+    setSelectedMonth((current) => new Date(current.getFullYear(), current.getMonth() + direction, 1));
+  };
+
+  const openAddress = (address: string) => {
+    if (!address.trim()) {
+      Alert.alert("Η διεύθυνση δεν είναι διαθέσιμη", "Η ακριβής διεύθυνση θα εμφανιστεί όταν επιβεβαιωθεί η επίσκεψη.");
+      return;
+    }
+    void Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`);
+  };
+
+  const openAppointmentChat = (appointment: VisitAppointment, action: "reschedule" | "feedback") => {
+    if (!appointment.brokerId || !appointment.chatRoomId) return;
+    router.push({
+      pathname: "/chat/[id]",
+      params: { id: appointment.brokerId, chatRoomId: appointment.chatRoomId, appointmentId: appointment.id, request: action },
+    });
+  };
 
   useEffect(() => {
     if (!clientId || auth.isGuest) {
@@ -797,6 +825,14 @@ function ClientCalendarScreen() {
     return unsubscribe;
   }, [auth.isGuest, clientId]);
 
+  useEffect(() => {
+    if (!appointmentId) return;
+    const linkedAppointment = appointments.find((appointment) => appointment.id === appointmentId);
+    if (!linkedAppointment) return;
+    const linkedDate = new Date(linkedAppointment.appointmentDate);
+    if (Number.isFinite(linkedDate.getTime())) setSelectedMonth(new Date(linkedDate.getFullYear(), linkedDate.getMonth(), 1));
+  }, [appointmentId, appointments]);
+
   return (
     <View style={[clientCalendarStyles.container, { backgroundColor: colors.surface, paddingTop: insets.top + spacing.lg, paddingBottom: insets.bottom + spacing.lg }]} testID="client-calendar-screen">
       <View style={clientCalendarStyles.header}>
@@ -806,14 +842,31 @@ function ClientCalendarScreen() {
           <Text style={[clientCalendarStyles.subtitle, { color: colors.onSurfaceTertiary }]}>Προγραμματισμένες επισκέψεις και υπενθυμίσεις</Text>
         </View>
       </View>
+      <View style={clientCalendarStyles.monthSelector}>
+        <Pressable style={clientCalendarStyles.monthArrow} onPress={() => shiftMonth(-1)} accessibilityLabel="Previous month">
+          <Ionicons name="chevron-back" size={20} color={colors.onSurface} />
+        </Pressable>
+        <View style={[clientCalendarStyles.monthPill, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+          <Ionicons name="calendar-number-outline" size={17} color={colors.brand} />
+          <Text style={[clientCalendarStyles.monthPillText, { color: colors.onSurface }]}>{GREEK_MONTHS[selectedMonth.getMonth()]} {selectedMonth.getFullYear()}</Text>
+        </View>
+        <Pressable style={clientCalendarStyles.monthArrow} onPress={() => shiftMonth(1)} accessibilityLabel="Next month">
+          <Ionicons name="chevron-forward" size={20} color={colors.onSurface} />
+        </Pressable>
+      </View>
       {loading ? <ActivityIndicator color={colors.brand} /> : appointments.length === 0 ? (
         <View style={clientCalendarStyles.emptyState}>
           <Ionicons name="time-outline" size={32} color={colors.onSurfaceTertiary} />
           <Text style={[clientCalendarStyles.emptyText, { color: colors.onSurfaceTertiary }]}>Δεν υπάρχουν προγραμματισμένες επισκέψεις.</Text>
         </View>
+      ) : visibleAppointments.length === 0 ? (
+        <View style={clientCalendarStyles.emptyState}>
+          <Ionicons name="calendar-clear-outline" size={32} color={colors.onSurfaceTertiary} />
+          <Text style={[clientCalendarStyles.emptyText, { color: colors.onSurfaceTertiary }]}>Δεν υπάρχουν επισκέψεις για αυτόν τον μήνα.</Text>
+        </View>
       ) : (
         <ScrollView contentContainerStyle={clientCalendarStyles.list} showsVerticalScrollIndicator={false}>
-          {appointments.map((appointment) => {
+          {visibleAppointments.map((appointment) => {
             const date = new Date(appointment.appointmentDate);
             const dateLabel = Number.isNaN(date.getTime()) ? appointment.appointmentDate : date.toLocaleString("el-GR", { dateStyle: "medium", timeStyle: "short" });
             return (
@@ -825,6 +878,19 @@ function ClientCalendarScreen() {
                   <Text style={[clientCalendarStyles.appointmentTitle, { color: colors.onSurface }]} numberOfLines={1}>{appointment.apartmentTitle}</Text>
                   <Text style={[clientCalendarStyles.appointmentDate, { color: colors.brand }]}>{dateLabel}</Text>
                   <Text style={[clientCalendarStyles.appointmentAddress, { color: colors.onSurfaceTertiary }]} numberOfLines={2}>{appointment.apartmentAddress}</Text>
+                  <View style={clientCalendarStyles.actions}>
+                    <Pressable style={[clientCalendarStyles.actionButton, { borderColor: colors.border }]} onPress={() => openAddress(appointment.apartmentAddress)}>
+                      <Ionicons name="navigate-outline" size={16} color={colors.brand} />
+                      <Text style={[clientCalendarStyles.actionText, { color: colors.brand }]}>Χάρτης</Text>
+                    </Pressable>
+                    {appointment.status !== "completed" ? <Pressable style={[clientCalendarStyles.actionButton, { borderColor: colors.border }]} onPress={() => openAppointmentChat(appointment, "reschedule")}>
+                      <Ionicons name="calendar-outline" size={16} color={colors.onSurface} />
+                      <Text style={[clientCalendarStyles.actionText, { color: colors.onSurface }]}>Αλλαγή</Text>
+                    </Pressable> : <Pressable style={[clientCalendarStyles.actionButton, { borderColor: colors.border }]} onPress={() => openAppointmentChat(appointment, "feedback")}>
+                      <Ionicons name="star-outline" size={16} color={colors.onSurface} />
+                      <Text style={[clientCalendarStyles.actionText, { color: colors.onSurface }]}>Feedback</Text>
+                    </Pressable>}
+                  </View>
                 </View>
               </View>
             );
@@ -1325,6 +1391,10 @@ const clientCalendarStyles = StyleSheet.create({
   headerCopy: { flex: 1, gap: spacing.xs },
   title: { fontFamily: fonts.bold, fontSize: fontSize["2xl"] },
   subtitle: { fontFamily: fonts.regular, fontSize: fontSize.sm },
+  monthSelector: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm, marginBottom: spacing.md },
+  monthArrow: { width: 40, height: 40, borderRadius: radius.pill, alignItems: "center", justifyContent: "center" },
+  monthPill: { flex: 1, minHeight: 40, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.xs, borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: spacing.md },
+  monthPillText: { fontFamily: fonts.semibold, fontSize: fontSize.sm },
   emptyState: { flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.md, paddingBottom: spacing.xl },
   emptyText: { fontFamily: fonts.regular, fontSize: fontSize.base, textAlign: "center" },
   list: { gap: spacing.md, paddingBottom: spacing.xl },
@@ -1334,6 +1404,9 @@ const clientCalendarStyles = StyleSheet.create({
   appointmentTitle: { fontFamily: fonts.bold, fontSize: fontSize.base },
   appointmentDate: { fontFamily: fonts.semibold, fontSize: fontSize.sm },
   appointmentAddress: { fontFamily: fonts.regular, fontSize: fontSize.sm },
+  actions: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.xs },
+  actionButton: { minHeight: 32, flexDirection: "row", alignItems: "center", gap: spacing.xs, borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: spacing.sm },
+  actionText: { fontFamily: fonts.semibold, fontSize: fontSize.xs },
 });
 
 export default function CalendarScreen() {

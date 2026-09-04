@@ -10,6 +10,7 @@ import {
   serverTimestamp,
   setDoc,
   addDoc,
+  arrayUnion,
 } from "firebase/firestore";
 import { db } from "@/src/config/firebase";
 import { getUserSettings } from "@/src/api/accountSettings";
@@ -163,6 +164,23 @@ export async function markIncomingMessagesAsRead(
     });
 
     await batchUpdate.commit();
+
+    // Keep the denormalized inbox preview in sync so unread dots clear without
+    // per-row message listeners. Only touch the chat doc when the latest message
+    // is one of the counterparty messages we just marked as read.
+    try {
+      const chatRef = doc(db, "chats", chatRoomId);
+      const chatSnap = await getDoc(chatRef);
+      if (chatSnap.exists() && chatSnap.data()?.lastMessageSenderId === counterpartUserId) {
+        await setDoc(
+          chatRef,
+          { lastMessageIsRead: true, lastMessageReadBy: arrayUnion(currentUserId) },
+          { merge: true },
+        );
+      }
+    } catch (syncError) {
+      console.warn("Error syncing chat last-message read state:", syncError);
+    }
   } catch (error) {
     console.error("Error marking messages as read:", error);
     // Silently fail - this is a non-critical operation that shouldn't break the UI

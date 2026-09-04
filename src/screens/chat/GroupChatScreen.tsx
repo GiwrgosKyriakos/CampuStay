@@ -141,7 +141,7 @@ export default function GroupChatScreen({ chatRoomId, currentUserId, metadata }:
     if (!value || draftVoice.isPreviewing) return;
     setText("");
     await addDoc(collection(db, "chats", chatRoomId, "messages"), { senderId: currentUserId, type: "text", text: value, createdAt: serverTimestamp(), isRead: false });
-    await setDoc(doc(db, "chats", chatRoomId), { lastMessage: value, lastMessageText: value, lastMessageTimestamp: serverTimestamp(), updatedAt: serverTimestamp() }, { merge: true });
+    await setDoc(doc(db, "chats", chatRoomId), { lastMessage: value, lastMessageText: value, lastMessageType: "text", lastMessageSenderId: currentUserId, lastMessageIsRead: false, lastMessageReadBy: [currentUserId], lastMessageTimestamp: serverTimestamp(), updatedAt: serverTimestamp() }, { merge: true });
   };
   const rename = async (name: string) => { await renameRoommateGroupChat(chatRoomId, currentUserId, name); setGroupName(name.trim()); setRenameVisible(false); };
 

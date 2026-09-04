@@ -1,6 +1,7 @@
 import React, { useState } from "react";
-import { Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { radius, spacing, fonts, fontSize } from "@/src/theme";
+import KeyboardAwareModal from "@/src/components/common/KeyboardAwareModal";
 import { useTheme } from "@/src/context/ThemeContext";
 import { t } from "@/src/locales";
 
@@ -25,7 +26,7 @@ export default function BlockUserModal({ visible, isSubmitting, onClose, onBlock
   };
 
   return (
-    <Modal transparent animationType="fade" visible={visible} onRequestClose={close}>
+    <KeyboardAwareModal transparent animationType="fade" visible={visible} onRequestClose={close}>
       <View style={styles.backdrop}><View style={styles.card}>
         <Text style={styles.title}>{t("chat.blockModal.title")}</Text>
         <Pressable style={[styles.button, isSubmitting && styles.disabled]} onPress={onBlockOnly} disabled={isSubmitting} testID="chat-block-confirm-button"><Text style={styles.buttonText}>{t("chat.blockModal.blockOnly")}</Text></Pressable>
@@ -33,7 +34,7 @@ export default function BlockUserModal({ visible, isSubmitting, onClose, onBlock
         {expanded ? <View style={styles.reportWrap}><TextInput value={reason} onChangeText={setReason} placeholder={t("chat.blockModal.reportReasonPlaceholder")} placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} multiline numberOfLines={4} textAlignVertical="top" editable={!isSubmitting} testID="chat-block-report-reason-input" /><Pressable style={[styles.button, (!reason.trim() || isSubmitting) && styles.disabled]} onPress={() => onBlockAndReport(reason.trim())} disabled={!reason.trim() || isSubmitting} testID="chat-block-report-submit"><Text style={styles.buttonText}>{t("chat.blockModal.submitBlockAndReport")}</Text></Pressable></View> : null}
         <Pressable style={styles.cancel} onPress={close} disabled={isSubmitting} testID="chat-block-cancel"><Text style={styles.cancelText}>{t("common.actions.cancel")}</Text></Pressable>
       </View></View>
-    </Modal>
+    </KeyboardAwareModal>
   );
 }
 

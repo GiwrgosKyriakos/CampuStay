@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
@@ -14,6 +14,8 @@ import { useAuth } from "@/src/context/auth";
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
 import { useTheme } from "@/src/context/ThemeContext";
 import { t } from "@/src/locales";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type Agency = { name?: string; ceoEmail?: string; passcode?: string; logoUrl?: string | null };
 type Broker = UserProfile & { id: string; email?: string | null; agencyJoinedAt?: unknown; agencyRequestedAt?: unknown };
@@ -171,3 +173,20 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   logoCard: { padding: spacing.lg, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surfaceSecondary }, logoPreview: { width: "100%", height: 120, borderRadius: radius.md, backgroundColor: colors.surface }, logoPlaceholder: { height: 120, alignItems: "center", justifyContent: "center", gap: spacing.xs, backgroundColor: colors.surface, borderRadius: radius.md }, logoActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: spacing.md }, removeButton: { minHeight: 44, paddingHorizontal: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.error, flexDirection: "row", alignItems: "center", gap: spacing.xs }, removeButtonText: { color: colors.error, fontFamily: fonts.bold },
   container: { flex: 1, backgroundColor: colors.surface }, center: { alignItems: "center", justifyContent: "center" }, content: { padding: spacing.lg, paddingBottom: spacing["3xl"] }, header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: spacing.lg }, title: { color: colors.onSurface, fontFamily: fonts.bold, fontSize: fontSize.xl }, agencyName: { color: colors.brand, fontFamily: fonts.display, fontSize: fontSize["2xl"], marginBottom: spacing.lg }, message: { color: colors.success, fontFamily: fonts.semibold, marginBottom: spacing.md }, sectionTitle: { color: colors.onSurface, fontFamily: fonts.bold, fontSize: fontSize.lg, marginTop: spacing.lg, marginBottom: spacing.md }, personRow: { flexDirection: "row", alignItems: "center", padding: spacing.md, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, marginBottom: spacing.sm, backgroundColor: colors.surfaceSecondary }, avatar: { width: 48, height: 48, borderRadius: radius.pill }, avatarFallback: { width: 48, height: 48, borderRadius: radius.pill, backgroundColor: colors.surfaceTertiary, alignItems: "center", justifyContent: "center" }, personInfo: { flex: 1, marginLeft: spacing.md }, personName: { color: colors.onSurface, fontFamily: fonts.semibold }, personEmail: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: fontSize.sm, marginTop: 2 }, personDate: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular, fontSize: fontSize.xs, marginTop: 4 }, actions: { flexDirection: "row", gap: spacing.sm }, approve: { width: 40, height: 40, borderRadius: radius.pill, backgroundColor: colors.brand, alignItems: "center", justifyContent: "center" }, reject: { width: 40, height: 40, borderRadius: radius.pill, backgroundColor: colors.error, alignItems: "center", justifyContent: "center" }, empty: { color: colors.onSurfaceTertiary, fontFamily: fonts.regular }, passcodeCard: { marginTop: spacing.lg, padding: spacing.lg, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surfaceSecondary }, input: { minHeight: 52, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, color: colors.onSurface, paddingHorizontal: spacing.md, fontFamily: fonts.regular }, primaryButton: { minHeight: 52, marginTop: spacing.md, borderRadius: radius.md, backgroundColor: colors.brand, alignItems: "center", justifyContent: "center" }, primaryText: { color: colors.onBrand, fontFamily: fonts.bold },
 });
+
+  const ScrollView = (props: React.ComponentProps<typeof KeyboardAwareScrollView>) => (
+    <AgencyManagementScrollView {...props} />
+  );
+
+  function AgencyManagementScrollView(props: React.ComponentProps<typeof KeyboardAwareScrollView>) {
+    const insets = useSafeAreaInsets();
+    return (
+      <KeyboardAwareScrollView
+        {...props}
+        contentContainerStyle={[props.contentContainerStyle, { flexGrow: 1, paddingBottom: spacing["3xl"] + insets.bottom }]}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        showsVerticalScrollIndicator={false}
+      />
+    );
+  }
