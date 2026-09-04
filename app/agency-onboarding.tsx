@@ -24,7 +24,7 @@ export default function AgencyOnboardingScreen() {
   const router = useRouter();
   const auth = useAuth();
   const params = useLocalSearchParams<{ role?: string; email?: string; password?: string }>();
-  const role: AgencyRole = params.role === "member" ? "member" : "ceo";
+  const role: AgencyRole = params.role === "member" ? "member" : params.role === "secretary" ? "secretary" : "ceo";
   const email = String(params.email ?? "");
   const password = String(params.password ?? "");
   const [agencyName, setAgencyName] = useState("");
@@ -38,7 +38,7 @@ export default function AgencyOnboardingScreen() {
   const [noMatch, setNoMatch] = useState(false);
 
   useEffect(() => {
-    if (role !== "member") return;
+    if (role === "ceo") return;
     setLoadingAgencies(true);
     getDocs(query(collection(db, "agencies")))
       .then((snapshot) => setAgencies(snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as Agency))))
@@ -47,7 +47,7 @@ export default function AgencyOnboardingScreen() {
   }, [role]);
 
   useEffect(() => {
-    if (role !== "member") return;
+    if (role === "ceo") return;
     const timer = setTimeout(() => {
       const value = agencyName.trim().toLowerCase();
       setNoMatch(value.length > 2 && !agencies.some((agency) => agency.nameLower === value));
@@ -56,11 +56,8 @@ export default function AgencyOnboardingScreen() {
   }, [agencyName, agencies, role]);
 
   const selectedAgency = agencies.find((agency) => agency.nameLower === agencyName.trim().toLowerCase());
-  const secretariatSuffix = "$csb$sec";
-  const isSecretariatInvite = agencyCode.trim().toLowerCase().includes(secretariatSuffix);
-  const secretariatMarkerIndex = agencyCode.toLowerCase().indexOf(secretariatSuffix);
-  const secretariatCode = secretariatMarkerIndex >= 0 ? agencyCode.slice(0, secretariatMarkerIndex).trim() : agencyCode.trim();
-  const joinedAgency = selectedAgency ?? agencies.find((agency) => agency.passcode === secretariatCode);
+  const isSecretariatInvite = role === "secretary";
+  const joinedAgency = selectedAgency ?? agencies.find((agency) => agency.passcode === agencyCode.trim());
 
   const submit = async () => {
     setError("");
@@ -68,7 +65,7 @@ export default function AgencyOnboardingScreen() {
       setError(t("agency.onboarding.requiredFields"));
       return;
     }
-    if (role === "member" && !isSecretariatInvite && (!selectedAgency || selectedAgency.passcode !== agencyCode.trim())) {
+    if (role !== "ceo" && (!joinedAgency || joinedAgency.passcode !== agencyCode.trim())) {
       setError(t("agency.onboarding.invalidPasscode"));
       return;
     }
@@ -77,7 +74,7 @@ export default function AgencyOnboardingScreen() {
     try {
       const credential = await createUserWithEmailAndPassword(firebaseAuth, email.trim(), password);
       await updateProfile(credential.user, { displayName: displayName.trim() });
-      if (role === "ceo" && !isSecretariatInvite) {
+      if (role === "ceo") {
         const agencyRef = doc(collection(db, "agencies"));
         await setDoc(agencyRef, {
           id: agencyRef.id, name: agencyName.trim(), nameLower: agencyName.trim().toLowerCase(), passcode: agencyCode.trim(),
@@ -88,7 +85,7 @@ export default function AgencyOnboardingScreen() {
           name: displayName.trim(), email: email.trim(), is_broker: true, agencyId: agencyRef.id, agencyRole: "ceo", agencyStatus: "approved", agencyJoinedAt: serverTimestamp(), needsProfileSetup: true, updatedAt: serverTimestamp(),
         }, { merge: true });
       } else if (isSecretariatInvite) {
-        if (!joinedAgency || joinedAgency.passcode !== secretariatCode) {
+        if (!joinedAgency) {
           throw new Error("invalid-secretariat-code");
         }
         const secretariatName = `Γραμματεία ${joinedAgency.name}`;

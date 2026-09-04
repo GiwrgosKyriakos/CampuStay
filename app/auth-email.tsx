@@ -74,6 +74,7 @@ export default function AuthEmailScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [authNotice, setAuthNotice] = useState<AuthNotice | null>(null);
   const isCeoTrigger = mode === "register" && name.trim() === "$csb$ceo";
+  const isSecretariatTrigger = mode === "register" && name.trim() === "$csb$sec";
   const isAgentTrigger = mode === "register" && name.trim() === "$csb$";
   const swipeX = React.useRef(new Animated.Value(0)).current;
   const SWIPE_THRESHOLD = 56;
@@ -173,10 +174,10 @@ export default function AuthEmailScreen() {
 
     try {
       setLoading(true);
-      if (isCeoTrigger || isAgentTrigger) {
+      if (isCeoTrigger || isAgentTrigger || isSecretariatTrigger) {
         router.push({
           pathname: "/agency-onboarding",
-          params: { role: isCeoTrigger ? "ceo" : "member", email: email.trim(), password },
+          params: { role: isCeoTrigger ? "ceo" : isSecretariatTrigger ? "secretary" : "member", email: email.trim(), password },
         });
         return;
       }
@@ -298,12 +299,12 @@ export default function AuthEmailScreen() {
                   testID={REGISTER.nameInput}
                 />
               </View>
-              {isCeoTrigger || isAgentTrigger ? (
+              {isCeoTrigger || isAgentTrigger || isSecretariatTrigger ? (
                 <Pressable
                   style={styles.agencyTrigger}
                   onPress={() => router.push({
                     pathname: "/agency-onboarding",
-                    params: { role: isCeoTrigger ? "ceo" : "member", email: email.trim(), password },
+                    params: { role: isCeoTrigger ? "ceo" : isSecretariatTrigger ? "secretary" : "member", email: email.trim(), password },
                   })}
                 >
                   <Text style={styles.agencyTriggerText}>{t("agency.onboarding.registerAgencyCta")}</Text>
