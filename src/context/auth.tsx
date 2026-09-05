@@ -30,6 +30,7 @@ export interface AuthUser {
   email: string | null;
   name: string | null;
   picture: string | null;
+  agencyName?: string | null;
 }
 
 interface AuthContextValue {
@@ -57,12 +58,13 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-function mapFirebaseUser(firebaseUser: FirebaseUser): AuthUser {
+function mapFirebaseUser(firebaseUser: FirebaseUser, agencyName?: string | null): AuthUser {
   return {
     user_id: firebaseUser.uid,
     email: firebaseUser.email,
     name: firebaseUser.displayName,
     picture: firebaseUser.photoURL,
+    agencyName: agencyName ?? null,
   };
 }
 
@@ -302,12 +304,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               ? userData.needsProfileSetup
               : !userSnap.exists();
 
+          const resolvedAgencyName = typeof userData?.agencyName === "string" && userData.agencyName.trim().length > 0
+            ? userData.agencyName.trim()
+            : null;
           setIsBroker(isBrokerOrAgencyUser(userData));
           setNotLookingForRoommate(userData?.not_looking_for_roommate === true);
           setAgencyId(typeof userData?.agencyId === "string" ? userData.agencyId : null);
           setAgencyRole(typeof userData?.agencyRole === "string" ? userData.agencyRole : typeof userData?.role === "string" ? userData.role : null);
           await claimManualClientData(firebaseUser).catch((error) => console.error("[Auth] Manual client claim failed during session restore:", error));
-          await persist(idToken, mapFirebaseUser(firebaseUser), needsSetup);
+          await persist(idToken, mapFirebaseUser(firebaseUser, resolvedAgencyName), needsSetup);
 
           unsubscribeUserDoc?.();
           unsubscribeUserDoc = onSnapshot(userRef, (snapshot) => {
@@ -366,7 +371,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const needsSetup = await syncUserDocument(userCredential.user);
       await claimManualClientData(userCredential.user).catch((error) => console.error("[Auth] Manual client claim failed during email login:", error));
       const idToken = await userCredential.user.getIdToken();
-      await persist(idToken, mapFirebaseUser(userCredential.user), needsSetup);
+      await persist(idToken, mapFirebaseUser(userCredential.user, null), needsSetup);
     },
     [persist],
   );
@@ -387,7 +392,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
       await claimManualClientData(userCredential.user).catch((error) => console.error("[Auth] Manual client claim failed during registration:", error));
       const idToken = await userCredential.user.getIdToken();
-      await persist(idToken, mapFirebaseUser(userCredential.user), true);
+      await persist(idToken, mapFirebaseUser(userCredential.user, null), true);
     },
     [persist],
   );
@@ -408,7 +413,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const needsSetup = await syncUserDocument(userCredential.user);
       await claimManualClientData(userCredential.user).catch((error) => console.error("[Auth] Manual client claim failed during Google login:", error));
       const firebaseToken = await userCredential.user.getIdToken();
-      await persist(firebaseToken, mapFirebaseUser(userCredential.user), needsSetup);
+      await persist(firebaseToken, mapFirebaseUser(userCredential.user, null), needsSetup);
       console.log("[Auth] Native Google sign-in completed via Firebase.", {
         userId: userCredential.user.uid,
         operationType: userCredential.operationType,

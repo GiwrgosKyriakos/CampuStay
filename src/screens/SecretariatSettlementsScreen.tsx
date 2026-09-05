@@ -207,16 +207,12 @@ export default function SecretariatSettlementsScreen() {
   return (
     <View style={styles.container} testID="secretariat-settlements-screen">
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} hitSlop={8}>
-          <Ionicons name="chevron-back" size={24} color={colors.onSurface} />
-        </Pressable>
+        <View style={styles.headerSpacer} />
         <View style={styles.headerCopy}>
           <Text style={styles.title}>Εκκαθαρίσεις & Τιμολόγια</Text>
           <Text style={styles.subtitle}>Deals στο στάδιο 100%</Text>
         </View>
-        <Pressable onPress={() => void load()} hitSlop={8}>
-          <Ionicons name="refresh-outline" size={23} color={colors.onSurface} />
-        </Pressable>
+        <View style={styles.headerSpacer} />
       </View>
       {loading ? (
         <View style={styles.center}>
@@ -370,6 +366,7 @@ const createStyles = (colors: ReturnType<typeof useTheme>["colors"]) =>
       alignItems: "flex-start",
       gap: spacing.md,
     },
+    headerSpacer: { width: 32, height: 32 },
     headerCopy: { flex: 1 },
     title: {
       fontFamily: fonts.displayExtra,

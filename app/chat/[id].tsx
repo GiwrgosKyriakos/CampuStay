@@ -195,6 +195,7 @@ interface FirestoreChatDoc {
   deletedUsers?: Record<string, boolean>;
   participantDisplayNames?: Record<string, string>;
   mutedByUsers?: Record<string, boolean>;
+  searchSharingPromptShown?: boolean;
 }
 
 interface FirestoreApartmentDoc {
@@ -864,6 +865,9 @@ function DirectChatScreen() {
   const [clientInteractedProperties, setClientInteractedProperties] = useState<BrokerClientDropdownProperty[]>([]);
   const [loadingClientInteractedProperties, setLoadingClientInteractedProperties] = useState(false);
   const [showAssignedPropertiesDropdown, setShowAssignedPropertiesDropdown] = useState(false);
+  const [propertyActionMenuId, setPropertyActionMenuId] = useState<string | null>(null);
+  const [selectedInquiryProperty, setSelectedInquiryProperty] = useState<ReturnType<typeof buildApartmentRoutePayload> | null>(null);
+  const [visitRequestApartmentId, setVisitRequestApartmentId] = useState<string | null>(null);
   const [hostPhoneFromChatMeta, setHostPhoneFromChatMeta] = useState("");
   const [hostApartmentId, setHostApartmentId] = useState<string | null>(null);
   const [hostApartmentTitle, setHostApartmentTitle] = useState<string | null>(null);
@@ -900,7 +904,7 @@ function DirectChatScreen() {
   const [selectedFilterSetRecord, setSelectedFilterSetRecord] = useState<SharedFilterSetRecord | null>(null);
   const [isFilterHistoryActive, setIsFilterHistoryActive] = useState(false);
   const [searchHistoryPickerVisible, setSearchHistoryPickerVisible] = useState(false);
-  const [searchHistoryBannerDismissed, setSearchHistoryBannerDismissed] = useState(false);
+  const [searchSharingPromptShown, setSearchSharingPromptShown] = useState(false);
   const [activeViewList, setActiveViewList] = useState<{ listTitle: string; apartments: MutualApartment[]; messageId?: string; listId?: string } | null>(null);
   const [proposalFeedbackMap, setProposalFeedbackMap] = useState<Record<string, ProposalItemFeedback>>({});
   const [rejectionDrafts, setRejectionDrafts] = useState<Record<string, string>>({});
@@ -1152,6 +1156,7 @@ function DirectChatScreen() {
     setChatMetadataLoaded(false);
     setChatMetadataRoomId(null);
     setMessagesLoaded(false);
+    setSearchSharingPromptShown(false);
     setMessageLimit(15);
     setIsLoadingOlderMessages(false);
     setHasMoreOlderMessages(true);
@@ -1173,6 +1178,7 @@ function DirectChatScreen() {
         setChatMetadataRoomId(chatRoomId);
         setChatType("roommate");
         setBrokerChatRole(null);
+        setSearchSharingPromptShown(false);
         setHostPhoneFromChatMeta("");
         setHostApartmentId(null);
         setHostApartmentTitle(null);
@@ -1196,6 +1202,7 @@ function DirectChatScreen() {
       setIsCrossChatNoticeDismissed(currentUserId ? dismissedCrossChatNoticesMap[currentUserId] === true : false);
       setChatType(data.type === "host" ? "host" : data.type === "colleague" ? "colleague" : "roommate");
       setBrokerChatRole(data.brokerChatRole === "client" || data.brokerChatRole === "owner" ? data.brokerChatRole : null);
+      setSearchSharingPromptShown(data.searchSharingPromptShown === true);
       const rawHostPhoneFromChat =
         typeof data.hostPhoneNumber === "string"
           ? data.hostPhoneNumber
@@ -1983,6 +1990,19 @@ function DirectChatScreen() {
     [currentUserId, messages],
   );
 
+  const markSearchSharingPromptShown = useCallback(() => {
+    if (searchSharingPromptShown || !currentUserId || !chatRoomId || auth.isBroker || !isBrokerClientChat) return;
+    setSearchSharingPromptShown(true);
+    void setDoc(doc(db, "chats", chatRoomId), { searchSharingPromptShown: true }, { merge: true }).catch((error: unknown) => {
+      console.warn("[Chat] Failed to persist search-sharing prompt state:", error);
+    });
+  }, [auth.isBroker, chatRoomId, currentUserId, isBrokerClientChat, searchSharingPromptShown]);
+
+  useEffect(() => {
+    if (!isBrokerClientChat || auth.isBroker || hasSharedSearchHistory || searchSharingPromptShown) return;
+    markSearchSharingPromptShown();
+  }, [auth.isBroker, hasSharedSearchHistory, isBrokerClientChat, markSearchSharingPromptShown, searchSharingPromptShown]);
+
   useEffect(() => {
     if (!isBrokerClientChat || !currentUserId || !counterpartId || !chatRoomId || (!showAssignedPropertiesDropdown && !showVisitRequestModal)) {
       setClientInteractedProperties([]);
@@ -2129,6 +2149,9 @@ function DirectChatScreen() {
   const displayGender = maskedAsDeleted ? t("common.values.notApplicable") : activeProfile.gender;
   const displayAge = maskedAsDeleted ? t("common.values.emptyDash") : `${activeProfile.age} ${t("common.format.yearsSuffix")}`;
   const displayBudget = maskedAsDeleted ? t("common.values.emptyDash") : `${CURRENCY}${activeProfile.budget}${t("common.format.perMonthShort")}`;
+  const sanitizedName = (displayName || "").trim();
+  const truncatedName = sanitizedName.length > 14 ? `${sanitizedName.slice(0, 12)}...` : sanitizedName;
+  const inputPlaceholder = apartmentLocked ? t("chat.unavailable") : deletedCounterpart ? t("chat.placeholderDeleted") : chatStatus === "pending" ? t("chat.placeholderPending") : `Message ${truncatedName || "there"}`;
   const apartmentPillTitle = apartmentLocked ? t("apartments.unavailable") : hostApartment?.title || hostApartmentTitle || t("apartments.unavailable");
   const apartmentPreviewSubtitle = !apartmentLocked && hostApartment
     ? `${hostApartment.area}, ${hostApartment.city}`
@@ -2148,25 +2171,36 @@ function DirectChatScreen() {
     !auth.isGuest &&
     !!hostApartmentId;
 
+  const inquiryProperty = selectedInquiryProperty ?? hostApartment;
   const hostDiscountPercentage =
-    typeof hostApartment?.maxDiscountPercentage === "number" ? hostApartment.maxDiscountPercentage : 10;
-  const hostRent = typeof hostApartment?.rent === "number" ? hostApartment.rent : 0;
+    typeof inquiryProperty?.maxDiscountPercentage === "number" ? inquiryProperty.maxDiscountPercentage : 10;
+  const hostRent = typeof inquiryProperty?.rent === "number" ? inquiryProperty.rent : 0;
   const minRecommendedPrice = hostRent * ((100 - hostDiscountPercentage) / 100);
   const visitRequestListings = useMemo<VisitRequestListing[]>(() => {
     const listings = clientInteractedProperties.map((property) => ({ id: property.id, title: property.title, rent: property.rent }));
     if (hostApartmentId && hostApartment && !listings.some((listing) => listing.id === hostApartmentId)) {
       listings.unshift({ id: hostApartmentId, title: hostApartment.title, rent: hostApartment.rent });
     }
-    return listings;
-  }, [clientInteractedProperties, hostApartment, hostApartmentId]);
+    if (selectedInquiryProperty && !listings.some((listing) => listing.id === selectedInquiryProperty.id)) {
+      listings.unshift({ id: selectedInquiryProperty.id, title: selectedInquiryProperty.title, rent: selectedInquiryProperty.rent });
+    }
+    const preferredApartmentId = visitRequestApartmentId ?? selectedInquiryProperty?.id ?? hostApartmentId;
+    return preferredApartmentId
+      ? listings.sort((first, second) => Number(second.id === preferredApartmentId) - Number(first.id === preferredApartmentId))
+      : listings;
+  }, [clientInteractedProperties, hostApartment, hostApartmentId, selectedInquiryProperty, visitRequestApartmentId]);
 
-  const openVisitRequestModal = useCallback(() => {
+  const openVisitRequestModal = useCallback((apartmentId?: string) => {
+    setVisitRequestApartmentId(apartmentId ?? hostApartmentId);
     setShowVisitRequestModal(true);
     setShowHostActionMenu(false);
-  }, []);
+    setShowAssignedPropertiesDropdown(false);
+    setPropertyActionMenuId(null);
+  }, [hostApartmentId]);
 
   const submitPriceProposal = useCallback(async (price: number) => {
-    if (!currentUserId || !chatRoomId || !hostApartmentId || isSubmittingHostAction) return;
+    const apartmentId = selectedInquiryProperty?.id ?? hostApartmentId;
+    if (!currentUserId || !chatRoomId || !apartmentId || isSubmittingHostAction) return;
 
     setIsSubmittingHostAction(true);
     try {
@@ -2175,7 +2209,7 @@ function DirectChatScreen() {
         type: "price_proposal",
         proposedPrice: Math.round(price),
         status: "pending",
-        apartmentId: hostApartmentId,
+        apartmentId,
         createdAt: serverTimestamp(),
       });
 
@@ -2184,7 +2218,7 @@ function DirectChatScreen() {
         clientId: currentUserId,
         role: brokerChatRole === "owner" ? "owner" : "client",
         chatRoomId,
-        apartmentId: hostApartmentId,
+        apartmentId,
         pipelineStage: "offer_made",
       });
 
@@ -2221,7 +2255,7 @@ function DirectChatScreen() {
     } finally {
       setIsSubmittingHostAction(false);
     }
-  }, [brokerChatRole, chatRoomId, counterpartId, currentUserId, hostApartmentId, isSubmittingHostAction]);
+  }, [brokerChatRole, chatRoomId, counterpartId, currentUserId, hostApartmentId, isSubmittingHostAction, selectedInquiryProperty?.id]);
 
   const submitVisitRequest = useCallback(async (date: string, time: string, apartmentId: string) => {
     if (!currentUserId || !chatRoomId || !apartmentId || isSubmittingHostAction) return;
@@ -2929,6 +2963,7 @@ function DirectChatScreen() {
               style={styles.hostActionMenuItem}
               onPress={() => {
                 setShowHostActionMenu(false);
+                setSelectedInquiryProperty(hostApartment);
                 setShowPriceProposalModal(true);
               }}
               testID="chat-host-action-price-proposal"
@@ -2937,7 +2972,7 @@ function DirectChatScreen() {
             </Pressable>
             <Pressable
               style={styles.hostActionMenuItem}
-              onPress={openVisitRequestModal}
+              onPress={() => openVisitRequestModal()}
               testID="chat-host-action-visit-request"
             >
               <Text style={styles.hostActionMenuText}>Ζήτα επίσκεψη</Text>
@@ -2992,58 +3027,62 @@ function DirectChatScreen() {
           >
             <Ionicons name="ellipsis-vertical" size={20} color={colors.onSurface} />
           </Pressable>
-          {isBrokerOwnerChat || isBrokerClientChat ? (
-            <Pressable
-              style={[styles.iconBtn, showAssignedPropertiesDropdown && styles.iconBtnActive]}
-              onPress={() => {
-                setShowContextMenu(false);
-                setIsFilterHistoryActive(false);
-                setShowAssignedPropertiesDropdown((previous) => !previous);
-              }}
-              testID="chat-assigned-properties-toggle"
-              hitSlop={8}
-            >
-              <Ionicons name="chevron-down" size={20} color={colors.onSurface} />
-            </Pressable>
-          ) : null}
-          {isBrokerClientChat ? (
-            <Pressable
-              style={[styles.iconBtn, isFilterHistoryActive && styles.iconBtnActive]}
-              onPress={() => {
-                setShowContextMenu(false);
-                setShowAssignedPropertiesDropdown(false);
-                setIsFilterHistoryActive((previous) => !previous);
-              }}
-              testID="chat-filter-history-toggle"
-              hitSlop={8}
-            >
-              <Ionicons name="time-outline" size={22} color={isFilterHistoryActive ? colors.brand : colors.onSurface} />
-            </Pressable>
-          ) : null}
-          {isRoommateChat ? (
-            <Pressable
-              style={[styles.iconBtn, showMutualLikes && styles.iconBtnActive]}
-              onPress={() => {
-                setShowContextMenu(false);
-                setShowMutualLikes((prev) => !prev);
-              }}
-              testID="chat-mutual-likes-toggle"
-              hitSlop={8}
-            >
-              <Ionicons name="heart-circle-outline" size={22} color={showMutualLikes ? colors.brand : colors.onSurface} />
-            </Pressable>
-          ) : null}
-          {isRoommateChat ? (
-            <Pressable
-              style={[styles.iconBtn, roommateContractPickerVisible && styles.iconBtnActive]}
-              onPress={() => setRoommateContractPickerVisible(true)}
-              testID="chat-roommate-contract-button"
-              hitSlop={8}
-            >
-              <Ionicons name="document-text-outline" size={21} color={roommateContractPickerVisible ? colors.brand : colors.onSurface} />
-            </Pressable>
-          ) : null}
         </View>
+        {(isBrokerOwnerChat || isBrokerClientChat || isRoommateChat) ? (
+          <View style={styles.headerSecondaryActions}>
+            {isBrokerOwnerChat || isBrokerClientChat ? (
+              <Pressable
+                style={[styles.headerSecondaryAction, showAssignedPropertiesDropdown && styles.headerSecondaryActionActive]}
+                onPress={() => {
+                  setShowContextMenu(false);
+                  setIsFilterHistoryActive(false);
+                  setShowAssignedPropertiesDropdown((previous) => !previous);
+                }}
+                testID="chat-assigned-properties-toggle"
+              >
+                <Ionicons name="business-outline" size={15} color={showAssignedPropertiesDropdown ? colors.brand : colors.onSurfaceTertiary} />
+                <Text style={[styles.headerSecondaryActionText, showAssignedPropertiesDropdown && styles.headerSecondaryActionTextActive]}>Ακίνητα</Text>
+              </Pressable>
+            ) : null}
+            {isBrokerClientChat ? (
+              <Pressable
+                style={[styles.headerSecondaryAction, isFilterHistoryActive && styles.headerSecondaryActionActive]}
+                onPress={() => {
+                  setShowContextMenu(false);
+                  setShowAssignedPropertiesDropdown(false);
+                  setIsFilterHistoryActive((previous) => !previous);
+                }}
+                testID="chat-filter-history-toggle"
+              >
+                <Ionicons name="time-outline" size={15} color={isFilterHistoryActive ? colors.brand : colors.onSurfaceTertiary} />
+                <Text style={[styles.headerSecondaryActionText, isFilterHistoryActive && styles.headerSecondaryActionTextActive]}>Ιστορικό</Text>
+              </Pressable>
+            ) : null}
+            {isRoommateChat ? (
+              <Pressable
+                style={[styles.headerSecondaryAction, showMutualLikes && styles.headerSecondaryActionActive]}
+                onPress={() => {
+                  setShowContextMenu(false);
+                  setShowMutualLikes((prev) => !prev);
+                }}
+                testID="chat-mutual-likes-toggle"
+              >
+                <Ionicons name="heart-circle-outline" size={15} color={showMutualLikes ? colors.brand : colors.onSurfaceTertiary} />
+                <Text style={[styles.headerSecondaryActionText, showMutualLikes && styles.headerSecondaryActionTextActive]}>Αμοιβαία</Text>
+              </Pressable>
+            ) : null}
+            {isRoommateChat ? (
+              <Pressable
+                style={[styles.headerSecondaryAction, roommateContractPickerVisible && styles.headerSecondaryActionActive]}
+                onPress={() => setRoommateContractPickerVisible(true)}
+                testID="chat-roommate-contract-button"
+              >
+                <Ionicons name="document-text-outline" size={15} color={roommateContractPickerVisible ? colors.brand : colors.onSurfaceTertiary} />
+                <Text style={[styles.headerSecondaryActionText, roommateContractPickerVisible && styles.headerSecondaryActionTextActive]}>Συμβόλαιο</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
         {chatType === "colleague" && sharedColleagueListings.length > 0 ? (
           <Pressable
             style={styles.colleaguePropertyBanner}
@@ -3173,7 +3212,10 @@ function DirectChatScreen() {
         <>
           <Pressable
             style={styles.propertiesDropdownBackdrop}
-            onPress={() => setShowAssignedPropertiesDropdown(false)}
+            onPress={() => {
+              setShowAssignedPropertiesDropdown(false);
+              setPropertyActionMenuId(null);
+            }}
             testID="chat-assigned-properties-backdrop"
           />
           <View style={[styles.propertiesDropdown, { top: insets.top + 54 }]} testID="chat-assigned-properties-dropdown">
@@ -3188,18 +3230,46 @@ function DirectChatScreen() {
             ) : (
               <ScrollView showsVerticalScrollIndicator={false}>
                 {assignedOwnerProperties.map((property) => (
-                  <Pressable
-                    key={property.id}
-                    style={styles.propertyDropdownRow}
-                    onPress={() => {
-                      setShowAssignedPropertiesDropdown(false);
-                      router.push({ pathname: "/apartment-detail", params: { data: JSON.stringify(property) } } as any);
-                    }}
-                    testID={`chat-assigned-property-${property.id}`}
-                  >
-                    <Text style={styles.propertyDropdownTitle} numberOfLines={1}>{property.title}</Text>
-                    <Text style={styles.propertyDropdownPrice}>{property.rent.toLocaleString("el-GR")} €</Text>
-                  </Pressable>
+                  <View key={property.id} style={styles.propertyDropdownCard}>
+                    <View style={styles.propertyCardRow}>
+                      <Pressable
+                        style={styles.propertyDropdownRow}
+                        onPress={() => {
+                          setShowAssignedPropertiesDropdown(false);
+                          router.push({ pathname: "/apartment-detail", params: { data: JSON.stringify(property) } } as any);
+                        }}
+                        testID={`chat-assigned-property-${property.id}`}
+                      >
+                        {property.image ? <Image source={{ uri: property.image }} style={styles.propertyThumb} contentFit="cover" /> : <View style={styles.propertyThumbFallback}><Ionicons name="business-outline" size={18} color={colors.onSurfaceTertiary} /></View>}
+                        <View style={styles.propertyTextDetails}>
+                          <Text style={styles.propertyDropdownTitle} numberOfLines={1}>{property.title}</Text>
+                          <Text style={styles.propertyDropdownPrice}>{property.rent.toLocaleString("el-GR")} €</Text>
+                        </View>
+                      </Pressable>
+                      <Pressable
+                        style={styles.propertyActionTrigger}
+                        onPress={() => {
+                          setSelectedInquiryProperty(property);
+                          setPropertyActionMenuId((current) => current === property.id ? null : property.id);
+                        }}
+                        testID={`chat-property-actions-${property.id}`}
+                        hitSlop={8}
+                      >
+                        <Text style={styles.propertyActionTriggerText}>Ενέργειες</Text>
+                        <Ionicons name="chevron-down" size={14} color={colors.onSurfaceTertiary} />
+                      </Pressable>
+                    </View>
+                    {propertyActionMenuId === property.id ? (
+                      <View style={styles.propertyActionMenu}>
+                        <Pressable style={styles.propertyActionMenuItem} onPress={() => { setPropertyActionMenuId(null); setShowAssignedPropertiesDropdown(false); setShowPriceProposalModal(true); }} testID={`chat-property-price-proposal-${property.id}`}>
+                          <Text style={styles.propertyActionMenuText}>Πρόταση τιμής</Text>
+                        </Pressable>
+                        <Pressable style={styles.propertyActionMenuItem} onPress={() => openVisitRequestModal(property.id)} testID={`chat-property-visit-request-${property.id}`}>
+                          <Text style={styles.propertyActionMenuText}>Αίτημα επίσκεψης</Text>
+                        </Pressable>
+                      </View>
+                    ) : null}
+                  </View>
                 ))}
               </ScrollView>
             ) : loadingClientInteractedProperties ? (
@@ -3213,28 +3283,54 @@ function DirectChatScreen() {
             ) : (
               <ScrollView showsVerticalScrollIndicator={false}>
                 {clientInteractedProperties.map((property) => (
-                  <Pressable
-                    key={property.id}
-                    style={styles.clientPropertyDropdownRow}
-                    onPress={() => {
-                      setShowAssignedPropertiesDropdown(false);
-                      router.push({ pathname: "/apartment-detail", params: { data: JSON.stringify(property.rawApartmentPayload) } } as any);
-                    }}
-                    testID={`chat-client-property-${property.id}`}
-                  >
-                    <View style={styles.clientPropertyDropdownMain}>
-                      <Text style={styles.propertyDropdownTitle} numberOfLines={1}>{property.title}</Text>
-                      <Text style={styles.clientPropertyDropdownSubtitle} numberOfLines={1}>
-                        {property.area ? `${property.area} • ` : ""}{property.rent.toLocaleString("el-GR")} €
-                      </Text>
+                  <View key={property.id} style={styles.propertyDropdownCard}>
+                    <View style={styles.propertyCardRow}>
+                      <Pressable
+                        style={styles.clientPropertyDropdownRow}
+                        onPress={() => {
+                          setShowAssignedPropertiesDropdown(false);
+                          router.push({ pathname: "/apartment-detail", params: { data: JSON.stringify(property.rawApartmentPayload) } } as any);
+                        }}
+                        testID={`chat-client-property-${property.id}`}
+                      >
+                        {property.rawApartmentPayload.image ? <Image source={{ uri: property.rawApartmentPayload.image }} style={styles.propertyThumb} contentFit="cover" /> : <View style={styles.propertyThumbFallback}><Ionicons name="business-outline" size={18} color={colors.onSurfaceTertiary} /></View>}
+                        <View style={styles.clientPropertyDropdownMain}>
+                          <Text style={styles.propertyDropdownTitle} numberOfLines={1}>{property.title}</Text>
+                          <Text style={styles.clientPropertyDropdownSubtitle} numberOfLines={1}>
+                            {property.area ? `${property.area} • ` : ""}{property.rent.toLocaleString("el-GR")} €
+                          </Text>
+                        </View>
+                        {property.compatibilityScore > 0 ? (
+                          <View style={styles.dropdownMatchBadge}>
+                            <Ionicons color={colors.brand} name="sparkles" size={11} />
+                            <Text style={styles.dropdownMatchBadgeText}>{`${property.compatibilityScore}% Match`}</Text>
+                          </View>
+                        ) : null}
+                      </Pressable>
+                      <Pressable
+                        style={styles.propertyActionTrigger}
+                        onPress={() => {
+                          setSelectedInquiryProperty(property.rawApartmentPayload);
+                          setPropertyActionMenuId((current) => current === property.id ? null : property.id);
+                        }}
+                        testID={`chat-property-actions-${property.id}`}
+                        hitSlop={8}
+                      >
+                        <Text style={styles.propertyActionTriggerText}>Ενέργειες</Text>
+                        <Ionicons name="chevron-down" size={14} color={colors.onSurfaceTertiary} />
+                      </Pressable>
                     </View>
-                    {property.compatibilityScore > 0 ? (
-                      <View style={styles.dropdownMatchBadge}>
-                        <Ionicons color={colors.brand} name="sparkles" size={11} />
-                        <Text style={styles.dropdownMatchBadgeText}>{`${property.compatibilityScore}% Match`}</Text>
+                    {propertyActionMenuId === property.id ? (
+                      <View style={styles.propertyActionMenu}>
+                        <Pressable style={styles.propertyActionMenuItem} onPress={() => { setPropertyActionMenuId(null); setShowAssignedPropertiesDropdown(false); setShowPriceProposalModal(true); }} testID={`chat-property-price-proposal-${property.id}`}>
+                          <Text style={styles.propertyActionMenuText}>Πρόταση τιμής</Text>
+                        </Pressable>
+                        <Pressable style={styles.propertyActionMenuItem} onPress={() => openVisitRequestModal(property.id)} testID={`chat-property-visit-request-${property.id}`}>
+                          <Text style={styles.propertyActionMenuText}>Αίτημα επίσκεψης</Text>
+                        </Pressable>
                       </View>
                     ) : null}
-                  </Pressable>
+                  </View>
                 ))}
               </ScrollView>
             )}
@@ -3439,7 +3535,7 @@ function DirectChatScreen() {
           behavior={Platform.OS === "ios" ? "padding" : undefined}
           keyboardVerticalOffset={Platform.OS === "ios" ? insets.top + 8 : 0}
         >
-          {isBrokerClientChat && !auth.isBroker && !hasSharedSearchHistory && !searchHistoryBannerDismissed ? (
+          {isBrokerClientChat && !auth.isBroker && !hasSharedSearchHistory && !searchSharingPromptShown ? (
             <View style={styles.searchHistoryShareBanner} testID="chat-search-history-share-banner">
               <View style={styles.searchHistoryShareTextWrap}>
                 <Text style={styles.searchHistoryShareTitle}>Θέλετε πιο στοχευμένες προτάσεις;</Text>
@@ -3449,7 +3545,7 @@ function DirectChatScreen() {
                 <Ionicons name="search-outline" size={16} color={colors.onBrand} />
                 <Text style={styles.searchHistoryShareButtonText}>Επιλογή &amp; Διαμοιρασμός</Text>
               </Pressable>
-              <Pressable style={styles.searchHistoryShareDismiss} onPress={() => setSearchHistoryBannerDismissed(true)} hitSlop={8} testID="chat-dismiss-search-history-banner">
+              <Pressable style={styles.searchHistoryShareDismiss} onPress={markSearchSharingPromptShown} hitSlop={8} testID="chat-dismiss-search-history-banner">
                 <Ionicons name="close" size={18} color={colors.onSurfaceTertiary} />
               </Pressable>
             </View>
@@ -3576,17 +3672,10 @@ function DirectChatScreen() {
               style={styles.input}
               value={text}
               onChangeText={setText}
-              placeholder={
-                apartmentLocked
-                  ? t("chat.unavailable")
-                  : deletedCounterpart
-                  ? t("chat.placeholderDeleted")
-                  : chatStatus === "pending"
-                  ? t("chat.placeholderPending")
-                  : t("chat.placeholderMessage", { name: displayName })
-              }
+              placeholder={inputPlaceholder}
               placeholderTextColor={colors.onSurfaceTertiary}
               multiline
+              numberOfLines={1}
               testID="chat-input"
               onSubmitEditing={send}
               editable={!inputBlocked}
@@ -3628,7 +3717,10 @@ function DirectChatScreen() {
         isSubmitting={isSubmittingHostAction}
         minRecommendedPrice={minRecommendedPrice}
         hostDiscountPercentage={hostDiscountPercentage}
-        onClose={() => setShowPriceProposalModal(false)}
+        onClose={() => {
+          setShowPriceProposalModal(false);
+          setSelectedInquiryProperty(null);
+        }}
         onSubmit={(price) => void submitPriceProposal(price)}
       />
 
@@ -3669,7 +3761,11 @@ function DirectChatScreen() {
         isSubmitting={isSubmittingHostAction}
         brokerId={auth.isBroker ? currentUserId ?? "" : counterpartId}
         listings={visitRequestListings}
-        onClose={() => setShowVisitRequestModal(false)}
+        onClose={() => {
+          setShowVisitRequestModal(false);
+          setVisitRequestApartmentId(null);
+          setSelectedInquiryProperty(null);
+        }}
         onSubmit={(date, time, apartmentId) => void submitVisitRequest(date, time, apartmentId)}
       />
 
@@ -3936,6 +4032,30 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     color: colors.onSurface,
   },
   headerTop: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  headerSecondaryActions: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  headerSecondaryAction: {
+    flex: 1,
+    height: 34,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  headerSecondaryActionActive: { backgroundColor: colors.brandTertiary, borderColor: colors.brand },
+  headerSecondaryActionText: { fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
+  headerSecondaryActionTextActive: { color: colors.brand },
   colleaguePropertyBanner: {
     minHeight: 40,
     flexDirection: "row",
@@ -4004,14 +4124,81 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     shadowRadius: 8,
   },
   propertyDropdownRow: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  propertyDropdownCard: {
+    marginBottom: spacing.sm,
+    padding: spacing.sm,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  propertyCardRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: spacing.md,
+    gap: spacing.sm,
+  },
+  propertyTextDetails: {
+    flex: 1,
+    justifyContent: "center",
+    minWidth: 0,
+  },
+  propertyThumb: {
+    width: 52,
+    height: 52,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surfaceTertiary,
+  },
+  propertyThumbFallback: {
+    width: 52,
+    height: 52,
+    borderRadius: radius.sm,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surfaceSecondary,
+  },
+  propertyActionTrigger: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.xs,
+    flexShrink: 0,
+    paddingHorizontal: spacing.sm,
+    height: 32,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
+  propertyActionTriggerText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.xs,
+    color: colors.onSurfaceTertiary,
+  },
+  propertyActionMenu: {
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.xs,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: "hidden",
+  },
+  propertyActionMenuItem: {
+    paddingHorizontal: spacing.sm,
     paddingVertical: spacing.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border,
-    gap: spacing.sm,
+  },
+  propertyActionMenuText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.xs,
+    color: colors.onSurface,
   },
   propertyDropdownTitle: {
     flex: 1,
@@ -4025,13 +4212,9 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     color: colors.brand,
   },
   clientPropertyDropdownRow: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
     gap: spacing.sm,
   },
   clientPropertyDropdownMain: {

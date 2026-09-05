@@ -8,7 +8,7 @@ import { radius, spacing, type ThemeColors } from "@/src/theme";
 import { useTheme } from "@/src/context/ThemeContext";
 import { useAuth } from "@/src/context/auth";
 
-export const TAB_BAR_HEIGHT = 60;
+export const TAB_BAR_HEIGHT = 64; // Exported in case other screens (like Reels) need to calculate bottom clearance
 
 const ICONS: Record<string, { active: keyof typeof Ionicons.glyphMap; inactive: keyof typeof Ionicons.glyphMap }> = {
   roommates: { active: "flame", inactive: "flame-outline" },
@@ -29,72 +29,81 @@ export default function GlassTabBar({ state, navigation, descriptors }: BottomTa
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const auth = useAuth();
+  
+  // Διατήρηση των σύγχρονων ρόλων από το GlassTabBar_4.tsx
   const isBroker = !!auth.isBroker;
-  const isExecutive = auth.agencyRole === "ceo" || auth.agencyRole === "secretary";
+  const isExecutive = auth.agencyRole === "ceo" || auth.agencyRole === "secretary" || auth.agencyRole === "secretariat";
+  const hasAgencyMembership = isBroker && !!auth.agencyId;
   const notLookingForRoommate = auth.notLookingForRoommate === true;
+  
   const styles = useMemo(() => createStyles(colors), [colors]);
   const focusedRouteName = state.routes[state.index]?.name;
-  const isReelsTab = focusedRouteName === "explore-feed";
+  
   const visibleRoutes = useMemo(() => {
     return state.routes
       .filter((route) => {
         const href = (descriptors[route.key]?.options as { href?: string | null } | undefined)?.href;
         if (href === null) return false;
-        if (isExecutive) return ["apartment-pool", "settlements", "secretariat-pool", "marketing-spend", "analytics"].includes(route.name);
-        if (isBroker) return ["calendar", "matches", "apartments", "broker"].includes(route.name);
+        
+        if (isExecutive) return ["settlements", "secretariat-pool", "apartment-pool", "marketing-spend", "analytics"].includes(route.name);
+        if (isBroker) return ["calendar", "matches", hasAgencyMembership ? "apartment-pool" : "explore-feed", "apartments", "broker"].includes(route.name);
         if (notLookingForRoommate) return ["calendar", "matches", "explore-feed", "apartments", "profile"].includes(route.name);
         if (route.name === "roommates") return !notLookingForRoommate;
+        
         return ["matches", "explore-feed", "apartments", "profile"].includes(route.name);
       })
       .sort((left, right) => {
         const order = isExecutive
-          ? ["apartment-pool", "settlements", "secretariat-pool", "marketing-spend", "analytics"]
+          ? ["settlements", "secretariat-pool", "apartment-pool", "marketing-spend", "analytics"]
           : isBroker
-          ? ["calendar", "matches", "apartments", "broker"]
+          ? ["calendar", "matches", hasAgencyMembership ? "apartment-pool" : "explore-feed", "apartments", "broker"]
           : notLookingForRoommate
           ? ["calendar", "matches", "explore-feed", "apartments", "profile"]
           : ["roommates", "matches", "explore-feed", "apartments", "profile"];
         return order.indexOf(left.name) - order.indexOf(right.name);
       });
-  }, [descriptors, isBroker, isExecutive, notLookingForRoommate, state.routes]);
+  }, [descriptors, hasAgencyMembership, isBroker, isExecutive, notLookingForRoommate, state.routes]);
 
   if (isBroker && focusedRouteName === "profile") {
     return null;
   }
 
   return (
-    <View style={isReelsTab ? styles.reelsWrap : [styles.wrap, { paddingBottom: Math.max(insets.bottom, spacing.md) }]} testID="bottom-tab-bar">
-      <View style={[isReelsTab ? styles.reelsBar : styles.bar, isReelsTab && { paddingBottom: insets.bottom }]}>
-        <View style={[styles.row, isReelsTab && styles.reelsRow]}>
+    <View style={[styles.wrap, { paddingBottom: Math.max(insets.bottom, spacing.md) }]} testID="bottom-tab-bar">
+      <View style={styles.bar}>
+        <View style={styles.row}>
           {visibleRoutes.map((route) => {
             const focused = state.routes[state.index]?.key === route.key;
+            
+            const fallbackIcon = { active: "apps" as const, inactive: "apps-outline" as const };
             const cfg = route.name === "matches" && (isBroker || isExecutive)
               ? { active: "mail" as const, inactive: "mail-outline" as const }
-              : ICONS[route.name] ?? ICONS.roommates;
+              : ICONS[route.name] ?? fallbackIcon;
+              
             const onPress = () => {
               const event = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
               if (!focused && !event.defaultPrevented) navigation.navigate(route.name);
             };
+            
             return (
               <Pressable
                 key={route.key}
                 onPress={onPress}
-                style={[styles.tab, isReelsTab && styles.reelsTab]}
+                style={styles.tab}
                 testID={`tab-${route.name}`}
-                hitSlop={8}
+                hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
               >
                 <View
                   style={[
                     styles.iconPill,
-                    route.name === "explore-feed" && styles.reelIconPill,
-                    isReelsTab && styles.reelsIconPill,
-                    focused ? { backgroundColor: colors.brand } : undefined,
+                    route.name === "explore-feed" && styles.reelIconPill, // Το reel tab είναι ελάχιστα πιο τονισμένο
+                    focused ? styles.iconPillActive : undefined,
                   ]}
                 >
                   <Ionicons
                     name={focused ? cfg.active : cfg.inactive}
                     size={24}
-                    color={focused ? colors.onBrand : isReelsTab ? "rgba(255,255,255,0.82)" : "#0A3A45"}
+                    color={focused ? colors.onBrand : "#0A3A45"}
                   />
                 </View>
               </Pressable>
@@ -114,68 +123,49 @@ function createStyles(colors: ThemeColors) {
       right: spacing.lg,
       bottom: 0,
     },
-    reelsWrap: {
-      position: "absolute",
-      left: 0,
-      right: 0,
-      bottom: 0,
-    },
     bar: {
       borderRadius: radius.pill,
-      overflow: "hidden",
       backgroundColor: colors.muted,
-    },
-    reelsBar: {
-      overflow: "hidden",
-      backgroundColor: colors.surfaceSecondary,
-      borderTopLeftRadius: 16,
-      borderTopRightRadius: 16,
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: "rgba(255,255,255,0.16)",
-      minHeight: TAB_BAR_HEIGHT,
+      // Το overflow: "hidden" αφαιρέθηκε σκοπίμως για να μην κόβονται τα εικονίδια στο Android
+      elevation: 6,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.15,
+      shadowRadius: 10,
     },
     row: {
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-around",
-      paddingVertical: spacing.sm,
+      paddingVertical: 8, // Ιδανικό ενδιάμεσο πάχος
       paddingHorizontal: spacing.sm,
-    },
-    reelsRow: {
-      paddingVertical: spacing.xs,
-      paddingHorizontal: spacing.xs,
     },
     tab: {
       flex: 1,
       alignItems: "center",
       justifyContent: "center",
-    },
-    reelsTab: {
-      minHeight: 44,
+      backgroundColor: "transparent",
     },
     iconPill: {
-      width: 52,
-      height: 52,
-      borderRadius: 26,
+      width: 48,  // Ισορροπία ανάμεσα στο 52 (παλιό) και 44 (τωρινό)
+      height: 48,
+      borderRadius: 24, // Απόλυτος κύκλος
       alignItems: "center",
       justifyContent: "center",
+      alignSelf: "center",
       overflow: "hidden",
     },
     iconPillActive: {
       backgroundColor: colors.brand,
+      overflow: "hidden",
     },
     reelIconPill: {
-      width: 58,
-      height: 58,
-      borderRadius: 29,
+      width: 52, // Στο παλιό ήταν 58. Το μειώσαμε αναλογικά για να ταιριάζει.
+      height: 52,
+      borderRadius: 26,
       borderWidth: 2,
       borderColor: colors.brand,
-    },
-    reelsIconPill: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      borderWidth: 0,
+      overflow: "hidden"
     },
   });
 }

@@ -26,14 +26,14 @@ import { Image } from "expo-image";
 
 import Dropdown from "@/src/components/Dropdown";
 import AddressAutocompleteInput from "@/src/components/AddressAutocompleteInput";
-// import ApartmentLocationMap from "@/src/components/ApartmentLocationMap";
+import ApartmentLocationMap from "@/src/components/ApartmentLocationMap";
 import CenteredActionModal from "@/src/components/CenteredActionModal";
 import { WatermarkBadge } from "@/src/components/WatermarkBadge";
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
 import { db } from "@/src/config/firebase";
 import { useAuth } from "@/src/context/auth";
 import { useTheme } from "@/src/context/ThemeContext";
-// import { useLocationCoordinates } from "@/src/hooks/useLocationCoordinates";
+import { useLocationCoordinates } from "@/src/hooks/useLocationCoordinates";
 import { deleteStorageFileAsync, uploadBrokerPrivateImageAsync, uploadImageAsync, uploadListingDocumentAsync, uploadListingImageAsync, uploadListingReelAsync } from "@/src/api/imageUpload";
 import { upsertListing } from "@/src/api/listings";
 import { publishListingAssignment } from "@/src/api/agencyCollaboration";
@@ -105,6 +105,13 @@ type Amenity = {
   slug: AmenitySlug;
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
+};
+
+type RequiredListingField = "monthlyRent" | "city" | "area" | "size";
+
+type MissingListingField = {
+  key: RequiredListingField;
+  label: string;
 };
 
 type MatchedClient = {
@@ -756,7 +763,6 @@ export default function CreateListingScreen() {
   // 2. Προσθήκη των States μέσα στο CreateListingScreen component
   const [title, setTitle] = useState("");             
   const [description, setDescription] = useState(""); 
-  const titleVoice = useVoiceInputPreview(title, setTitle);
   const descriptionVoice = useVoiceInputPreview(description, setDescription);
   const [isExtraInfoExpanded, setIsExtraInfoExpanded] = useState(false);
   const [isExtraDetailsExpanded, setIsExtraDetailsExpanded] = useState(false);
@@ -874,6 +880,7 @@ export default function CreateListingScreen() {
   const [offMarketAccessUserIds, setOffMarketAccessUserIds] = useState<string[]>([]);
   const [sendingOffMarketClientId, setSendingOffMarketClientId] = useState<string | null>(null);
   const scrollViewRef = useRef<React.ElementRef<typeof KeyboardAwareScrollView> | null>(null);
+  const requiredFieldY = useRef<Partial<Record<RequiredListingField, number>>>({});
   const matchingSectionY = useRef(0);
   const [clientPool, setClientPool] = useState<BrokerClientWithFilters[]>([]);
   const [loadingClientPool, setLoadingClientPool] = useState(false);
@@ -1030,7 +1037,10 @@ export default function CreateListingScreen() {
     let active = true;
     void getUserProfile(auth.userId)
       .then(async (profile) => {
-        if (active) setUserProfile(profile);
+        if (active) {
+          setUserProfile(profile);
+          if (!isBrokerMode && !isEditMode && profile?.city?.trim()) setCity(profile.city.trim());
+        }
         if (!profile?.agencyId) return null;
         const agencySnapshot = await getDoc(doc(db, "agencies", profile.agencyId));
         return agencySnapshot.exists()
@@ -1047,7 +1057,7 @@ export default function CreateListingScreen() {
     return () => {
       active = false;
     };
-  }, [auth.isGuest, auth.userId]);
+  }, [auth.isGuest, auth.userId, isBrokerMode, isEditMode]);
 
   useEffect(() => {
     if (!isBrokerMode || !auth.userId) {
@@ -1182,7 +1192,7 @@ export default function CreateListingScreen() {
     "Άλλες κατηγορίες",
   ];
   const floorOptions = ["Υπόγειο", "Ημιώροφος", "Ισόγειο", "1ος", "2ος", "3ος", "4ος", "5ος+"];
-  // const cityCoordinates = useLocationCoordinates(city, area);
+  const cityCoordinates = useLocationCoordinates(city, area);
   const availableFromDateOptions = useMemo(() => {
     const startDate = new Date();
     startDate.setHours(12, 0, 0, 0);
@@ -1237,6 +1247,20 @@ export default function CreateListingScreen() {
   const numericSize = useMemo(() => Number(sizeSqm), [sizeSqm]);
   const numericRooms = useMemo(() => Number(rooms), [rooms]);
   const cityValue = city?.trim() ?? "";
+
+  const missingRequiredFields = useMemo<MissingListingField[]>(() => {
+    const missing: MissingListingField[] = [];
+    if (numericRent <= 0) missing.push({ key: "monthlyRent", label: "Μηνιαίο ενοίκιο" });
+    if (!cityValue) missing.push({ key: "city", label: "Πόλη" });
+    if (!area.trim()) missing.push({ key: "area", label: "Περιοχή" });
+    if (numericSize <= 0) missing.push({ key: "size", label: "Εμβαδόν" });
+    return missing;
+  }, [area, cityValue, numericRent, numericSize]);
+
+  const scrollToMissingField = useCallback((field: RequiredListingField) => {
+    const y = requiredFieldY.current[field];
+    if (typeof y === "number") scrollViewRef.current?.scrollTo({ y: Math.max(0, y - spacing.md), animated: true });
+  }, []);
 
   const hasAnyListingData = numericRent > 0 || numericSize > 0 || cityValue.length > 0 || area.trim().length > 0 || amenities.petFriendly || amenities.nearMetro;
   const matchedClients = useMemo<MatchedClient[]>(() => {
@@ -2201,8 +2225,12 @@ export default function CreateListingScreen() {
 
     if (submitting) return;
 
-    if (!monthlyRent || !city || !area.trim() || !sizeSqm) {
-      showFeedbackModal(t("createListing.alerts.missingDetailsTitle"), t("createListing.alerts.missingDetailsMessage"));
+    if (missingRequiredFields.length > 0) {
+      scrollToMissingField(missingRequiredFields[0].key);
+      showFeedbackModal(
+        t("createListing.alerts.missingDetailsTitle"),
+        `Συμπληρώστε: ${missingRequiredFields.map((field) => field.label).join(", ")}.`,
+      );
       return;
     }
 
@@ -2308,6 +2336,7 @@ export default function CreateListingScreen() {
             ? "assigned"
             : existingAssignmentStatus ?? (assignedBrokerIds.length > 0 ? "assigned" : "unassigned_pool")
         : undefined;
+          const creatorNotLookingForRoommate = isBrokerMode || userProfile?.not_looking_for_roommate === true || auth.notLookingForRoommate === true;
       const data: Record<string, unknown> = {
         title: finalTitle,
         description: finalDescription,
@@ -2372,6 +2401,12 @@ export default function CreateListingScreen() {
         hidePhoneFromBrokers: showPhoneNumber && hidePhoneFromBrokers,
         hostId,
         ownerId: hostId,
+        creatorRole: isBrokerMode ? "broker" : creatorNotLookingForRoommate ? "owner" : "student",
+        isBroker: isBrokerMode,
+        isRoommateListing: !isBrokerMode && !creatorNotLookingForRoommate,
+        creatorNotLookingForRoommate,
+        lookingForRoommate: !isBrokerMode && !creatorNotLookingForRoommate,
+        isWholeApartment: creatorNotLookingForRoommate,
         ...(isBrokerMode && (agencyData?.id || auth.agencyId) ? { agencyId: agencyData?.id || auth.agencyId } : {}),
         assignedBrokerIds,
         ...(assignmentStatus ? { assignmentStatus } : {}),
@@ -2539,7 +2574,6 @@ export default function CreateListingScreen() {
             </Pressable>
             <View style={styles.headerTextWrap}>
               <Text style={styles.title}>{isEditMode ? t("createListing.editTitle") : t("createListing.title")}</Text>
-              <Text style={styles.subtitle}>{isEditMode ? t("createListing.editSubtitle") : t("createListing.subtitle")}</Text>
             </View>
           </View>
 
@@ -2551,49 +2585,44 @@ export default function CreateListingScreen() {
           ) : null}
 
           <View style={styles.card}>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitle}>{t("createListing.monthlyRent")}</Text>
-              {isSpecsSectionComplete ? <CompletionBadge colors={colors} styles={styles} /> : null}
-            </View>
-            <TextInput
-              value={monthlyRent}
-              onChangeText={(t) => setMonthlyRent(t.replace(/[^0-9]/g, ""))}
-              placeholder={t("createListing.rentPlaceholder")}
-              placeholderTextColor={colors.onSurfaceTertiary}
-              keyboardType="number-pad"
-              maxLength={5}
-              style={styles.input}
-              testID="create-listing-rent-input"
-            />
-            <Text style={styles.fieldHint}>{t("createListing.rentHint")}</Text>
-          </View>
-
-          {/* 1. ΚΑΡΤΑ ΤΙΤΛΟΥ ΑΓΓΕΛΙΑΣ */}
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Τίτλος Αγγελίας (Προαιρετικό)</Text>
-            <View style={styles.voiceInputWrap}>
-              <TextInput
-                value={titleVoice.value}
-                onChangeText={titleVoice.onChangeText}
-                placeholder={`π.χ. ${t("createListing.listingTitle", { area: area || "Περιοχή" })}`}
-                placeholderTextColor={colors.onSurfaceTertiary}
-                style={[styles.input, styles.voiceInput]}
-                maxLength={60}
-                testID="create-listing-title-input"
-              />
-              <View style={styles.voiceButtonWrap}>
-                <VoiceInputButton onTextAppend={titleVoice.onFinalResult} onPartialResult={titleVoice.onPartialResult} onAbort={titleVoice.onAbort} color={colors.onSurfaceTertiary} disabled={submitting} />
+            <View style={styles.formRow}>
+              <View
+                style={styles.formColumn}
+                onLayout={(event) => { requiredFieldY.current.monthlyRent = event.nativeEvent.layout.y; }}
+              >
+                <View style={styles.sectionHeaderRow}>
+                  <Text style={styles.sectionTitle}>{t("createListing.monthlyRent")}</Text>
+                  {isSpecsSectionComplete ? <CompletionBadge colors={colors} styles={styles} /> : null}
+                </View>
+                <TextInput
+                  value={monthlyRent}
+                  onChangeText={(value) => setMonthlyRent(value.replace(/[^0-9]/g, ""))}
+                  placeholder={t("createListing.rentPlaceholder")}
+                  placeholderTextColor={colors.onSurfaceTertiary}
+                  keyboardType="number-pad"
+                  maxLength={5}
+                  style={styles.input}
+                  testID="create-listing-rent-input"
+                />
+              </View>
+              <View style={styles.formColumn}>
+                <Text style={styles.sectionTitle}>Τίτλος Αγγελίας</Text>
+                <TextInput
+                  value={title}
+                  onChangeText={setTitle}
+                  placeholder={`π.χ. ${t("createListing.listingTitle", { area: area || "Περιοχή" })} (Προαιρετικό)`}
+                  placeholderTextColor={colors.onSurfaceTertiary}
+                  style={styles.input}
+                  maxLength={60}
+                  testID="create-listing-title-input"
+                />
               </View>
             </View>
-            <Text style={styles.fieldHint}>
-              Αν το αφήσεις κενό, θα δημιουργηθεί αυτόματος τίτλος βάσει περιοχής.
-            </Text>
           </View>
 
-          {/* 2. ΚΑΡΤΑ ΠΕΡΙΓΡΑΦΗΣ / ABOUT */}
           <View style={styles.card}>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitle}>Περιγραφή / Σχετικά με το σπίτι (Προαιρετικό)</Text>
+            <View style={styles.descriptionHeaderRow}>
+              <Text style={styles.sectionTitle}>Περιγραφή</Text>
               <Pressable
                 style={[styles.aiHelperButton, { backgroundColor: colors.brandTertiary, borderColor: colors.border }]}
                 onPress={() => {
@@ -2606,7 +2635,7 @@ export default function CreateListingScreen() {
                   setAiCopywriterVisible(true);
                 }}
               >
-                <Ionicons name="sparkles-outline" size={16} color={colors.brand} />
+                <Ionicons name="sparkles-outline" size={14} color={colors.brand} />
                 <Text style={[styles.aiHelperButtonText, { color: colors.brand }]}>{t("feed.aiCopywriterButton")}</Text>
               </Pressable>
             </View>
@@ -2615,7 +2644,7 @@ export default function CreateListingScreen() {
               <TextInput
                 value={descriptionVoice.value}
                 onChangeText={descriptionVoice.onChangeText}
-                placeholder={t("createListing.detailsPlaceholder")}
+                placeholder={`${t("createListing.detailsPlaceholder")} (Προαιρετικό)`}
                 placeholderTextColor={colors.onSurfaceTertiary}
                 multiline
                 numberOfLines={4}
@@ -2627,27 +2656,28 @@ export default function CreateListingScreen() {
                 <VoiceInputButton onTextAppend={descriptionVoice.onFinalResult} onPartialResult={descriptionVoice.onPartialResult} onAbort={descriptionVoice.onAbort} color={colors.onSurfaceTertiary} disabled={submitting} />
               </View>
             </View>
-            <Text style={styles.fieldHint}>
-              Γράψε επιπλέον πληροφορίες αν θέλεις να αντικαταστήσεις την προεπιλεγμένη περιγραφή.
-            </Text>
           </View>
 
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>{t("createListing.size")}</Text>
-            <TextInput
-              value={sizeSqm}
-              onChangeText={(t) => setSizeSqm(t.replace(/[^0-9]/g, ""))}
-              placeholder={t("createListing.sizePlaceholder")}
-              placeholderTextColor={colors.onSurfaceTertiary}
-              keyboardType="number-pad"
-              maxLength={4}
-              style={styles.input}
-              testID="create-listing-size-input"
-            />
-            <View style={styles.discountRow}>
-              <View style={styles.discountInputWrap}>
-                <Text style={styles.sectionTitle}>Όριο αποδεκτών προσφορών</Text>
-                <Text style={styles.fieldHint}>Max Offer Discount</Text>
+            <View style={styles.formRow}>
+              <View
+                style={styles.formColumn}
+                onLayout={(event) => { requiredFieldY.current.size = event.nativeEvent.layout.y; }}
+              >
+                <Text style={styles.sectionTitle}>{t("createListing.size")}</Text>
+                <TextInput
+                  value={sizeSqm}
+                  onChangeText={(value) => setSizeSqm(value.replace(/[^0-9]/g, ""))}
+                  placeholder={t("createListing.sizePlaceholder")}
+                  placeholderTextColor={colors.onSurfaceTertiary}
+                  keyboardType="number-pad"
+                  maxLength={4}
+                  style={styles.input}
+                  testID="create-listing-size-input"
+                />
+              </View>
+              <View style={styles.formColumn}>
+                <Text style={styles.sectionTitle}>Max Offer</Text>
                 <View style={styles.percentInputRow}>
                   <TextInput
                     value={maxDiscountPercent}
@@ -2680,25 +2710,30 @@ export default function CreateListingScreen() {
               <Text style={styles.sectionTitle}>{t("createListing.location")}</Text>
               {isLocationSectionComplete ? <CompletionBadge colors={colors} styles={styles} /> : null}
             </View>
-            <Dropdown
-              value={city}
-              options={cityOptions}
-              placeholder={t("createListing.cityPlaceholder")}
-              onSelect={setCity}
-              testID="create-listing-city-dropdown"
-            />
-            <TextInput
-              value={area}
-              onChangeText={setArea}
-              placeholder={t("createListing.areaPlaceholder")}
-              placeholderTextColor={colors.onSurfaceTertiary}
-              style={[styles.input, styles.mtSm]}
-              testID="create-listing-area-input"
-            />
+            {isBrokerMode ? (
+              <View onLayout={(event) => { requiredFieldY.current.city = event.nativeEvent.layout.y; }}>
+                <Dropdown
+                  value={city}
+                  options={cityOptions}
+                  placeholder={t("createListing.cityPlaceholder")}
+                  onSelect={setCity}
+                  testID="create-listing-city-dropdown"
+                />
+              </View>
+            ) : null}
+            <View onLayout={(event) => { requiredFieldY.current.area = event.nativeEvent.layout.y; }}>
+              <TextInput
+                value={area}
+                onChangeText={setArea}
+                placeholder="Area"
+                placeholderTextColor={colors.onSurfaceTertiary}
+                style={[styles.input, styles.mtSm]}
+                testID="create-listing-area-input"
+              />
+            </View>
             <View style={[styles.contactToggleRow, styles.mtSm]}>
               <View style={styles.contactToggleTextWrap}>
                 <Text style={styles.contactToggleLabel}>Εμφάνιση ακριβούς διεύθυνσης στην αγγελία</Text>
-                <Text style={styles.fieldHint}>Εάν απενεργοποιηθεί, οι ενδιαφερόμενοι θα βλέπουν μόνο την περιοχή μέχρι να τους κοινοποιήσετε τη διεύθυνση.</Text>
               </View>
               <Switch
                 value={showExactAddress}
@@ -2712,7 +2747,7 @@ export default function CreateListingScreen() {
               value={address}
               city={city}
               area={area}
-              placeholder={t("createListing.addressPlaceholder")}
+              placeholder="Address (optional)"
               onChangeAddressText={(text) => {
                 setAddress(text);
                 setAddressLatitude(null);
@@ -2727,7 +2762,7 @@ export default function CreateListingScreen() {
               }}
               testID="create-listing-address-input"
             />
-            {/* <ApartmentLocationMap
+            <ApartmentLocationMap
               latitude={addressLatitude ?? undefined}
               longitude={addressLongitude ?? undefined}
               cityCoordinates={cityCoordinates}
@@ -2736,35 +2771,22 @@ export default function CreateListingScreen() {
             />
             <Text style={styles.fieldHint}>
               Η ακριβής τοποθεσία αποθηκεύεται μόνο όταν επιλέξεις πρόταση από τη λίστα.
-            </Text> */}
+            </Text>
           </View>
 
           <View style={styles.card}>
             <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitle}>{t("createListing.amenitiesTitle")}</Text>
+              <Text style={styles.sectionTitle}>Amenities</Text>
               {isAmenitiesSectionComplete ? <CompletionBadge colors={colors} styles={styles} /> : null}
             </View>
-            <View style={styles.amenityList}>
+            <View style={styles.amenitiesGrid}>
               {AMENITIES.map((amenity) => {
                 const active = amenities[amenity.key];
                 return (
-                  <View key={amenity.key} style={[styles.amenityRow, active && styles.amenityRowActive]}>
-                    <View style={styles.amenityInfo}>
-                      <Ionicons
-                        name={amenity.icon}
-                        size={18}
-                        color={active ? colors.onBrandTertiary : colors.onSurfaceTertiary}
-                      />
-                      <Text style={[styles.amenityLabel, active && styles.amenityLabelActive]}>{t(amenity.label)}</Text>
-                    </View>
-                    <Switch
-                      value={active}
-                      onValueChange={() => handleToggleAmenity(amenity.key)}
-                      trackColor={{ false: colors.border, true: colors.brandSecondary }}
-                      thumbColor={active ? colors.brand : colors.onSurface}
-                      testID={`create-listing-amenity-${amenity.key}`}
-                    />
-                  </View>
+                  <Pressable key={amenity.key} style={[styles.amenityCell, active && styles.amenityCellActive]} onPress={() => handleToggleAmenity(amenity.key)} testID={`create-listing-amenity-${amenity.key}`}>
+                    <Ionicons name={amenity.icon} size={22} color={active ? colors.onBrandTertiary : colors.onSurfaceTertiary} />
+                    <Text style={[styles.amenityLabel, active && styles.amenityLabelActive]}>{t(amenity.label)}</Text>
+                  </Pressable>
                 );
               })}
             </View>
@@ -2774,80 +2796,10 @@ export default function CreateListingScreen() {
           </View>
 
           <View style={styles.card}>
-            <Pressable
-              style={styles.expandHeaderRow}
-              onPress={() => setIsExtraInfoExpanded((prev) => !prev)}
-              testID="create-listing-extra-info-toggle"
-            >
-              <Text style={styles.sectionTitle}>Χαρακτηριστικά Ακινήτου</Text>
-              <Ionicons
-                name={isExtraInfoExpanded ? "chevron-up" : "chevron-down"}
-                size={20}
-                color={colors.onSurface}
-              />
-            </Pressable>
-
-            {isExtraInfoExpanded && (
-              <>
-                <Text style={styles.sectionSubtitle}>Κατηγορία ακινήτου</Text>
-                <Dropdown
-                  value={propertyCategory}
-                  options={propertyCategoryOptions}
-                  placeholder={t("createListing.categoryPlaceholder")}
-                  onSelect={setPropertyCategory}
-                  testID="create-listing-property-category-dropdown"
-                />
-
-                <Text style={[styles.sectionSubtitle, styles.mtSm]}>Είδος ακινήτου</Text>
-                <Dropdown
-                  value={propertyType}
-                  options={propertyTypeOptions}
-                  placeholder={t("createListing.propertyTypePlaceholder")}
-                  onSelect={setPropertyType}
-                  testID="create-listing-property-type-dropdown"
-                />
-
-                <Text style={[styles.sectionSubtitle, styles.mtSm]}>Όροφος</Text>
-                <Dropdown
-                  value={floor}
-                  options={floorOptions}
-                  placeholder={t("createListing.floorPlaceholder")}
-                  onSelect={setFloor}
-                  testID="create-listing-floor-dropdown"
-                />
-
-                <Text style={[styles.sectionSubtitle, styles.mtSm]}>Δωμάτια</Text>
-                <TextInput
-                  value={rooms}
-                  onChangeText={(value) => setRooms(digitsOnlyInput(value))}
-                  onBlur={() => setRooms(normalizeIntegerOnBlur(rooms, 1, 99, 1))}
-                    placeholder={t("createListing.roomsPlaceholder")}
-                  placeholderTextColor={colors.onSurfaceTertiary}
-                  keyboardType="number-pad"
-                  maxLength={2}
-                  style={styles.input}
-                  testID="create-listing-rooms-input"
-                />
-                <Text style={styles.fieldHint}>Ο αριθμός δωματίων αποθηκεύεται δυναμικά στην αγγελία.</Text>
-
-                <Text style={[styles.sectionSubtitle, styles.mtSm]}>Προσανατολισμός</Text>
-                <Dropdown
-                  value={orientation}
-                  options={ORIENTATION_OPTIONS}
-                  placeholder={t("createListing.orientationPlaceholder")}
-                  onSelect={setOrientation}
-                  testID="create-listing-orientation-dropdown"
-                />
-              </>
-            )}
-          </View>
-
-          <View style={styles.card}>
             <View style={styles.sectionHeaderRow}>
               <Text style={styles.sectionTitle}>{t("common.labels.photos")}</Text>
               {isPhotosSectionComplete ? <CompletionBadge colors={colors} styles={styles} /> : null}
             </View>
-            <Text style={styles.fieldHint}>{t("createListing.photosHint")}</Text>
             <View style={styles.photoGrid}>
               {Array.from({ length: PHOTO_SLOTS }, (_, index) => index).map((index) => {
                 const uri = photos[index];
@@ -2890,6 +2842,23 @@ export default function CreateListingScreen() {
               })}
             </View>
 
+            {watermarkEnabled ? (
+              <View style={styles.inlineWatermarkPreview}>
+                <Text style={styles.previewLabel}>Watermark</Text>
+                <View style={styles.inlineWatermarkImage}>
+                  <WatermarkBadge
+                    config={{
+                      enabled: true,
+                      type: watermarkType,
+                      text: agencyData?.name || "CampuStay",
+                      logoUrl: agencyData?.logoUrl,
+                      logoStyle,
+                    }}
+                  />
+                </View>
+              </View>
+            ) : null}
+
             <View style={styles.sectionHeaderRow}>
               <View style={styles.sectionTitleWrap}>
                 <Ionicons name="sparkles-outline" size={19} color={colors.onSurface} />
@@ -2926,6 +2895,42 @@ export default function CreateListingScreen() {
             {reelVideoUri ? <Text style={styles.fieldHint}>{reelVideoUri.startsWith("http") ? "Το video reel είναι αποθηκευμένο στην αγγελία." : "Το video reel θα ανέβει με τη δημοσίευση."}</Text> : null}
 
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
+          </View>
+
+          <View style={styles.card}>
+            <Pressable
+              style={styles.expandHeaderRow}
+              onPress={() => setIsExtraInfoExpanded((prev) => !prev)}
+              testID="create-listing-extra-info-toggle"
+            >
+              <Text style={styles.sectionTitle}>Χαρακτηριστικά Ακινήτου</Text>
+              <Ionicons
+                name={isExtraInfoExpanded ? "chevron-up" : "chevron-down"}
+                size={20}
+                color={colors.onSurface}
+              />
+            </Pressable>
+
+            {isExtraInfoExpanded && (
+              <>
+                <View style={styles.formRow}>
+                  <View style={styles.formColumn}>
+                    <Dropdown value={propertyCategory} options={propertyCategoryOptions} placeholder="Κατηγορία ακινήτου" onSelect={setPropertyCategory} testID="create-listing-property-category-dropdown" />
+                  </View>
+                  <View style={styles.formColumn}>
+                    <Dropdown value={propertyType} options={propertyTypeOptions} placeholder="Είδος ακινήτου" onSelect={setPropertyType} testID="create-listing-property-type-dropdown" />
+                  </View>
+                </View>
+                <View style={styles.formRow}>
+                  <View style={styles.formColumn}>
+                    <Dropdown value={floor} options={floorOptions} placeholder="Όροφος" onSelect={setFloor} testID="create-listing-floor-dropdown" />
+                  </View>
+                  <View style={styles.formColumn}>
+                    <TextInput value={rooms} onChangeText={(value) => setRooms(digitsOnlyInput(value))} onBlur={() => setRooms(normalizeIntegerOnBlur(rooms, 1, 99, 1))} placeholder="Δωμάτια" placeholderTextColor={colors.onSurfaceTertiary} keyboardType="number-pad" maxLength={2} style={styles.input} testID="create-listing-rooms-input" />
+                  </View>
+                </View>
+              </>
+            )}
           </View>
 
           <View style={styles.card} testID="virtual-tour-controls-section">
@@ -3050,9 +3055,6 @@ export default function CreateListingScreen() {
             <View style={styles.watermarkHeaderRow}>
               <View style={styles.watermarkTitleCol}>
                 <Text style={styles.watermarkTitle}>Προσθήκη default watermark</Text>
-                <Text style={styles.watermarkSubtitle}>
-                  Εμφάνιση ημιδιάφανου υδατογραφήματος κάτω δεξιά στις φωτογραφίες
-                </Text>
               </View>
               <Switch
                 value={watermarkEnabled}
@@ -3489,6 +3491,13 @@ export default function CreateListingScreen() {
 
             {isExtraInformationExpanded ? (
               <View style={styles.extraInformationContent}>
+                <Dropdown
+                  value={orientation}
+                  options={ORIENTATION_OPTIONS}
+                  placeholder="Προσανατολισμός"
+                  onSelect={setOrientation}
+                  testID="create-listing-orientation-dropdown"
+                />
                 <Text style={styles.sectionSubtitle}>Χώροι</Text>
                 <View style={styles.formRow}>
                   <View style={styles.formColumn}>
@@ -4261,12 +4270,6 @@ function createStyles(colors: ThemeColors) {
       fontSize: fontSize.base,
       color: colors.onSurface,
     },
-    watermarkSubtitle: {
-      fontFamily: fonts.regular,
-      fontSize: fontSize.xs,
-      color: colors.onSurfaceTertiary,
-      marginTop: 2,
-    },
     watermarkOptionsWrap: {
       paddingTop: spacing.sm,
       borderTopWidth: StyleSheet.hairlineWidth,
@@ -4323,6 +4326,14 @@ function createStyles(colors: ThemeColors) {
     radioText: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurface },
     radioTextActive: { fontFamily: fonts.semibold, color: colors.onSurface },
     watermarkPreviewBox: { gap: 4, marginTop: 4 },
+    inlineWatermarkPreview: { gap: spacing.xs, marginTop: spacing.md },
+    inlineWatermarkImage: {
+      height: 64,
+      borderRadius: radius.md,
+      backgroundColor: colors.surfaceTertiary,
+      position: "relative",
+      overflow: "hidden",
+    },
     previewLabel: { fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
     previewThumbSample: {
       height: 90,
@@ -4355,6 +4366,14 @@ function createStyles(colors: ThemeColors) {
       paddingHorizontal: 10,
       paddingVertical: 6,
       alignSelf: "flex-start",
+      maxWidth: "60%",
+    },
+    descriptionHeaderRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: spacing.sm,
+      marginBottom: spacing.xs,
     },
     aiHelperButtonText: {
       fontFamily: fonts.semibold,
@@ -4434,9 +4453,9 @@ function createStyles(colors: ThemeColors) {
     floatingMatchingButton: {
       position: "absolute",
       right: spacing.lg,
-      width: 44,
-      height: 44,
-      borderRadius: 22,
+      width: 38,
+      height: 38,
+      borderRadius: 19,
       alignItems: "center",
       justifyContent: "center",
       backgroundColor: colors.surfaceSecondary,
@@ -4887,32 +4906,23 @@ function createStyles(colors: ThemeColors) {
       paddingHorizontal: spacing.sm,
       marginTop: -spacing.xs,
     },
-    amenityList: { gap: spacing.sm },
-    amenityRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      gap: spacing.md,
-      backgroundColor: colors.surface,
+    amenitiesGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+    amenityCell: {
+      width: "30%",
+      flexGrow: 1,
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: radius.md,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: radius.md,
-      paddingVertical: spacing.sm,
-      paddingHorizontal: spacing.md,
-    },
-    amenityRowActive: {
-      borderColor: colors.brand,
-      backgroundColor: colors.brandTertiary,
-    },
-    amenityInfo: {
-      flexDirection: "row",
       alignItems: "center",
-      gap: spacing.sm,
-      flex: 1,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.sm,
+      gap: spacing.xs,
     },
+    amenityCellActive: { backgroundColor: colors.brandTertiary, borderColor: colors.brand },
     amenityLabel: {
       fontFamily: fonts.semibold,
-      fontSize: fontSize.base,
+      fontSize: fontSize.sm,
       color: colors.onSurface,
     },
     amenityLabelActive: {

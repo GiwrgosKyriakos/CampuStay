@@ -1,16 +1,31 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Pressable, Share, StyleSheet, Text, View } from "react-native";
+import {
+  Animated,
+  FlatList,
+  Pressable,
+  Share,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { Image } from "expo-image";
 import { VideoView, useVideoPlayer } from "expo-video";
 import { doc, getDoc } from "firebase/firestore";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import { subscribeApartmentLikeCount } from "@/src/api/apartmentLikes";
 import { db } from "@/src/config/firebase";
 import { sendPropertyProposalViaMessaging } from "@/src/utils/messagingAutomation";
 import { t } from "@/src/locales";
+import { spacing } from "@/src/theme";
+import { useTheme } from "@/src/context/ThemeContext";
+import { TAB_BAR_HEIGHT } from "@/src/components/GlassTabBar";
 import type { Apartment, VirtualTourData } from "@/src/types/apartment";
 import BaseBottomSheet from "@/src/components/common/BaseBottomSheet";
 
@@ -57,10 +72,14 @@ export default function ApartmentReelCard({
   onOpenVirtualTour = () => undefined,
 }: ApartmentReelCardProps) {
   const apartmentData = apartment as ReelApartment;
+  const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
+  const BOTTOM_CLEARANCE = TAB_BAR_HEIGHT + insets.bottom + spacing.lg;
   const [muted, setMuted] = useState(true);
   const [shareVisible, setShareVisible] = useState(false);
   const [likeCount, setLikeCount] = useState(0);
-  const [photoIndex, setPhotoIndex] = useState(0);
+  const [carouselIndex, setCarouselIndex] = useState(0);
   const [hostProfile, setHostProfile] = useState<{ name?: string; avatar?: string; phone?: string }>({});
   const heartScale = useRef(new Animated.Value(1)).current;
   const kenBurnsProgress = useRef(new Animated.Value(0)).current;
@@ -118,13 +137,7 @@ export default function ApartmentReelCard({
   }, [hostId]);
 
   useEffect(() => {
-    if (videoUrl || photos.length <= 1) return;
-    const interval = setInterval(() => setPhotoIndex((current) => (current + 1) % photos.length), 4500);
-    return () => clearInterval(interval);
-  }, [photos.length, videoUrl]);
-
-  useEffect(() => {
-    if (videoUrl) return;
+    if (!videoUrl) return;
     const animation = Animated.loop(Animated.sequence([
       Animated.timing(kenBurnsProgress, { toValue: 1, duration: 4500, useNativeDriver: true }),
       Animated.timing(kenBurnsProgress, { toValue: 0, duration: 0, useNativeDriver: true }),
@@ -132,6 +145,11 @@ export default function ApartmentReelCard({
     animation.start();
     return () => animation.stop();
   }, [kenBurnsProgress, videoUrl]);
+
+  const onCarouselScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (windowWidth <= 0) return;
+    setCarouselIndex(Math.round(event.nativeEvent.contentOffset.x / windowWidth));
+  };
 
   const animateLike = () => {
     Animated.sequence([
@@ -155,20 +173,50 @@ export default function ApartmentReelCard({
     }
   };
 
-  const imageUri = videoUrl ? apartmentData.reelMedia?.thumbnailUrl ?? photos[photoIndex] ?? FALLBACK_IMAGE : photos[photoIndex] ?? FALLBACK_IMAGE;
+  const carouselPhotos = photos.length > 0 ? photos : [FALLBACK_IMAGE];
+  const thumbnailUri = apartmentData.reelMedia?.thumbnailUrl ?? photos[0] ?? FALLBACK_IMAGE;
   const kenBurnsScale = kenBurnsProgress.interpolate({ inputRange: [0, 1], outputRange: [1, 1.08] });
   const kenBurnsTranslate = kenBurnsProgress.interpolate({ inputRange: [0, 1], outputRange: [0, -10] });
 
   return (
     <View style={[styles.root, { height }]} testID={`apartment-reel-card-${apartment.id ?? "listing"}`}>
       <View style={styles.mediaWrap}>
-        <Animated.View style={[StyleSheet.absoluteFillObject, { transform: [{ scale: kenBurnsScale }, { translateY: kenBurnsTranslate }] }]}>
-          <Image source={imageUri} contentFit="cover" style={styles.media} transition={250} />
-        </Animated.View>
-        {videoUrl ? <VideoView player={player} style={styles.video} contentFit="cover" nativeControls={false} /> : null}
+        {videoUrl ? (
+          <>
+            <Animated.View style={[StyleSheet.absoluteFillObject, { transform: [{ scale: kenBurnsScale }, { translateY: kenBurnsTranslate }] }]}>
+              <Image source={thumbnailUri} contentFit="cover" style={styles.media} transition={250} />
+            </Animated.View>
+            <VideoView player={player} style={styles.video} contentFit="cover" nativeControls={false} />
+          </>
+        ) : (
+          <FlatList
+            data={carouselPhotos}
+            horizontal
+            pagingEnabled
+            nestedScrollEnabled
+            showsHorizontalScrollIndicator={false}
+            keyExtractor={(_, index) => `photo-${index}`}
+            onMomentumScrollEnd={onCarouselScrollEnd}
+            getItemLayout={(_, index) => ({ length: windowWidth, offset: windowWidth * index, index })}
+            style={StyleSheet.absoluteFillObject}
+            testID={`apartment-reel-card-carousel-${apartment.id ?? "listing"}`}
+            renderItem={({ item: photoUri }) => (
+              <View style={[styles.photoSlideContainer, { width: windowWidth, height }]}>
+                <View style={[styles.cyanLetterboxBackground, { backgroundColor: colors.surfaceSecondary }]} />
+                <Image source={photoUri} contentFit="contain" style={styles.carouselImage} transition={200} cachePolicy="memory-disk" />
+              </View>
+            )}
+          />
+        )}
         <View style={styles.mediaShade} />
       </View>
       <LinearGradient colors={["rgba(0,0,0,0.02)", "rgba(0,0,0,0.24)", "rgba(0,0,0,0.82)"]} style={styles.gradient} />
+
+      {!videoUrl && carouselPhotos.length > 1 ? (
+        <View style={[styles.photoCounterPill, { top: insets.top + spacing.sm }]} testID="apartment-reel-card-photo-counter">
+          <Text style={styles.photoCounterText}>{`${carouselIndex + 1} / ${carouselPhotos.length}`}</Text>
+        </View>
+      ) : null}
 
       {videoUrl && muted && isActive ? (
         <Pressable style={styles.unmuteHint} onPress={() => setMuted(false)} accessibilityLabel={t("feed.unmuteHint")}>
@@ -177,7 +225,7 @@ export default function ApartmentReelCard({
         </Pressable>
       ) : null}
 
-      <View style={styles.rightRail}>
+      <View style={[styles.rightRail, { bottom: BOTTOM_CLEARANCE }]}>
         <Pressable style={styles.avatarCircle} onPress={onOpenChat} accessibilityLabel={hostProfile.name ?? "Open host chat"}>
           {hostProfile.avatar ? <Image source={hostProfile.avatar} style={styles.avatarImage} contentFit="cover" /> : <DefaultProfileAvatar size={42} iconSize={20} />}
         </Pressable>
@@ -199,7 +247,7 @@ export default function ApartmentReelCard({
         {videoUrl ? <Pressable style={styles.actionButton} onPress={() => setMuted((current) => !current)} accessibilityLabel={muted ? "Unmute video" : "Mute video"}><Ionicons name={muted ? "volume-mute-outline" : "volume-high-outline"} size={25} color="#fff" /></Pressable> : null}
       </View>
 
-      <View style={styles.bottomMeta}>
+      <View style={[styles.bottomMeta, { bottom: BOTTOM_CLEARANCE }]}>
         <Text style={styles.price}>{`€${price} / μήνα`}</Text>
         <Text style={styles.titleText} numberOfLines={2}>{apartmentData.title ?? "Property Listing"}</Text>
         <Text style={styles.location} numberOfLines={1}>📍 {area || "Area"}</Text>
@@ -234,16 +282,21 @@ const styles = StyleSheet.create({
   media: { flex: 1, backgroundColor: "#17242c" },
   video: { ...StyleSheet.absoluteFillObject },
   mediaShade: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(8,13,17,0.12)" },
+  photoSlideContainer: { alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  cyanLetterboxBackground: { ...StyleSheet.absoluteFillObject },
+  carouselImage: { width: "100%", height: "100%" },
+  photoCounterPill: { position: "absolute", right: 14, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: "rgba(0,0,0,0.48)" },
+  photoCounterText: { color: "#fff", fontSize: 11, fontWeight: "700" },
   gradient: { position: "absolute", left: 0, right: 0, bottom: 0, height: "54%" },
   unmuteHint: { position: "absolute", top: 54, alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: "rgba(0,0,0,0.48)" },
   unmuteHintText: { color: "#fff", fontSize: 12, fontWeight: "700" },
-  rightRail: { position: "absolute", right: 14, bottom: 136, alignItems: "center", gap: 12 },
+  rightRail: { position: "absolute", right: 14, alignItems: "center", gap: 12 },
   avatarCircle: { width: 46, height: 46, borderRadius: 23, alignItems: "center", justifyContent: "center", overflow: "hidden", backgroundColor: "rgba(255,255,255,0.2)", borderWidth: 1, borderColor: "rgba(255,255,255,0.7)" },
   avatarImage: { width: "100%", height: "100%" },
   actionButton: { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center", gap: 2, borderRadius: 22, backgroundColor: "rgba(18,24,31,0.55)", borderWidth: 1, borderColor: "rgba(255,255,255,0.3)" },
   actionCount: { color: "#fff", fontSize: 10, fontWeight: "800" },
   actionLabel: { color: "#fff", fontSize: 10, fontWeight: "800" },
-  bottomMeta: { position: "absolute", left: 18, right: 82, bottom: 26, gap: 8 },
+  bottomMeta: { position: "absolute", left: 18, right: 82, gap: 8 },
   price: { fontSize: 29, fontWeight: "800", color: "#fff" },
   titleText: { fontSize: 21, lineHeight: 26, fontWeight: "700", color: "#fff" },
   location: { fontSize: 15, color: "#f7f7f7" },
@@ -253,7 +306,7 @@ const styles = StyleSheet.create({
   detailsButton: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(255,255,255,0.18)", borderRadius: 12, paddingHorizontal: 13, paddingVertical: 9, borderWidth: 1, borderColor: "rgba(255,255,255,0.38)" },
   detailsButtonText: { color: "#fff", fontWeight: "700" },
   shareSheet: { padding: 20, gap: 8 },
-  shareTitle: { color: "#18343c", fontSize: 20, fontWeight: "800", marginBottom: 6 },
+  shareTitle: { color: "#FFFFFF", fontSize: 20, fontWeight: "800", marginBottom: 6 },
   shareRow: { minHeight: 46, flexDirection: "row", alignItems: "center", gap: 12 },
-  shareRowText: { color: "#18343c", fontSize: 15, fontWeight: "600" },
+  shareRowText: { color: "#FFFFFF", fontSize: 15, fontWeight: "600" },
 });

@@ -22,18 +22,23 @@ export async function scheduleCalendarNoteReminder(params: {
   date: string;
   time?: string;
   timestamp?: number;
-  leadTimeMinutes: number;
+  leadTimeMinutes: number[];
   existingNotificationId?: string;
-}): Promise<string | null> {
+  existingNotificationIds?: string[];
+}): Promise<string[]> {
   await cancelScheduledNotification(params.existingNotificationId);
+  await Promise.all((params.existingNotificationIds ?? []).map((notificationId) => cancelScheduledNotification(notificationId)));
   const eventDate = getCalendarNoteDate(params.date, params.time, params.timestamp);
-  if (!eventDate) return null;
+  if (!eventDate) return [];
 
-  const reminderDate = new Date(eventDate.getTime() - params.leadTimeMinutes * 60 * 1000);
-  return scheduleLocalCalendarNotification({
-    title: `Υπενθύμιση: ${params.title}`,
-    body: `Έχετε προγραμματισμένη ${params.noteTypeLabel} στις ${params.time ?? "--:--"}.`,
-    data: { targetScreen: "calendar", noteId: params.noteId },
-    date: reminderDate,
-  });
+  const notificationIds = await Promise.all(params.leadTimeMinutes.map(async (leadTimeMinutes) => {
+    const reminderDate = new Date(eventDate.getTime() - leadTimeMinutes * 60 * 1000);
+    return scheduleLocalCalendarNotification({
+      title: `Υπενθύμιση: ${params.title}`,
+      body: `Έχετε προγραμματισμένη ${params.noteTypeLabel} στις ${params.time ?? "--:--"}.`,
+      data: { targetScreen: "calendar", noteId: params.noteId, leadTimeMinutes },
+      date: reminderDate,
+    });
+  }));
+  return notificationIds.filter((notificationId): notificationId is string => notificationId !== null);
 }

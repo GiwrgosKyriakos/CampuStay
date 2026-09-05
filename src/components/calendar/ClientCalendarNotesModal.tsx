@@ -54,11 +54,19 @@ export default function ClientCalendarNotesModal({
               <Ionicons name="calendar-outline" size={22} color={colors.brand} />
               <Text style={[styles.title, { color: colors.onSurface }]}>Σημειώσεις Ημερολογίου</Text>
             </View>
-            <Pressable onPress={onClose} hitSlop={8}><Ionicons name="close" size={22} color={colors.onSurface} /></Pressable>
+            <View style={styles.headerActions}>
+              <Pressable
+                style={[styles.headerAddButton, { backgroundColor: colors.brand }]}
+                onPress={() => { setSelectedNote(null); setEditorVisible(true); }}
+                hitSlop={8}
+                testID="client-calendar-notes-add-header"
+              >
+                <Ionicons name="add" size={18} color={colors.onBrand} />
+                <Text style={[styles.headerAddButtonText, { color: colors.onBrand }]}>Σημείωση</Text>
+              </Pressable>
+              <Pressable onPress={onClose} hitSlop={8}><Ionicons name="close" size={22} color={colors.onSurface} /></Pressable>
+            </View>
           </View>
-          <Pressable style={[styles.addButton, { backgroundColor: colors.brand }]} onPress={() => { setSelectedNote(null); setEditorVisible(true); }} testID="client-calendar-notes-add">
-            <Ionicons name="add" size={18} color={colors.onBrand} /><Text style={[styles.addButtonText, { color: colors.onBrand }]}>Νέα σημείωση</Text>
-          </Pressable>
           {loading ? <ActivityIndicator color={colors.brand} /> : <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
             {notes.length === 0 ? <Text style={[styles.empty, { color: colors.onSurfaceTertiary }]}>Δεν υπάρχουν σημειώσεις, επισκέψεις ή υπενθυμίσεις.</Text> : notes.map((note) => (
               <Pressable key={note.id} style={[styles.note, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]} onPress={() => { setSelectedNote(note); setEditorVisible(true); }} testID={`client-calendar-note-${note.id}`}>
@@ -69,7 +77,7 @@ export default function ClientCalendarNotesModal({
             ))}
           </ScrollView>}
         </View>
-      <CalendarNoteModal visible={editorVisible} isBroker brokerId={brokerId} userId={brokerId} date={selectedNote?.date || new Date().toISOString().slice(0, 10)} note={selectedNote} listings={listings} clients={clients} onClose={closeEditor} onSaved={() => { closeEditor(); void loadNotes(); }} onUpdated={() => { closeEditor(); void loadNotes(); }} onDeleted={() => { closeEditor(); void loadNotes(); }} />
+      <CalendarNoteModal visible={editorVisible} isBroker brokerId={brokerId} userId={brokerId} date={selectedNote?.date || new Date().toISOString().slice(0, 10)} initialClientId={clientId} initialClientName={clientName} initialDate={selectedNote?.date || new Date().toISOString().slice(0, 10)} note={selectedNote} listings={listings} clients={clients} onClose={closeEditor} onSaved={() => { closeEditor(); void loadNotes(); }} onUpdated={() => { closeEditor(); void loadNotes(); }} onDeleted={() => { closeEditor(); void loadNotes(); }} />
     </BaseBottomSheet>
   );
 }
@@ -79,8 +87,9 @@ const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   titleWrap: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   title: { fontFamily: fonts.bold, fontSize: fontSize.lg },
-  addButton: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: spacing.xs, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
-  addButtonText: { fontFamily: fonts.bold, fontSize: fontSize.sm },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  headerAddButton: { height: 32, flexDirection: "row", alignItems: "center", gap: spacing.xs, borderRadius: radius.pill, paddingHorizontal: spacing.sm },
+  headerAddButtonText: { fontFamily: fonts.semibold, fontSize: fontSize.xs },
   list: { flexShrink: 1 },
   listContent: { gap: spacing.sm, paddingBottom: spacing.lg },
   empty: { fontFamily: fonts.regular, fontSize: fontSize.sm, textAlign: "center", paddingVertical: spacing.lg },

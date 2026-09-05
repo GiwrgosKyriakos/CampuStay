@@ -116,8 +116,10 @@ export interface BrokerNote {
   done: boolean;
   isCompleted?: boolean;
   enablePushReminder?: boolean;
-  reminderLeadTimeMinutes?: number;
+  reminderLeadTimeMinutes?: number | number[];
+  reminderLeadTimeMinutesList?: number[];
   reminderNotificationId?: string;
+  reminderNotificationIds?: string[];
   counterpartId?: string;
   counterpartName?: string;
   primaryBrokerId?: string;
@@ -156,8 +158,10 @@ type FirestoreBrokerNoteReadDoc = {
   done?: boolean;
   isCompleted?: boolean;
   enablePushReminder?: boolean;
-  reminderLeadTimeMinutes?: number;
+  reminderLeadTimeMinutes?: number | number[];
+  reminderLeadTimeMinutesList?: number[];
   reminderNotificationId?: string;
+  reminderNotificationIds?: string[];
   counterpartId?: string;
   counterpartName?: string;
   primaryBrokerId?: string;
@@ -274,8 +278,10 @@ function mapFirestoreDocToBrokerNote(id: string, data: FirestoreBrokerNoteReadDo
     done: data.done === true || data.isCompleted === true,
     isCompleted: data.isCompleted === true || data.done === true,
     enablePushReminder: data.enablePushReminder === true,
-    reminderLeadTimeMinutes: typeof data.reminderLeadTimeMinutes === "number" ? data.reminderLeadTimeMinutes : undefined,
+    reminderLeadTimeMinutes: typeof data.reminderLeadTimeMinutes === "number" || Array.isArray(data.reminderLeadTimeMinutes) ? data.reminderLeadTimeMinutes : undefined,
+    reminderLeadTimeMinutesList: Array.isArray(data.reminderLeadTimeMinutesList) ? data.reminderLeadTimeMinutesList.filter((value): value is number => typeof value === "number") : undefined,
     reminderNotificationId: typeof data.reminderNotificationId === "string" ? data.reminderNotificationId : undefined,
+    reminderNotificationIds: Array.isArray(data.reminderNotificationIds) ? data.reminderNotificationIds.filter((value): value is string => typeof value === "string") : undefined,
     counterpartId: typeof data.counterpartId === "string" ? data.counterpartId : undefined,
     counterpartName: typeof data.counterpartName === "string" ? data.counterpartName : undefined,
     primaryBrokerId: typeof data.primaryBrokerId === "string" ? data.primaryBrokerId : undefined,

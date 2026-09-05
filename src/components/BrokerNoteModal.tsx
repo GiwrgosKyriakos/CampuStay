@@ -32,6 +32,7 @@ import SelectCoveringBrokerModal from "@/src/components/SelectCoveringBrokerModa
 import { delegateShowing, getAgencyStaff, type AgencyStaffMember } from "@/src/api/agencyCollaboration";
 import { getUserProfile } from "@/src/api/userProfile";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useAuth } from "@/src/context/auth";
 
 export interface BrokerListingItem {
   id: string;
@@ -51,11 +52,15 @@ export interface BrokerNoteModalProps {
   isBroker?: boolean;
   brokerId: string;
   date: string;
+  initialClientId?: string;
+  initialClientName?: string;
+  initialDate?: string;
   listings: BrokerListingItem[];
   clients: BrokerClientItem[];
   note?: BrokerNote | null;
   onClose: () => void;
   onSaved?: (noteId: string) => void;
+  onNoteSaved?: (noteId: string) => void;
   onUpdated?: (noteId: string) => void;
   onDeleted?: (noteId: string) => void;
   onSignViewingOrder?: (context: { apartmentId: string; clientId: string; apartmentTitle?: string; apartmentPrice?: number; clientName?: string; clientProfileId?: string }) => void;
@@ -96,6 +101,13 @@ function getInitialCategory(note?: BrokerNote | null): NoteCategory {
   return note?.category ?? "visit";
 }
 
+function getReminderTimings(note?: BrokerNote | null): number[] {
+  if (note?.reminderLeadTimeMinutesList?.length) return [...note.reminderLeadTimeMinutesList];
+  if (Array.isArray(note?.reminderLeadTimeMinutes)) return [...note.reminderLeadTimeMinutes];
+  if (typeof note?.reminderLeadTimeMinutes === "number") return [note.reminderLeadTimeMinutes];
+  return [30];
+}
+
 function toErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim().length > 0) {
     return error.message;
@@ -108,29 +120,36 @@ export default function BrokerNoteModal({
   isBroker = true,
   brokerId,
   date,
+  initialClientId,
+  initialClientName,
+  initialDate,
   listings,
   clients,
   note,
   onClose,
   onSaved,
+  onNoteSaved,
   onUpdated,
   onDeleted,
   onSignViewingOrder,
 }: BrokerNoteModalProps) {
   const { colors } = useTheme();
+  const auth = useAuth();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
 
   const isEditMode = !!note?.id;
+  const isClientMode = !auth.isBroker && auth.notLookingForRoommate === true;
 
   const [selectedTime, setSelectedTime] = useState<string | null>(note?.time ?? null);
   const [selectedApartmentId, setSelectedApartmentId] = useState<string | null>(note?.apartmentId ?? null);
-  const [selectedClientId, setSelectedClientId] = useState<string | null>(note?.clientId ?? null);
+  const [selectedClientId, setSelectedClientId] = useState<string | null>(note?.clientId ?? initialClientId ?? null);
+  const [selectedClientName, setSelectedClientName] = useState(initialClientName ?? "");
   const [selectedCategory, setSelectedCategory] = useState<NoteCategory>(isBroker ? getInitialCategory(note) : note?.category === "call" || note?.category === "phone" ? "call" : "showing");
   const [noteTitle, setNoteTitle] = useState(note?.title ?? "");
   const [detailsText, setDetailsText] = useState(note?.notesText ?? "");
   const [enablePushReminder, setEnablePushReminder] = useState(note?.enablePushReminder ?? false);
-  const [reminderLeadTimeMinutes, setReminderLeadTimeMinutes] = useState(note?.reminderLeadTimeMinutes ?? 30);
+  const [selectedNotificationTimings, setSelectedNotificationTimings] = useState<number[]>(() => getReminderTimings(note));
   const [isSaving, setIsSaving] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
   const [coveringBroker, setCoveringBroker] = useState<AgencyStaffMember | null>(null);
@@ -167,12 +186,13 @@ export default function BrokerNoteModal({
 
     setSelectedTime(note?.time ?? null);
     setSelectedApartmentId(note?.apartmentId ?? null);
-    setSelectedClientId(note?.clientId ?? null);
+    setSelectedClientId(note?.clientId ?? initialClientId ?? null);
+    setSelectedClientName(note?.clientName ?? initialClientName ?? "");
     setSelectedCategory(isBroker ? getInitialCategory(note) : note?.category === "call" || note?.category === "phone" ? "call" : "showing");
     setNoteTitle(note?.title ?? "");
     setDetailsText(note?.notesText ?? "");
     setEnablePushReminder(note?.enablePushReminder ?? false);
-    setReminderLeadTimeMinutes(note?.reminderLeadTimeMinutes ?? 30);
+    setSelectedNotificationTimings(getReminderTimings(note));
     setErrorText(null);
     setCoveringBroker(null);
     setAgencyId("");
@@ -189,17 +209,18 @@ export default function BrokerNoteModal({
         }
       }).catch(() => setAgencyId(""));
     }
-  }, [brokerId, isBroker, note, visible]);
+  }, [brokerId, initialClientId, initialClientName, isBroker, note, visible]);
 
   const resetForCurrentMode = () => {
     setSelectedTime(note?.time ?? null);
     setSelectedApartmentId(note?.apartmentId ?? null);
-    setSelectedClientId(note?.clientId ?? null);
+    setSelectedClientId(note?.clientId ?? initialClientId ?? null);
+    setSelectedClientName(note?.clientName ?? initialClientName ?? "");
     setSelectedCategory(isBroker ? getInitialCategory(note) : note?.category === "call" || note?.category === "phone" ? "call" : "showing");
     setNoteTitle(note?.title ?? "");
     setDetailsText(note?.notesText ?? "");
     setEnablePushReminder(note?.enablePushReminder ?? false);
-    setReminderLeadTimeMinutes(note?.reminderLeadTimeMinutes ?? 30);
+    setSelectedNotificationTimings(getReminderTimings(note));
     setErrorText(null);
   };
 
@@ -222,6 +243,11 @@ export default function BrokerNoteModal({
     }
   };
 
+  const handleSelectClient = (clientId: string | null) => {
+    setSelectedClientId(clientId);
+    setSelectedClientName(activeClients.find((client) => client.id === clientId)?.name ?? "");
+  };
+
   const handleSave = async () => {
     if (!brokerId.trim()) {
       setErrorText("Δεν βρέθηκε brokerId.");
@@ -236,25 +262,30 @@ export default function BrokerNoteModal({
       const resolvedTitle = noteTitle.trim() || (selectedCategory === "showing" || selectedCategory === "visit" ? "Σημείωση Επίσκεψης" : selectedCategory === "call" || selectedCategory === "phone" ? "Σημείωση Τηλεφωνήματος" : "Σημείωση");
       const payload = {
         brokerId,
-        date,
+        date: initialDate ?? date,
         title: resolvedTitle,
         time: selectedTime ?? undefined,
-        scheduledDate: date,
+        scheduledDate: initialDate ?? date,
         scheduledTime: selectedTime ?? undefined,
         apartmentId: selectedApartment?.id,
         apartmentTitle: selectedApartment?.title,
         apartmentPrice: selectedApartment?.price,
-        clientId: selectedClient?.id,
-        clientName: selectedClient?.name?.trim() || note?.clientName?.trim(),
+        ...(isClientMode ? {} : {
+          clientId: selectedClient?.id,
+          clientName: selectedClient?.name?.trim() || selectedClientName.trim() || note?.clientName?.trim(),
+        }),
         category: selectedCategory,
         type: selectedCategory,
         enablePushReminder,
-        reminderLeadTimeMinutes,
+        reminderLeadTimeMinutes: selectedNotificationTimings[0] ?? 30,
+        reminderLeadTimeMinutesList: selectedNotificationTimings,
         notesText: detailsText.trim().length > 0 ? detailsText.trim() : undefined,
-        primaryBrokerId: brokerId,
-        primaryBrokerName: primaryBrokerName || "Μεσίτης",
-        ...(agencyId ? { agencyId } : {}),
-        ...(coveringBroker ? { coveringBrokerId: coveringBroker.id, coveringBrokerName: coveringBroker.name } : {}),
+        ...(!isClientMode ? {
+          primaryBrokerId: brokerId,
+          primaryBrokerName: primaryBrokerName || "Μεσίτης",
+          ...(agencyId ? { agencyId } : {}),
+          ...(coveringBroker ? { coveringBrokerId: coveringBroker.id, coveringBrokerName: coveringBroker.name } : {}),
+        } : {}),
       };
 
       let savedNoteId: string;
@@ -265,6 +296,7 @@ export default function BrokerNoteModal({
       } else {
         const newId = await saveBrokerNote(brokerId, payload);
         onSaved?.(newId);
+        onNoteSaved?.(newId);
         savedNoteId = newId;
         if (coveringBroker && !note?.appointmentId) {
           await saveBrokerNote(coveringBroker.id, {
@@ -283,26 +315,22 @@ export default function BrokerNoteModal({
         await delegateShowing({ appointmentId: note.appointmentId, coveringBrokerId: coveringBroker.id });
       }
 
-      const reminderNotificationId = enablePushReminder
-        ? await scheduleCalendarNoteReminder({
-          noteId: savedNoteId,
-          title: resolvedTitle,
-          noteTypeLabel: t(CATEGORY_OPTIONS.find((option) => option.value === selectedCategory)?.label ?? "calendar.noteModal.note"),
-          date,
-          time: selectedTime ?? undefined,
-          leadTimeMinutes: reminderLeadTimeMinutes,
-          existingNotificationId: note?.reminderNotificationId,
-        })
-        : await scheduleCalendarNoteReminder({
-          noteId: savedNoteId,
-          title: resolvedTitle,
-          noteTypeLabel: t("calendar.noteModal.note"),
-          date,
-          time: undefined,
-          leadTimeMinutes: reminderLeadTimeMinutes,
-          existingNotificationId: note?.reminderNotificationId,
-        });
-      await updateBrokerNote(brokerId, savedNoteId, { reminderNotificationId: reminderNotificationId ?? "" });
+      const reminderNotificationIds = await scheduleCalendarNoteReminder({
+        noteId: savedNoteId,
+        title: resolvedTitle,
+        noteTypeLabel: enablePushReminder
+          ? t(CATEGORY_OPTIONS.find((option) => option.value === selectedCategory)?.label ?? "calendar.noteModal.note")
+          : t("calendar.noteModal.note"),
+        date: initialDate ?? date,
+        time: enablePushReminder ? selectedTime ?? undefined : undefined,
+        leadTimeMinutes: enablePushReminder ? selectedNotificationTimings : [],
+        existingNotificationId: note?.reminderNotificationId,
+        existingNotificationIds: note?.reminderNotificationIds,
+      });
+      await updateBrokerNote(brokerId, savedNoteId, {
+        reminderNotificationId: reminderNotificationIds[0] ?? "",
+        reminderNotificationIds,
+      });
 
       closeWithReset();
     } catch (error: unknown) {
@@ -348,7 +376,7 @@ export default function BrokerNoteModal({
             style={[styles.headerBanner, { backgroundColor: categoryColor }]}
           >
             <Text style={styles.previewTitle}>{isEditMode ? t("calendar.noteModal.editTitle") : t("calendar.noteModal.newTitle")}</Text>
-            <Text style={styles.previewDate}>{date}</Text>
+            <Text style={styles.previewDate}>{initialDate ?? date}</Text>
           </View>
 
           <ScrollView style={styles.scrollBody} contentContainerStyle={[styles.contentWrap, { flexGrow: 1, paddingBottom: Math.max(insets.bottom, spacing.md) }]} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false}>
@@ -382,14 +410,14 @@ export default function BrokerNoteModal({
               </ScrollView>
             </View>
 
-            {isBroker ? <View style={styles.fieldBlock}>
-              <Text style={styles.fieldLabel}>{t("calendar.noteModal.apartmentLabel")}</Text>
+            {isBroker || isClientMode ? <View style={styles.fieldBlock}>
+              <Text style={styles.fieldLabel}>{isClientMode ? "Ακίνητο / Σπίτι" : t("calendar.noteModal.apartmentLabel")}</Text>
               <ScrollView style={styles.selectorBox} contentContainerStyle={styles.selectorContent}>
                 <Pressable
                   style={[styles.selectorItem, !selectedApartmentId && styles.selectorItemActive]}
                   onPress={() => handleSelectApartment(null)}
                 >
-                  <Text style={[styles.selectorTitle, !selectedApartmentId && styles.selectorTitleActive]}>{t("calendar.noteModal.noSelection")}</Text>
+                  <Text style={[styles.selectorTitle, !selectedApartmentId && styles.selectorTitleActive]}>{isClientMode ? "Επιλογή ακινήτου..." : t("calendar.noteModal.noSelection")}</Text>
                 </Pressable>
 
                 {listings.map((listing) => {
@@ -414,12 +442,12 @@ export default function BrokerNoteModal({
               </ScrollView>
             </View> : null}
 
-            {isBroker ? <View style={styles.fieldBlock}>
+            {isBroker && !isClientMode ? <View style={styles.fieldBlock}>
               <Text style={styles.fieldLabel}>{t("calendar.noteModal.clientLabel")}</Text>
               <ScrollView style={styles.selectorBox} contentContainerStyle={styles.selectorContent}>
                 <Pressable
                   style={[styles.selectorItem, !selectedClientId && styles.selectorItemActive]}
-                  onPress={() => setSelectedClientId(null)}
+                  onPress={() => handleSelectClient(null)}
                 >
                   <Text style={[styles.selectorTitle, !selectedClientId && styles.selectorTitleActive]}>{t("calendar.noteModal.noSelection")}</Text>
                 </Pressable>
@@ -430,7 +458,7 @@ export default function BrokerNoteModal({
                     <Pressable
                       key={client.id}
                       style={[styles.selectorItem, active && styles.selectorItemActive]}
-                      onPress={() => setSelectedClientId(client.id)}
+                      onPress={() => handleSelectClient(client.id)}
                     >
                       <Text style={[styles.selectorTitle, active && styles.selectorTitleActive]} numberOfLines={1}>
                         {client.name}
@@ -498,9 +526,9 @@ export default function BrokerNoteModal({
               {enablePushReminder ? (
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
                   {NOTE_REMINDER_OPTIONS.map((option) => {
-                    const active = reminderLeadTimeMinutes === option.minutes;
+                    const active = selectedNotificationTimings.includes(option.minutes);
                     return (
-                      <Pressable key={option.minutes} style={[styles.choicePill, active && styles.choicePillActive]} onPress={() => setReminderLeadTimeMinutes(option.minutes)} testID={`calendar-note-reminder-${option.minutes}`}>
+                      <Pressable key={option.minutes} style={[styles.choicePill, active && styles.choicePillActive]} onPress={() => setSelectedNotificationTimings((current) => current.includes(option.minutes) ? current.filter((minutes) => minutes !== option.minutes) : [...current, option.minutes])} testID={`calendar-note-reminder-${option.minutes}`}>
                         <Text style={[styles.choicePillText, active && styles.choicePillTextActive]}>{t(option.label)}</Text>
                       </Pressable>
                     );

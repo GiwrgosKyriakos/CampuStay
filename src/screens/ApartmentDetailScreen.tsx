@@ -2207,7 +2207,7 @@ export default function ApartmentDetailScreen() {
   const displayExtraInformation = resolvedExtraInformation ?? normalizeExtraInformation(apt.extraInformation);
   const shouldShowAdditionalInformation = !!(displayPropertyCategory || displayPropertyType || displayFloor || displayOrientation);
   const shouldShowExtraDetailsSection = !!displayExtraDetails && Object.keys(displayExtraDetails).length > 0;
-  const shouldShowExtraInformationSection = !!displayExtraInformation;
+  const shouldShowExtraInformationSection = !!displayExtraInformation || shouldShowAdditionalInformation;
   const hasApprovedClientPrice = typeof approvedClientPrice === "number" && approvedClientPrice > 0;
   const displayRentPrice = hasApprovedClientPrice ? approvedClientPrice : apt.rent;
   const sqmPrice = calculatePricePerSqm(displayRentPrice, apt.size);
@@ -3174,6 +3174,292 @@ export default function ApartmentDetailScreen() {
           </View>
         </View>
 
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>{t("apartmentDetail.aboutTitle")}</Text>
+          <View style={styles.descBox}>
+            {apt.description || (apt as unknown as { about?: string }).about ? (
+              <Text style={styles.descText}>{realDescription || apt.description || (apt as unknown as { about?: string }).about}</Text>
+            ) : (
+              <>
+                <Text style={styles.descText}>
+                  {t("apartmentDetail.descriptionSummary", {
+                    size: apt.size,
+                    area: apt.area,
+                    city: apt.city,
+                    roomText: apt.rooms > 1 ? t("common.format.roomCount", { count: apt.rooms }) : t("apartmentDetail.privateRoom"),
+                    currency: CURRENCY,
+                    rent: apt.rent,
+                  })}
+                </Text>
+                <Text style={styles.descText}>
+                  {t("apartmentDetail.descriptionRules", {
+                    utilitiesText: apt.tags.includes("bills_included")
+                      ? t("apartmentDetail.utilitiesIncluded")
+                      : t("apartmentDetail.utilitiesSeparate"),
+                  })}
+                </Text>
+              </>
+            )}
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>{t("common.labels.location")}</Text>
+          <ApartmentLocationMap
+            latitude={apt.latitude}
+            longitude={apt.longitude}
+            cityCoordinates={cityCoordinates}
+            hasExactLocation={apt.hasExactLocation === true && showExactAddress}
+            transactionType={apt.transactionType}
+            height={300}
+          />
+          <View style={styles.locationMetaRow}>
+            <Ionicons
+              name={apt.hasExactLocation && showExactAddress ? "location-sharp" : "map-outline"}
+              size={16}
+              color={colors.onSurfaceTertiary}
+            />
+            <Text style={styles.locationMetaText} numberOfLines={2}>
+              {showExactAddress && apt.address ? apt.address : `${apt.area}, ${apt.city}`}
+            </Text>
+          </View>
+        </View>
+
+        {shouldShowExtraDetailsSection ? (
+          <View style={styles.accordionSection}>
+            <Pressable
+              style={styles.accordionHeaderCard}
+              onPress={() => setIsExtraDetailsOpen((prev) => !prev)}
+              testID="apartment-detail-extra-details-toggle"
+              accessibilityRole="button"
+              accessibilityLabel="Περισσότερες λεπτομέρειες"
+              accessibilityState={{ expanded: isExtraDetailsOpen }}
+            >
+              <Text style={styles.accordionHeaderTitle}>Περισσότερες λεπτομέρειες</Text>
+              <Ionicons
+                name={isExtraDetailsOpen ? "chevron-up" : "chevron-down"}
+                size={20}
+                color={colors.onSurfaceTertiary}
+              />
+            </Pressable>
+
+            {isExtraDetailsOpen ? (
+              <View style={styles.extraDetailsCard}>
+                {EXTRA_DETAIL_CATEGORIES.map((category) => {
+                  const items = category.items
+                    .map((itemKey) => {
+                      const value = displayExtraDetails?.[itemKey];
+                      if (value !== true && value !== false) return null;
+
+                      return { itemKey, value };
+                    })
+                    .filter((item): item is { itemKey: string; value: boolean } => item !== null);
+
+                  if (!items.length) return null;
+
+                  return (
+                    <View key={category.title} style={styles.extraDetailsCategoryBlock}>
+                      <Text style={styles.extraDetailsCategoryTitle}>{category.title}</Text>
+                      <View style={styles.extraDetailsItemList}>
+                        {items.map(({ itemKey, value }) => {
+                          const isPositive = value === true;
+
+                          return (
+                            <View key={itemKey} style={styles.extraDetailsItemRow}>
+                              <View style={styles.extraDetailsItemTextWrap}>
+                                <Ionicons
+                                  name={isPositive ? "checkmark-circle-outline" : "close-circle-outline"}
+                                  size={18}
+                                  color={isPositive ? colors.brand : colors.error}
+                                />
+                                <Text
+                                  style={[
+                                    styles.extraDetailsItemLabel,
+                                    !isPositive && styles.extraDetailsItemLabelMuted,
+                                  ]}
+                                >
+                                  {itemKey}
+                                </Text>
+                              </View>
+                              {!isPositive ? <Text style={styles.extraDetailsItemNegativeMark}>—</Text> : null}
+                            </View>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+
+        {shouldShowExtraInformationSection ? (
+          <View style={styles.accordionSection}>
+            <Pressable
+              style={styles.accordionHeaderCard}
+              onPress={() => setIsExtraInformationOpen((prev) => !prev)}
+              testID="apartment-detail-extra-information-toggle"
+              accessibilityRole="button"
+              accessibilityLabel="Επιπλέον πληροφορίες"
+              accessibilityState={{ expanded: isExtraInformationOpen }}
+            >
+              <Text style={styles.accordionHeaderTitle}>Επιπλέον πληροφορίες</Text>
+              <Ionicons
+                name={isExtraInformationOpen ? "chevron-up" : "chevron-down"}
+                size={20}
+                color={colors.onSurfaceTertiary}
+              />
+            </Pressable>
+
+            {isExtraInformationOpen ? (
+              <View style={styles.extraInformationCard}>
+                {sqmPrice > 0 ? (
+                  <View style={styles.sqmPricePill}>
+                    <Ionicons name="resize-outline" size={14} color={colors.onBrandTertiary} />
+                    <Text style={styles.sqmPricePillText}>{`${sqmPrice.toFixed(1)} € / τ.μ.`}</Text>
+                  </View>
+                ) : null}
+
+                {displayPropertyCategory ? (
+                  <View style={styles.extraInformationRow}>
+                    <View style={styles.infoLabelRow}>
+                      <Ionicons name="pricetag-outline" size={16} color={colors.onSurfaceTertiary} />
+                      <Text style={styles.extraInformationLabel}>Κατηγορία ακινήτου</Text>
+                    </View>
+                    <Text style={styles.extraInformationValue}>{displayPropertyCategory}</Text>
+                  </View>
+                ) : null}
+
+                {displayPropertyType ? (
+                  <View style={styles.extraInformationRow}>
+                    <View style={styles.infoLabelRow}>
+                      <Ionicons name="business-outline" size={16} color={colors.onSurfaceTertiary} />
+                      <Text style={styles.extraInformationLabel}>Είδος ακινήτου</Text>
+                    </View>
+                    <Text style={styles.extraInformationValue}>{displayPropertyType}</Text>
+                  </View>
+                ) : null}
+
+                {displayFloor ? (
+                  <View style={styles.extraInformationRow}>
+                    <View style={styles.infoLabelRow}>
+                      <Ionicons color={colors.onBrandTertiary} name="layers-outline" size={14} />
+                      <Text style={styles.extraInformationLabel}>Όροφος</Text>
+                    </View>
+                    <Text style={styles.extraInformationValue}>{displayFloor}</Text>
+                  </View>
+                ) : null}
+
+                {displayOrientation ? (
+                  <View style={styles.extraInformationRow}>
+                    <View style={styles.infoLabelRow}>
+                      <Ionicons name="compass-outline" size={16} color={colors.onSurfaceTertiary} />
+                      <Text style={styles.extraInformationLabel}>Προσανατολισμός</Text>
+                    </View>
+                    <Text style={styles.extraInformationValue}>{displayOrientation}</Text>
+                  </View>
+                ) : null}
+
+                {displayExtraInformation?.livingRooms != null ? (
+                  <View style={styles.extraInformationRow}>
+                    <View style={styles.infoLabelRow}><Ionicons name="home-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Living Rooms</Text></View>
+                    <Text style={styles.extraInformationValue}>{displayExtraInformation.livingRooms}</Text>
+                  </View>
+                ) : null}
+                {displayExtraInformation?.bathrooms != null ? (
+                  <View style={styles.extraInformationRow}>
+                    <View style={styles.infoLabelRow}><Ionicons name="water-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Bathrooms</Text></View>
+                    <Text style={styles.extraInformationValue}>{displayExtraInformation.bathrooms}</Text>
+                  </View>
+                ) : null}
+                {displayExtraInformation?.kitchens != null ? (
+                  <View style={styles.extraInformationRow}>
+                    <View style={styles.infoLabelRow}><Ionicons name="restaurant-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Kitchens</Text></View>
+                    <Text style={styles.extraInformationValue}>{displayExtraInformation.kitchens}</Text>
+                  </View>
+                ) : null}
+                {displayExtraInformation?.buildYear ? (
+                  <View style={styles.extraInformationRow}>
+                    <View style={styles.infoLabelRow}><Ionicons name="business-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Construction Year</Text></View>
+                    <Text style={styles.extraInformationValue}>{displayExtraInformation.buildYear}</Text>
+                  </View>
+                ) : null}
+                {displayExtraInformation?.renovationYear ? (
+                  <View style={styles.extraInformationRow}>
+                    <View style={styles.infoLabelRow}><Ionicons name="hammer-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Renovation Year</Text></View>
+                    <Text style={styles.extraInformationValue}>{displayExtraInformation.renovationYear}</Text>
+                  </View>
+                ) : null}
+                {typeof displayExtraInformation?.commonExpenses === "number" ? (
+                  <View style={styles.extraInformationRow}>
+                    <View style={styles.infoLabelRow}><Ionicons name="cash-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Monthly Common Expenses</Text></View>
+                    <Text style={styles.extraInformationValue}>{`${displayExtraInformation.commonExpenses}${CURRENCY}`}</Text>
+                  </View>
+                ) : null}
+                {displayExtraInformation?.levels != null ? (
+                  <View style={styles.extraInformationRow}>
+                    <View style={styles.infoLabelRow}><Ionicons name="layers-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Levels</Text></View>
+                    <Text style={styles.extraInformationValue}>{displayExtraInformation.levels}</Text>
+                  </View>
+                ) : null}
+                {displayExtraInformation?.heatingSystem ? (
+                  <View style={styles.extraInformationRow}>
+                    <View style={styles.infoLabelRow}><Ionicons name="thermometer-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Heating System</Text></View>
+                    <Text style={styles.extraInformationValue}>{displayExtraInformation.heatingSystem}</Text>
+                  </View>
+                ) : null}
+                {displayExtraInformation?.energyClass ? (
+                  <View style={styles.extraInformationRow}>
+                    <View style={styles.infoLabelRow}><Ionicons name="flash-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Energy Class</Text></View>
+                    <Text style={styles.extraInformationValue}>{displayExtraInformation.energyClass}</Text>
+                  </View>
+                ) : null}
+                {displayExtraInformation?.windowFrames ? (
+                  <View style={styles.extraInformationRow}>
+                    <View style={styles.infoLabelRow}><Ionicons name="grid-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Window Frames</Text></View>
+                    <Text style={styles.extraInformationValue}>{displayExtraInformation.windowFrames}</Text>
+                  </View>
+                ) : null}
+                {extraInformationAvailabilityText ? (
+                  <View style={styles.extraInformationRow}>
+                    <View style={styles.infoLabelRow}><Ionicons name="calendar-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Availability Status</Text></View>
+                    <Text style={styles.extraInformationValue}>{extraInformationAvailabilityText}</Text>
+                  </View>
+                ) : null}
+                {publishedAtMillis ? (
+                  <View style={styles.extraInformationRow}>
+                    <View style={styles.infoLabelRow}><Ionicons name="time-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Ημερομηνία δημοσίευσης</Text></View>
+                    <Text style={styles.extraInformationValue}>{formatDateTime(publishedAtMillis)}</Text>
+                  </View>
+                ) : null}
+                {updatedAtMillis ? (
+                  <View style={styles.extraInformationRow}>
+                    <View style={styles.infoLabelRow}><Ionicons name="time-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Τελευταία τροποποίηση</Text></View>
+                    <Text style={styles.extraInformationValue}>{formatDateTime(updatedAtMillis)}</Text>
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+
+        {shouldShowPhoneButton ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Στοιχεία Επικοινωνίας</Text>
+            <Pressable style={styles.phoneContactCard} onPress={callHostPhone} testID="apartment-detail-phone-contact">
+              <View style={styles.phoneContactIconWrap}>
+                <Ionicons name="call-outline" size={18} color={colors.onBrand} />
+              </View>
+              <View style={styles.phoneContactTextWrap}>
+                <Text style={styles.phoneContactLabel}>Τηλέφωνο επικοινωνίας</Text>
+                <Text style={styles.phoneContactValue}>{`+30 ${hostPhoneNumber}`}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+            </Pressable>
+          </View>
+        ) : null}
+
         {isListingOwner ? (
           <View
             style={styles.crmSectionContainer}
@@ -3298,292 +3584,6 @@ export default function ApartmentDetailScreen() {
           </View>
         ) : null}
 
-        {shouldShowExtraDetailsSection ? (
-          <View style={styles.section}>
-            <Pressable
-              style={styles.extraDetailsHeaderRow}
-              onPress={() => setIsExtraDetailsOpen((prev) => !prev)}
-              testID="apartment-detail-extra-details-toggle"
-            >
-              <Text style={styles.sectionTitle}>Παραπάνω λεπτομέρειες</Text>
-              <Ionicons
-                name={isExtraDetailsOpen ? "chevron-up" : "chevron-down"}
-                size={20}
-                color={colors.onSurface}
-              />
-            </Pressable>
-
-            {isExtraDetailsOpen ? (
-              <View style={styles.extraDetailsCard}>
-                {EXTRA_DETAIL_CATEGORIES.map((category) => {
-                  const items = category.items
-                    .map((itemKey) => {
-                      const value = displayExtraDetails?.[itemKey];
-                      if (value !== true && value !== false) return null;
-
-                      return { itemKey, value };
-                    })
-                    .filter((item): item is { itemKey: string; value: boolean } => item !== null);
-
-                  if (!items.length) return null;
-
-                  return (
-                    <View key={category.title} style={styles.extraDetailsCategoryBlock}>
-                      <Text style={styles.extraDetailsCategoryTitle}>{category.title}</Text>
-                      <View style={styles.extraDetailsItemList}>
-                        {items.map(({ itemKey, value }) => {
-                          const isPositive = value === true;
-
-                          return (
-                            <View key={itemKey} style={styles.extraDetailsItemRow}>
-                              <View style={styles.extraDetailsItemTextWrap}>
-                                <Ionicons
-                                  name={isPositive ? "checkmark-circle-outline" : "close-circle-outline"}
-                                  size={18}
-                                  color={isPositive ? colors.brand : colors.error}
-                                />
-                                <Text
-                                  style={[
-                                    styles.extraDetailsItemLabel,
-                                    !isPositive && styles.extraDetailsItemLabelMuted,
-                                  ]}
-                                >
-                                  {itemKey}
-                                </Text>
-                              </View>
-                              {!isPositive ? <Text style={styles.extraDetailsItemNegativeMark}>—</Text> : null}
-                            </View>
-                          );
-                        })}
-                      </View>
-                    </View>
-                  );
-                })}
-              </View>
-            ) : null}
-          </View>
-        ) : null}
-
-        {shouldShowAdditionalInformation ? (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Χαρακτηριστικά ακινήτου</Text>
-            <View style={styles.detailMetaCard}>
-              {displayPropertyCategory ? (
-                <View style={styles.detailMetaRow}>
-                  <Text style={styles.detailMetaLabel}>Κατηγορία ακινήτου</Text>
-                  <View style={styles.statPill}>
-                    <Text style={styles.statText}>{displayPropertyCategory}</Text>
-                  </View>
-                </View>
-              ) : null}
-
-              {displayPropertyType ? (
-                <View style={styles.detailMetaRow}>
-                  <Text style={styles.detailMetaLabel}>Είδος ακινήτου</Text>
-                  <View style={styles.statPill}>
-                    <Text style={styles.statText}>{displayPropertyType}</Text>
-                  </View>
-                </View>
-              ) : null}
-
-              {displayFloor ? (
-                <View style={styles.detailMetaRow}>
-                  <Text style={styles.detailMetaLabel}>Όροφος</Text>
-                  <View style={styles.statPill}>
-                    <Ionicons color={colors.onBrandTertiary} name="layers-outline" size={14} />
-                    <Text style={styles.statText}>{displayFloor}</Text>
-                  </View>
-                </View>
-              ) : null}
-
-              {displayOrientation ? (
-                <View style={styles.detailMetaRow}>
-                  <Text style={styles.detailMetaLabel}>Προσανατολισμός</Text>
-                  <View style={styles.statPill}>
-                    <Text style={styles.statText}>{displayOrientation}</Text>
-                  </View>
-                </View>
-              ) : null}
-            </View>
-          </View>
-        ) : null}
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t("apartmentDetail.aboutTitle")}</Text>
-          <View style={styles.descBox}>
-            {apt.description || (apt as unknown as { about?: string }).about ? (
-              <Text style={styles.descText}>{realDescription || apt.description || (apt as unknown as { about?: string }).about}</Text>
-            ) : (
-              <>
-                <Text style={styles.descText}>
-                  {t("apartmentDetail.descriptionSummary", {
-                    size: apt.size,
-                    area: apt.area,
-                    city: apt.city,
-                    roomText: apt.rooms > 1 ? t("common.format.roomCount", { count: apt.rooms }) : t("apartmentDetail.privateRoom"),
-                    currency: CURRENCY,
-                    rent: apt.rent,
-                  })}
-                </Text>
-                <Text style={styles.descText}>
-                  {t("apartmentDetail.descriptionRules", {
-                    utilitiesText: apt.tags.includes("bills_included")
-                      ? t("apartmentDetail.utilitiesIncluded")
-                      : t("apartmentDetail.utilitiesSeparate"),
-                  })}
-                </Text>
-              </>
-            )}
-
-            {apt.tags.length > 0 ? (
-              <View style={styles.tagRow}>
-                {apt.tags.map((tag) => (
-                  <View key={tag} style={styles.tag}>
-                    <Text style={styles.tagText}>{translateApartmentTag(tag)}</Text>
-                  </View>
-                ))}
-              </View>
-            ) : null}
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t("common.labels.location")}</Text>
-          <ApartmentLocationMap
-            latitude={apt.latitude}
-            longitude={apt.longitude}
-            cityCoordinates={cityCoordinates}
-            hasExactLocation={apt.hasExactLocation === true && showExactAddress}
-            transactionType={apt.transactionType}
-            height={300}
-          />
-          <View style={styles.locationMetaRow}>
-            <Ionicons
-              name={apt.hasExactLocation && showExactAddress ? "location-sharp" : "map-outline"}
-              size={16}
-              color={colors.onSurfaceTertiary}
-            />
-            <Text style={styles.locationMetaText} numberOfLines={2}>
-              {showExactAddress && apt.address ? apt.address : `${apt.area}, ${apt.city}`}
-            </Text>
-          </View>
-        </View>
-
-        {shouldShowPhoneButton ? (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Στοιχεία Επικοινωνίας</Text>
-            <Pressable style={styles.phoneContactCard} onPress={callHostPhone} testID="apartment-detail-phone-contact">
-              <View style={styles.phoneContactIconWrap}>
-                <Ionicons name="call-outline" size={18} color={colors.onBrand} />
-              </View>
-              <View style={styles.phoneContactTextWrap}>
-                <Text style={styles.phoneContactLabel}>Τηλέφωνο επικοινωνίας</Text>
-                <Text style={styles.phoneContactValue}>{`+30 ${hostPhoneNumber}`}</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-            </Pressable>
-          </View>
-        ) : null}
-
-        {shouldShowExtraInformationSection ? (
-          <View style={styles.section}>
-            <Pressable
-              style={styles.extraDetailsHeaderRow}
-              onPress={() => setIsExtraInformationOpen((prev) => !prev)}
-              testID="apartment-detail-extra-information-toggle"
-            >
-              <Text style={styles.sectionTitle}>Επιπλέον πληροφορίες</Text>
-              <Ionicons
-                name={isExtraInformationOpen ? "chevron-up" : "chevron-down"}
-                size={20}
-                color={colors.onSurface}
-              />
-            </Pressable>
-
-            {isExtraInformationOpen ? (
-              <View style={styles.extraInformationCard}>
-                {sqmPrice > 0 ? (
-                  <View style={styles.sqmPricePill}>
-                    <Ionicons name="resize-outline" size={14} color={colors.onBrandTertiary} />
-                    <Text style={styles.sqmPricePillText}>{`${sqmPrice.toFixed(1)} € / τ.μ.`}</Text>
-                  </View>
-                ) : null}
-
-                <View style={styles.extraInformationRow}>
-                  <View style={styles.infoLabelRow}><Ionicons name="home-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Living Rooms</Text></View>
-                  <Text style={styles.extraInformationValue}>{displayExtraInformation?.livingRooms}</Text>
-                </View>
-                <View style={styles.extraInformationRow}>
-                  <View style={styles.infoLabelRow}><Ionicons name="water-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Bathrooms</Text></View>
-                  <Text style={styles.extraInformationValue}>{displayExtraInformation?.bathrooms}</Text>
-                </View>
-                <View style={styles.extraInformationRow}>
-                  <View style={styles.infoLabelRow}><Ionicons name="restaurant-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Kitchens</Text></View>
-                  <Text style={styles.extraInformationValue}>{displayExtraInformation?.kitchens}</Text>
-                </View>
-                {displayExtraInformation?.buildYear ? (
-                  <View style={styles.extraInformationRow}>
-                    <View style={styles.infoLabelRow}><Ionicons name="business-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Construction Year</Text></View>
-                    <Text style={styles.extraInformationValue}>{displayExtraInformation.buildYear}</Text>
-                  </View>
-                ) : null}
-                {displayExtraInformation?.renovationYear ? (
-                  <View style={styles.extraInformationRow}>
-                    <View style={styles.infoLabelRow}><Ionicons name="hammer-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Renovation Year</Text></View>
-                    <Text style={styles.extraInformationValue}>{displayExtraInformation.renovationYear}</Text>
-                  </View>
-                ) : null}
-                {typeof displayExtraInformation?.commonExpenses === "number" ? (
-                  <View style={styles.extraInformationRow}>
-                    <View style={styles.infoLabelRow}><Ionicons name="cash-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Monthly Common Expenses</Text></View>
-                    <Text style={styles.extraInformationValue}>{`${displayExtraInformation.commonExpenses}${CURRENCY}`}</Text>
-                  </View>
-                ) : null}
-                <View style={styles.extraInformationRow}>
-                  <View style={styles.infoLabelRow}><Ionicons name="layers-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Levels</Text></View>
-                  <Text style={styles.extraInformationValue}>{displayExtraInformation?.levels}</Text>
-                </View>
-                {displayExtraInformation?.heatingSystem ? (
-                  <View style={styles.extraInformationRow}>
-                    <View style={styles.infoLabelRow}><Ionicons name="thermometer-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Heating System</Text></View>
-                    <Text style={styles.extraInformationValue}>{displayExtraInformation.heatingSystem}</Text>
-                  </View>
-                ) : null}
-                {displayExtraInformation?.energyClass ? (
-                  <View style={styles.extraInformationRow}>
-                    <View style={styles.infoLabelRow}><Ionicons name="flash-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Energy Class</Text></View>
-                    <Text style={styles.extraInformationValue}>{displayExtraInformation.energyClass}</Text>
-                  </View>
-                ) : null}
-                {displayExtraInformation?.windowFrames ? (
-                  <View style={styles.extraInformationRow}>
-                    <View style={styles.infoLabelRow}><Ionicons name="grid-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Window Frames</Text></View>
-                    <Text style={styles.extraInformationValue}>{displayExtraInformation.windowFrames}</Text>
-                  </View>
-                ) : null}
-                {extraInformationAvailabilityText ? (
-                  <View style={styles.extraInformationRow}>
-                    <View style={styles.infoLabelRow}><Ionicons name="calendar-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Availability Status</Text></View>
-                    <Text style={styles.extraInformationValue}>{extraInformationAvailabilityText}</Text>
-                  </View>
-                ) : null}
-                {publishedAtMillis ? (
-                  <View style={styles.extraInformationRow}>
-                    <View style={styles.infoLabelRow}><Ionicons name="time-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Ημερομηνία δημοσίευσης</Text></View>
-                    <Text style={styles.extraInformationValue}>{formatDateTime(publishedAtMillis)}</Text>
-                  </View>
-                ) : null}
-                {updatedAtMillis ? (
-                  <View style={styles.extraInformationRow}>
-                    <View style={styles.infoLabelRow}><Ionicons name="time-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Τελευταία τροποποίηση</Text></View>
-                    <Text style={styles.extraInformationValue}>{formatDateTime(updatedAtMillis)}</Text>
-                  </View>
-                ) : null}
-              </View>
-            ) : null}
-          </View>
-        ) : null}
-
         {canManageKeySafe ? (
           <View style={styles.section} testID="apartment-detail-key-safe-section">
             <View style={styles.keySafeHeaderRow}>
@@ -3622,10 +3622,25 @@ export default function ApartmentDetailScreen() {
         </View>
       </Modal>
 
-      {canRateApartment ? <Pressable style={[styles.ratingFab, { bottom: insets.bottom + 76 }, userRating ? styles.ratingFabActive : null]} onPress={() => { setRatingDraft(userRating ?? 8); setIsRatingModalVisible(true); }} hitSlop={6} testID="apartment-rating-fab" accessibilityLabel={t("apartmentDetail.rateLabel")}>
-        <Ionicons name={userRating ? "star" : "star-outline"} size={22} color={userRating ? "#F59E0B" : colors.onBrand} />
-        {userRating ? <Text style={styles.ratingFabText}>{userRating}</Text> : null}
-      </Pressable> : null}
+      {canRateApartment ? (
+        <Pressable
+          style={[styles.ratingFab, { bottom: insets.bottom + (canScheduleCrossBrokerVisit ? 146 : 92) }]}
+          onPress={() => {
+            setRatingDraft(userRating ?? 8);
+            setIsRatingModalVisible(true);
+          }}
+          hitSlop={6}
+          testID="apartment-rating-fab"
+          accessibilityLabel={t("apartmentDetail.rateLabel")}
+          accessibilityRole="button"
+        >
+          <Ionicons
+            name={userRating ? "star" : "star-outline"}
+            size={22}
+            color="#F59E0B"
+          />
+        </Pressable>
+      ) : null}
 
       <View style={[styles.footer, { paddingBottom: spacing.lg + insets.bottom }]}>
         {canScheduleCrossBrokerVisit ? (
@@ -5201,12 +5216,33 @@ function createStyles(colors: ThemeColors) {
       gap: spacing.sm,
       marginBottom: spacing.sm,
     },
+    accordionSection: {
+      marginTop: spacing.lg,
+      gap: spacing.sm,
+    },
+    accordionHeaderCard: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.md,
+      backgroundColor: colors.surfaceSecondary,
+      padding: spacing.md,
+      marginHorizontal: spacing.lg,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    accordionHeaderTitle: {
+      fontFamily: fonts.bold,
+      fontSize: fontSize.base,
+      color: colors.onSurface,
+    },
     extraDetailsCard: {
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: radius.lg,
+      borderRadius: radius.md,
       backgroundColor: colors.surfaceSecondary,
       padding: spacing.md,
+      marginHorizontal: spacing.lg,
       gap: spacing.md,
     },
     extraDetailsCategoryBlock: {
@@ -5280,9 +5316,10 @@ function createStyles(colors: ThemeColors) {
     extraInformationCard: {
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: radius.lg,
+      borderRadius: radius.md,
       backgroundColor: colors.surfaceSecondary,
       padding: spacing.md,
+      marginHorizontal: spacing.lg,
       gap: spacing.sm,
     },
     extraInformationRow: {
@@ -5434,9 +5471,24 @@ function createStyles(colors: ThemeColors) {
     fontSize: fontSize.lg,
     color: colors.onBrand,
   },
-    ratingFab: { position: "absolute", right: 18, bottom: 84, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, backgroundColor: colors.brand, paddingHorizontal: 14, paddingVertical: 10, borderRadius: radius.pill, elevation: 6, shadowColor: "#000", shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.25, shadowRadius: 6, zIndex: 99 },
-    ratingFabActive: { backgroundColor: colors.surfaceSecondary, borderWidth: 1.5, borderColor: "#F59E0B" },
-    ratingFabText: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: "#F59E0B" },
+    ratingFab: {
+      position: "absolute",
+      right: spacing.lg,
+      width: 48,
+      height: 48,
+      borderRadius: 24,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      elevation: 4,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 3 },
+      shadowOpacity: 0.15,
+      shadowRadius: 6,
+      zIndex: 99,
+    },
 
     errorText: {
     fontFamily: fonts.semibold,

@@ -136,9 +136,9 @@ export default function ChatHeader({
           </Pressable>
         </View>
       ) : null}
-      <View style={styles.headerTop}>
-        <Pressable style={styles.iconBtn} onPress={onBack} testID="chat-back-button" hitSlop={8}>
-          <Ionicons name="chevron-back" size={24} color={colors.onSurface} />
+      <View style={[styles.headerTop, { gap: 6 }]}>
+        <Pressable style={[styles.iconBtn, { width: 32, height: 32, borderRadius: 16 }]} onPress={onBack} testID="chat-back-button" hitSlop={8}>
+          <Ionicons name="chevron-back" size={18} color={colors.onSurface} />
         </Pressable>
         <Pressable style={styles.headerProfileTapArea} onPress={onProfilePress} disabled={profileDisabled} testID="chat-header-profile-trigger">
           {showAvatarImage && avatarUri ? (
@@ -159,15 +159,15 @@ export default function ChatHeader({
             <Text style={styles.headerUni} numberOfLines={1}>{showRoommateDetails && showRecipientRoommateDetails ? displayUniversity : statusLabel}</Text>
           </View>
         </Pressable>
-        <Pressable style={styles.iconBtn} onPress={onContextMenu} testID="chat-context-menu-button" hitSlop={8}>
-          <Ionicons name="ellipsis-vertical" size={20} color={colors.onSurface} />
+        <Pressable style={[styles.iconBtn, { width: 32, height: 32, borderRadius: 16 }]} onPress={onContextMenu} testID="chat-context-menu-button" hitSlop={8}>
+          <Ionicons name="ellipsis-vertical" size={18} color={colors.onSurface} />
         </Pressable>
-        <Pressable style={[styles.iconBtn, filterHistoryActive && styles.iconBtnActive]} onPress={onFilterHistory} testID="chat-filter-history-toggle" hitSlop={8}>
-          <Ionicons name="time-outline" size={22} color={filterHistoryActive ? colors.brand : colors.onSurface} />
+        <Pressable style={[styles.iconBtn, { width: 32, height: 32, borderRadius: 16 }, filterHistoryActive && styles.iconBtnActive]} onPress={onFilterHistory} testID="chat-filter-history-toggle" hitSlop={8}>
+          <Ionicons name="time-outline" size={18} color={filterHistoryActive ? colors.brand : colors.onSurface} />
         </Pressable>
         {isRoommateChat ? (
-          <Pressable style={[styles.iconBtn, showMutualLikes && styles.iconBtnActive]} onPress={onMutualLikes} testID="chat-mutual-likes-toggle" hitSlop={8}>
-            <Ionicons name="heart-circle-outline" size={22} color={showMutualLikes ? colors.brand : colors.onSurface} />
+          <Pressable style={[styles.iconBtn, { width: 32, height: 32, borderRadius: 16 }, showMutualLikes && styles.iconBtnActive]} onPress={onMutualLikes} testID="chat-mutual-likes-toggle" hitSlop={8}>
+            <Ionicons name="heart-circle-outline" size={18} color={showMutualLikes ? colors.brand : colors.onSurface} />
           </Pressable>
         ) : null}
       </View>

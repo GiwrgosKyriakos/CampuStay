@@ -887,7 +887,7 @@
     "cityPlaceholder": "Select city",
     "areaPlaceholder": "Area / Neighborhood",
     "size": "Size",
-    "sizePlaceholder": "Square meters (sq.m.)",
+    "sizePlaceholder": "Square meters",
     "detailsPlaceholder": "Write details about the home, house rules, or what you are looking for...",
     "maxOfferDiscountPlaceholder": "e.g. 10",
     "addressPlaceholder": "Street, number, area (optional)",

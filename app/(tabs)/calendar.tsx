@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
 import { Alert, BackHandler, Linking, Text, View, StyleSheet, Pressable, Modal, ScrollView, ActivityIndicator, DimensionValue } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
@@ -30,10 +31,10 @@ import { t } from "@/src/locales";
 import type { ContractDraftContext } from "@/src/types/esignature";
 import { getCalendarNoteDate } from "@/src/utils/calendarNoteReminders";
 import { cancelScheduledNotification, schedulePostVisitFeedbackReminder } from "@/src/utils/notificationService";
+import MonthYearPickerModal from "@/src/components/calendar/MonthYearPickerModal";
 
 type CalendarViewMode = "month" | "week" | "day";
 const WEEKDAY_LABELS = ["Δευ", "Τρι", "Τετ", "Πεμ", "Παρ", "Σαβ", "Κυρ"] as const;
-const FULL_WEEKDAY_LABELS = ["Δευτέρα", "Τρίτη", "Τετάρτη", "Πέμπτη", "Παρασκευή", "Σάββατο", "Κυριακή"] as const;
 const GREEK_MONTHS = [
   "Ιανουάριος",
   "Φεβρουάριος",
@@ -142,19 +143,31 @@ function isDateArchived(date: Date, now: Date): boolean {
   return dateDay.getTime() !== yesterday.getTime() || getTimeInMinutes(now) >= 10 * 60;
 }
 
-function getFullDayLabel(date: Date): string {
-  return `${FULL_WEEKDAY_LABELS[(date.getDay() + 6) % 7]}, ${date.getDate()} ${GREEK_MONTHS_GENITIVE[date.getMonth()]}`;
-}
-
-function getRelativeDayLabel(date: Date, today: Date): string {
-  const dateKey = formatDateKey(date);
-  const todayKey = formatDateKey(today);
+function formatCalendarDateHeader(selectedDate: Date | string): string {
+  const target = new Date(selectedDate);
+  const today = new Date();
   const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
+  yesterday.setDate(today.getDate() - 1);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(today.getDate() + 1);
 
-  if (dateKey === todayKey) return "Σήμερα";
-  if (dateKey === formatDateKey(yesterday)) return "Χθες";
-  return getFullDayLabel(date);
+  const isSameDay = (first: Date, second: Date) => (
+    first.getFullYear() === second.getFullYear()
+    && first.getMonth() === second.getMonth()
+    && first.getDate() === second.getDate()
+  );
+
+  const baseDateFormatted = target.toLocaleDateString("el-GR", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+  const capitalized = baseDateFormatted.charAt(0).toUpperCase() + baseDateFormatted.slice(1);
+
+  if (isSameDay(target, today)) return "Σήμερα";
+  if (isSameDay(target, yesterday)) return "Χθες";
+  if (isSameDay(target, tomorrow)) return "Αύριο";
+  return capitalized;
 }
 
 function formatDateKey(date: Date): string {
@@ -427,8 +440,12 @@ export function CalendarView({
         disabled={isPast}
         onPress={(event) => {
           event.stopPropagation();
-          if (note.clientId || note.clientProfileId) onClientPress(note);
-          else onEditNotePress(note);
+          onEditNotePress(note);
+        }}
+        onLongPress={() => {
+          if (!note.clientId && !note.clientProfileId) return;
+          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          onClientPress(note);
         }}
         style={({ pressed }) => [
           styles.noteCard,
@@ -483,8 +500,12 @@ export function CalendarView({
         disabled={isPast}
         onPress={(event) => {
           event.stopPropagation();
-          if (note.clientId || note.clientProfileId) onClientPress(note);
-          else onEditNotePress(note);
+          onEditNotePress(note);
+        }}
+        onLongPress={() => {
+          if (!note.clientId && !note.clientProfileId) return;
+          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          onClientPress(note);
         }}
         style={({ pressed }) => [styles.noteCard, styles.compactNoteCard, { width, backgroundColor: note.done ? colors.brandTertiary : noteCategoryColorMap[note.category] ?? colors.surfaceSecondary, borderColor: note.done ? colors.onBrandTertiary : colors.border, opacity: isPast ? 0.6 : pressed ? 0.82 : 1 }]}
       >
@@ -520,8 +541,7 @@ export function CalendarView({
   const renderDayAgenda = (date: Date, notes: BrokerNote[], showFullTitle: boolean) => {
     const dateKey = formatDateKey(date);
     const isPast = isArchivedDate(date);
-    const dayLabel = getRelativeDayLabel(date, today);
-    const fullDayLabel = getFullDayLabel(date);
+    const dateHeader = formatCalendarDateHeader(date);
 
     return (
       <Pressable
@@ -530,7 +550,7 @@ export function CalendarView({
         style={[styles.dayViewCard, { backgroundColor: colors.surface, borderColor: isPast ? colors.muted : colors.border, opacity: isPast ? 0.62 : 1 }]}
       >
         <View style={styles.dayViewHeaderRow}>
-          <Text style={[styles.dayViewTitle, { color: colors.onSurface }]}>{dayLabel}</Text>
+          <Text numberOfLines={1} style={[styles.dayViewTitle, styles.singleDateTitle, { color: colors.onSurface }]}>{dateHeader}</Text>
           <Pressable
             accessibilityLabel={showFullTitle ? "Σμίκρυνση σε εβδομάδα" : "Μεγέθυνση σε ημέρα"}
             hitSlop={8}
@@ -549,11 +569,8 @@ export function CalendarView({
             <Ionicons name={showFullTitle ? "contract-outline" : "expand-outline"} size={19} color={colors.onSurface} />
           </Pressable>
         </View>
-        {showFullTitle ? <Text style={[styles.dayViewSubtitle, { color: colors.onSurfaceTertiary }]}>{fullDayLabel}</Text> : null}
         {notes.length === 0 ? (
-          <View style={styles.emptyStateWrap}>
-            <Text style={[styles.emptyStateText, { color: colors.onSurfaceTertiary }]}>Δεν υπάρχουν σημειώσεις για αυτήν την ημέρα.</Text>
-          </View>
+          <Text style={[styles.emptyStateText, { color: colors.onSurfaceTertiary, textAlign: "left" }]}>Δεν υπάρχουν σημειώσεις για αυτήν την ημέρα.</Text>
         ) : showFullTitle ? (
           <View style={styles.noteList}>{[...notes].sort((a, b) => (a.time ?? "99:99").localeCompare(b.time ?? "99:99")).map(renderExpandedNoteCard)}</View>
         ) : (
@@ -771,6 +788,7 @@ function ClientCalendarScreen() {
   const [appointments, setAppointments] = useState<VisitAppointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedMonth, setSelectedMonth] = useState(() => new Date());
+  const [isPickerVisible, setIsPickerVisible] = useState(false);
   const clientId = auth.userId ?? auth.user?.user_id ?? "";
   const appointmentId = typeof routeParams.appointmentId === "string" ? routeParams.appointmentId : undefined;
   const visibleAppointments = appointments.filter((appointment) => {
@@ -846,10 +864,10 @@ function ClientCalendarScreen() {
         <Pressable style={clientCalendarStyles.monthArrow} onPress={() => shiftMonth(-1)} accessibilityLabel="Previous month">
           <Ionicons name="chevron-back" size={20} color={colors.onSurface} />
         </Pressable>
-        <View style={[clientCalendarStyles.monthPill, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+        <Pressable style={[clientCalendarStyles.monthPill, { backgroundColor: colors.surface, borderColor: colors.border, shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 3 }]} onPress={() => setIsPickerVisible(true)} accessibilityLabel="Select month and year">
           <Ionicons name="calendar-number-outline" size={17} color={colors.brand} />
           <Text style={[clientCalendarStyles.monthPillText, { color: colors.onSurface }]}>{GREEK_MONTHS[selectedMonth.getMonth()]} {selectedMonth.getFullYear()}</Text>
-        </View>
+        </Pressable>
         <Pressable style={clientCalendarStyles.monthArrow} onPress={() => shiftMonth(1)} accessibilityLabel="Next month">
           <Ionicons name="chevron-forward" size={20} color={colors.onSurface} />
         </Pressable>
@@ -897,6 +915,15 @@ function ClientCalendarScreen() {
           })}
         </ScrollView>
       )}
+      <MonthYearPickerModal
+        visible={isPickerVisible}
+        currentDate={selectedMonth}
+        onClose={() => setIsPickerVisible(false)}
+        onSelect={(nextDate) => {
+          setSelectedMonth(nextDate);
+          setIsPickerVisible(false);
+        }}
+      />
     </View>
   );
 }
@@ -911,24 +938,21 @@ function BrokerCalendarScreen() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const visibleRange = useMemo(() => getVisibleRange(currentDate, calendarViewMode), [calendarViewMode, currentDate]);
   const initialNotesKey = `${visibleRange.start}_${visibleRange.end}`;
-  const [isPickerVisible, setIsPickerVisible] = useState(false);
-  const [selectedYear, setSelectedYear] = useState(currentDate.getFullYear());
   const [visibleNotes, setVisibleNotes] = useState<BrokerNote[]>(() => memoryNotesCache[initialNotesKey] ?? []);
   const [isVisibleNotesLoading, setIsVisibleNotesLoading] = useState(() => !memoryNotesCache[initialNotesKey]);
   const [isNoteModalVisible, setIsNoteModalVisible] = useState(false);
+  const [isPickerVisible, setIsPickerVisible] = useState(false);
   const [noteModalDate, setNoteModalDate] = useState(() => formatDateKey(new Date()));
   const [selectedNoteToEdit, setSelectedNoteToEdit] = useState<BrokerNote | null>(null);
   const [completedNotePendingEdit, setCompletedNotePendingEdit] = useState<BrokerNote | null>(null);
   const [notesRefreshToken, setNotesRefreshToken] = useState(0);
 
-  const currentMonthIndex = currentDate.getMonth();
-  const currentYear = currentDate.getFullYear();
   const brokerId = auth.user?.user_id ?? auth.userId ?? "";
+  const isClientMode = !auth.isBroker && auth.notLookingForRoommate === true;
   const headerTitle = useMemo(
     () => getHeaderTitleForCalendarMode(currentDate, calendarViewMode),
     [calendarViewMode, currentDate],
   );
-  const yearRange = useMemo(() => Array.from({ length: 9 }, (_, index) => currentYear - 4 + index), [currentYear]);
   const [realListings, setRealListings] = useState<BrokerListingItem[]>([]);
   const [realClients, setRealClients] = useState<BrokerClientItem[]>([]);
   const [contractDraft, setContractDraft] = useState<ContractDraftContext | null>(null);
@@ -1041,12 +1065,20 @@ function BrokerCalendarScreen() {
       }
 
       try {
-        const [ownedListingsSnapshot, assignedListingsSnapshot] = await Promise.all([
-          getDocs(query(collection(db, "apartments"), where("hostId", "==", brokerId))),
-          getDocs(query(collection(db, "apartments"), where("assignedBrokerIds", "array-contains", brokerId))),
-        ]);
-        const listingDocs = new Map(ownedListingsSnapshot.docs.map((docSnap) => [docSnap.id, docSnap]));
-        assignedListingsSnapshot.docs.forEach((docSnap) => listingDocs.set(docSnap.id, docSnap));
+        const listingSnapshots = await Promise.all(
+          (isClientMode
+            ? [
+                query(collection(db, "apartments"), where("hostId", "==", brokerId)),
+                query(collection(db, "apartments"), where("ownerId", "==", brokerId)),
+                query(collection(db, "apartments"), where("rentedToUserId", "==", brokerId)),
+              ]
+            : [
+                query(collection(db, "apartments"), where("hostId", "==", brokerId)),
+                query(collection(db, "apartments"), where("assignedBrokerIds", "array-contains", brokerId)),
+              ]
+          ).map((listingQuery) => getDocs(listingQuery)),
+        );
+        const listingDocs = new Map(listingSnapshots.flatMap((snapshot) => snapshot.docs).map((docSnap) => [docSnap.id, docSnap]));
         const listings = Array.from(listingDocs.values()).map((docSnap) => {
           const data = docSnap.data() as FirestoreApartmentDoc;
           return {
@@ -1081,7 +1113,7 @@ function BrokerCalendarScreen() {
     return () => {
       isMounted = false;
     };
-  }, [brokerId, notesRefreshToken]);
+  }, [brokerId, isClientMode, notesRefreshToken]);
 
   const openCreateNoteModal = useCallback((selectedDate: string) => {
     setNoteModalDate(selectedDate);
@@ -1203,30 +1235,6 @@ function BrokerCalendarScreen() {
     setCurrentDate((prev) => shiftDateByCalendarView(prev, calendarViewMode, 1));
   }, [calendarViewMode]);
 
-  const openPicker = useCallback(() => {
-    setSelectedYear(currentYear);
-    setIsPickerVisible(true);
-  }, [currentYear]);
-
-  const closePicker = useCallback(() => {
-    setIsPickerVisible(false);
-  }, []);
-
-  const handleYearSelection = useCallback((year: number) => {
-    setSelectedYear(year);
-  }, []);
-
-  const handleMonthSelection = useCallback(
-    (monthIndex: number) => {
-      const nextDate = new Date(currentDate);
-      nextDate.setFullYear(selectedYear);
-      nextDate.setMonth(monthIndex);
-      setCurrentDate(nextDate);
-      setIsPickerVisible(false);
-    },
-    [currentDate, selectedYear],
-  );
-
   return (
     <View style={[styles.container, { backgroundColor: colors.surface, borderColor: colors.border, paddingTop: insets.top + spacing.lg }]}>
       <View style={styles.header}>
@@ -1241,7 +1249,7 @@ function BrokerCalendarScreen() {
           <Pressable style={styles.headerArrowButton} onPress={goToPrevious} hitSlop={8}>
             <Ionicons name="chevron-back" size={22} color={colors.onSurface} />
           </Pressable>
-          <Pressable style={[styles.headerTitleButton, calendarViewMode === "month" && { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 3 }]} onPress={calendarViewMode === "month" ? openPicker : undefined}>
+          <Pressable style={[styles.headerTitleButton, calendarViewMode === "month" && { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 3 }]} onPress={calendarViewMode === "month" ? () => setIsPickerVisible(true) : undefined}>
             <Text style={[styles.headerTitleText, { color: colors.onSurface }]}>{headerTitle}</Text>
           </Pressable>
           <Pressable style={styles.headerArrowButton} onPress={goToNext} hitSlop={8}>
@@ -1262,7 +1270,7 @@ function BrokerCalendarScreen() {
           onClientPress={(note) => {
             const clientId = note.clientId ?? (note.clientProfileId?.includes("_") ? note.clientProfileId.split("_").slice(1).join("_") : undefined);
             if (!clientId) return;
-            router.push({ pathname: "/broker-client-detail", params: { profileId: note.clientProfileId ?? `${brokerId}_${clientId}`, clientUserId: clientId } });
+            router.push({ pathname: "/broker-client-detail", params: { clientId } });
           }}
           onSignViewingOrder={openViewingOrderFromNote}
           onNavigate={(direction) => setCurrentDate((previous) => shiftDateByCalendarView(previous, calendarViewMode, direction))}
@@ -1272,68 +1280,15 @@ function BrokerCalendarScreen() {
         />
       </View>
 
-      <Modal visible={isPickerVisible} transparent animationType="fade" onRequestClose={closePicker}>
-        <Pressable style={styles.modalBackdrop} onPress={closePicker}>
-          <Pressable
-            style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
-            onPress={(event) => {
-              event.stopPropagation();
-            }}
-          >
-            <Text style={[styles.modalTitle, { color: colors.onSurface }]}>Επιλογή Μήνα και Έτους</Text>
-
-            <View style={styles.modalBody}>
-              <View style={styles.yearColumn}>
-                <Text style={[styles.columnTitle, { color: colors.onSurfaceTertiary }]}>Έτος</Text>
-                <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.yearScrollContent}>
-                  {yearRange.map((year) => {
-                    const active = year === selectedYear;
-                    return (
-                      <Pressable
-                        key={year}
-                        onPress={() => handleYearSelection(year)}
-                        style={[
-                          styles.yearItem,
-                          {
-                            backgroundColor: active ? colors.brand : colors.surfaceSecondary,
-                          },
-                        ]}
-                      >
-                        <Text style={[styles.yearItemText, { color: active ? colors.onBrand : colors.onSurface }]}>{year}</Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-
-              <View style={styles.monthColumn}>
-                <Text style={[styles.columnTitle, { color: colors.onSurfaceTertiary }]}>Μήνας</Text>
-                <View style={styles.monthGrid}>
-                  {GREEK_MONTHS.map((monthLabel, monthIndex) => {
-                    const isActive = monthIndex === currentMonthIndex && selectedYear === currentYear;
-                    return (
-                      <Pressable
-                        key={monthLabel}
-                        onPress={() => handleMonthSelection(monthIndex)}
-                        style={[
-                          styles.monthItem,
-                          {
-                            backgroundColor: isActive ? colors.brand : colors.surfaceSecondary,
-                          },
-                        ]}
-                      >
-                        <Text style={[styles.monthItemText, { color: isActive ? colors.onBrand : colors.onSurface }]}>
-                          {monthLabel}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              </View>
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
+      <MonthYearPickerModal
+        visible={isPickerVisible}
+        currentDate={currentDate}
+        onClose={() => setIsPickerVisible(false)}
+        onSelect={(nextDate) => {
+          setCurrentDate(nextDate);
+          setIsPickerVisible(false);
+        }}
+      />
 
       <CenteredActionModal
         visible={completedNotePendingEdit !== null}
@@ -1364,6 +1319,7 @@ function BrokerCalendarScreen() {
 
       <BrokerNoteModal
         visible={isNoteModalVisible}
+        isBroker={auth.isBroker}
         brokerId={brokerId}
         date={noteModalDate}
         listings={realListings}
@@ -1411,16 +1367,12 @@ const clientCalendarStyles = StyleSheet.create({
 
 export default function CalendarScreen() {
   const auth = useAuth();
-  return auth.isBroker ? <BrokerCalendarScreen /> : <ClientCalendarScreen />;
+  return auth.isBroker || auth.notLookingForRoommate === true ? <BrokerCalendarScreen /> : <ClientCalendarScreen />;
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: "transparent",
-    overflow: "hidden",
   },
   calendarHeader: {
     minHeight: 48,
@@ -1443,6 +1395,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: spacing.sm,
+    minHeight: 40,
+    borderRadius: radius.pill,
   },
   headerTitleText: {
     fontFamily: fonts.bold,
@@ -1636,6 +1590,10 @@ const styles = StyleSheet.create({
     fontSize: fontSize.base,
     flex: 1,
   },
+  singleDateTitle: {
+    minWidth: 0,
+    lineHeight: 22,
+  },
   dayViewHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1649,12 +1607,6 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
     justifyContent: "center",
-  },
-  dayViewSubtitle: {
-    marginTop: 2,
-    fontFamily: fonts.regular,
-    fontSize: fontSize.sm,
-    marginBottom: spacing.sm,
   },
   agendaScroll: {
     maxHeight: 520,

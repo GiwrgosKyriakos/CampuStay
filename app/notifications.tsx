@@ -7,6 +7,7 @@ import {
   Switch,
   ActivityIndicator,
   Pressable,
+  ScrollView,
   TextInput,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -80,7 +81,14 @@ export default function NotificationsScreen() {
       try {
         const settings = await getUserSettings(auth.userId ?? "");
         if (!active) return;
-        setPreferences(settings.notifications);
+        setPreferences(settings.notifications ?? {
+          new_matches: true,
+          direct_messages: true,
+          app_updates_and_tips: true,
+          mute_all_notifications: false,
+          muted_chat_ids: [],
+          unmuted_chat_overrides: [],
+        });
         if (auth.isBroker) {
           const userSnapshot = await getDoc(doc(db, "users", auth.userId ?? ""));
           const stored = userSnapshot.exists() ? userSnapshot.data().brokerStagnationSettings as Partial<BrokerStagnationSettings> | undefined : undefined;
@@ -142,6 +150,8 @@ export default function NotificationsScreen() {
     );
   }
 
+  const TAB_BAR_HEIGHT = 84;
+
   return (
     <View style={styles.root}>
       <ScreenHeader
@@ -150,14 +160,20 @@ export default function NotificationsScreen() {
         backButtonTestID="notifications-back-button"
       />
 
-      <KeyboardAwareScrollView
+      <ScrollView
         style={[
           styles.contentContainer,
-          { paddingBottom: insets.bottom + (isGuest ? STICKY_FOOTER_PADDING : spacing.xl) },
+          { paddingBottom: insets.bottom + TAB_BAR_HEIGHT },
         ]}
-        contentContainerStyle={{ flexGrow: 1, paddingBottom: insets.bottom + spacing.xl }}
+        contentContainerStyle={{
+          flexGrow: 1,
+          paddingHorizontal: spacing.md,
+          paddingTop: spacing.md,
+          paddingBottom: insets.bottom + TAB_BAR_HEIGHT + spacing.lg,
+          justifyContent: "center",
+        }}
         keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
+        showsVerticalScrollIndicator={false}
         testID="notifications-screen"
       >
         <View style={styles.header}>
@@ -218,7 +234,7 @@ export default function NotificationsScreen() {
           ))}
           {auth.isBroker ? <View style={styles.brokerSettingsSection} testID="broker-stagnation-settings"><Text style={styles.sectionTitle}>Προειδοποιήσεις Καθυστέρησης (Deal Stagnation)</Text><View style={styles.settingRow}><View style={styles.rowText}><Text style={styles.settingTitle}>Ενεργοποίηση ειδοποιήσεων καθυστέρησης</Text></View><Switch value={brokerStagnationSettings.stagnationAlertsEnabled} onValueChange={(value) => void updateBrokerStagnationSettings({ stagnationAlertsEnabled: value })} disabled={isGuest} /></View>{brokerStagnationSettings.stagnationAlertsEnabled ? <><View style={styles.inputRow}><Text style={styles.inputLabel}>Ώρα πρώτης ειδοποίησης</Text><TextInput value={brokerStagnationSettings.stagnationAlertStartTime} onChangeText={(value) => void updateBrokerStagnationSettings({ stagnationAlertStartTime: value.replace(/[^0-9:]/g, "").slice(0, 5) })} placeholder="11:00" placeholderTextColor={colors.onSurfaceTertiary} style={styles.timeInput} keyboardType="numbers-and-punctuation" testID="broker-stagnation-start-time" /></View><Text style={styles.inputLabel}>Συχνότητα ειδοποιήσεων</Text><View style={styles.intervalOptions}>{[15, 60].map((minutes) => <Pressable key={minutes} style={[styles.intervalOption, brokerStagnationSettings.stagnationAlertIntervalMinutes === minutes && { backgroundColor: colors.brand }]} onPress={() => void updateBrokerStagnationSettings({ stagnationAlertIntervalMinutes: minutes })} testID={`broker-stagnation-interval-${minutes}`}><Text style={[styles.intervalText, brokerStagnationSettings.stagnationAlertIntervalMinutes === minutes && { color: colors.onBrand }]}>{minutes === 15 ? "Κάθε 15 λεπτά" : "Κάθε 1 ώρα"}</Text></Pressable>)}</View></> : null}</View> : null}
         </View>
-      </KeyboardAwareScrollView>
+      </ScrollView>
 
       <View
         style={[
@@ -244,7 +260,7 @@ export default function NotificationsScreen() {
 
 const createStyles = (colors: ThemeColors) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.surface },
-  contentContainer: { flex: 1, paddingHorizontal: spacing.lg, justifyContent: "center" },
+  contentContainer: { flex: 1, paddingHorizontal: spacing.lg },
   header: { marginTop: spacing.lg, marginBottom: spacing.xl, alignItems: "center" },
   centerBlock: { flex: 1, justifyContent: "center", gap: spacing.sm },
   container: { backgroundColor: colors.surface, paddingHorizontal: spacing.lg },

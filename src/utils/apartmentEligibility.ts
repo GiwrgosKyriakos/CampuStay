@@ -2,6 +2,7 @@ import type { Apartment } from "@/src/types/apartment";
 import type { FilterSetPayload } from "@/src/types/filters";
 import type { ListingFormData } from "@/src/utils/compatibilityScore";
 import { evaluateUserHardCriteriaMatch } from "@/src/utils/compatibilityScore";
+import { shouldDisplayListingForUser } from "@/src/utils/listingFilters";
 
 interface EligibilityApartmentRecord {
   city?: string;
@@ -147,7 +148,7 @@ export function isApartmentEligibleForClient(
   if (apartmentRecord.visibility !== undefined && apartmentRecord.visibility !== "public") return false;
   if (apartmentRecord.isOffMarket || apartmentRecord.status !== "active") return false;
   if (apartmentRecord.available === false || apartmentRecord.isAvailable === false) return false;
-  if (!isHostCompatibleForClient(options.notLookingForRoommate, options.hostRequiresRoommate)) return false;
+  if (!shouldDisplayListingForUser(apartment, { notLookingForRoommate: options.notLookingForRoommate })) return false;
   return !options.filterSet || matchesFilterSet(apartment, options.filterSet);
 }
 

@@ -1,10 +1,10 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Alert, FlatList, StyleSheet, Text, View, type ViewToken } from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { ActivityIndicator, Alert, FlatList, Platform, Pressable, StyleSheet, Text, View, type LayoutChangeEvent, type ViewToken } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
 import { collection, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query } from "firebase/firestore";
 import { useRouter } from "expo-router";
-import { useWindowDimensions } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import ApartmentReelCard from "@/src/components/feed/ApartmentReelCard";
 import VirtualTourViewerModal from "@/src/components/VirtualTourViewerModal";
@@ -16,17 +16,23 @@ import { useAuth } from "@/src/context/auth";
 import { useTheme } from "@/src/context/ThemeContext";
 import { t } from "@/src/locales";
 import { radius } from "@/src/theme";
-import { TAB_BAR_HEIGHT } from "@/src/components/GlassTabBar";
 import type { Apartment, VirtualTourData } from "@/src/types/apartment";
 import type { FilterSetPayload } from "@/src/types/filters";
 import { isApartmentEligibleForClient } from "@/src/utils/apartmentEligibility";
+import { shouldDisplayListingForUser } from "@/src/utils/listingFilters";
 
 type FirestoreRecord = Record<string, unknown>;
 
+const SEEN_REELS_STORAGE_PREFIX = "@campustay_seen_reels_";
+
 interface HostRoommateProfile {
+  is_broker?: boolean;
+  agencyId?: string;
+  agencyRole?: string;
   looking_for_roommate?: boolean;
   isLookingForRoommate?: boolean;
   not_looking_for_roommate?: boolean;
+  notLookingForRoommate?: boolean;
 }
 
 function asString(value: unknown): string | undefined {
@@ -66,24 +72,92 @@ function toApartment(id: string, data: FirestoreRecord): Apartment | null {
 }
 
 export default function ExploreFeedScreen() {
-  const { height } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
-  const bottomOffset = TAB_BAR_HEIGHT + insets.bottom;
-  const reelHeight = Math.max(1, height - bottomOffset);
+  // Measure the exact rendered viewport; static window-height math drifts on Android.
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const handleContainerLayout = useCallback((event: LayoutChangeEvent) => {
+    const { height } = event.nativeEvent.layout;
+    setViewportHeight((current) => (height > 0 && Math.abs(height - current) > 1 ? height : current));
+  }, []);
   const { colors } = useTheme();
   const auth = useAuth();
   const router = useRouter();
   const [listings, setListings] = useState<Apartment[]>([]);
+  const [seenReelIds, setSeenReelIds] = useState<string[]>([]);
+  const [seenReelsLoaded, setSeenReelsLoaded] = useState(false);
   const [likedApartmentIds, setLikedApartmentIds] = useState<Set<string>>(new Set());
   const [activeIndex, setActiveIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [tourData, setTourData] = useState<VirtualTourData | null>(null);
   const [tourVisible, setTourVisible] = useState(false);
+  const seenReelsStorageKey = `${SEEN_REELS_STORAGE_PREFIX}${auth.userId ?? "guest"}`;
+  const seenReelsStorageKeyRef = useRef(seenReelsStorageKey);
+  const seenReelIdsRef = useRef<string[]>([]);
+  const isResettingRef = useRef(false);
+  const listRef = useRef<FlatList<Apartment>>(null);
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 80 }).current;
+
+  useEffect(() => {
+    seenReelsStorageKeyRef.current = seenReelsStorageKey;
+    seenReelIdsRef.current = [];
+    setSeenReelIds([]);
+    setSeenReelsLoaded(false);
+    let active = true;
+    void AsyncStorage.getItem(seenReelsStorageKey).then((storedIds) => {
+      if (!active) return;
+      try {
+        const parsed: unknown = storedIds ? JSON.parse(storedIds) : [];
+        const ids = Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
+        seenReelIdsRef.current = ids;
+        setSeenReelIds(ids);
+      } catch {
+        seenReelIdsRef.current = [];
+        setSeenReelIds([]);
+      }
+      setSeenReelsLoaded(true);
+    }).catch(() => {
+      if (active) setSeenReelsLoaded(true);
+    });
+    return () => {
+      active = false;
+    };
+  }, [seenReelsStorageKey]);
+
+  // Persisted without touching `seenReelIds`, so the visible feed never shrinks under the user mid-scroll.
+  const markReelAsSeen = useCallback((id: string) => {
+    if (seenReelIdsRef.current.includes(id)) return;
+    seenReelIdsRef.current = [...seenReelIdsRef.current, id];
+    void AsyncStorage.setItem(seenReelsStorageKeyRef.current, JSON.stringify(seenReelIdsRef.current));
+  }, []);
+
   const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
     const nextIndex = viewableItems.find((item) => item.isViewable && item.index !== null)?.index;
     if (typeof nextIndex === "number") setActiveIndex(nextIndex);
+    if (isResettingRef.current) return;
+    const currentItem = viewableItems[0]?.item as Apartment | undefined;
+    if (currentItem?.id) markReelAsSeen(currentItem.id);
   }).current;
+
+  const visibleListings = useMemo(() => {
+    if (seenReelIds.length === 0) return listings;
+    const seenSet = new Set(seenReelIds);
+    return listings.filter((item) => item.id && !seenSet.has(item.id));
+  }, [listings, seenReelIds]);
+
+  const handleResetSeenReels = useCallback(async () => {
+    try {
+      isResettingRef.current = true;
+      await AsyncStorage.removeItem(seenReelsStorageKeyRef.current);
+      seenReelIdsRef.current = [];
+      setSeenReelIds([]);
+      setActiveIndex(0);
+      listRef.current?.scrollToOffset({ offset: 0, animated: false });
+    } finally {
+      // Let the list remount and settle before viewability may mark reels again.
+      setTimeout(() => {
+        isResettingRef.current = false;
+      }, 500);
+    }
+  }, []);
 
   useEffect(() => {
     if (auth.isLoading) return;
@@ -131,6 +205,23 @@ export default function ExploreFeedScreen() {
         const hostProfileByApartmentId = new Map(hostProfiles);
         const eligibleListings = nextListings.filter((apartment) => {
           const hostProfile = hostProfileByApartmentId.get(apartment.id ?? "") ?? null;
+          const listingWithCreatorMetadata: Apartment = {
+            ...apartment,
+            agencyId: apartment.agencyId ?? hostProfile?.agencyId,
+            isBroker: apartment.isBroker === true || hostProfile?.is_broker === true,
+            creatorRole: apartment.creatorRole || (hostProfile?.is_broker === true || hostProfile?.agencyId ? "agency" : undefined),
+            creatorNotLookingForRoommate:
+              typeof apartment.creatorNotLookingForRoommate === "boolean"
+                ? apartment.creatorNotLookingForRoommate
+                : hostProfile?.not_looking_for_roommate === true
+                  || hostProfile?.notLookingForRoommate === true
+                  || hostProfile?.looking_for_roommate === false
+                  || hostProfile?.isLookingForRoommate === false,
+            lookingForRoommate:
+              typeof apartment.lookingForRoommate === "boolean"
+                ? apartment.lookingForRoommate
+                : hostProfile?.looking_for_roommate === true || hostProfile?.isLookingForRoommate === true,
+          };
           const hostRequiresRoommate = hostProfile !== null && (
             hostProfile.looking_for_roommate === true
             || hostProfile.isLookingForRoommate === true
@@ -138,7 +229,11 @@ export default function ExploreFeedScreen() {
               && hostProfile.looking_for_roommate === undefined
               && hostProfile.isLookingForRoommate === undefined)
           );
-          return isApartmentEligibleForClient(apartment, {
+          if (!shouldDisplayListingForUser(listingWithCreatorMetadata, {
+            isBroker: auth.isBroker,
+            notLookingForRoommate: auth.notLookingForRoommate,
+          })) return false;
+          return isApartmentEligibleForClient(listingWithCreatorMetadata, {
             excludedUserIds,
             filterSet: latestFilterSet,
             notLookingForRoommate: auth.notLookingForRoommate,
@@ -230,47 +325,76 @@ export default function ExploreFeedScreen() {
     return <View style={[styles.state, { backgroundColor: colors.surface }]}><StatusBar style="light" /><ActivityIndicator color={colors.brand} /></View>;
   }
 
+  if (!seenReelsLoaded) {
+    return <View style={[styles.state, { backgroundColor: colors.surface }]}><StatusBar style="light" /><ActivityIndicator color={colors.brand} /></View>;
+  }
+
   if (listings.length === 0) {
     return <View style={[styles.state, { backgroundColor: colors.surface }]}><StatusBar style="light" /><Text style={[styles.emptyText, { color: colors.onSurface }]}>{t("feed.noReelsAvailable")}</Text></View>;
   }
 
+  const renderCaughtUpCard = () => (
+    <View style={[styles.caughtUpContainer, { height: viewportHeight, backgroundColor: colors.surfaceSecondary }]}>
+      <View style={[styles.checkCircle, { backgroundColor: colors.surface }]}>
+        <Ionicons color={colors.brand} name="checkmark-done" size={40} />
+      </View>
+      <Text style={[styles.caughtUpTitle, { color: colors.onSurface }]}>You're all caught up</Text>
+      <Text style={[styles.caughtUpSubtitle, { color: colors.onSurfaceTertiary }]}>Έχετε δει όλα τα διαθέσιμα reels.</Text>
+      <Pressable onPress={() => void handleResetSeenReels()} style={[styles.refreshReelsButton, { backgroundColor: colors.brand }]}>
+        <Ionicons color={colors.onBrand} name="refresh-outline" size={20} />
+        <Text style={[styles.refreshReelsText, { color: colors.onBrand }]}>Ανανέωση Reels</Text>
+      </Pressable>
+    </View>
+  );
+
+  if (visibleListings.length === 0) {
+    return <View style={[styles.root, { borderColor: colors.border }]} onLayout={handleContainerLayout}><StatusBar style="light" />{viewportHeight > 0 ? renderCaughtUpCard() : null}</View>;
+  }
+
   return (
-    <View style={[styles.root, { borderColor: colors.border }]}>
+    <View style={[styles.root, { borderColor: colors.border }]} onLayout={handleContainerLayout}>
       <StatusBar style="light" />
-      <FlatList
-        data={listings}
-        keyExtractor={(item) => item.id ?? item.title ?? "reel"}
-        renderItem={({ item, index }) => (
-          <ApartmentReelCard
-            apartment={item}
-            height={reelHeight}
-            isActive={index === activeIndex}
-            isLiked={item.id ? likedApartmentIds.has(item.id) : false}
-            onToggleLike={() => item.id && void toggleLike(item.id)}
-            onOpenChat={() => void openChat(item)}
-            onOpenDetails={() => openDetails(item)}
-            onOpenVirtualTour={() => {
-              const itemTour = item.virtualTour as VirtualTourData | undefined;
-              if (itemTour?.enabled && itemTour.scenes.length > 0) {
-                setTourData(itemTour);
-                setTourVisible(true);
-              }
-            }}
-          />
-        )}
-        pagingEnabled
-        snapToInterval={reelHeight}
-        snapToAlignment="start"
-        decelerationRate="fast"
-        showsVerticalScrollIndicator={false}
-        windowSize={3}
-        initialNumToRender={2}
-        maxToRenderPerBatch={3}
-        removeClippedSubviews
-        onViewableItemsChanged={onViewableItemsChanged}
-        viewabilityConfig={viewabilityConfig}
-        getItemLayout={(_, index) => ({ length: reelHeight, offset: reelHeight * index, index })}
-      />
+      {viewportHeight > 0 ? (
+        <FlatList
+          ref={listRef}
+          data={visibleListings}
+          keyExtractor={(item) => item.id ?? item.title ?? "reel"}
+          style={{ height: viewportHeight }}
+          renderItem={({ item, index }) => (
+            <ApartmentReelCard
+              apartment={item}
+              height={viewportHeight}
+              isActive={index === activeIndex}
+              isLiked={item.id ? likedApartmentIds.has(item.id) : false}
+              onToggleLike={() => item.id && void toggleLike(item.id)}
+              onOpenChat={() => void openChat(item)}
+              onOpenDetails={() => openDetails(item)}
+              onOpenVirtualTour={() => {
+                const itemTour = item.virtualTour as VirtualTourData | undefined;
+                if (itemTour?.enabled && itemTour.scenes.length > 0) {
+                  setTourData(itemTour);
+                  setTourVisible(true);
+                }
+              }}
+            />
+          )}
+          pagingEnabled={Platform.OS === "ios"}
+          snapToInterval={viewportHeight}
+          snapToAlignment="start"
+          decelerationRate="fast"
+          bounces={false}
+          overScrollMode="never"
+          showsVerticalScrollIndicator={false}
+          windowSize={3}
+          initialNumToRender={2}
+          maxToRenderPerBatch={3}
+          removeClippedSubviews
+          onViewableItemsChanged={onViewableItemsChanged}
+          viewabilityConfig={viewabilityConfig}
+          getItemLayout={(_, index) => ({ length: viewportHeight, offset: viewportHeight * index, index })}
+          ListFooterComponent={renderCaughtUpCard}
+        />
+      ) : null}
       <VirtualTourViewerModal visible={tourVisible} tourData={tourData} onClose={() => setTourVisible(false)} />
     </View>
   );
@@ -280,4 +404,10 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#0b0e13" },
   state: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
   emptyText: { textAlign: "center", fontSize: 16, fontWeight: "700" },
+  caughtUpContainer: { alignItems: "center", justifyContent: "center", padding: 24 },
+  checkCircle: { width: 88, height: 88, alignItems: "center", justifyContent: "center", borderRadius: 44, marginBottom: 20 },
+  caughtUpTitle: { fontSize: 24, fontWeight: "700", textAlign: "center" },
+  caughtUpSubtitle: { marginTop: 8, fontSize: 15, textAlign: "center" },
+  refreshReelsButton: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 24, paddingHorizontal: 18, paddingVertical: 12, borderRadius: radius.pill },
+  refreshReelsText: { fontSize: 15, fontWeight: "700" },
 });

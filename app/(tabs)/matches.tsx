@@ -24,7 +24,7 @@ import InboxSkeleton from "@/src/components/skeletons/InboxSkeleton";
 import CreateRoommateGroupModal from "@/src/components/chat/CreateRoommateGroupModal";
 import { getUserProfile } from "@/src/api/userProfile";
 
-const TAB_BAR_SPACE = 100;
+const TAB_BAR_SPACE = 84;
 const INBOX_PAGE_SIZE = 10;
 
 function isDeletedCounterpart(profile: RoommateProfile): boolean {

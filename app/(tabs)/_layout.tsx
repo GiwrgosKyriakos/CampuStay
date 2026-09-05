@@ -19,7 +19,7 @@ export default function TabsLayout() {
   const canViewExecutiveTools = hasAgency && isExecutive;
   const effectiveBroker = isBroker || isExecutive;
   const isSeekerUser = !isBroker && !notLookingForRoommate;
-  const initialRouteName = isExecutive ? "analytics" : effectiveBroker ? "calendar" : isSeekerUser ? "explore-feed" : "apartments";
+  const initialRouteName = isExecutive ? "analytics" : effectiveBroker || notLookingForRoommate ? "calendar" : isSeekerUser ? "explore-feed" : "apartments";
 
   return (
     <Tabs
@@ -64,7 +64,7 @@ export default function TabsLayout() {
         options={{
           title: t("feed.reelsTitle"),
           tabBarIcon: ({ color, size, focused }) => <Ionicons color={color} name={focused ? "play-circle" : "play-circle-outline"} size={size} />,
-          href: !effectiveBroker ? undefined : null,
+          href: isExecutive || hasAgency ? null : undefined,
         }}
       />
       <Tabs.Screen
@@ -80,7 +80,7 @@ export default function TabsLayout() {
         options={{
           title: "Apartment Pool",
           tabBarIcon: ({ color, size }) => <Ionicons color={color} name="business-outline" size={size} />,
-          href: isExecutive ? undefined : null,
+          href: isExecutive || (isBroker && hasAgency) ? undefined : null,
         }}
       />
       <Tabs.Screen

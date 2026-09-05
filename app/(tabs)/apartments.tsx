@@ -26,7 +26,6 @@ import { getUserApartmentNotes, updateNotesOrder, type Apartment as ApartmentNot
 import { storage } from "@/src/utils/storage";
 import { calculatePricePerSqm } from "@/src/utils/pricing";
 import { calculateTenantCompatibilityScore } from "@/src/utils/compatibilityScore";
-import { isHostCompatibleForClient } from "@/src/utils/apartmentEligibility";
 import { resolveLocationCoordinates } from "@/src/hooks/useLocationCoordinates";
 import { isPointInPolygon, type LatLng } from "@/src/utils/geometry";
 import MapPolygonDrawModal from "@/src/components/MapPolygonDrawModal";
@@ -41,9 +40,10 @@ import ProposalListsPickerModal, { type ReceivedProposalList } from "@/src/compo
 import HardCriteriaSelectionModal, { HARD_CRITERIA_OPTIONS } from "@/src/components/HardCriteriaSelectionModal";
 import VoiceInputButton from "@/src/components/common/VoiceInputButton";
 import { useVoiceInputPreview } from "@/src/hooks/useVoiceInputPreview";
+import { shouldDisplayListingForUser } from "@/src/utils/listingFilters";
 
 const CURRENCY = "€";
-const TAB_BAR_SPACE = 100;
+const TAB_BAR_SPACE = 84;
 const darkMapStyle = [
   { elementType: "geometry", stylers: [{ color: "#050e1a" }] },
   { elementType: "labels.text.fill", stylers: [{ color: "#8aa4c6" }] },
@@ -379,6 +379,15 @@ interface Apartment {
   extraDetails?: Record<string, boolean>;
   extraInformation?: ApartmentExtraInformation;
   hostRequiresRoommate?: boolean;
+  creatorRole?: "broker" | "agency" | "owner" | "student" | "user";
+  isBroker?: boolean;
+  isRoommateListing?: boolean;
+  creatorNotLookingForRoommate?: boolean;
+  lookingForRoommate?: boolean;
+  isWholeApartment?: boolean;
+  wholeApartment?: boolean;
+  entireApartment?: boolean;
+  rentalType?: "entire" | "whole_apartment" | "room" | "shared" | string;
   hostId?: string;
   ownerId?: string;
   agencyId?: string;
@@ -423,6 +432,15 @@ interface FirestoreApartmentDoc {
   hostId?: string;
   ownerId?: string;
   agencyId?: string;
+  creatorRole?: "broker" | "agency" | "owner" | "student" | "user";
+  isBroker?: boolean;
+  isRoommateListing?: boolean;
+  creatorNotLookingForRoommate?: boolean;
+  lookingForRoommate?: boolean;
+  isWholeApartment?: boolean;
+  wholeApartment?: boolean;
+  entireApartment?: boolean;
+  rentalType?: "entire" | "whole_apartment" | "room" | "shared" | string;
   assignedBrokerIds?: string[];
   isOffMarket?: boolean;
   offMarketAccessUserIds?: string[];
@@ -461,9 +479,13 @@ interface FirestoreHostInboxUserDoc {
 }
 
 interface FirestoreHostRoommateDoc {
+  is_broker?: boolean;
+  agencyId?: string;
+  agencyRole?: string;
   looking_for_roommate?: boolean;
   isLookingForRoommate?: boolean;
   not_looking_for_roommate?: boolean;
+  notLookingForRoommate?: boolean;
 }
 
 const LEGACY_TAG_TO_SLUG: Record<string, string> = {
@@ -1482,7 +1504,7 @@ export default function ApartmentsScreen() {
                 const resolvedImages = imageList.length > 0 ? imageList : fallbackImage ? [fallbackImage] : [];
                 const available = typeof data.available === "boolean" ? data.available : typeof data.isAvailable === "boolean" ? data.isAvailable : true;
 
-                return {
+                const listing = {
                   id: snap.id,
                   title: data.title?.trim() || t("apartments.unknownListing"),
                   description: data.description || data.about || "",
@@ -1519,6 +1541,15 @@ export default function ApartmentsScreen() {
                   hostId: data.hostId,
                   ownerId: data.ownerId || data.hostId,
                   agencyId: data.agencyId,
+                  creatorRole: data.creatorRole,
+                  isBroker: data.isBroker,
+                  isRoommateListing: data.isRoommateListing,
+                  creatorNotLookingForRoommate: data.creatorNotLookingForRoommate,
+                  lookingForRoommate: data.lookingForRoommate,
+                  isWholeApartment: data.isWholeApartment,
+                  wholeApartment: data.wholeApartment,
+                  entireApartment: data.entireApartment,
+                  rentalType: data.rentalType,
                   assignedBrokerIds: Array.isArray(data.assignedBrokerIds) ? data.assignedBrokerIds : [],
                   isOffMarket: data.isOffMarket === true,
                   offMarketAccessUserIds: Array.isArray(data.offMarketAccessUserIds) ? data.offMarketAccessUserIds : [],
@@ -1529,7 +1560,32 @@ export default function ApartmentsScreen() {
                   watermarkConfig: data.watermarkConfig,
                   virtualTour: data.virtualTour,
                   hostRequiresRoommate,
+                } satisfies Apartment;
+
+                const listingWithCreatorMetadata: Apartment = {
+                  ...listing,
+                  agencyId: listing.agencyId || hostData?.agencyId,
+                  isBroker: listing.isBroker === true || hostData?.is_broker === true,
+                  creatorRole: listing.creatorRole || (hostData?.is_broker === true || hostData?.agencyId ? "agency" : undefined),
+                  creatorNotLookingForRoommate:
+                    typeof listing.creatorNotLookingForRoommate === "boolean"
+                      ? listing.creatorNotLookingForRoommate
+                      : hostData?.not_looking_for_roommate === true
+                        || hostData?.notLookingForRoommate === true
+                        || hostData?.looking_for_roommate === false
+                        || hostData?.isLookingForRoommate === false,
+                  lookingForRoommate:
+                    typeof listing.lookingForRoommate === "boolean"
+                      ? listing.lookingForRoommate
+                      : hostData?.looking_for_roommate === true || hostData?.isLookingForRoommate === true,
                 };
+
+                return shouldDisplayListingForUser(listingWithCreatorMetadata, {
+                  isBroker: auth.isBroker,
+                  notLookingForRoommate: auth.notLookingForRoommate,
+                })
+                  ? listingWithCreatorMetadata
+                  : null;
               })
             );
 
@@ -1818,7 +1874,10 @@ export default function ApartmentsScreen() {
       const isDirectOwner = !!currentUid && (apt.ownerId === currentUid || apt.hostId === currentUid);
       const isAssignedBroker = !!currentUid && auth.isBroker === true && Array.isArray(apt.assignedBrokerIds) && apt.assignedBrokerIds.includes(currentUid);
       const isOwnListing = isDirectOwner || isAssignedBroker;
-      if (!isHostCompatibleForClient(auth.notLookingForRoommate, apt.hostRequiresRoommate === true)) return false;
+      if (!shouldDisplayListingForUser(apt, {
+        isBroker: auth.isBroker,
+        notLookingForRoommate: auth.notLookingForRoommate,
+      })) return false;
       const isPrivilegedClient = !!currentUid && Array.isArray(apt.offMarketAccessUserIds) && apt.offMarketAccessUserIds.includes(currentUid);
       if ((apt.isOffMarket || apt.status === "under_negotiation") && !isOwnListing && !isPrivilegedClient) return false;
       if (proposalApartmentIds.length > 0 && !proposalApartmentIds.includes(apt.id)) return false;

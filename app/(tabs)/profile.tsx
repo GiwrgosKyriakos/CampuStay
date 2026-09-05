@@ -20,7 +20,7 @@ import { useLocale } from "@/src/context/locale";
 import { useTheme } from "@/src/context/ThemeContext";
 
 const CURRENCY = "€";
-const TAB_BAR_SPACE = 100;
+const TAB_BAR_SPACE = 84;
 function toMillis(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (!value || typeof value !== "object") return 0;

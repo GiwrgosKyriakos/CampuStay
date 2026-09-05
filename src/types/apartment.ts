@@ -65,8 +65,17 @@ export interface Apartment {
   showExactAddress: boolean;
   hostId: string;
   hostRequiresRoommate?: boolean;
-  assignedBrokerIds?: string[];
   agencyId?: string;
+  creatorRole?: "broker" | "agency" | "owner" | "student" | "user";
+  isBroker?: boolean;
+  isRoommateListing?: boolean;
+  creatorNotLookingForRoommate?: boolean;
+  lookingForRoommate?: boolean;
+  isWholeApartment?: boolean;
+  wholeApartment?: boolean;
+  entireApartment?: boolean;
+  rentalType?: "entire" | "whole_apartment" | "room" | "shared" | string;
+  assignedBrokerIds?: string[];
   assignmentStatus?: "unassigned_pool" | "claim_pending" | "assigned";
   pendingClaimBrokerId?: string;
   rejectedBrokerIds?: string[];

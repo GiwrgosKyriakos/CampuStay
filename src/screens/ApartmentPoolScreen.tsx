@@ -3,11 +3,13 @@ import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Tex
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { doc, getDoc } from "firebase/firestore";
 
 import { claimApartmentFromPool, subscribeAgencyPoolApartments } from "@/src/api/agencyCollaboration";
 import { getUserProfile } from "@/src/api/userProfile";
 import { useAuth } from "@/src/context/auth";
 import { useTheme } from "@/src/context/ThemeContext";
+import { db } from "@/src/config/firebase";
 import { fonts, fontSize, radius, spacing } from "@/src/theme";
 
 type PoolApartment = Record<string, unknown> & {
@@ -37,10 +39,12 @@ export default function ApartmentPoolScreen() {
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [agencyId, setAgencyId] = useState<string | null>(null);
+  const [agencyName, setAgencyName] = useState<string | null>(null);
   const [apartments, setApartments] = useState<PoolApartment[]>([]);
   const [loading, setLoading] = useState(true);
   const [claimingId, setClaimingId] = useState<string | null>(null);
   const [errorText, setErrorText] = useState<string | null>(null);
+  const isExecutive = ["ceo", "secretary", "secretariat"].includes(auth.agencyRole ?? "");
 
   const load = useCallback(async () => {
     if (!auth.userId || !auth.isBroker) {
@@ -55,10 +59,20 @@ export default function ApartmentPoolScreen() {
       const resolvedAgencyId = profile?.agencyId?.trim() || "";
       setAgencyId(resolvedAgencyId || null);
       if (!resolvedAgencyId) {
+        setAgencyName(null);
         setApartments([]);
         return;
       }
       setApartments([]);
+      const agencySnapshot = await getDoc(doc(db, "agencies", resolvedAgencyId));
+      const resolvedAgencyName = typeof auth.user?.agencyName === "string" && auth.user.agencyName.trim().length > 0
+        ? auth.user.agencyName.trim()
+        : typeof agencySnapshot.data()?.name === "string" && agencySnapshot.data()?.name.trim().length > 0
+          ? agencySnapshot.data()?.name.trim()
+          : typeof agencySnapshot.data()?.agencyName === "string" && agencySnapshot.data()?.agencyName.trim().length > 0
+            ? agencySnapshot.data()?.agencyName.trim()
+            : null;
+      setAgencyName(resolvedAgencyName);
     } catch {
       setErrorText("Δεν ήταν δυνατή η φόρτωση του Apartment Pool.");
       setApartments([]);
@@ -75,6 +89,19 @@ export default function ApartmentPoolScreen() {
     });
     return () => unsubscribe();
   }, [agencyId, auth.userId, load]);
+
+  const titleParts = useMemo(() => {
+    const baseName = agencyName?.trim() || "Apartment Pool";
+    const words = baseName.split(/\s+/).filter(Boolean);
+    if (words.length === 0) {
+      return { leftWords: "Apartment", rightWords: "Pool" };
+    }
+    const leftCount = Math.floor(words.length / 2);
+    return {
+      leftWords: words.slice(0, leftCount).join(" "),
+      rightWords: words.slice(leftCount).join(" "),
+    };
+  }, [agencyName]);
 
   const claim = async (apartment: PoolApartment) => {
     if (!auth.userId || !agencyId || claimingId) return;
@@ -98,7 +125,27 @@ export default function ApartmentPoolScreen() {
   if (!auth.isBroker) return <View style={styles.center}><Ionicons name="lock-closed-outline" size={34} color={colors.onSurfaceTertiary} /><Text style={styles.empty}>Το Apartment Pool είναι διαθέσιμο μόνο σε συνεργάτες agency.</Text></View>;
 
   return <View style={styles.container} testID="apartment-pool-screen">
-    <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}><View><Text style={styles.title}>Apartment Pool</Text><Text style={styles.subtitle}>Ακίνητα διαθέσιμα για ανάληψη από το γραφείο</Text></View><Pressable onPress={() => void load()} hitSlop={8}><Ionicons name="refresh-outline" size={23} color={colors.onSurface} /></Pressable></View>
+    <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
+      <View style={styles.headerSpacer} />
+      <View style={styles.titleWrap}>
+        {titleParts.leftWords && titleParts.rightWords ? (
+          <Text style={styles.title} numberOfLines={2}>
+            <Text style={[styles.titlePart, { color: colors.onSurface }]}>{titleParts.leftWords}</Text>
+            <Text style={[styles.titlePart, { color: colors.brand }]}>{` ${titleParts.rightWords}`}</Text>
+          </Text>
+        ) : (
+          <Text style={[styles.title, { color: colors.brand }]} numberOfLines={2}>{titleParts.rightWords}</Text>
+        )}
+        <Text style={styles.subtitle}>Ακίνητα διαθέσιμα για ανάληψη από το γραφείο</Text>
+      </View>
+      {isExecutive ? (
+        <Pressable style={styles.headerAction} onPress={() => router.push("/profile" as never)} hitSlop={8} accessibilityRole="button" accessibilityLabel="Ρυθμίσεις προφίλ">
+          <Ionicons name="settings-outline" size={22} color={colors.onSurface} />
+        </Pressable>
+      ) : (
+        <View style={styles.headerActionSpacer} />
+      )}
+    </View>
     {errorText ? <Text style={styles.error}>{errorText}</Text> : null}
     {loading ? <View style={styles.center}><ActivityIndicator color={colors.brand} /></View> : apartments.length === 0 ? <View style={styles.center}><Ionicons name="business-outline" size={38} color={colors.onSurfaceTertiary} /><Text style={styles.empty}>Δεν υπάρχουν διαθέσιμα ακίνητα στο pool.</Text></View> : <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>{apartments.map((apartment) => {
       const image = apartment.image || apartment.imageUrl || apartment.images?.[0] || "";
@@ -112,9 +159,14 @@ export default function ApartmentPoolScreen() {
 
 const createStyles = (colors: ReturnType<typeof useTheme>["colors"]) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface, paddingTop: spacing.xl },
-  header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.lg, flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.md },
-  title: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface },
-  subtitle: { marginTop: spacing.xs, fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
+  header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.lg, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md },
+  headerSpacer: { width: 32, height: 32 },
+  headerAction: { width: 32, height: 32, borderRadius: radius.pill, alignItems: "center", justifyContent: "center" },
+  headerActionSpacer: { width: 32, height: 32 },
+  titleWrap: { flex: 1, alignItems: "center", justifyContent: "center" },
+  title: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface, textAlign: "center" },
+  titlePart: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], textAlign: "center" },
+  subtitle: { marginTop: spacing.xs, fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary, textAlign: "center" },
   list: { paddingHorizontal: spacing.lg, paddingBottom: spacing["3xl"], gap: spacing.sm },
   card: { minHeight: 108, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surfaceSecondary, flexDirection: "row", alignItems: "center", padding: spacing.sm, gap: spacing.sm },
   cardMain: { flex: 1, flexDirection: "row", alignItems: "center", gap: spacing.sm },

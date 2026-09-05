@@ -7,7 +7,7 @@ export default function Index() {
   if (isLoading) return null;
 
   if (isLoggedIn) {
-    const targetHome = isBroker ? "/calendar" : notLookingForRoommate ? "/apartments" : "/roommates";
+    const targetHome = isBroker || notLookingForRoommate ? "/calendar" : "/roommates";
     return <Redirect href={needsProfileSetup ? "/edit-profile" : targetHome} />;
   }
   if (isGuestMode) {

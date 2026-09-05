@@ -56,11 +56,15 @@ export default function BaseBottomSheet({
   const { height: screenHeight } = useWindowDimensions();
   const [mounted, setMounted] = useState(visible);
   const isClosingRef = useRef(false);
+  const scrollOffsetRef = useRef(0);
   const translateY = useRef(new Animated.Value(screenHeight)).current;
   const backdropOpacity = useRef(new Animated.Value(0)).current;
   const panResponder = useRef(
     PanResponder.create({
-      onMoveShouldSetPanResponder: (_event, gestureState) => gestureState.dy > 8 && gestureState.dy > Math.abs(gestureState.dx),
+      onMoveShouldSetPanResponder: (_event, gestureState) => {
+        const reachedTop = scrollOffsetRef.current <= 0;
+        return gestureState.dy > 8 && gestureState.dy > Math.abs(gestureState.dx) && (gestureState.vy >= 0 || reachedTop);
+      },
       onPanResponderMove: (_event, gestureState) => {
         translateY.setValue(Math.max(0, gestureState.dy));
         backdropOpacity.setValue(Math.max(0, 0.5 - gestureState.dy / screenHeight));
@@ -184,6 +188,8 @@ export default function BaseBottomSheet({
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
                 showsVerticalScrollIndicator={false}
+                onScroll={(event) => { scrollOffsetRef.current = event.nativeEvent.contentOffset.y; }}
+                scrollEventThrottle={16}
               >
                 {children}
               </ScrollView>

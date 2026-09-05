@@ -12,13 +12,16 @@ interface CalendarNoteModalProps {
   listings?: BrokerListingItem[];
   clients?: BrokerClientItem[];
   note?: BrokerNote | null;
+  initialClientId?: string;
+  initialClientName?: string;
+  initialDate?: string;
   onClose: () => void;
   onSaved?: (noteId: string) => void;
   onUpdated?: (noteId: string) => void;
   onDeleted?: (noteId: string) => void;
 }
 
-export default function CalendarNoteModal({ visible, isBroker, userId, brokerId, date, listings = [], clients = [], note, onClose, onSaved, onUpdated, onDeleted }: CalendarNoteModalProps) {
+export default function CalendarNoteModal({ visible, isBroker, userId, brokerId, date, initialClientId, initialClientName, initialDate, listings = [], clients = [], note, onClose, onSaved, onUpdated, onDeleted }: CalendarNoteModalProps) {
   return (
     <BrokerNoteModal
       visible={visible}
@@ -28,6 +31,9 @@ export default function CalendarNoteModal({ visible, isBroker, userId, brokerId,
       listings={listings}
       clients={clients}
       note={note}
+      initialClientId={initialClientId}
+      initialClientName={initialClientName}
+      initialDate={initialDate}
       onClose={onClose}
       onSaved={onSaved}
       onUpdated={onUpdated}

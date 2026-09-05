@@ -32,9 +32,9 @@ import {
 import { getBrokerClientDeals } from "@/src/api/brokerClientProfiles";
 import { BrokerModificationBadge } from "@/src/components/BrokerModificationBadge";
 import AssignClientEmailModal from "@/src/components/AssignClientEmailModal";
+import BrokerNoteModal from "@/src/components/BrokerNoteModal";
 import { settleClosedDeal } from "@/src/utils/dealAutomations";
 import { calculateDynamicDealStage } from "@/src/utils/dealPipeline";
-import ClientCalendarNotesModal from "@/src/components/calendar/ClientCalendarNotesModal";
 import CloseLostDealModal from "@/src/components/CloseLostDealModal";
 import { recordLostDeal } from "@/src/api/lostDeals";
 import DealChecklistSection from "@/src/components/DealChecklistSection";
@@ -244,7 +244,7 @@ function apartmentToListingData(apartment: ListingFormData): ListingFormData {
 }
 
 export type LeadReadinessKey = "hot" | "warm" | "cold";
-type ClientDetailSubView = "default" | "deal_stage" | "lead_readiness" | "purchasing_power";
+type ClientDetailSubView = "default" | "deal_stage" | "lead_readiness" | "purchasing_power" | "calendar";
 
 const HARD_CRITERIA_LABELS: Record<HardCriteriaKey, string> = {
   rent: "Τιμή",
@@ -447,7 +447,7 @@ export default function BrokerClientDetailScreen() {
   const [savingFilterSet, setSavingFilterSet] = useState(false);
   const [isManualClient, setIsManualClient] = useState(false);
   const [isAddEmailModalOpen, setIsAddEmailModalOpen] = useState(false);
-  const [calendarNotesVisible, setCalendarNotesVisible] = useState(false);
+  const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
   const profileId = auth.userId && params.clientUserId ? `${auth.userId}_${params.clientUserId}` : null;
   const filters = useMemo<FilterSetPayload | null>(() => { try { return params.sharedFilterSet ? JSON.parse(params.sharedFilterSet) as FilterSetPayload : null; } catch { return null; } }, [params.sharedFilterSet]);
   const activeFilterSet = useMemo(
@@ -510,6 +510,16 @@ export default function BrokerClientDetailScreen() {
     () => brokerManagedApartments.map((apartment) => ({ id: apartment.id, title: apartment.title, price: apartment.rent })),
     [brokerManagedApartments],
   );
+  const calendarClientOptions = useMemo(() => [{
+    id: resolvedClientUserId || "",
+    name: params.clientName || t("brokerClient.clientFallback"),
+    apartmentIds: calendarListingOptions.map((listing) => listing.id),
+    isActive: true,
+  }], [calendarListingOptions, params.clientName, resolvedClientUserId]);
+  const selectedCalendarDate = new Date().toISOString().slice(0, 10);
+  const handleRefreshNotes = useCallback((_noteId: string) => {
+    setIsNoteModalOpen(false);
+  }, []);
   const interactionMetrics = useMemo(() => {
     const filteredByApartment = selectedApartmentFilter === "all"
       ? interactions
@@ -1261,12 +1271,14 @@ export default function BrokerClientDetailScreen() {
       <View style={styles.headerActionsGroup}>
         {resolvedClientUserId ? (
           <Pressable
-            style={styles.headerActionBtn}
-            onPress={() => setCalendarNotesVisible(true)}
-            accessibilityLabel="Σημειώσεις Ημερολογίου"
+            style={[styles.headerActionBtn, activeSubView === "calendar" && styles.headerActionBtnActive]}
+            onPress={() => {
+              setActiveSubView((previous) => previous === "calendar" ? "default" : "calendar");
+            }}
+            accessibilityLabel="Ημερολόγιο πελάτη"
             testID="broker-client-calendar-notes"
           >
-            <Ionicons name="calendar-outline" size={18} color={colors.onSurface} />
+            <Ionicons name="calendar-outline" size={18} color={activeSubView === "calendar" ? colors.onBrand : colors.onSurface} />
           </Pressable>
         ) : null}
         <Pressable
@@ -1276,16 +1288,6 @@ export default function BrokerClientDetailScreen() {
           testID="broker-client-toggle-deal-stage"
         >
 
-        {resolvedClientUserId && auth.userId ? (
-          <ClientCalendarNotesModal
-            visible={calendarNotesVisible}
-            clientId={resolvedClientUserId}
-            clientName={params.clientName ?? "Πελάτης"}
-            brokerId={auth.userId}
-            listings={calendarListingOptions}
-            onClose={() => setCalendarNotesVisible(false)}
-          />
-        ) : null}
           <Ionicons color={activeSubView === "deal_stage" ? colors.onBrand : colors.onSurface} name="trending-up-outline" size={18} />
         </Pressable>
         <Pressable
@@ -1467,6 +1469,29 @@ export default function BrokerClientDetailScreen() {
             {savingPurchasingPower ? <ActivityIndicator size="small" color={colors.onBrand} /> : <Ionicons name="bookmark-outline" size={18} color={colors.onBrand} />}
             <Text style={styles.purchasingPowerSaveText}>Αποθήκευση στοιχείων</Text>
           </Pressable>
+        </View>
+      ) : null}
+
+      {activeSubView === "calendar" ? (
+        <View style={[styles.calendarViewCard, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}> 
+          <View style={styles.clientCalendarCardHeader}>
+            <View style={styles.clientCalendarTitleRow}>
+              <Ionicons name="calendar-outline" size={20} color={colors.brand} />
+              <Text style={styles.clientCalendarTitle}>Ημερολόγιο πελάτη</Text>
+            </View>
+            <Pressable
+              onPress={() => setIsNoteModalOpen(true)}
+              style={styles.addNotePillButton}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Προσθήκη σημείωσης"
+              testID="broker-client-calendar-add-note"
+            >
+              <Ionicons color={colors.onBrand} name="add" size={16} />
+              <Text style={styles.addNotePillText}>Σημείωση</Text>
+            </Pressable>
+          </View>
+          <Text style={[styles.body, { color: colors.onSurfaceTertiary }]}>Η συνοπτική προβολή του ημερολογίου θα εμφανιστεί εδώ για τον πελάτη.</Text>
         </View>
       ) : null}
 
@@ -1819,6 +1844,20 @@ export default function BrokerClientDetailScreen() {
       }]}
       testID="broker-list-shared-feedback-modal"
     />
+      {resolvedClientUserId && auth.userId ? (
+        <BrokerNoteModal
+          visible={isNoteModalOpen}
+          brokerId={auth.userId}
+          date={selectedCalendarDate}
+          initialClientId={resolvedClientUserId}
+          initialClientName={params.clientName ?? t("brokerClient.clientFallback")}
+          initialDate={selectedCalendarDate}
+          listings={calendarListingOptions}
+          clients={calendarClientOptions}
+          onClose={() => setIsNoteModalOpen(false)}
+          onNoteSaved={handleRefreshNotes}
+        />
+      ) : null}
   </View>;
 }
 
@@ -1967,6 +2006,12 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   presetButtonsRow: { flexDirection: "row", gap: spacing.xs },
   presetBtn: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.pill, backgroundColor: colors.brandTertiary, borderWidth: 1, borderColor: colors.brand },
   presetBtnText: { fontFamily: fonts.bold, fontSize: fontSize.xs, color: colors.brand },
+  calendarViewCard: { marginHorizontal: spacing.lg, marginTop: spacing.md, padding: spacing.md, borderRadius: radius.lg, backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border, gap: spacing.xs },
+  clientCalendarCardHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
+  clientCalendarTitleRow: { flex: 1, flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  clientCalendarTitle: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface },
+  addNotePillButton: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: spacing.sm, height: 30, borderRadius: radius.pill, backgroundColor: colors.brand },
+  addNotePillText: { color: colors.onBrand, fontFamily: fonts.semibold, fontSize: fontSize.xs },
   interactionLogCard: { marginHorizontal: spacing.lg, marginTop: spacing.md, padding: spacing.md, borderRadius: radius.lg, backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border, gap: spacing.md },
   interactionHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: spacing.xs },
   interactionTitleWrap: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
