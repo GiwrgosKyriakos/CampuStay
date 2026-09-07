@@ -2733,7 +2733,7 @@ export default function CreateListingScreen() {
             </View>
             <View style={[styles.contactToggleRow, styles.mtSm]}>
               <View style={styles.contactToggleTextWrap}>
-                <Text style={styles.contactToggleLabel}>Εμφάνιση ακριβούς διεύθυνσης στην αγγελία</Text>
+                <Text style={styles.contactToggleLabel}>Εμφάνιση ακριβούς διεύθυνσης</Text>
               </View>
               <Switch
                 value={showExactAddress}
@@ -2842,6 +2842,59 @@ export default function CreateListingScreen() {
               })}
             </View>
 
+            {isBrokerMode ? (
+              <View style={styles.card}>
+                  <View style={styles.brokerPrivatePhotosContent}>
+                    <Text style={styles.sectionTitle}>Επιπλέον φωτογραφίες (Μόνο για το γραφείο)</Text>
+                    <Text style={styles.fieldHint}>
+                      Οι φωτογραφίες αυτές είναι αυστηρά εμπιστευτικές, δεν εμφανίζονται στην αγγελία και είναι
+                      προσβάσιμες μόνο από το γραφείο που τη διαχειρίζεται.
+                    </Text>
+                    <Text style={styles.fieldHint}>
+                      {`${brokerPrivatePhotos.length}/${BROKER_PRIVATE_PHOTO_SLOTS} φωτογραφίες`}
+                    </Text>
+
+                    <View style={styles.photoGrid}>
+                      {Array.from({ length: BROKER_PRIVATE_PHOTO_SLOTS }, (_, index) => index).map((index) => {
+                        const uri = brokerPrivatePhotos[index];
+                        const filled = !!uri;
+                        return (
+                          <Pressable
+                            key={`broker-private-photo-slot-${index}`}
+                            onPress={() => {
+                              if (filled) {
+                                removeBrokerPrivatePhoto(index);
+                                return;
+                              }
+                              openImagePicker("brokerPrivate");
+                            }}
+                            style={[styles.photoTile, filled ? styles.photoTileFilled : styles.photoTileEmpty]}
+                            testID={`create-listing-broker-private-photo-slot-${index}`}
+                          >
+                            {filled ? (
+                              <>
+                                <Image source={{ uri }} style={styles.photoImage} contentFit="cover" />
+                                <View style={styles.photoOverlay}>
+                                  <Ionicons name="close-circle" size={20} color={colors.onSurface} />
+                                </View>
+                              </>
+                            ) : (
+                              <>
+                                <Ionicons name="add" size={26} color={colors.onSurfaceTertiary} />
+                                <Text style={[styles.photoTileText, styles.photoTileTextMuted]}>
+                                  {t("common.actions.add")}
+                                </Text>
+                              </>
+                            )}
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+              </View>
+            ) : null}
+
+            {/*
             {watermarkEnabled ? (
               <View style={styles.inlineWatermarkPreview}>
                 <Text style={styles.previewLabel}>Watermark</Text>
@@ -2858,16 +2911,97 @@ export default function CreateListingScreen() {
                 </View>
               </View>
             ) : null}
+            */} 
+
+            <View style={styles.sectionHeaderRow}>
+              <View style={styles.sectionTitleWrap}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.sectionTitle}>Προσθήκη default watermark</Text>
+                </View>
+                <Switch
+                value={watermarkEnabled}
+                onValueChange={setWatermarkEnabled}
+                trackColor={{ false: colors.border, true: colors.brandSecondary }}
+                thumbColor={watermarkEnabled ? colors.brand : colors.onSurface}
+                testID="watermark-toggle"
+                />
+              </View>
+            </View>
+
+            {watermarkEnabled ? (
+              <View style={styles.watermarkOptionsWrap}>
+                {agencyData?.logoUrl ? (
+                  <View style={styles.segmentedRow}>
+                    <Pressable
+                      style={[styles.segmentBtn, watermarkType === "default_text" && styles.segmentBtnActive]}
+                      onPress={() => setWatermarkType("default_text")}
+                    >
+                      <Text style={[styles.segmentBtnText, watermarkType === "default_text" && styles.segmentBtnTextActive]}>
+                        Κείμενο ({agencyData.name || "CampuStay"})
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      style={[styles.segmentBtn, watermarkType === "agency_logo" && styles.segmentBtnActive]}
+                      onPress={() => setWatermarkType("agency_logo")}
+                    >
+                      <Text style={[styles.segmentBtnText, watermarkType === "agency_logo" && styles.segmentBtnTextActive]}>
+                        Logo Γραφείου
+                      </Text>
+                    </Pressable>
+                  </View>
+                ) : null}
+
+                {watermarkType === "agency_logo" && agencyData?.logoUrl ? (
+                  <View style={styles.logoStyleOptions}>
+                    <Text style={styles.styleOptionLabel}>Στυλ εμφάνισης Logo:</Text>
+                    <View style={styles.radioOptionsList}>
+                      {[
+                        { id: "with_bg", label: "Με φόντο" },
+                        { id: "no_bg", label: "Χωρίς φόντο" },
+                        { id: "no_bg_transparent", label: "Χωρίς φόντο & Ημιδιάφανο" },
+                      ].map((option) => (
+                        <Pressable
+                          key={option.id}
+                          style={[styles.radioRow, logoStyle === option.id && styles.radioRowActive]}
+                          onPress={() => setLogoStyle(option.id as LogoWatermarkStyle)}
+                        >
+                          <View style={[styles.radioDot, logoStyle === option.id && styles.radioDotActive]}>
+                            {logoStyle === option.id ? <View style={styles.radioDotInner} /> : null}
+                          </View>
+                          <Text style={[styles.radioText, logoStyle === option.id && styles.radioTextActive]}>{option.label}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  </View>
+                ) : null}
+
+                <View style={styles.watermarkPreviewBox}>
+                  <Text style={styles.previewLabel}>Προεπισκόπηση Watermark:</Text>
+                  <View style={styles.previewThumbSample}>
+                    <Text style={styles.previewPlaceholderText}>Δείγμα Εικόνας</Text>
+                    <WatermarkBadge
+                      config={{
+                        enabled: true,
+                        type: watermarkType,
+                        text: agencyData?.name || "CampuStay",
+                        logoUrl: agencyData?.logoUrl,
+                        logoStyle,
+                      }}
+                    />
+                  </View>
+                </View>
+              </View>
+            ) : null}
 
             <View style={styles.sectionHeaderRow}>
               <View style={styles.sectionTitleWrap}>
                 <Ionicons name="sparkles-outline" size={19} color={colors.onSurface} />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.sectionTitle}>AI Virtual Staging / Βελτίωση Φωτογραφιών</Text>
-                  <Text style={styles.fieldHint}>{virtualStagingEnabled ? "Πατήστε μια φωτογραφία για να την επισημάνετε για μελλοντικό staging." : "Ενεργοποιήστε το για να επιλέξετε άδειους χώρους."}</Text>
+                  <Text style={styles.sectionTitle}> AI Virtual Staging</Text>
+                  {virtualStagingEnabled ? <Text style={styles.fieldHint}> Πατήστε μια φωτογραφία για να την  επισημάνετε για μελλοντικό staging.</Text> : null}
                 </View>
+                <Switch value={virtualStagingEnabled} onValueChange={setVirtualStagingEnabled} trackColor={{ false: colors.border, true: colors.brandSecondary }} thumbColor={virtualStagingEnabled ? colors.brand : colors.onSurface} testID="create-listing-virtual-staging-toggle" />
               </View>
-              <Switch value={virtualStagingEnabled} onValueChange={setVirtualStagingEnabled} trackColor={{ false: colors.border, true: colors.brandSecondary }} thumbColor={virtualStagingEnabled ? colors.brand : colors.onSurface} testID="create-listing-virtual-staging-toggle" />
             </View>
             {virtualStagingEnabled && virtualStagingPhotoIndexes.length > 0 ? <Text style={styles.fieldHint}>{virtualStagingPhotoIndexes.length} φωτογραφία/ες επισημάνθηκαν για AI επεξεργασία.</Text> : null}
 
@@ -2882,8 +3016,8 @@ export default function CreateListingScreen() {
               <View style={styles.sectionTitleWrap}>
                 <Ionicons name="videocam-outline" size={19} color={colors.onSurface} />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.sectionTitle}>{t("feed.uploadReel")}</Text>
-                  <Text style={styles.fieldHint}>Προσθέστε ένα κάθετο video έως 60 δευτερόλεπτα για το Reels Feed.</Text>
+                  <Text style={styles.sectionTitle}> {t("feed.uploadReel")}</Text>
+                  <Text style={styles.fieldHint}>  Kάθετο video έως 60 sec για το Feed.</Text>
                 </View>
               </View>
               {reelVideoUri ? <Pressable onPress={() => setReelVideoUri(null)} hitSlop={8} accessibilityLabel="Remove reel video" testID="create-listing-remove-reel"><Ionicons name="trash-outline" size={19} color={colors.error} /></Pressable> : null}
@@ -2894,55 +3028,15 @@ export default function CreateListingScreen() {
             </Pressable>
             {reelVideoUri ? <Text style={styles.fieldHint}>{reelVideoUri.startsWith("http") ? "Το video reel είναι αποθηκευμένο στην αγγελία." : "Το video reel θα ανέβει με τη δημοσίευση."}</Text> : null}
 
-            {error ? <Text style={styles.errorText}>{error}</Text> : null}
-          </View>
-
-          <View style={styles.card}>
-            <Pressable
-              style={styles.expandHeaderRow}
-              onPress={() => setIsExtraInfoExpanded((prev) => !prev)}
-              testID="create-listing-extra-info-toggle"
-            >
-              <Text style={styles.sectionTitle}>Χαρακτηριστικά Ακινήτου</Text>
-              <Ionicons
-                name={isExtraInfoExpanded ? "chevron-up" : "chevron-down"}
-                size={20}
-                color={colors.onSurface}
-              />
-            </Pressable>
-
-            {isExtraInfoExpanded && (
-              <>
-                <View style={styles.formRow}>
-                  <View style={styles.formColumn}>
-                    <Dropdown value={propertyCategory} options={propertyCategoryOptions} placeholder="Κατηγορία ακινήτου" onSelect={setPropertyCategory} testID="create-listing-property-category-dropdown" />
-                  </View>
-                  <View style={styles.formColumn}>
-                    <Dropdown value={propertyType} options={propertyTypeOptions} placeholder="Είδος ακινήτου" onSelect={setPropertyType} testID="create-listing-property-type-dropdown" />
-                  </View>
-                </View>
-                <View style={styles.formRow}>
-                  <View style={styles.formColumn}>
-                    <Dropdown value={floor} options={floorOptions} placeholder="Όροφος" onSelect={setFloor} testID="create-listing-floor-dropdown" />
-                  </View>
-                  <View style={styles.formColumn}>
-                    <TextInput value={rooms} onChangeText={(value) => setRooms(digitsOnlyInput(value))} onBlur={() => setRooms(normalizeIntegerOnBlur(rooms, 1, 99, 1))} placeholder="Δωμάτια" placeholderTextColor={colors.onSurfaceTertiary} keyboardType="number-pad" maxLength={2} style={styles.input} testID="create-listing-rooms-input" />
-                  </View>
-                </View>
-              </>
-            )}
-          </View>
-
-          <View style={styles.card} testID="virtual-tour-controls-section">
             <View style={styles.sectionHeaderRow}>
               <View style={styles.sectionTitleWrap}>
                 <Ionicons color={colors.onSurface} name="cube-outline" size={20} />
-                <View>
-                  <Text style={styles.sectionTitle}>Προσθήκη 360° Virtual Tour</Text>
-                  <Text style={styles.fieldHint}>Προσθέστε πανοραμικές εικόνες για περιήγηση στους χώρους.</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.sectionTitle}> Προσθήκη 360° Virtual Tour</Text>
+                  <Text style={styles.fieldHint}>  Προσθέστε πανοραμικές εικόνες.</Text>
                 </View>
+                <Switch value={enableVirtualTour} onValueChange={setEnableVirtualTour} trackColor={{ false: colors.border, true: colors.brandSecondary }} thumbColor={enableVirtualTour ? colors.brand : colors.onSurface} testID="create-listing-virtual-tour-toggle" />
               </View>
-              <Switch value={enableVirtualTour} onValueChange={setEnableVirtualTour} trackColor={{ false: colors.border, true: colors.brandSecondary }} thumbColor={enableVirtualTour ? colors.brand : colors.onSurface} testID="create-listing-virtual-tour-toggle" />
             </View>
             {enableVirtualTour ? (
               <>
@@ -3010,9 +3104,12 @@ export default function CreateListingScreen() {
                 {tourScenes.length === 0 ? <Text style={styles.fieldHint}>Δεν έχουν προστεθεί ακόμη πανοράματα.</Text> : null}
               </>
             ) : null}
+
+            {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
           </View>
 
-          <View style={styles.sectionCard} testID="section-2d-3d-files">
+          <View style={styles.card} testID="section-2d-3d-files">
             <View style={styles.sectionHeaderRow}>
               <View style={styles.sectionTitleWrap}>
                 <Ionicons color={colors.onSurface} name="cube-outline" size={20} />
@@ -3028,7 +3125,7 @@ export default function CreateListingScreen() {
               </Pressable>
             </View>
             <Text style={styles.attachmentSubtitle}>
-              Επισυνάψτε κατόψεις, σχέδια 2D ή φωτορεαλιστικά 3D σε μορφή εικόνας (PNG, JPG).
+              Κατόψεις, σχέδια 2D ή φωτορεαλιστικά 3D.
             </Text>
             {files2d3d.length > 0 ? (
               <View style={styles.attachedFilesList}>
@@ -3050,152 +3147,6 @@ export default function CreateListingScreen() {
               </View>
             )}
           </View>
-
-          <View style={styles.watermarkCard} testID="watermark-controls-section">
-            <View style={styles.watermarkHeaderRow}>
-              <View style={styles.watermarkTitleCol}>
-                <Text style={styles.watermarkTitle}>Προσθήκη default watermark</Text>
-              </View>
-              <Switch
-                value={watermarkEnabled}
-                onValueChange={setWatermarkEnabled}
-                trackColor={{ false: colors.border, true: colors.brandSecondary }}
-                thumbColor={watermarkEnabled ? colors.onBrand : colors.onSurface}
-                testID="watermark-toggle"
-              />
-            </View>
-
-            {watermarkEnabled ? (
-              <View style={styles.watermarkOptionsWrap}>
-                {agencyData?.logoUrl ? (
-                  <View style={styles.segmentedRow}>
-                    <Pressable
-                      style={[styles.segmentBtn, watermarkType === "default_text" && styles.segmentBtnActive]}
-                      onPress={() => setWatermarkType("default_text")}
-                    >
-                      <Text style={[styles.segmentBtnText, watermarkType === "default_text" && styles.segmentBtnTextActive]}>
-                        Κείμενο ({agencyData.name || "CampuStay"})
-                      </Text>
-                    </Pressable>
-                    <Pressable
-                      style={[styles.segmentBtn, watermarkType === "agency_logo" && styles.segmentBtnActive]}
-                      onPress={() => setWatermarkType("agency_logo")}
-                    >
-                      <Text style={[styles.segmentBtnText, watermarkType === "agency_logo" && styles.segmentBtnTextActive]}>
-                        Logo Γραφείου
-                      </Text>
-                    </Pressable>
-                  </View>
-                ) : null}
-
-                {watermarkType === "agency_logo" && agencyData?.logoUrl ? (
-                  <View style={styles.logoStyleOptions}>
-                    <Text style={styles.styleOptionLabel}>Στυλ εμφάνισης Logo:</Text>
-                    <View style={styles.radioOptionsList}>
-                      {[
-                        { id: "with_bg", label: "Με φόντο" },
-                        { id: "no_bg", label: "Χωρίς φόντο" },
-                        { id: "no_bg_transparent", label: "Χωρίς φόντο & Ημιδιάφανο" },
-                      ].map((option) => (
-                        <Pressable
-                          key={option.id}
-                          style={[styles.radioRow, logoStyle === option.id && styles.radioRowActive]}
-                          onPress={() => setLogoStyle(option.id as LogoWatermarkStyle)}
-                        >
-                          <View style={[styles.radioDot, logoStyle === option.id && styles.radioDotActive]}>
-                            {logoStyle === option.id ? <View style={styles.radioDotInner} /> : null}
-                          </View>
-                          <Text style={[styles.radioText, logoStyle === option.id && styles.radioTextActive]}>{option.label}</Text>
-                        </Pressable>
-                      ))}
-                    </View>
-                  </View>
-                ) : null}
-
-                <View style={styles.watermarkPreviewBox}>
-                  <Text style={styles.previewLabel}>Προεπισκόπηση Watermark:</Text>
-                  <View style={styles.previewThumbSample}>
-                    <Text style={styles.previewPlaceholderText}>Δείγμα Εικόνας</Text>
-                    <WatermarkBadge
-                      config={{
-                        enabled: true,
-                        type: watermarkType,
-                        text: agencyData?.name || "CampuStay",
-                        logoUrl: agencyData?.logoUrl,
-                        logoStyle,
-                      }}
-                    />
-                  </View>
-                </View>
-              </View>
-            ) : null}
-          </View>
-
-          {isBrokerMode ? (
-            <View style={styles.card}>
-              <Pressable
-                style={styles.expandHeaderRow}
-                onPress={() => setIsBrokerPrivatePhotosExpanded((prev) => !prev)}
-                testID="create-listing-broker-private-photos-toggle"
-              >
-                <Text style={styles.sectionTitle}>Επιπλέον φωτογραφίες (Μόνο για το γραφείο)</Text>
-                <Ionicons
-                  name={isBrokerPrivatePhotosExpanded ? "chevron-up" : "chevron-down"}
-                  size={20}
-                  color={colors.onSurface}
-                />
-              </Pressable>
-
-              {isBrokerPrivatePhotosExpanded ? (
-                <View style={styles.brokerPrivatePhotosContent}>
-                  <Text style={styles.fieldHint}>
-                    Οι φωτογραφίες αυτές είναι αυστηρά εμπιστευτικές, δεν εμφανίζονται στην αγγελία και είναι
-                    προσβάσιμες μόνο από το γραφείο που τη διαχειρίζεται.
-                  </Text>
-                  <Text style={styles.fieldHint}>
-                    {`${brokerPrivatePhotos.length}/${BROKER_PRIVATE_PHOTO_SLOTS} φωτογραφίες`}
-                  </Text>
-
-                  <View style={styles.photoGrid}>
-                    {Array.from({ length: BROKER_PRIVATE_PHOTO_SLOTS }, (_, index) => index).map((index) => {
-                      const uri = brokerPrivatePhotos[index];
-                      const filled = !!uri;
-                      return (
-                        <Pressable
-                          key={`broker-private-photo-slot-${index}`}
-                          onPress={() => {
-                            if (filled) {
-                              removeBrokerPrivatePhoto(index);
-                              return;
-                            }
-                            openImagePicker("brokerPrivate");
-                          }}
-                          style={[styles.photoTile, filled ? styles.photoTileFilled : styles.photoTileEmpty]}
-                          testID={`create-listing-broker-private-photo-slot-${index}`}
-                        >
-                          {filled ? (
-                            <>
-                              <Image source={{ uri }} style={styles.photoImage} contentFit="cover" />
-                              <View style={styles.photoOverlay}>
-                                <Ionicons name="close-circle" size={20} color={colors.onSurface} />
-                              </View>
-                            </>
-                          ) : (
-                            <>
-                              <Ionicons name="add" size={26} color={colors.onSurfaceTertiary} />
-                              <Text style={[styles.photoTileText, styles.photoTileTextMuted]}>
-                                {t("common.actions.add")}
-                              </Text>
-                            </>
-                          )}
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </View>
-              ) : null}
-            </View>
-          ) : null}
 
           {isBrokerMode ? (
             <View
@@ -3377,7 +3328,6 @@ export default function CreateListingScreen() {
             <View style={styles.contactToggleRow}>
               <View style={styles.contactToggleTextWrap}>
                 <Text style={styles.contactToggleLabel}>Εμφάνιση τηλεφώνου επικοινωνίας στην αγγελία</Text>
-                <Text style={styles.fieldHint}>Η επιλογή αυτή εμφανίζει το τηλέφωνο του προφίλ του host στη σελίδα της αγγελίας.</Text>
               </View>
               <Switch
                 value={showPhoneNumber}
@@ -3391,7 +3341,6 @@ export default function CreateListingScreen() {
               <View style={styles.contactToggleRow}>
                 <View style={styles.contactToggleTextWrap}>
                   <Text style={styles.contactToggleLabel}>Απόκρυψη από μεσίτες</Text>
-                  <Text style={styles.fieldHint}>Ο αριθμός τηλεφώνου δεν θα εμφανίζεται σε χρήστες με μεσιτικό λογαριασμό.</Text>
                 </View>
                 <Switch
                   value={hidePhoneFromBrokers}
@@ -3403,6 +3352,43 @@ export default function CreateListingScreen() {
               </View>
             ) : null}
           </View>
+
+          <View style={styles.card}>
+            <Pressable
+              style={styles.expandHeaderRow}
+              onPress={() => setIsExtraInfoExpanded((prev) => !prev)}
+              testID="create-listing-extra-info-toggle"
+            >
+              <Text style={styles.sectionTitle}>Χαρακτηριστικά Ακινήτου</Text>
+              <Ionicons
+                name={isExtraInfoExpanded ? "chevron-up" : "chevron-down"}
+                size={20}
+                color={colors.onSurface}
+              />
+            </Pressable>
+
+            {isExtraInfoExpanded && (
+              <>
+                <View style={styles.formRow}>
+                  <View style={styles.formColumn}>
+                    <Dropdown value={propertyCategory} options={propertyCategoryOptions} placeholder="Κατηγορία ακινήτου" onSelect={setPropertyCategory} testID="create-listing-property-category-dropdown" />
+                  </View>
+                  <View style={styles.formColumn}>
+                    <Dropdown value={propertyType} options={propertyTypeOptions} placeholder="Είδος ακινήτου" onSelect={setPropertyType} testID="create-listing-property-type-dropdown" />
+                  </View>
+                </View>
+                <View style={styles.formRow}>
+                  <View style={styles.formColumn}>
+                    <Dropdown value={floor} options={floorOptions} placeholder="Όροφος" onSelect={setFloor} testID="create-listing-floor-dropdown" />
+                  </View>
+                  <View style={styles.formColumn}>
+                    <TextInput value={rooms} onChangeText={(value) => setRooms(digitsOnlyInput(value))} onBlur={() => setRooms(normalizeIntegerOnBlur(rooms, 1, 99, 1))} placeholder="Δωμάτια" placeholderTextColor={colors.onSurfaceTertiary} keyboardType="number-pad" maxLength={2} style={styles.input} testID="create-listing-rooms-input" />
+                  </View>
+                </View>
+              </>
+            )}
+          </View>
+
 
           <View style={styles.card}>
             <Pressable
