@@ -1,16 +1,17 @@
 import { Redirect } from "expo-router";
 import { useAuth } from "@/src/context/auth";
+import { isBrokerOrSecretariat } from "@/src/utils/roles";
 
 export default function Index() {
-  const { isLoading, isLoggedIn, isGuestMode, needsProfileSetup, isBroker, notLookingForRoommate } = useAuth();
+  const auth = useAuth();
 
-  if (isLoading) return null;
+  if (auth.isLoading) return null;
 
-  if (isLoggedIn) {
-    const targetHome = isBroker || notLookingForRoommate ? "/calendar" : "/roommates";
-    return <Redirect href={needsProfileSetup ? "/edit-profile" : targetHome} />;
+  if (auth.isLoggedIn) {
+    const targetHome = isBrokerOrSecretariat(auth) ? "/(tabs)/apartment-pool" : "/(tabs)/apartments";
+    return <Redirect href={auth.needsProfileSetup ? "/edit-profile" : targetHome} />;
   }
-  if (isGuestMode) {
+  if (auth.isGuestMode) {
     return <Redirect href="/roommates" />;
   }
   return <Redirect href="/auth-landing" />;

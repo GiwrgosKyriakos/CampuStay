@@ -5,6 +5,7 @@ import GlassTabBar from "@/src/components/GlassTabBar";
 import { useTheme } from "@/src/context/ThemeContext";
 import { useAuth } from "@/src/context/auth";
 import { t } from "@/src/locales";
+import { isBrokerOrSecretariat } from "@/src/utils/roles";
 
 export default function TabsLayout() {
   const { colors } = useTheme();
@@ -18,8 +19,8 @@ export default function TabsLayout() {
   const canViewSettlements = hasAgency && isCeo;
   const canViewExecutiveTools = hasAgency && isExecutive;
   const effectiveBroker = isBroker || isExecutive;
-  const isSeekerUser = !isBroker && !notLookingForRoommate;
-  const initialRouteName = isExecutive ? "analytics" : effectiveBroker || notLookingForRoommate ? "calendar" : isSeekerUser ? "explore-feed" : "apartments";
+  const isBrokerOrSecretariatUser = isBrokerOrSecretariat(auth);
+  const initialRouteName = isBrokerOrSecretariatUser ? "apartment-pool" : "apartments";
 
   return (
     <Tabs
@@ -80,7 +81,7 @@ export default function TabsLayout() {
         options={{
           title: "Apartment Pool",
           tabBarIcon: ({ color, size }) => <Ionicons color={color} name="business-outline" size={size} />,
-          href: isExecutive || (isBroker && hasAgency) ? undefined : null,
+          href: isBrokerOrSecretariatUser ? undefined : null,
         }}
       />
       <Tabs.Screen

@@ -10,6 +10,7 @@ import * as WebBrowser from "expo-web-browser";
 import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
 import { useAuth } from "@/src/context/auth";
 import { t } from "@/src/locales";
+import { isBrokerOrSecretariat } from "@/src/utils/roles";
 
 export default function AuthLandingScreen() {
   const { colors } = useTheme();
@@ -18,15 +19,11 @@ export default function AuthLandingScreen() {
   const router = useRouter();
   const auth = useAuth();
   const [googleLoading, setGoogleLoading] = useState(false);
-  const defaultHomeRoute = auth.isBroker
-    ? "/calendar"
-    : auth.notLookingForRoommate
-    ? "/apartments"
-    : "/roommates";
+  const defaultHomeRoute = isBrokerOrSecretariat(auth) ? "/(tabs)/apartment-pool" : "/(tabs)/apartments";
 
   React.useEffect(() => {
     if (!auth.isLoading && auth.isLoggedIn) {
-      router.replace(auth.needsProfileSetup ? "/edit-profile" : defaultHomeRoute as any);
+      router.replace(auth.needsProfileSetup ? "/edit-profile" : defaultHomeRoute);
     }
   }, [auth.isLoading, auth.isLoggedIn, auth.needsProfileSetup, defaultHomeRoute, router]);
 
@@ -39,7 +36,7 @@ export default function AuthLandingScreen() {
     try {
       console.log("[AuthLanding] -> User tapped Google Sign-In button");
       await auth.signInWithGoogle();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("[AuthLanding] X Google sign-in initialization failed:", err);
     } finally {
       setGoogleLoading(false);
@@ -93,7 +90,6 @@ export default function AuthLandingScreen() {
             )}
           </LinearGradient>
         </Pressable>
-
         {/* Divider */}
         <View style={styles.dividerContainer}>
           <View style={styles.dividerLine} />

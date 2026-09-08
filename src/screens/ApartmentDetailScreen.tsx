@@ -7,6 +7,7 @@ import {
   Linking,
   NativeScrollEvent,
   NativeSyntheticEvent,
+  PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -83,7 +84,8 @@ import { checkoutKeySafe, returnKeySafe, updateOpenHouseConfig } from "@/src/api
 import CrossBrokerVisitModal from "@/src/components/CrossBrokerVisitModal";
 import OpenHouseScannerModal from "@/src/components/OpenHouseScannerModal";
 import CmaValuationModal from "@/src/components/CmaValuationModal";
-import FeedbackSentimentCard from "@/src/components/FeedbackSentimentCard";
+import { AiServiceError, fetchShowingFeedbackSentiment, type FeedbackSentimentAnalysis } from "@/src/services/aiFeatureService";
+import PriceHistoryChart, { type PriceHistoryEntry } from "@/src/components/PriceHistoryChart";
 import SignContractModal from "@/src/components/SignContractModal";
 import PropertyAssignmentSetupModal from "@/src/components/PropertyAssignmentSetupModal";
 import { sendContractChatRequest } from "@/src/api/contracts";
@@ -182,6 +184,8 @@ interface BrokerClientWithFilters {
 
 interface Apartment {
   id: string;
+  brokerId?: string;
+  creatorId?: string;
   transactionType?: "sale" | "rent";
   price?: number;
   title: string;
@@ -227,9 +231,12 @@ interface Apartment {
   files2d3d?: string[];
   virtualTour?: VirtualTourData;
   withdrawalMetadata?: ListingWithdrawalMetadata;
+  priceHistory?: PriceHistoryEntry[];
 }
 
 interface FirestoreApartmentDoc {
+  brokerId?: string;
+  creatorId?: string;
   transactionType?: "sale" | "rent";
   price?: number;
   title?: string;
@@ -282,6 +289,7 @@ interface FirestoreApartmentDoc {
   files2d3d?: string[];
   virtualTour?: VirtualTourData;
   withdrawalMetadata?: ListingWithdrawalMetadata;
+  priceHistory?: unknown;
 }
 
 interface FirestoreInquiryChatDoc {
@@ -440,6 +448,30 @@ function toMillis(value: unknown): number {
     return (value as TimestampLike).toMillis!();
   }
   return 0;
+}
+
+function normalizePriceHistory(value: unknown): PriceHistoryEntry[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.filter((candidate): candidate is PriceHistoryEntry => {
+    if (!candidate || typeof candidate !== "object") return false;
+    const entry = candidate as {
+      price?: unknown;
+      expectedPrice?: unknown;
+      timestamp?: unknown;
+      dateLabel?: unknown;
+      brokerName?: unknown;
+      brokerId?: unknown;
+    };
+    return typeof entry.price === "number"
+      && Number.isFinite(entry.price)
+      && typeof entry.timestamp === "number"
+      && Number.isFinite(entry.timestamp)
+      && typeof entry.dateLabel === "string"
+      && (entry.expectedPrice === undefined || entry.expectedPrice === null || (typeof entry.expectedPrice === "number" && Number.isFinite(entry.expectedPrice)))
+      && (entry.brokerName === undefined || typeof entry.brokerName === "string")
+      && (entry.brokerId === undefined || typeof entry.brokerId === "string");
+  });
 }
 
 function getBrokerPropertyStageLabel(stage: BrokerPropertyDealStage): string {
@@ -707,6 +739,8 @@ export default function ApartmentDetailScreen() {
   const [files2d3d, setFiles2d3d] = useState<string[]>([]);
   const [selectedFileModal, setSelectedFileModal] = useState<{ title: string; uri: string } | null>(null);
   const [realDescription, setRealDescription] = useState<string | null>(null);
+  const [priceHistory, setPriceHistory] = useState<PriceHistoryEntry[]>(() => normalizePriceHistory(apt?.priceHistory));
+  const [selectedHistoryNode, setSelectedHistoryNode] = useState<PriceHistoryEntry | null>(null);
   const [realTags, setRealTags] = useState<string[]>([]);
   const [resolvedExtraDetails, setResolvedExtraDetails] = useState<Record<string, boolean> | null>(null);
   const [resolvedExtraInformation, setResolvedExtraInformation] = useState<ListingExtraInformation | null>(null);
@@ -725,6 +759,8 @@ export default function ApartmentDetailScreen() {
   const [resolvedHostId, setResolvedHostId] = useState<string | null>(apt?.hostId || apt?.ownerId || null);
   const [hostUserData, setHostUserData] = useState<FirestoreUserDoc | null>(null);
   const [hostProfileLoaded, setHostProfileLoaded] = useState(false);
+  const [resolvedBrokerId, setResolvedBrokerId] = useState(apt?.brokerId || null);
+  const [resolvedCreatorId, setResolvedCreatorId] = useState(apt?.creatorId || null);
   const [resolvedAssignedBrokerIds, setResolvedAssignedBrokerIds] = useState<string[]>(apt?.assignedBrokerIds || []);
   const [resolvedAgencyId, setResolvedAgencyId] = useState(apt?.agencyId || "");
   const [resolvedOpenHouseConfig, setResolvedOpenHouseConfig] = useState<OpenHouseConfig | undefined>(apt?.openHouseConfig);
@@ -735,7 +771,10 @@ export default function ApartmentDetailScreen() {
   const [resolvedVirtualTour, setResolvedVirtualTour] = useState<VirtualTourData | undefined>(apt?.virtualTour);
   const [isVirtualTourVisible, setIsVirtualTourVisible] = useState(false);
   const [isCmaVisible, setIsCmaVisible] = useState(false);
-  const [sentimentRefreshKey, setSentimentRefreshKey] = useState(0);
+  const [sentimentResult, setSentimentResult] = useState<FeedbackSentimentAnalysis | null>(null);
+  const [sentimentErrorText, setSentimentErrorText] = useState<string | null>(null);
+  const [isSentimentLoading, setIsSentimentLoading] = useState(false);
+  const sentimentNextAllowedRequest = useRef(0);
   const offMarketGuardShown = useRef(false);
 
   const [clientPool, setClientPool] = useState<BrokerClientWithFilters[]>([]);
@@ -759,6 +798,22 @@ export default function ApartmentDetailScreen() {
   const [newInteractionClientId, setNewInteractionClientId] = useState("");
   const [newInteractionNote, setNewInteractionNote] = useState("");
   const [isSavingInteraction, setIsSavingInteraction] = useState(false);
+  const apartmentId = apt?.id;
+
+  const refreshSentiment = async () => {
+    if (!apartmentId || isSentimentLoading || Date.now() < sentimentNextAllowedRequest.current) return;
+    sentimentNextAllowedRequest.current = Date.now() + 3000;
+    setIsSentimentLoading(true);
+    setSentimentErrorText(null);
+    try {
+      setSentimentResult(await fetchShowingFeedbackSentiment(apartmentId));
+    } catch (error) {
+      setSentimentErrorText(error instanceof AiServiceError ? error.message : "Δεν ήταν δυνατή η ανάλυση των σχολίων.");
+    } finally {
+      setIsSentimentLoading(false);
+    }
+  };
+
   const [userRating, setUserRating] = useState<number | null>(null);
   const [ratingDraft, setRatingDraft] = useState(8);
   const [isRatingModalVisible, setIsRatingModalVisible] = useState(false);
@@ -774,13 +829,49 @@ export default function ApartmentDetailScreen() {
   const [assignmentSetupVisible, setAssignmentSetupVisible] = useState(false);
   const [contractDraft, setContractDraft] = useState<ContractDraftContext | null>(null);
 
+  const currentUserId = auth.userId || auth.user?.user_id;
+  const isManagingBroker = Boolean(
+    auth.isBroker &&
+    currentUserId &&
+    (resolvedBrokerId === currentUserId ||
+      resolvedCreatorId === currentUserId ||
+      resolvedAssignedBrokerIds.includes(currentUserId)),
+  );
+
+  useEffect(() => {
+    if (isManagingBroker) void refreshSentiment();
+  }, [apartmentId, isManagingBroker]);
+
   const isListingOwner = useMemo(() => {
     if (!apt || !auth.userId) return false;
     const isDirectOwner = (!!apt.ownerId && apt.ownerId === auth.userId) || (!!apt.hostId && apt.hostId === auth.userId);
     const isAssigned = resolvedAssignedBrokerIds.includes(auth.userId);
     return isDirectOwner || (auth.isBroker && isAssigned);
   }, [apt, auth.isBroker, auth.userId, resolvedAssignedBrokerIds]);
-  const canManageKeySafe = Boolean(auth.isBroker && auth.agencyId && resolvedAgencyId === auth.agencyId && apt?.id);
+  const [viewMode, setViewMode] = useState<"client" | "broker">("client");
+  const viewModePanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponderCapture: (_event, gestureState) =>
+          Math.abs(gestureState.dx) > Math.abs(gestureState.dy) && Math.abs(gestureState.dx) > 10,
+        onMoveShouldSetPanResponder: (_event, gestureState) =>
+          Math.abs(gestureState.dx) > Math.abs(gestureState.dy) && Math.abs(gestureState.dx) > 10,
+        onPanResponderTerminationRequest: () => false,
+        onPanResponderRelease: (_event, gestureState) => {
+          if (gestureState.dx > 25) {
+            setViewMode("broker");
+          } else if (gestureState.dx < -25) {
+            setViewMode("client");
+          }
+        },
+      }),
+    [],
+  );
+  const canViewPriceHistory = Boolean(
+    isManagingBroker && priceHistory.length > 0,
+  );
+  const canManageKeySafe = Boolean(isManagingBroker && auth.agencyId && resolvedAgencyId === auth.agencyId && apt?.id);
   const crossBrokerListingBrokerId = resolvedAssignedBrokerIds.find((brokerId) => brokerId !== auth.userId)
     || (hostUserData?.is_broker === true && resolvedHostId !== auth.userId ? resolvedHostId : null);
   const canScheduleCrossBrokerVisit = Boolean(auth.isBroker && auth.userId && auth.agencyId && resolvedAgencyId === auth.agencyId && crossBrokerListingBrokerId && crossBrokerListingBrokerId !== auth.userId && auth.userId !== (apt?.hostId || apt?.ownerId));
@@ -1518,10 +1609,14 @@ export default function ApartmentDetailScreen() {
     if (!apt?.id) return;
 
     let mounted = true;
+    setResolvedBrokerId(apt.brokerId || null);
+    setResolvedCreatorId(apt.creatorId || null);
     setResolvedHostId(apt.hostId || apt.ownerId || null);
     setResolvedAssignedBrokerIds(Array.isArray(apt.assignedBrokerIds) ? apt.assignedBrokerIds : []);
     setResolvedAgencyId(apt.agencyId || "");
     setResolvedOpenHouseConfig(apt.openHouseConfig);
+    setPriceHistory(normalizePriceHistory(apt.priceHistory));
+    setSelectedHistoryNode(null);
     setHostUserData(null);
     setHostProfileLoaded(false);
 
@@ -1534,6 +1629,8 @@ export default function ApartmentDetailScreen() {
         }
 
         const docData = docSnap.data() as FirestoreApartmentDoc;
+      setResolvedBrokerId(typeof docData.brokerId === "string" ? docData.brokerId : apt?.brokerId || null);
+      setResolvedCreatorId(typeof docData.creatorId === "string" ? docData.creatorId : apt?.creatorId || null);
         setIsOffMarketListing(docData.isOffMarket === true);
         setOffMarketAccessUserIds(Array.isArray(docData.offMarketAccessUserIds) ? docData.offMarketAccessUserIds : []);
         setResolvedWatermarkConfig(docData.watermarkConfig);
@@ -1555,6 +1652,7 @@ export default function ApartmentDetailScreen() {
         setResolvedHostId(docData.hostId || docData.ownerId || apt?.hostId || apt?.ownerId || null);
         setResolvedExtraDetails(normalizeExtraDetailsMap(docData.extraDetails));
         setResolvedExtraInformation(normalizeExtraInformation(docData.extraInformation));
+        setPriceHistory(normalizePriceHistory(docData.priceHistory));
         setPublishedAtMillis(toMillis(docData.publishedAt) || toMillis(docData.createdAt) || null);
         setUpdatedAtMillis(toMillis(docData.updatedAt) || null);
         setApartmentStatus(docData.status === "closed_deal" ? "closed_deal" : docData.status === "withdrawn" ? "withdrawn" : docData.status === "rented" ? "rented" : docData.status === "sold" ? "sold" : docData.status === "under_negotiation" ? "under_negotiation" : "active");
@@ -1619,6 +1717,8 @@ export default function ApartmentDetailScreen() {
       setKeySafeLocation(typeof data.keySafeLocation === "string" ? data.keySafeLocation : "");
       setKeySafeLogs(Array.isArray(data.keySafeLogs) ? data.keySafeLogs : []);
       setResolvedOpenHouseConfig(data.openHouseConfig);
+      setResolvedBrokerId(typeof data.brokerId === "string" ? data.brokerId : apt?.brokerId || null);
+      setResolvedCreatorId(typeof data.creatorId === "string" ? data.creatorId : apt?.creatorId || null);
       setResolvedAssignedBrokerIds(Array.isArray(data.assignedBrokerIds) ? data.assignedBrokerIds : []);
     });
   }, [apt?.id]);
@@ -2809,15 +2909,17 @@ export default function ApartmentDetailScreen() {
                 >
                   <Ionicons name="analytics-outline" size={20} color={colors.brand} />
                 </Pressable>
-                <Pressable
-                  style={[styles.titleActionBtn, isClientsSectionOpen && styles.titleActionBtnActive]}
-                  onPress={handleToggleAndScrollToClients}
-                  testID={`apartment-detail-inquiries-btn-${apt.id}`}
-                  hitSlop={8}
-                  disabled={isReadOnlyWithdrawnCoBroker}
-                >
-                  <Ionicons name="chatbubbles-outline" size={18} color={colors.onSurface} />
-                </Pressable>
+                {isManagingBroker ? (
+                  <Pressable
+                    style={[styles.titleActionBtn, isClientsSectionOpen && styles.titleActionBtnActive]}
+                    onPress={handleToggleAndScrollToClients}
+                    testID={`apartment-detail-inquiries-btn-${apt.id}`}
+                    hitSlop={8}
+                    disabled={isReadOnlyWithdrawnCoBroker}
+                  >
+                    <Ionicons name="chatbubbles-outline" size={18} color={colors.onSurface} />
+                  </Pressable>
+                ) : null}
                 <Pressable
                   style={styles.titleActionBtn}
                   onPress={() => setDeleteModalVisible(true)}
@@ -2989,7 +3091,155 @@ export default function ApartmentDetailScreen() {
           </View>
         ) : null}
 
-        {isListingOwner && auth.isBroker ? (
+        {isManagingBroker ? (
+          <View style={styles.viewModeToggleWrapper} testID="apartment-detail-view-mode-toggle">
+            <View style={styles.viewModeToggleContainer} {...viewModePanResponder.panHandlers}>
+              <Pressable
+                style={[styles.viewModeButton, viewMode === "client" && styles.viewModeButtonActive]}
+                onPress={() => setViewMode("client")}
+                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                accessibilityRole="button"
+                accessibilityState={{ selected: viewMode === "client" }}
+                testID="apartment-detail-client-view-toggle"
+              >
+                <Text style={[styles.viewModeButtonText, viewMode === "client" && styles.viewModeButtonTextActive]}>Προβολή Πελάτη</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.viewModeButton, viewMode === "broker" && styles.viewModeButtonActive]}
+                onPress={() => setViewMode("broker")}
+                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                accessibilityRole="button"
+                accessibilityState={{ selected: viewMode === "broker" }}
+                testID="apartment-detail-broker-view-toggle"
+              >
+                <Text style={[styles.viewModeButtonText, viewMode === "broker" && styles.viewModeButtonTextActive]}>Προβολή Μεσίτη</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
+
+        {isManagingBroker && viewMode === "broker" ? (
+          <View style={styles.section}>
+            <View
+              style={styles.crmSectionContainer}
+              onLayout={(event) => setClientsSectionY(event.nativeEvent.layout.y)}
+              testID="apartment-detail-clients-section"
+            >
+                <Text style={styles.sectionTitle}>{auth.isBroker ? "Ενδιαφερόμενοι Πελάτες (CRM)" : "Ενδιαφερόμενοι"}</Text>
+                {isClientsSectionOpen || (isManagingBroker && viewMode === "broker") ? (
+                  <View style={styles.interestedClientsFrame}>
+                    <ScrollView
+                      nestedScrollEnabled={true}
+                      showsVerticalScrollIndicator={true}
+                      contentContainerStyle={styles.clientsContentWrap}
+                    >
+                {auth.isBroker ? (
+                  loadingBrokerPropertyDealLeads ? (
+                    <InquiryCandidatesSkeleton />
+                  ) : brokerPropertyDealLeads.length === 0 ? (
+                    <View style={styles.crmEmptyState}>
+                      <Text style={styles.crmEmptyStateText}>Δεν υπάρχουν ακόμη ενδιαφερόμενοι πελάτες για αυτό το ακίνητο</Text>
+              </View>
+                  ) : (
+                    brokerPropertyDealLeads.map((client) => {
+                      const hasChat = Boolean(client.chatRoomId) && (client.messageCount > 0 || Boolean(client.lastMessageText.trim()));
+                      const stageTone = getBrokerPropertyStageTone(client.pipelineStage, colors);
+                      const strategyInsight = strategyInsights.get(client.id);
+                      return (
+                        <View key={client.id} style={styles.clientLeadRow} testID={`apartment-detail-crm-client-${client.id}`}>
+                        <View style={styles.clientLeadMain}>
+                        <View style={styles.clientInfoWrap}>
+                          {client.avatar ? (
+                            <Image source={{ uri: client.avatar }} style={styles.clientAvatar} contentFit="cover" />
+                          ) : (
+                            <View style={[styles.clientAvatar, styles.clientAvatarFallback]}>
+                              <Ionicons color={colors.onSurfaceTertiary} name="person-outline" size={18} />
+                              </View>
+                            )}
+                            <View style={styles.clientInlineMetaRow}>
+                            <Text style={styles.clientName} numberOfLines={1}>{client.name}</Text>
+                            {client.rating ? <View style={[styles.crmRatingBadge, { backgroundColor: client.rating >= 8 ? "rgba(16,185,129,0.14)" : client.rating >= 5 ? "rgba(245,158,11,0.14)" : "rgba(239,68,68,0.14)" }]}><Ionicons color="#F59E0B" name="star" size={13} /><Text style={[styles.crmRatingText, { color: client.rating >= 8 ? "#059669" : client.rating >= 5 ? "#B45309" : "#DC2626" }]}>{`${client.rating}/10`}</Text></View> : <Text style={styles.crmNoRatingText}>Χωρίς βαθμολογία</Text>}
+                            <View style={[styles.stagePill, { backgroundColor: stageTone.backgroundColor }]}>
+                              <Text style={styles.stagePillText}>{getBrokerPropertyStageLabel(client.pipelineStage)}</Text>
+                            </View>
+                          </View>
+                        </View>
+                        {strategyInsight ? (
+                          <View style={[styles.advisoryContainer, strategyInsight.recommendationType === "PRIORITY_TARGET" ? styles.advisoryPriority : styles.advisoryCrossSell]} testID={`apartment-detail-strategy-${client.id}`}>
+                            <View style={styles.advisoryHeader}>
+                              <Ionicons name={strategyInsight.recommendationType === "PRIORITY_TARGET" ? "flag-outline" : "swap-horizontal-outline"} size={14} color={strategyInsight.recommendationType === "PRIORITY_TARGET" ? "#059669" : "#2563EB"} />
+                              <Text style={[styles.advisoryBadgeText, { color: strategyInsight.recommendationType === "PRIORITY_TARGET" ? "#059669" : "#2563EB" }]}>{strategyInsight.badgeLabel}</Text>
+                            </View>
+                            <Text style={styles.advisoryDescription}>{strategyInsight.advisoryText}</Text>
+                          </View>
+                        ) : null}
+                        </View>
+                        <View style={styles.crmActionButtonsRow}>
+                          {hasChat ? (
+                            <Pressable
+                              style={[styles.crmActionBtn, styles.crmActionBtnActive]}
+                              onPress={() => router.push({ pathname: "/chat/[id]", params: { id: client.id, chatRoomId: client.chatRoomId } })}
+                              accessibilityRole="button"
+                              accessibilityLabel={`Άνοιγμα συνομιλίας με ${client.name}`}
+                              testID={`apartment-detail-crm-chat-${client.id}`}
+                            >
+                              <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.brand} />
+                            </Pressable>
+                          ) : null}
+                          <Pressable
+                            style={styles.crmActionBtn}
+                            onPress={() => router.push({ pathname: "/broker-client-detail", params: { clientUserId: client.id } })}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Άνοιγμα προφίλ πελάτη ${client.name}`}
+                            testID={`apartment-detail-crm-client-detail-${client.id}`}
+                          >
+                            <Ionicons name="open-outline" size={18} color={colors.onSurface} />
+                          </Pressable>
+                        </View>
+                      </View>
+                    );
+                    })
+                  )
+                ) : (
+                  loadingHostInquiringClients ? (
+                    <InquiryCandidatesSkeleton />
+                  ) : hostInquiringClients.length === 0 ? (
+                    <View style={styles.crmEmptyState}>
+                      <Text style={styles.crmEmptyStateText}>Δεν υπάρχουν ακόμη ενδιαφερόμενοι πελάτες για αυτό το ακίνητο</Text>
+                    </View>
+                  ) : (
+                    ownerBrokerLeadGroups.map((group) => (
+                      <View key={group.brokerId} style={styles.brokerLeadsGroupContainer} testID={`owner-crm-broker-group-${group.brokerId}`}>
+                        <View style={styles.brokerHeaderRow}>
+                          {group.brokerAvatar ? <Image source={{ uri: group.brokerAvatar }} style={styles.brokerGroupAvatar} contentFit="cover" /> : <View style={[styles.brokerGroupAvatar, styles.clientAvatarFallback]}><Ionicons name="person-outline" size={14} color={colors.onSurfaceTertiary} /></View>}
+                          <Text style={styles.brokerNameText} numberOfLines={1}>{group.brokerName}</Text>
+                          <View style={styles.activeLeadsBadge}><Text style={styles.activeLeadsBadgeText}>{`${group.leads.length} ${t("crm.activeLeads")}`}</Text></View>
+                        </View>
+                        {group.leads.map((client) => (
+                          <View key={client.id} style={styles.clientLeadRow} testID={`host-client-row-${client.id}`}>
+                            <View style={styles.clientInfoWrap}>
+                              {client.avatar ? <Image source={{ uri: client.avatar }} style={styles.clientAvatar} contentFit="cover" /> : <View style={[styles.clientAvatar, styles.clientAvatarFallback]}><Ionicons color={colors.onSurfaceTertiary} name="person-outline" size={18} /></View>}
+                              <View style={styles.clientTextMeta}><Text numberOfLines={1} style={styles.clientName}>{client.name}</Text><Text style={styles.managedByText}>{t("crm.managedByBroker", { brokerName: group.brokerName })}</Text></View>
+                            </View>
+                            <View style={styles.crmActionButtonsRow}>
+                              {client.rating ? <View style={styles.crmRatingBadge}><Ionicons color="#F59E0B" name="star" size={13} /><Text style={styles.crmRatingText}>{`${client.rating}/10`}</Text></View> : <Text style={styles.crmNoRatingText}>Χωρίς βαθμολογία</Text>}
+                              {client.compatibilityScore != null ? <View style={styles.matchBadge} testID={`host-client-match-${client.id}`}><Ionicons color={colors.brand} name="sparkles" size={12} /><Text style={styles.matchBadgeText}>{`${client.compatibilityScore}%`}</Text></View> : null}
+                              <Pressable style={[styles.crmActionBtn, styles.crmActionBtnActive]} onPress={() => router.push({ pathname: "/chat/[id]", params: { id: client.id, chatRoomId: client.chatRoomId } })} accessibilityRole="button" accessibilityLabel={`Άνοιγμα συνομιλίας με ${client.name}`} testID={`host-client-chat-btn-${client.id}`}><Ionicons color={colors.brand} name="chatbubble-ellipses-outline" size={18} /></Pressable>
+                            </View>
+                          </View>
+                        ))}
+                      </View>
+                    ))
+                  )
+                )}
+                    </ScrollView>
+                  </View>
+                ) : null}
+            </View>
+          </View>
+        ) : null}
+
+        {isManagingBroker && viewMode === "broker" ? (
           <View style={styles.section} testID="apartment-detail-client-matches-section">
             <Text style={styles.sectionTitle}>Clients</Text>
             {loadingClients ? (
@@ -3020,20 +3270,8 @@ export default function ApartmentDetailScreen() {
           </View>
         ) : null}
 
-        {isListingOwner ? (
+        {isManagingBroker && viewMode === "broker" ? (
           <>
-          <View style={styles.aiActionRow}>
-            <Ionicons name="analytics-outline" size={18} color={colors.brand} />
-            <Text style={styles.aiActionCopy}>Αξιολόγησε τη θέση του ακινήτου στην αγορά</Text>
-            <Pressable style={styles.aiActionButton} onPress={() => setIsCmaVisible(true)} disabled={isReadOnlyWithdrawnCoBroker} testID="apartment-detail-cma-button">
-              <Text style={styles.aiActionButtonText}>AI Εκτίμηση Αξίας</Text>
-            </Pressable>
-          </View>
-          <FeedbackSentimentCard
-            apartmentId={apt.id}
-            feedbackCount={interactions.filter((interaction) => interaction.type === "showing").length}
-            refreshKey={sentimentRefreshKey}
-          />
           <View style={styles.propertyInteractionCard} testID="apartment-interaction-log">
             <View style={styles.interactionHeaderRow}>
               <View style={styles.interactionTitleWrap}>
@@ -3154,10 +3392,104 @@ export default function ApartmentDetailScreen() {
                 })
               )}
             </View>
+
+            <View style={styles.sentimentFooterContainer} testID="feedback-sentiment-card">
+              <View style={styles.sentimentHeaderRow}>
+                <View style={styles.sentimentTitleRow}>
+                  <Ionicons name="analytics-outline" size={18} color={colors.brand} />
+                  <Text style={styles.sentimentFooterTitle}>Σύνοψη Αξιολογήσεων</Text>
+                </View>
+                <Pressable onPress={() => void refreshSentiment()} disabled={isSentimentLoading} hitSlop={8} accessibilityLabel="Ανανέωση ανάλυσης συναισθήματος">
+                  {isSentimentLoading ? <ActivityIndicator size="small" color={colors.brand} /> : <Ionicons name="refresh-outline" size={20} color={colors.onSurfaceTertiary} />}
+                </Pressable>
+              </View>
+
+              {isSentimentLoading && !sentimentResult ? (
+                <View style={styles.sentimentLoadingBlock} testID="sentiment-loading">
+                  <View style={[styles.sentimentSkeletonLine, { backgroundColor: colors.surfaceTertiary }]} />
+                  <View style={[styles.sentimentSkeletonLineShort, { backgroundColor: colors.surfaceTertiary }]} />
+                  <ActivityIndicator color={colors.brand} />
+                </View>
+              ) : sentimentErrorText ? (
+                <View style={styles.sentimentErrorBlock} testID="sentiment-error">
+                  <Text style={[styles.sentimentErrorText, { color: colors.error }]}>{sentimentErrorText}</Text>
+                  <Pressable style={[styles.sentimentRetryButton, { borderColor: colors.error }]} onPress={() => void refreshSentiment()} disabled={isSentimentLoading}>
+                    <Text style={[styles.sentimentRetryText, { color: colors.error }]}>Επανάληψη</Text>
+                  </Pressable>
+                </View>
+              ) : interactions.filter((interaction) => interaction.type === "showing").length === 0 ? (
+                <View style={styles.sentimentEmptyBlock} testID="sentiment-empty">
+                  <Ionicons name="chatbubble-ellipses-outline" size={22} color={colors.onSurfaceTertiary} />
+                  <Text style={styles.sentimentEmptyText}>Δεν έχουν καταγραφεί ακόμα σχόλια για αυτό το ακίνητο.</Text>
+                </View>
+              ) : sentimentResult ? (
+                <View style={styles.sentimentContent}>
+                  <View style={[styles.sentimentBadge, { backgroundColor: sentimentResult.overallSentiment === "positive" ? colors.success : sentimentResult.overallSentiment === "negative" ? colors.error : colors.warning }]}>
+                    <Text style={[styles.sentimentBadgeText, { color: colors.onBrand }]}>{sentimentResult.overallSentiment === "positive" ? "Θετική εικόνα" : sentimentResult.overallSentiment === "negative" ? "Αρνητική εικόνα" : "Ουδέτερη εικόνα"}</Text>
+                  </View>
+                  <View style={styles.sentimentColumns}>
+                    <View style={styles.sentimentColumn}>
+                      <Text style={styles.sentimentSectionTitle}>Δυνατά σημεία</Text>
+                      {sentimentResult.positivePoints.length > 0 ? sentimentResult.positivePoints.map((point) => <Text key={`positive-${point}`} style={styles.sentimentItem}>+ {point}</Text>) : <Text style={styles.sentimentEmptyText}>Δεν αναφέρθηκαν.</Text>}
+                    </View>
+                    <View style={styles.sentimentColumn}>
+                      <Text style={styles.sentimentSectionTitle}>Σημεία τριβής</Text>
+                      {sentimentResult.frictionPoints.length > 0 ? sentimentResult.frictionPoints.map((point) => <Text key={`friction-${point}`} style={styles.sentimentItem}>- {point}</Text>) : <Text style={styles.sentimentEmptyText}>Δεν αναφέρθηκαν.</Text>}
+                    </View>
+                  </View>
+                  {sentimentResult.recurringPatterns.length > 0 ? (
+                    <View style={styles.sentimentPatterns}>
+                      <Text style={styles.sentimentSectionTitle}>Επαναλαμβανόμενα μοτίβα</Text>
+                      {sentimentResult.recurringPatterns.map((pattern) => (
+                        <View key={pattern.issue} style={styles.sentimentPattern}>
+                          <View style={styles.sentimentPatternHeader}>
+                            <Text style={styles.sentimentItem}>{pattern.issue}</Text>
+                            <Text style={styles.sentimentPercentage}>{Math.round(pattern.frequencyPercentage)}%</Text>
+                          </View>
+                          <View style={[styles.sentimentTrack, { backgroundColor: colors.surfaceTertiary }]}>
+                            <View style={[styles.sentimentProgress, { width: `${Math.min(100, Math.max(0, pattern.frequencyPercentage))}%`, backgroundColor: colors.brand }]} />
+                          </View>
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
+                  {sentimentResult.priceAdjustmentRecommendation ? (
+                    <View style={[styles.sentimentRecommendation, { backgroundColor: colors.brandTertiary, borderColor: colors.brand }]}>
+                      <Text style={styles.sentimentSectionTitle}>Πρόταση προσαρμογής τιμής</Text>
+                      <Text style={styles.sentimentRecommendationValue}>{sentimentResult.priceAdjustmentRecommendation.suggestedReductionPercent}% μείωση</Text>
+                      <Text style={styles.sentimentItem}>{sentimentResult.priceAdjustmentRecommendation.justification}</Text>
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
+            </View>
+          </View>
+          <View style={styles.aiActionRow}>
+            <Ionicons name="analytics-outline" size={18} color={colors.brand} />
+            <Text style={styles.aiActionCopy}>Αξιολόγησε τη θέση του ακινήτου στην αγορά</Text>
+            <Pressable style={styles.aiActionButton} onPress={() => setIsCmaVisible(true)} disabled={isReadOnlyWithdrawnCoBroker} testID="apartment-detail-cma-button">
+              <Text style={styles.aiActionButtonText}>AI Εκτίμηση Αξίας</Text>
+            </Pressable>
           </View>
           </>
         ) : null}
 
+        {isManagingBroker && viewMode === "broker" && canViewPriceHistory ? (
+          <View style={styles.section} testID="apartment-detail-price-history-section">
+            <View style={styles.priceHistoryCard}>
+              <Text style={styles.sectionTitle}>Ιστορικό Τιμών</Text>
+              <PriceHistoryChart
+                history={priceHistory}
+                selectedHistoryNode={selectedHistoryNode}
+                onSelectNode={setSelectedHistoryNode}
+                colors={colors}
+              />
+            </View>
+          </View>
+        ) : null}
+
+        {(!isManagingBroker || viewMode === "client") ? (
+          <View>
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t("apartmentDetail.amenitiesTitle")}</Text>
           <View style={styles.amenitiesGrid}>
@@ -3460,131 +3792,10 @@ export default function ApartmentDetailScreen() {
           </View>
         ) : null}
 
-        {isListingOwner ? (
-          <View
-            style={styles.crmSectionContainer}
-            onLayout={(event) => setClientsSectionY(event.nativeEvent.layout.y)}
-            testID="apartment-detail-clients-section"
-          >
-            <Pressable
-              style={styles.extraDetailsHeaderRow}
-              onPress={() => setIsClientsSectionOpen((previous) => !previous)}
-              testID="apartment-detail-clients-toggle"
-            >
-              <Text style={styles.sectionTitle}>{auth.isBroker ? "Ενδιαφερόμενοι Πελάτες (CRM)" : "Ενδιαφερόμενοι"}</Text>
-              <Ionicons
-                name={isClientsSectionOpen ? "chevron-up" : "chevron-down"}
-                size={20}
-                color={colors.onSurface}
-              />
-            </Pressable>
-            {isClientsSectionOpen ? (
-              <View style={styles.clientsContentWrap}>
-            {auth.isBroker ? (
-              loadingBrokerPropertyDealLeads ? (
-                <InquiryCandidatesSkeleton />
-              ) : brokerPropertyDealLeads.length === 0 ? (
-                <View style={styles.crmEmptyState}>
-                  <Text style={styles.crmEmptyStateText}>Δεν υπάρχουν ακόμη ενδιαφερόμενοι πελάτες για αυτό το ακίνητο</Text>
-                </View>
-              ) : (
-                brokerPropertyDealLeads.map((client) => {
-                  const hasChat = Boolean(client.chatRoomId) && (client.messageCount > 0 || Boolean(client.lastMessageText.trim()));
-                  const stageTone = getBrokerPropertyStageTone(client.pipelineStage, colors);
-                  const strategyInsight = strategyInsights.get(client.id);
-                  return (
-                    <View key={client.id} style={styles.clientLeadRow} testID={`apartment-detail-crm-client-${client.id}`}>
-                    <View style={styles.clientLeadMain}>
-                    <View style={styles.clientInfoWrap}>
-                      {client.avatar ? (
-                        <Image source={{ uri: client.avatar }} style={styles.clientAvatar} contentFit="cover" />
-                      ) : (
-                        <View style={[styles.clientAvatar, styles.clientAvatarFallback]}>
-                          <Ionicons color={colors.onSurfaceTertiary} name="person-outline" size={18} />
-                          </View>
-                        )}
-                        <View style={styles.clientInlineMetaRow}>
-                        <Text style={styles.clientName} numberOfLines={1}>{client.name}</Text>
-                        {client.rating ? <View style={[styles.crmRatingBadge, { backgroundColor: client.rating >= 8 ? "rgba(16,185,129,0.14)" : client.rating >= 5 ? "rgba(245,158,11,0.14)" : "rgba(239,68,68,0.14)" }]}><Ionicons color="#F59E0B" name="star" size={13} /><Text style={[styles.crmRatingText, { color: client.rating >= 8 ? "#059669" : client.rating >= 5 ? "#B45309" : "#DC2626" }]}>{`${client.rating}/10`}</Text></View> : <Text style={styles.crmNoRatingText}>Χωρίς βαθμολογία</Text>}
-                        <View style={[styles.stagePill, { backgroundColor: stageTone.backgroundColor }]}>
-                          <Text style={styles.stagePillText}>{getBrokerPropertyStageLabel(client.pipelineStage)}</Text>
-                        </View>
-                      </View>
-                    </View>
-                    {strategyInsight ? (
-                      <View style={[styles.advisoryContainer, strategyInsight.recommendationType === "PRIORITY_TARGET" ? styles.advisoryPriority : styles.advisoryCrossSell]} testID={`apartment-detail-strategy-${client.id}`}>
-                        <View style={styles.advisoryHeader}>
-                          <Ionicons name={strategyInsight.recommendationType === "PRIORITY_TARGET" ? "flag-outline" : "swap-horizontal-outline"} size={14} color={strategyInsight.recommendationType === "PRIORITY_TARGET" ? "#059669" : "#2563EB"} />
-                          <Text style={[styles.advisoryBadgeText, { color: strategyInsight.recommendationType === "PRIORITY_TARGET" ? "#059669" : "#2563EB" }]}>{strategyInsight.badgeLabel}</Text>
-                        </View>
-                        <Text style={styles.advisoryDescription}>{strategyInsight.advisoryText}</Text>
-                      </View>
-                    ) : null}
-                    </View>
-                    <View style={styles.crmActionButtonsRow}>
-                      {hasChat ? (
-                        <Pressable
-                          style={[styles.crmActionBtn, styles.crmActionBtnActive]}
-                          onPress={() => router.push({ pathname: "/chat/[id]", params: { id: client.id, chatRoomId: client.chatRoomId } })}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Άνοιγμα συνομιλίας με ${client.name}`}
-                          testID={`apartment-detail-crm-chat-${client.id}`}
-                        >
-                          <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.brand} />
-                        </Pressable>
-                      ) : null}
-                      <Pressable
-                        style={styles.crmActionBtn}
-                        onPress={() => router.push({ pathname: "/broker-client-detail", params: { clientUserId: client.id } })}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Άνοιγμα προφίλ πελάτη ${client.name}`}
-                        testID={`apartment-detail-crm-client-detail-${client.id}`}
-                      >
-                        <Ionicons name="open-outline" size={18} color={colors.onSurface} />
-                      </Pressable>
-                    </View>
-                  </View>
-                );
-                })
-              )
-            ) : (
-              loadingHostInquiringClients ? (
-                <InquiryCandidatesSkeleton />
-              ) : hostInquiringClients.length === 0 ? (
-                <View style={styles.crmEmptyState}>
-                  <Text style={styles.crmEmptyStateText}>Δεν υπάρχουν ακόμη ενδιαφερόμενοι πελάτες για αυτό το ακίνητο</Text>
-                </View>
-              ) : (
-                ownerBrokerLeadGroups.map((group) => (
-                  <View key={group.brokerId} style={styles.brokerLeadsGroupContainer} testID={`owner-crm-broker-group-${group.brokerId}`}>
-                    <View style={styles.brokerHeaderRow}>
-                      {group.brokerAvatar ? <Image source={{ uri: group.brokerAvatar }} style={styles.brokerGroupAvatar} contentFit="cover" /> : <View style={[styles.brokerGroupAvatar, styles.clientAvatarFallback]}><Ionicons name="person-outline" size={14} color={colors.onSurfaceTertiary} /></View>}
-                      <Text style={styles.brokerNameText} numberOfLines={1}>{group.brokerName}</Text>
-                      <View style={styles.activeLeadsBadge}><Text style={styles.activeLeadsBadgeText}>{`${group.leads.length} ${t("crm.activeLeads")}`}</Text></View>
-                    </View>
-                    {group.leads.map((client) => (
-                      <View key={client.id} style={styles.clientLeadRow} testID={`host-client-row-${client.id}`}>
-                        <View style={styles.clientInfoWrap}>
-                          {client.avatar ? <Image source={{ uri: client.avatar }} style={styles.clientAvatar} contentFit="cover" /> : <View style={[styles.clientAvatar, styles.clientAvatarFallback]}><Ionicons color={colors.onSurfaceTertiary} name="person-outline" size={18} /></View>}
-                          <View style={styles.clientTextMeta}><Text numberOfLines={1} style={styles.clientName}>{client.name}</Text><Text style={styles.managedByText}>{t("crm.managedByBroker", { brokerName: group.brokerName })}</Text></View>
-                        </View>
-                        <View style={styles.crmActionButtonsRow}>
-                          {client.rating ? <View style={styles.crmRatingBadge}><Ionicons color="#F59E0B" name="star" size={13} /><Text style={styles.crmRatingText}>{`${client.rating}/10`}</Text></View> : <Text style={styles.crmNoRatingText}>Χωρίς βαθμολογία</Text>}
-                          {client.compatibilityScore != null ? <View style={styles.matchBadge} testID={`host-client-match-${client.id}`}><Ionicons color={colors.brand} name="sparkles" size={12} /><Text style={styles.matchBadgeText}>{`${client.compatibilityScore}%`}</Text></View> : null}
-                          <Pressable style={[styles.crmActionBtn, styles.crmActionBtnActive]} onPress={() => router.push({ pathname: "/chat/[id]", params: { id: client.id, chatRoomId: client.chatRoomId } })} accessibilityRole="button" accessibilityLabel={`Άνοιγμα συνομιλίας με ${client.name}`} testID={`host-client-chat-btn-${client.id}`}><Ionicons color={colors.brand} name="chatbubble-ellipses-outline" size={18} /></Pressable>
-                        </View>
-                      </View>
-                    ))}
-                  </View>
-                ))
-              )
-            )}
-              </View>
-            ) : null}
-          </View>
+        </View>
         ) : null}
 
-        {canManageKeySafe ? (
+        {isManagingBroker && viewMode === "broker" && canManageKeySafe ? (
           <View style={styles.section} testID="apartment-detail-key-safe-section">
             <View style={styles.keySafeHeaderRow}>
               <View style={styles.sectionHeadingRow}>
@@ -4442,6 +4653,54 @@ function createStyles(colors: ThemeColors) {
       marginTop: spacing.lg,
       gap: spacing.sm,
     },
+    viewModeToggleWrapper: {
+      paddingHorizontal: spacing.md,
+      marginVertical: spacing.md,
+    },
+    viewModeToggleContainer: {
+      flexDirection: "row",
+      height: 44,
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: radius.pill,
+      padding: 4,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: "center",
+    },
+    viewModeButton: {
+      flex: 1,
+      height: "100%",
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: radius.pill,
+    },
+    viewModeButtonActive: {
+      backgroundColor: colors.brand,
+      elevation: 2,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.15,
+      shadowRadius: 3,
+    },
+    viewModeButtonText: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.sm,
+      color: colors.onSurfaceTertiary,
+    },
+    viewModeButtonTextActive: {
+      fontFamily: fonts.bold,
+      color: colors.onBrand,
+    },
+    priceHistoryCard: {
+      marginTop: spacing.lg,
+      marginBottom: spacing.md,
+      padding: spacing.md,
+      borderRadius: radius.md,
+      backgroundColor: colors.surfaceSecondary,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      gap: spacing.sm,
+    },
     sectionTitle: {
       fontFamily: fonts.bold,
       fontSize: fontSize.lg,
@@ -4477,9 +4736,6 @@ function createStyles(colors: ThemeColors) {
     coManagingAvatarFallback: { alignItems: "center", justifyContent: "center" },
     coManagingText: { flex: 1, fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface },
     crmSectionContainer: {
-      marginHorizontal: spacing.lg,
-      marginTop: spacing.lg,
-      marginBottom: spacing.md,
       gap: spacing.sm,
     },
     crmSectionTitle: {
@@ -4489,6 +4745,14 @@ function createStyles(colors: ThemeColors) {
     },
     clientsContentWrap: {
       gap: spacing.sm,
+    },
+    interestedClientsFrame: {
+      maxHeight: 420,
+      padding: spacing.md,
+      borderRadius: radius.lg,
+      backgroundColor: colors.surfaceSecondary,
+      borderWidth: 1,
+      borderColor: colors.border,
     },
     contractEntry: {
       minHeight: 46,
@@ -4673,6 +4937,40 @@ function createStyles(colors: ThemeColors) {
       borderColor: colors.border,
       gap: spacing.md,
     },
+    sentimentFooterContainer: {
+      marginTop: spacing.md,
+      paddingTop: spacing.md,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.border,
+      gap: spacing.sm,
+    },
+    sentimentHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
+    sentimentTitleRow: { flex: 1, flexDirection: "row", alignItems: "center", gap: spacing.xs },
+    sentimentFooterTitle: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface },
+    sentimentContent: { gap: spacing.md },
+    sentimentLoadingBlock: { minHeight: 130, justifyContent: "center", alignItems: "center", gap: spacing.md },
+    sentimentSkeletonLine: { width: "65%", height: 16, borderRadius: radius.sm },
+    sentimentSkeletonLineShort: { width: "42%", height: 12, borderRadius: radius.sm },
+    sentimentErrorBlock: { alignItems: "flex-start", gap: spacing.sm },
+    sentimentErrorText: { fontFamily: fonts.regular, fontSize: fontSize.sm, lineHeight: 19 },
+    sentimentRetryButton: { borderWidth: 1, borderRadius: radius.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+    sentimentRetryText: { fontFamily: fonts.bold, fontSize: fontSize.sm },
+    sentimentEmptyBlock: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+    sentimentEmptyText: { flex: 1, fontFamily: fonts.regular, fontSize: fontSize.sm, lineHeight: 19, color: colors.onSurfaceTertiary },
+    sentimentBadge: { alignSelf: "flex-start", borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+    sentimentBadgeText: { fontFamily: fonts.bold, fontSize: fontSize.sm },
+    sentimentColumns: { flexDirection: "row", gap: spacing.md },
+    sentimentColumn: { flex: 1, gap: spacing.xs },
+    sentimentSectionTitle: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onSurface },
+    sentimentItem: { fontFamily: fonts.regular, fontSize: fontSize.sm, lineHeight: 20, color: colors.onSurfaceTertiary },
+    sentimentPatterns: { gap: spacing.sm },
+    sentimentPattern: { gap: spacing.xs },
+    sentimentPatternHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: spacing.sm },
+    sentimentPercentage: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.brand },
+    sentimentTrack: { height: 7, borderRadius: radius.pill, overflow: "hidden" },
+    sentimentProgress: { height: "100%", borderRadius: radius.pill },
+    sentimentRecommendation: { borderLeftWidth: 3, borderRadius: radius.sm, borderWidth: 1, padding: spacing.md, gap: spacing.xs },
+    sentimentRecommendationValue: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.brand },
     aiActionRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginHorizontal: spacing.lg, marginTop: spacing.lg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceSecondary, padding: spacing.md },
     aiActionCopy: { flex: 1, fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface },
     aiActionButton: { borderRadius: radius.sm, backgroundColor: colors.brand, paddingHorizontal: spacing.sm, paddingVertical: spacing.sm },

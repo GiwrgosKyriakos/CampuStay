@@ -20,6 +20,7 @@ import {
 } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
+import Svg, { Polyline } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
@@ -75,6 +76,22 @@ import SignContractModal from "@/src/components/SignContractModal";
 import type { ContractDraftContext, ContractType, DigitalContractDocument } from "@/src/types/esignature";
 
 const CURRENCY = "€";
+
+function ObtuseChevron({ isExpanded, color }: { isExpanded: boolean; color: string }) {
+  return (
+    <Svg width={24} height={7} viewBox="0 0 24 7">
+      <Polyline
+        points={isExpanded ? "2,6 12,1 22,6" : "2,1 12,6 22,1"}
+        fill="none"
+        stroke={color}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={1.8}
+      />
+    </Svg>
+  );
+}
+
 interface Message {
   id: string;
   text: string;
@@ -873,6 +890,9 @@ function DirectChatScreen() {
   const [hostApartmentTitle, setHostApartmentTitle] = useState<string | null>(null);
   const [hostApartment, setHostApartment] = useState<ReturnType<typeof buildApartmentRoutePayload> | null>(null);
   const [isApartmentUnavailable, setIsApartmentUnavailable] = useState(false);
+  const [isPropertyCollapsed, setIsPropertyCollapsed] = useState(false);
+  const [isActionPillsCollapsed, setIsActionPillsCollapsed] = useState(false);
+  const [isRoommateInfoCollapsed, setIsRoommateInfoCollapsed] = useState(false);
   const [showMutualLikes, setShowMutualLikes] = useState(false);
   const [showHostActionMenu, setShowHostActionMenu] = useState(false);
   const [showPriceProposalModal, setShowPriceProposalModal] = useState(false);
@@ -2905,80 +2925,17 @@ function DirectChatScreen() {
     );
   }
 
+  const hasActionPills = isBrokerOwnerChat || isBrokerClientChat || isRoommateChat;
+  const hasRoommateInfo = showRoommateHeaderDetails;
+  const bothSecondaryTiersCollapsed = hasActionPills && hasRoommateInfo && isActionPillsCollapsed && isRoommateInfoCollapsed;
+  const hasHostApartmentBanner = chatType === "host" && !isBrokerOwnerChat && !isBrokerClientChat && (hostApartment || hostApartmentId || apartmentLocked);
+  const hasColleaguePropertyBanner = chatType === "colleague" && sharedColleagueListings.length > 0;
+  const hasAttachedProperty = hasHostApartmentBanner || hasColleaguePropertyBanner;
+
   return (
     <View style={styles.container} testID="chat-screen">
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
-        {chatType === "host" && !isBrokerOwnerChat && !isBrokerClientChat && (hostApartment || hostApartmentId || apartmentLocked) ? (
-          <Pressable
-            style={[styles.apartmentPill, apartmentLocked && styles.apartmentPillDisabled]}
-            onPress={handleApartmentPillPress}
-            disabled={apartmentLocked}
-            testID="chat-apartment-pill"
-          >
-            {apartmentLocked ? (
-              <View style={styles.apartmentThumbFallback}>
-                <Ionicons name="image-outline" size={16} color={colors.onSurfaceTertiary} />
-              </View>
-            ) : hostApartment?.image ? (
-              <Image source={{ uri: hostApartment.image }} style={styles.apartmentThumb} contentFit="cover" />
-            ) : (
-              <View style={styles.apartmentThumbFallback}>
-                <Ionicons name="home-outline" size={16} color={colors.onSurfaceTertiary} />
-              </View>
-            )}
-            <View style={styles.apartmentPillTextWrap}>
-              <Text style={styles.apartmentPillText} numberOfLines={1}>
-                {apartmentPillTitle}
-              </Text>
-              {!apartmentLocked && (apartmentPreviewSubtitle || apartmentPreviewPrice) ? (
-                <Text style={styles.apartmentPillMeta} numberOfLines={1}>
-                  {[apartmentPreviewSubtitle, apartmentPreviewPrice].filter(Boolean).join(" · ")}
-                </Text>
-              ) : null}
-            </View>
-            {shouldShowHostClientActions && !inputBlocked ? (
-              <Pressable
-                style={styles.hostActionTrigger}
-                onPress={(event) => {
-                  event.stopPropagation();
-                  setShowContextMenu(false);
-                  setShowHostActionMenu((prev) => !prev);
-                }}
-                hitSlop={6}
-                testID="chat-host-actions-trigger"
-              >
-                <Ionicons
-                  name={showHostActionMenu ? "chevron-down" : "chevron-down-circle-outline"}
-                  size={22}
-                  color={colors.onSurfaceTertiary}
-                />
-              </Pressable>
-            ) : null}
-          </Pressable>
-        ) : null}
-        {showHostActionMenu && shouldShowHostClientActions && !inputBlocked ? (
-          <View style={styles.hostActionMenu} testID="chat-host-actions-menu">
-            <Pressable
-              style={styles.hostActionMenuItem}
-              onPress={() => {
-                setShowHostActionMenu(false);
-                setSelectedInquiryProperty(hostApartment);
-                setShowPriceProposalModal(true);
-              }}
-              testID="chat-host-action-price-proposal"
-            >
-              <Text style={styles.hostActionMenuText}>Πρότεινε τιμή</Text>
-            </Pressable>
-            <Pressable
-              style={styles.hostActionMenuItem}
-              onPress={() => openVisitRequestModal()}
-              testID="chat-host-action-visit-request"
-            >
-              <Text style={styles.hostActionMenuText}>Ζήτα επίσκεψη</Text>
-            </Pressable>
-          </View>
-        ) : null}
         <View style={styles.headerTop}>
           <Pressable
             style={styles.iconBtn}
@@ -3028,90 +2985,182 @@ function DirectChatScreen() {
             <Ionicons name="ellipsis-vertical" size={20} color={colors.onSurface} />
           </Pressable>
         </View>
-        {(isBrokerOwnerChat || isBrokerClientChat || isRoommateChat) ? (
-          <View style={styles.headerSecondaryActions}>
-            {isBrokerOwnerChat || isBrokerClientChat ? (
-              <Pressable
-                style={[styles.headerSecondaryAction, showAssignedPropertiesDropdown && styles.headerSecondaryActionActive]}
-                onPress={() => {
-                  setShowContextMenu(false);
-                  setIsFilterHistoryActive(false);
-                  setShowAssignedPropertiesDropdown((previous) => !previous);
-                }}
-                testID="chat-assigned-properties-toggle"
-              >
-                <Ionicons name="business-outline" size={15} color={showAssignedPropertiesDropdown ? colors.brand : colors.onSurfaceTertiary} />
-                <Text style={[styles.headerSecondaryActionText, showAssignedPropertiesDropdown && styles.headerSecondaryActionTextActive]}>Ακίνητα</Text>
-              </Pressable>
+        {hasAttachedProperty ? (
+          <View style={styles.collapsibleTierBlock}>
+            {!isPropertyCollapsed ? (
+              hasHostApartmentBanner ? (
+                <>
+                  <Pressable
+                    style={[styles.apartmentPill, apartmentLocked && styles.apartmentPillDisabled]}
+                    onPress={handleApartmentPillPress}
+                    disabled={apartmentLocked}
+                    testID="chat-apartment-pill"
+                  >
+                    {apartmentLocked ? (
+                      <View style={styles.apartmentThumbFallback}>
+                        <Ionicons name="image-outline" size={16} color={colors.onSurfaceTertiary} />
+                      </View>
+                    ) : hostApartment?.image ? (
+                      <Image source={{ uri: hostApartment.image }} style={styles.apartmentThumb} contentFit="cover" />
+                    ) : (
+                      <View style={styles.apartmentThumbFallback}>
+                        <Ionicons name="home-outline" size={16} color={colors.onSurfaceTertiary} />
+                      </View>
+                    )}
+                    <View style={styles.apartmentPillTextWrap}>
+                      <Text style={styles.apartmentPillText} numberOfLines={1}>{apartmentPillTitle}</Text>
+                      {!apartmentLocked && (apartmentPreviewSubtitle || apartmentPreviewPrice) ? (
+                        <Text style={styles.apartmentPillMeta} numberOfLines={1}>
+                          {[apartmentPreviewSubtitle, apartmentPreviewPrice].filter(Boolean).join(" · ")}
+                        </Text>
+                      ) : null}
+                    </View>
+                    {shouldShowHostClientActions && !inputBlocked ? (
+                      <Pressable
+                        style={styles.hostActionTrigger}
+                        onPress={(event) => {
+                          event.stopPropagation();
+                          setShowContextMenu(false);
+                          setShowHostActionMenu((prev) => !prev);
+                        }}
+                        hitSlop={6}
+                        testID="chat-host-actions-trigger"
+                      >
+                        <Ionicons name={showHostActionMenu ? "chevron-down" : "chevron-down-circle-outline"} size={22} color={colors.onSurfaceTertiary} />
+                      </Pressable>
+                    ) : null}
+                  </Pressable>
+                  {showHostActionMenu && shouldShowHostClientActions && !inputBlocked ? (
+                    <View style={styles.hostActionMenu} testID="chat-host-actions-menu">
+                      <Pressable style={styles.hostActionMenuItem} onPress={() => {
+                        setShowHostActionMenu(false);
+                        setSelectedInquiryProperty(hostApartment);
+                        setShowPriceProposalModal(true);
+                      }} testID="chat-host-action-price-proposal">
+                        <Text style={styles.hostActionMenuText}>Πρότεινε τιμή</Text>
+                      </Pressable>
+                      <Pressable style={styles.hostActionMenuItem} onPress={() => openVisitRequestModal()} testID="chat-host-action-visit-request">
+                        <Text style={styles.hostActionMenuText}>Ζήτα επίσκεψη</Text>
+                      </Pressable>
+                    </View>
+                  ) : null}
+                </>
+              ) : (
+                <Pressable
+                  style={styles.colleaguePropertyBanner}
+                  onPress={() => router.push({ pathname: "/apartment-detail", params: { data: JSON.stringify(sharedColleagueListings[0]) } } as never)}
+                  testID="chat-colleague-shared-property-banner"
+                >
+                  <Ionicons name="business-outline" size={18} color={colors.brand} />
+                  <Text style={styles.colleaguePropertyBannerText} numberOfLines={1}>
+                    Κοινό Ακίνητο: {String(sharedColleagueListings[0].title || "Ακίνητο")}
+                  </Text>
+                  <Ionicons name="chevron-forward" size={18} color={colors.brand} />
+                </Pressable>
+              )
             ) : null}
-            {isBrokerClientChat ? (
-              <Pressable
-                style={[styles.headerSecondaryAction, isFilterHistoryActive && styles.headerSecondaryActionActive]}
-                onPress={() => {
-                  setShowContextMenu(false);
-                  setShowAssignedPropertiesDropdown(false);
-                  setIsFilterHistoryActive((previous) => !previous);
-                }}
-                testID="chat-filter-history-toggle"
-              >
-                <Ionicons name="time-outline" size={15} color={isFilterHistoryActive ? colors.brand : colors.onSurfaceTertiary} />
-                <Text style={[styles.headerSecondaryActionText, isFilterHistoryActive && styles.headerSecondaryActionTextActive]}>Ιστορικό</Text>
-              </Pressable>
-            ) : null}
-            {isRoommateChat ? (
-              <Pressable
-                style={[styles.headerSecondaryAction, showMutualLikes && styles.headerSecondaryActionActive]}
-                onPress={() => {
-                  setShowContextMenu(false);
-                  setShowMutualLikes((prev) => !prev);
-                }}
-                testID="chat-mutual-likes-toggle"
-              >
-                <Ionicons name="heart-circle-outline" size={15} color={showMutualLikes ? colors.brand : colors.onSurfaceTertiary} />
-                <Text style={[styles.headerSecondaryActionText, showMutualLikes && styles.headerSecondaryActionTextActive]}>Αμοιβαία</Text>
-              </Pressable>
-            ) : null}
-            {isRoommateChat ? (
-              <Pressable
-                style={[styles.headerSecondaryAction, roommateContractPickerVisible && styles.headerSecondaryActionActive]}
-                onPress={() => setRoommateContractPickerVisible(true)}
-                testID="chat-roommate-contract-button"
-              >
-                <Ionicons name="document-text-outline" size={15} color={roommateContractPickerVisible ? colors.brand : colors.onSurfaceTertiary} />
-                <Text style={[styles.headerSecondaryActionText, roommateContractPickerVisible && styles.headerSecondaryActionTextActive]}>Συμβόλαιο</Text>
-              </Pressable>
-            ) : null}
+            <Pressable
+              style={styles.obtuseToggleHandleCenter}
+              onPress={() => setIsPropertyCollapsed((previous) => !previous)}
+              hitSlop={{ top: 4, bottom: 4, left: 24, right: 24 }}
+              testID="chat-property-collapse-toggle"
+            >
+              <ObtuseChevron color={colors.onSurfaceTertiary} isExpanded={!isPropertyCollapsed} />
+            </Pressable>
           </View>
         ) : null}
-        {chatType === "colleague" && sharedColleagueListings.length > 0 ? (
-          <Pressable
-            style={styles.colleaguePropertyBanner}
-            onPress={() => router.push({ pathname: "/apartment-detail", params: { data: JSON.stringify(sharedColleagueListings[0]) } } as never)}
-            testID="chat-colleague-shared-property-banner"
-          >
-            <Ionicons name="business-outline" size={18} color={colors.brand} />
-            <Text style={styles.colleaguePropertyBannerText} numberOfLines={1}>
-              Κοινό Ακίνητο: {String(sharedColleagueListings[0].title || "Ακίνητο")}
-            </Text>
-            <Ionicons name="chevron-forward" size={18} color={colors.brand} />
-          </Pressable>
-        ) : null}
-        {showRoommateHeaderDetails ? <View style={styles.detailRow}>
-          <View style={styles.detailPill}>
-            <Ionicons name="person-outline" size={13} color={colors.onSurfaceTertiary} />
-            <Text style={styles.detailText}>{displayGender}</Text>
+        {hasActionPills && hasRoommateInfo && bothSecondaryTiersCollapsed ? (
+          <View style={styles.mergedCollapsedRow}>
+            <Pressable
+              style={[styles.mergedCollapsedSlot, styles.neutralActionCollapsedSlot]}
+              onPress={() => setIsActionPillsCollapsed(false)}
+              hitSlop={{ top: 4, bottom: 4, left: 8, right: 8 }}
+              testID="chat-action-collapse-toggle"
+            >
+              <ObtuseChevron color={colors.onSurfaceTertiary} isExpanded={false} />
+            </Pressable>
+            <Pressable
+              style={[styles.mergedCollapsedSlot, styles.brandRoommateCollapsedSlot]}
+              onPress={() => setIsRoommateInfoCollapsed(false)}
+              hitSlop={{ top: 4, bottom: 4, left: 8, right: 8 }}
+              testID="chat-roommate-collapse-toggle"
+            >
+              <ObtuseChevron color={colors.brand} isExpanded={false} />
+            </Pressable>
           </View>
-          <View style={styles.detailPill}>
-            <Ionicons name="calendar-outline" size={13} color={colors.onSurfaceTertiary} />
-            <Text style={styles.detailText}>{displayAge}</Text>
-          </View>
-          <View style={[styles.detailPill, styles.budgetPill]}>
-            <Ionicons name="wallet-outline" size={13} color={colors.onBrandTertiary} />
-            <Text style={[styles.detailText, { color: colors.onBrandTertiary }]}>
-              {displayBudget}
-            </Text>
-          </View>
-        </View> : null}
+        ) : (
+          <>
+            {hasActionPills ? (
+              <View style={styles.collapsibleTierBlock}>
+                {!isActionPillsCollapsed ? (
+                  <View style={styles.headerSecondaryActions}>
+                    {isBrokerOwnerChat || isBrokerClientChat ? (
+                      <Pressable style={[styles.headerSecondaryAction, showAssignedPropertiesDropdown && styles.headerSecondaryActionActive]} onPress={() => {
+                        setShowContextMenu(false);
+                        setIsFilterHistoryActive(false);
+                        setShowAssignedPropertiesDropdown((previous) => !previous);
+                      }} testID="chat-assigned-properties-toggle">
+                        <Ionicons name="business-outline" size={15} color={showAssignedPropertiesDropdown ? colors.brand : colors.onSurfaceTertiary} />
+                        <Text style={[styles.headerSecondaryActionText, showAssignedPropertiesDropdown && styles.headerSecondaryActionTextActive]}>Ακίνητα</Text>
+                      </Pressable>
+                    ) : null}
+                    {isBrokerClientChat ? (
+                      <Pressable style={[styles.headerSecondaryAction, isFilterHistoryActive && styles.headerSecondaryActionActive]} onPress={() => {
+                        setShowContextMenu(false);
+                        setShowAssignedPropertiesDropdown(false);
+                        setIsFilterHistoryActive((previous) => !previous);
+                      }} testID="chat-filter-history-toggle">
+                        <Ionicons name="time-outline" size={15} color={isFilterHistoryActive ? colors.brand : colors.onSurfaceTertiary} />
+                        <Text style={[styles.headerSecondaryActionText, isFilterHistoryActive && styles.headerSecondaryActionTextActive]}>Ιστορικό</Text>
+                      </Pressable>
+                    ) : null}
+                    {isRoommateChat ? (
+                      <Pressable style={[styles.headerSecondaryAction, showMutualLikes && styles.headerSecondaryActionActive]} onPress={() => {
+                        setShowContextMenu(false);
+                        setShowMutualLikes((prev) => !prev);
+                      }} testID="chat-mutual-likes-toggle">
+                        <Ionicons name="heart-circle-outline" size={15} color={showMutualLikes ? colors.brand : colors.onSurfaceTertiary} />
+                        <Text style={[styles.headerSecondaryActionText, showMutualLikes && styles.headerSecondaryActionTextActive]}>Αμοιβαία</Text>
+                      </Pressable>
+                    ) : null}
+                    {isRoommateChat ? (
+                      <Pressable style={[styles.headerSecondaryAction, roommateContractPickerVisible && styles.headerSecondaryActionActive]} onPress={() => setRoommateContractPickerVisible(true)} testID="chat-roommate-contract-button">
+                        <Ionicons name="document-text-outline" size={15} color={roommateContractPickerVisible ? colors.brand : colors.onSurfaceTertiary} />
+                        <Text style={[styles.headerSecondaryActionText, roommateContractPickerVisible && styles.headerSecondaryActionTextActive]}>Συμβόλαιο</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                ) : null}
+                <Pressable style={styles.obtuseToggleHandleCenter} onPress={() => setIsActionPillsCollapsed((previous) => !previous)} hitSlop={{ top: 4, bottom: 4, left: 24, right: 24 }} testID="chat-action-collapse-toggle">
+                  <ObtuseChevron color={colors.onSurfaceTertiary} isExpanded={!isActionPillsCollapsed} />
+                </Pressable>
+              </View>
+            ) : null}
+            {hasRoommateInfo ? (
+              <View style={styles.collapsibleTierBlock}>
+                {!isRoommateInfoCollapsed ? (
+                  <View style={styles.detailRow}>
+                    <View style={styles.detailPill}>
+                      <Ionicons name="person-outline" size={13} color={colors.onSurfaceTertiary} />
+                      <Text style={styles.detailText}>{displayGender}</Text>
+                    </View>
+                    <View style={styles.detailPill}>
+                      <Ionicons name="calendar-outline" size={13} color={colors.onSurfaceTertiary} />
+                      <Text style={styles.detailText}>{displayAge}</Text>
+                    </View>
+                    <View style={[styles.detailPill, styles.budgetPill]}>
+                      <Ionicons name="wallet-outline" size={13} color={colors.onBrandTertiary} />
+                      <Text style={[styles.detailText, { color: colors.onBrandTertiary }]}>{displayBudget}</Text>
+                    </View>
+                  </View>
+                ) : null}
+                <Pressable style={styles.obtuseToggleHandleCenter} onPress={() => setIsRoommateInfoCollapsed((previous) => !previous)} hitSlop={{ top: 4, bottom: 4, left: 24, right: 24 }} testID="chat-roommate-collapse-toggle">
+                  <ObtuseChevron color={colors.brand} isExpanded={!isRoommateInfoCollapsed} />
+                </Pressable>
+              </View>
+            ) : null}
+          </>
+        )}
 
         {showContextMenu ? (
           <View style={[styles.contextMenu, { top: safeMenuTop, right: 16 }]} testID="chat-context-menu">
@@ -3941,11 +3990,11 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   backPillText: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onBrand },
   header: {
     paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.md,
+    paddingBottom: spacing.xs,
     backgroundColor: colors.surfaceSecondary,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
-    gap: spacing.md,
+    gap: 0,
   },
   apartmentPill: {
     alignSelf: "center",
@@ -4031,7 +4080,27 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     fontSize: fontSize.sm,
     color: colors.onSurface,
   },
-  headerTop: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  headerTop: { flexDirection: "row", alignItems: "center", gap: spacing.md, minHeight: 44 },
+  collapsibleTierBlock: { width: "100%", alignItems: "center", marginTop: 2 },
+  obtuseToggleHandleCenter: {
+    width: "100%",
+    height: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 1,
+  },
+  mergedCollapsedRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    width: "100%",
+    paddingHorizontal: spacing.md,
+    height: 14,
+    gap: spacing.md,
+    marginVertical: 2,
+  },
+  mergedCollapsedSlot: { flex: 1, alignItems: "center", justifyContent: "center", height: "100%" },
+  neutralActionCollapsedSlot: { borderBottomWidth: 1.5, borderBottomColor: colors.border },
+  brandRoommateCollapsedSlot: { borderBottomWidth: 1.5, borderBottomColor: colors.brand },
   headerSecondaryActions: {
     width: "100%",
     flexDirection: "row",

@@ -41,6 +41,7 @@ import { syncBrokerClientProfile, upsertBrokerClientProfile } from "@/src/api/br
 import { getUserProfile, type UserProfile } from "@/src/api/userProfile";
 import { t } from "@/src/locales";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
+import PriceHistoryChart, { type PriceHistoryEntry } from "@/src/components/PriceHistoryChart";
 import VoiceInputButton from "@/src/components/common/VoiceInputButton";
 import { useVoiceInputPreview } from "@/src/hooks/useVoiceInputPreview";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
@@ -90,15 +91,6 @@ export const OWNER_MOTIVATION_OPTIONS = [
   "Επένδυση",
   "Άλλο",
 ] as const;
-
-export type PriceHistoryEntry = {
-  price: number;
-  expectedPrice?: number | null;
-  timestamp: number;
-  dateLabel: string;
-  brokerName?: string;
-  brokerId?: string;
-};
 
 type Amenity = {
   key: AmenityKey;
@@ -382,11 +374,9 @@ const EXTRA_DETAIL_CATEGORIES: ExtraDetailCategory[] = [
   {
     title: "Εξωτερικά χαρακτηριστικά",
     items: [
-      "Βεράντα",
       "Θέα",
       "Πρόσβαση από Άσφαλτο",
       "Οικιστική Ζώνη",
-      "Parking",
       "Τέντες",
       "Κήπος",
       "Εντοιχισμένο BBQ",
@@ -394,7 +384,7 @@ const EXTRA_DETAIL_CATEGORIES: ExtraDetailCategory[] = [
       "Πισίνα",
       "Προσόψεως",
       "Γωνιακό",
-      "Θέση στάθμευσης: στεγασμένη/πυλωτή",
+      "Στεγασμένη/πυλωτή",
     ],
   },
   {
@@ -412,7 +402,7 @@ const BROKER_PRIVATE_PHOTO_SLOTS = 12;
 const IMAGE_QUALITY = 0.7;
 const CURRENT_BUILD_YEAR = 2026;
 const HEATING_SYSTEM_OPTIONS = ["Αυτόνομη", "Κεντρική", "Ρεύμα", "Φυσικό Αέριο", "Αντλία Θερμότητας", "Πετρέλαιο", "Χωρίς Θέρμανση", "Άλλο"];
-const ENERGY_CLASS_OPTIONS = ["A++", "A+", "A", "B+", "B", "C", "D", "E", "F", "G"];
+const ENERGY_CLASS_OPTIONS = ["A+", "A", "B+", "B", "C", "D", "E", "F", "G"];
 
 const TECHNICAL_SPEC_ITEMS: TechnicalSpecConfig[] = [
   { type: "bathroom", label: "Μπάνιο", countField: "bathrooms" },
@@ -557,206 +547,6 @@ function CompletionBadge({ colors, styles }: CompletionBadgeProps) {
   );
 }
 
-type PriceHistoryChartProps = {
-  history: PriceHistoryEntry[];
-  selectedHistoryNode: PriceHistoryEntry | null;
-  onSelectNode: (entry: PriceHistoryEntry) => void;
-  colors: ThemeColors;
-  styles: ReturnType<typeof createStyles>;
-};
-
-function PriceHistoryChart({ history, selectedHistoryNode, onSelectNode, colors, styles }: PriceHistoryChartProps) {
-  const [chartWidth, setChartWidth] = useState(0);
-  const sortedHistory = useMemo(
-    () => [...history].sort((left, right) => left.timestamp - right.timestamp),
-    [history],
-  );
-  const chartHeight = 220;
-  const plotLeft = 52;
-  const plotRight = 16;
-  const plotTop = 20;
-  const plotBottom = 42;
-  const plotWidth = Math.max(1, chartWidth - plotLeft - plotRight);
-  const plotHeight = chartHeight - plotTop - plotBottom;
-  const prices = sortedHistory.flatMap((entry) =>
-    entry.expectedPrice !== null && entry.expectedPrice !== undefined
-      ? [entry.price, entry.expectedPrice]
-      : [entry.price],
-  );
-  const lowestPrice = prices.length ? Math.min(...prices) : 0;
-  const highestPrice = prices.length ? Math.max(...prices) : 1;
-  const pricePadding = Math.max((highestPrice - lowestPrice) * 0.12, 1);
-  const minPrice = Math.max(0, lowestPrice - pricePadding);
-  const maxPrice = highestPrice + pricePadding;
-  const priceRange = Math.max(1, maxPrice - minPrice);
-  const getPointPosition = (entry: PriceHistoryEntry, index: number) => {
-    const x = sortedHistory.length <= 1
-      ? plotLeft + plotWidth / 2
-      : plotLeft + (plotWidth * index) / (sortedHistory.length - 1);
-    const y = plotTop + plotHeight - ((entry.price - minPrice) / priceRange) * plotHeight;
-    return { x, y };
-  };
-  const getExpectedPointPosition = (entry: PriceHistoryEntry, index: number) => {
-    const position = getPointPosition(entry, index);
-    if (entry.expectedPrice === null || entry.expectedPrice === undefined) return position;
-    return {
-      ...position,
-      y: plotTop + plotHeight - ((entry.expectedPrice - minPrice) / priceRange) * plotHeight,
-    };
-  };
-  const selectedIndex = selectedHistoryNode
-    ? sortedHistory.findIndex((entry) => entry.timestamp === selectedHistoryNode.timestamp)
-    : -1;
-  const selectedPosition = selectedIndex >= 0 ? getPointPosition(sortedHistory[selectedIndex], selectedIndex) : null;
-  const tooltipWidth = 190;
-  const tooltipLeft = selectedPosition
-    ? Math.min(Math.max(selectedPosition.x - tooltipWidth / 2, plotLeft), Math.max(plotLeft, chartWidth - plotRight - tooltipWidth))
-    : 0;
-  const tooltipTop = selectedPosition ? Math.max(2, selectedPosition.y - 76) : 2;
-
-  return (
-    <View
-      style={styles.priceHistoryChart}
-      onLayout={(event) => setChartWidth(event.nativeEvent.layout.width)}
-      testID="create-listing-history-chart"
-    >
-      {chartWidth > 0 ? (
-        <>
-          {[0, 1, 2, 3].map((step) => {
-            const ratio = step / 3;
-            const y = plotTop + plotHeight * ratio;
-            const value = Math.round(maxPrice - priceRange * ratio);
-            return (
-              <View key={`history-grid-${step}`}>
-                <View style={[styles.priceHistoryGridLine, { left: plotLeft, right: plotRight, top: y }]} />
-                <Text style={[styles.priceHistoryAxisLabel, { left: 0, top: y - 8 }]}>{`${value}€`}</Text>
-              </View>
-            );
-          })}
-
-          {sortedHistory.slice(1).map((entry, index) => {
-            const start = getPointPosition(sortedHistory[index], index);
-            const end = getPointPosition(entry, index + 1);
-            const length = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2);
-            const angle = `${Math.atan2(end.y - start.y, end.x - start.x)}rad`;
-            return (
-              <View
-                key={`history-line-${entry.timestamp}`}
-                style={[
-                  styles.priceHistoryLine,
-                  {
-                    left: (start.x + end.x - length) / 2,
-                    top: (start.y + end.y) / 2 - 1,
-                    width: length,
-                    transform: [{ rotate: angle }],
-                  },
-                ]}
-              />
-            );
-          })}
-
-          {sortedHistory
-            .map((entry, index) => ({ entry, index }))
-            .filter(({ entry }) => entry.expectedPrice !== null && entry.expectedPrice !== undefined)
-            .slice(1)
-            .map(({ entry, index }, expectationIndex) => {
-              const previous = sortedHistory
-                .map((candidate, candidateIndex) => ({ candidate, candidateIndex }))
-                .filter(({ candidate }) => candidate.expectedPrice !== null && candidate.expectedPrice !== undefined)[expectationIndex];
-              if (!previous) return null;
-              const start = getExpectedPointPosition(previous.candidate, previous.candidateIndex);
-              const end = getExpectedPointPosition(entry, index);
-              const length = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2);
-              const angle = `${Math.atan2(end.y - start.y, end.x - start.x)}rad`;
-              return (
-                <View
-                  key={`history-expectation-line-${entry.timestamp}`}
-                  style={[
-                    styles.priceHistoryExpectationLine,
-                    {
-                      left: (start.x + end.x - length) / 2,
-                      top: (start.y + end.y) / 2 - 1,
-                      width: length,
-                      transform: [{ rotate: angle }],
-                    },
-                  ]}
-                />
-              );
-            })}
-
-          {sortedHistory.map((entry, index) => {
-            const position = getPointPosition(entry, index);
-            const isSelected = selectedHistoryNode?.timestamp === entry.timestamp;
-            return (
-              <Pressable
-                key={`history-node-${entry.timestamp}`}
-                style={[
-                  styles.priceHistoryNode,
-                  isSelected && styles.priceHistoryNodeSelected,
-                  { left: position.x - 7, top: position.y - 7 },
-                ]}
-                onPress={() => onSelectNode(entry)}
-                testID={`create-listing-history-node-${index}`}
-                hitSlop={6}
-              />
-            );
-          })}
-
-          {sortedHistory.map((entry, index) => {
-            if (entry.expectedPrice === null || entry.expectedPrice === undefined) return null;
-            const position = getExpectedPointPosition(entry, index);
-            return (
-              <Pressable
-                key={`history-expectation-node-${entry.timestamp}`}
-                style={[styles.priceHistoryExpectationNode, { left: position.x - 5, top: position.y - 5 }]}
-                onPress={() => onSelectNode(entry)}
-                hitSlop={6}
-              />
-            );
-          })}
-
-          {sortedHistory.map((entry, index) => {
-            const position = getPointPosition(entry, index);
-            return (
-              <Text
-                key={`history-date-${entry.timestamp}`}
-                style={[styles.priceHistoryDateLabel, { left: position.x - 28, top: plotTop + plotHeight + 12 }]}
-                numberOfLines={1}
-              >
-                {new Intl.DateTimeFormat("el-GR", { day: "2-digit", month: "2-digit", year: "2-digit" }).format(
-                  new Date(entry.timestamp),
-                )}
-              </Text>
-            );
-          })}
-
-          {selectedHistoryNode && selectedPosition ? (
-            <View style={[styles.priceHistoryTooltip, { left: tooltipLeft, top: tooltipTop, width: tooltipWidth }]}>
-              <Text style={styles.priceHistoryTooltipText}>{`Τιμή Αγγελίας: €${selectedHistoryNode.price}`}</Text>
-              {selectedHistoryNode.expectedPrice !== null && selectedHistoryNode.expectedPrice !== undefined ? (
-                <Text style={styles.priceHistoryTooltipText}>{`Προσδοκία Ιδιοκτήτη: €${selectedHistoryNode.expectedPrice}`}</Text>
-              ) : null}
-              <Text style={styles.priceHistoryTooltipText}>{`Ημερομηνία: ${selectedHistoryNode.dateLabel}`}</Text>
-              <Text style={styles.priceHistoryTooltipText}>{`Μεσίτης: ${selectedHistoryNode.brokerName || "Μεσίτης"}`}</Text>
-              <View style={styles.priceHistoryTooltipPointer} />
-            </View>
-          ) : null}
-          <View style={styles.priceHistoryLegend}>
-            <View style={styles.priceHistoryLegendItem}>
-              <View style={styles.priceHistoryLegendBrandIndicator} />
-              <Text style={styles.priceHistoryLegendText}>Ιστορικό τιμών αγγελίας</Text>
-            </View>
-            <View style={styles.priceHistoryLegendItem}>
-              <View style={styles.priceHistoryLegendExpectationIndicator} />
-              <Text style={styles.priceHistoryLegendText}>Ιστορικό τιμών προσδοκιών ιδιοκτήτη</Text>
-            </View>
-          </View>
-        </>
-      ) : null}
-    </View>
-  );
-}
-
 export default function CreateListingScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -785,6 +575,7 @@ export default function CreateListingScreen() {
   const [technicalSpecEntries, setTechnicalSpecEntries] = useState<TechnicalSpecEntry[]>([]);
   const [technicalSpecInputs, setTechnicalSpecInputs] = useState<Record<string, string>>({});
   const [technicalSpecEditingIds, setTechnicalSpecEditingIds] = useState<Record<string, string | null>>({});
+  const [technicalSpecWarnings, setTechnicalSpecWarnings] = useState<Record<string, boolean>>({});
   const [extraDetailsState, setExtraDetailsState] = useState<Record<string, boolean>>({});
   const router = useRouter();
   const params = useLocalSearchParams<{ mode?: string; listingId?: string }>();
@@ -1407,6 +1198,7 @@ export default function CreateListingScreen() {
     (type: string, rawValue: string) => {
       const value = digitsOnlyInput(rawValue);
       setTechnicalSpecInputs((prev) => ({ ...prev, [type]: value }));
+      setTechnicalSpecWarnings((prev) => ({ ...prev, [type]: false }));
 
       const editingId = technicalSpecEditingIds[type];
       if (!editingId) return;
@@ -1428,6 +1220,17 @@ export default function CreateListingScreen() {
       if (!rawValue.length || !Number.isFinite(parsed) || parsed <= 0) return;
 
       const editingId = technicalSpecEditingIds[config.type];
+      const declaredCount = config.countField ? roomCountValues[config.countField] : null;
+      const activeIndex = editingId
+        ? (technicalSpecEntries.find((entry) => entry.id === editingId)?.index ?? 0)
+        : technicalSpecEntries.filter((entry) => entry.type === config.type).length + 1;
+
+      if (declaredCount !== null && activeIndex > declaredCount) {
+        setTechnicalSpecWarnings((prev) => ({ ...prev, [config.type]: true }));
+        return;
+      }
+
+      setTechnicalSpecWarnings((prev) => ({ ...prev, [config.type]: false }));
 
       if (editingId) {
         setTechnicalSpecEntries((prev) =>
@@ -1450,7 +1253,7 @@ export default function CreateListingScreen() {
       setTechnicalSpecEditingIds((prev) => ({ ...prev, [config.type]: null }));
       setTechnicalSpecInputs((prev) => ({ ...prev, [config.type]: "" }));
     },
-    [technicalSpecEditingIds, technicalSpecEntries, technicalSpecInputs],
+    [roomCountValues, technicalSpecEditingIds, technicalSpecEntries, technicalSpecInputs],
   );
 
   const handleEditTechnicalSpec = useCallback((entry: TechnicalSpecEntry) => {
@@ -3148,248 +2951,6 @@ export default function CreateListingScreen() {
             )}
           </View>
 
-          {isBrokerMode ? (
-            <View
-              style={styles.card}
-              onLayout={(event) => {
-                matchingSectionY.current = event.nativeEvent.layout.y;
-              }}
-              testID="create-listing-client-matching"
-            >
-              <View style={styles.sectionHeaderRow}>
-                <View style={styles.matchingHeaderTextWrap}>
-                  <Text style={styles.sectionTitle}>Ταίριασμα με Υπάρχοντες Πελάτες (Off-market Exclusive)</Text>
-                  <Text style={styles.fieldHint}>Προτείνετε το ακίνητο σε συμβατούς πελάτες πριν την επίσημη δημοσίευση.</Text>
-                </View>
-                {loadingClientPool ? <ActivityIndicator size="small" color={colors.brandSecondary} /> : null}
-              </View>
-
-              {!loadingClientPool && !hasAnyListingData ? (
-                <Text style={styles.fieldHint}>Συμπληρώστε τουλάχιστον ένα στοιχείο του ακινήτου για να δείτε συμβατούς πελάτες.</Text>
-              ) : !loadingClientPool && matchedClients.length === 0 ? (
-                <Text style={styles.fieldHint}>Δεν βρέθηκαν πελάτες των οποίων τα φίλτρα να ταιριάζουν με τα τρέχοντα στοιχεία.</Text>
-              ) : (
-                <View style={styles.matchedClientList}>
-                  {matchedClients.map((client) => (
-                    <View key={client.chatRoomId} style={styles.matchedClientRow}>
-                      {client.clientAvatar ? (
-                        <Image source={{ uri: client.clientAvatar }} style={styles.matchedClientAvatar} contentFit="cover" />
-                      ) : (
-                        <DefaultProfileAvatar size={42} iconSize={19} />
-                      )}
-                      <View style={styles.matchedClientInfo}>
-                        <Text style={styles.matchedClientName} numberOfLines={1}>{client.clientName}</Text>
-                        <View style={styles.compatibilityBadge}>
-                          <Text style={styles.compatibilityBadgeText}>{`${client.compatibilityScore}% Match`}</Text>
-                        </View>
-                      </View>
-                      <View style={styles.matchedClientActions}>
-                        <Pressable
-                          style={styles.matchedClientSendButton}
-                          onPress={() => void handleSendOffMarketListing(client)}
-                          disabled={sendingOffMarketClientId !== null}
-                          accessibilityLabel={`Αποστολή μηνύματος στον ${client.clientName}`}
-                          testID={`create-listing-match-send-${client.clientUserId}`}
-                        >
-                          {sendingOffMarketClientId === client.clientUserId ? (
-                            <ActivityIndicator size="small" color={colors.onBrand} />
-                          ) : (
-                            <Ionicons name="paper-plane-outline" size={18} color={colors.onBrand} />
-                          )}
-                        </Pressable>
-                        <Pressable
-                          style={styles.matchedClientAddButton}
-                          onPress={() => undefined}
-                          accessibilityLabel={`Προσθήκη ${client.clientName}`}
-                          testID={`create-listing-match-add-${client.clientUserId}`}
-                        >
-                          <Ionicons name="add-outline" size={18} color={colors.onSurfaceTertiary} />
-                        </Pressable>
-                      </View>
-                    </View>
-                  ))}
-                </View>
-              )}
-            </View>
-          ) : null}
-
-          {isBrokerMode ? (
-            <View style={styles.card}>
-              <Pressable
-                style={styles.expandHeaderRow}
-                onPress={() => setIsDocumentsExpanded((prev) => !prev)}
-                testID="create-listing-documents-toggle"
-              >
-                <View style={styles.documentsHeaderTextWrap}>
-                  <Text style={styles.sectionTitle}>Αρχειοθήκη Εγγράφων</Text>
-                  {isDocumentRepositoryReady ? (
-                    <View style={styles.documentsReadyBadge} testID="create-listing-documents-ready-badge">
-                      <Ionicons name="checkmark-circle" size={14} color={colors.success} />
-                      <Text style={styles.documentsReadyBadgeText}>Έτοιμο για μεταβίβαση</Text>
-                    </View>
-                  ) : (
-                    <Text style={styles.fieldHint}>
-                      Συμπληρώστε και τις 8 κατηγορίες για να χαρακτηριστεί έτοιμη προς μεταβίβαση.
-                    </Text>
-                  )}
-                </View>
-                <Ionicons
-                  name={isDocumentsExpanded ? "chevron-up" : "chevron-down"}
-                  size={20}
-                  color={colors.onSurface}
-                />
-              </Pressable>
-
-              {isDocumentsExpanded ? (
-                <View style={styles.documentsContent}>
-                  {DOCUMENT_CATEGORIES.map((category) => {
-                    const files = documents[category.key] ?? [];
-                    const hasFiles = files.length > 0;
-                    const isCategoryExpanded = expandedDocumentCategory === category.key;
-                    const isUploading = uploadingDocumentCategory === category.key;
-
-                    return (
-                      <View key={category.key} style={styles.documentCategoryBlock}>
-                        <Pressable
-                          style={styles.documentCategoryRow}
-                          onPress={() =>
-                            setExpandedDocumentCategory((prev) => (prev === category.key ? null : category.key))
-                          }
-                          testID={`create-listing-document-category-${category.key}`}
-                        >
-                          <Text style={styles.documentCategoryTitle}>{category.title}</Text>
-                          <View style={styles.documentCategoryActions}>
-                            {hasFiles ? (
-                              <Ionicons name="checkmark-circle" size={18} color={colors.success} />
-                            ) : null}
-                            <View style={[styles.documentCountBadge, hasFiles && styles.documentCountBadgeFilled]}>
-                              <Text
-                                style={[styles.documentCountBadgeText, hasFiles && styles.documentCountBadgeTextFilled]}
-                              >
-                                {files.length}
-                              </Text>
-                            </View>
-                            {isUploading ? (
-                              <ActivityIndicator size="small" color={colors.brandSecondary} />
-                            ) : (
-                              <Pressable
-                                onPress={() => void handleAttachDocument(category.key)}
-                                hitSlop={8}
-                                testID={`create-listing-document-attach-${category.key}`}
-                              >
-                                <Ionicons name="attach-outline" size={20} color={colors.brandSecondary} />
-                              </Pressable>
-                            )}
-                          </View>
-                        </Pressable>
-
-                        {isCategoryExpanded ? (
-                          <View style={styles.documentFileList}>
-                            {hasFiles ? (
-                              files.map((file) => (
-                                <View key={file.id} style={styles.documentFileRow}>
-                                  <View style={styles.documentFileTextWrap}>
-                                    <Text style={styles.documentFileName} numberOfLines={1}>
-                                      {file.name}
-                                    </Text>
-                                    <Text style={styles.documentFileMeta}>{formatFileSize(file.size)}</Text>
-                                  </View>
-                                  <Pressable
-                                    onPress={() => handleOpenDocument(file.url)}
-                                    hitSlop={8}
-                                    testID={`create-listing-document-open-${file.id}`}
-                                  >
-                                    <Ionicons name="download-outline" size={18} color={colors.onSurface} />
-                                  </Pressable>
-                                  <Pressable
-                                    onPress={() => handleRemoveDocument(category.key, file.id)}
-                                    hitSlop={8}
-                                    testID={`create-listing-document-remove-${file.id}`}
-                                  >
-                                    <Ionicons name="trash-outline" size={18} color={colors.error} />
-                                  </Pressable>
-                                </View>
-                              ))
-                            ) : (
-                              <Text style={styles.fieldHint}>Δεν έχουν επισυναφθεί έγγραφα σε αυτή την κατηγορία.</Text>
-                            )}
-                          </View>
-                        ) : null}
-                      </View>
-                    );
-                  })}
-                </View>
-              ) : null}
-            </View>
-          ) : null}
-
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Στοιχεία Επικοινωνίας</Text>
-            <View style={styles.contactToggleRow}>
-              <View style={styles.contactToggleTextWrap}>
-                <Text style={styles.contactToggleLabel}>Εμφάνιση τηλεφώνου επικοινωνίας στην αγγελία</Text>
-              </View>
-              <Switch
-                value={showPhoneNumber}
-                onValueChange={setShowPhoneNumber}
-                trackColor={{ false: colors.border, true: colors.brandSecondary }}
-                thumbColor={showPhoneNumber ? colors.brand : colors.onSurface}
-                testID="create-listing-show-phone-toggle"
-              />
-            </View>
-            {showPhoneNumber ? (
-              <View style={styles.contactToggleRow}>
-                <View style={styles.contactToggleTextWrap}>
-                  <Text style={styles.contactToggleLabel}>Απόκρυψη από μεσίτες</Text>
-                </View>
-                <Switch
-                  value={hidePhoneFromBrokers}
-                  onValueChange={setHidePhoneFromBrokers}
-                  trackColor={{ false: colors.border, true: colors.brandSecondary }}
-                  thumbColor={hidePhoneFromBrokers ? colors.brand : colors.onSurface}
-                  testID="create-listing-hide-phone-from-brokers-toggle"
-                />
-              </View>
-            ) : null}
-          </View>
-
-          <View style={styles.card}>
-            <Pressable
-              style={styles.expandHeaderRow}
-              onPress={() => setIsExtraInfoExpanded((prev) => !prev)}
-              testID="create-listing-extra-info-toggle"
-            >
-              <Text style={styles.sectionTitle}>Χαρακτηριστικά Ακινήτου</Text>
-              <Ionicons
-                name={isExtraInfoExpanded ? "chevron-up" : "chevron-down"}
-                size={20}
-                color={colors.onSurface}
-              />
-            </Pressable>
-
-            {isExtraInfoExpanded && (
-              <>
-                <View style={styles.formRow}>
-                  <View style={styles.formColumn}>
-                    <Dropdown value={propertyCategory} options={propertyCategoryOptions} placeholder="Κατηγορία ακινήτου" onSelect={setPropertyCategory} testID="create-listing-property-category-dropdown" />
-                  </View>
-                  <View style={styles.formColumn}>
-                    <Dropdown value={propertyType} options={propertyTypeOptions} placeholder="Είδος ακινήτου" onSelect={setPropertyType} testID="create-listing-property-type-dropdown" />
-                  </View>
-                </View>
-                <View style={styles.formRow}>
-                  <View style={styles.formColumn}>
-                    <Dropdown value={floor} options={floorOptions} placeholder="Όροφος" onSelect={setFloor} testID="create-listing-floor-dropdown" />
-                  </View>
-                  <View style={styles.formColumn}>
-                    <TextInput value={rooms} onChangeText={(value) => setRooms(digitsOnlyInput(value))} onBlur={() => setRooms(normalizeIntegerOnBlur(rooms, 1, 99, 1))} placeholder="Δωμάτια" placeholderTextColor={colors.onSurfaceTertiary} keyboardType="number-pad" maxLength={2} style={styles.input} testID="create-listing-rooms-input" />
-                  </View>
-                </View>
-              </>
-            )}
-          </View>
-
-
           <View style={styles.card}>
             <Pressable
               style={styles.extraDetailsHeaderRow}
@@ -3477,13 +3038,38 @@ export default function CreateListingScreen() {
 
             {isExtraInformationExpanded ? (
               <View style={styles.extraInformationContent}>
-                <Dropdown
-                  value={orientation}
-                  options={ORIENTATION_OPTIONS}
-                  placeholder="Προσανατολισμός"
-                  onSelect={setOrientation}
-                  testID="create-listing-orientation-dropdown"
-                />
+                <Text style={styles.sectionSubtitle}>Χαρακτηριστικά Ακινήτου</Text>
+                <View style={styles.formRow}>
+                  <View style={styles.formColumn}>
+                    <Text style={styles.fieldLabel}>Κατηγορία Ακινήτου</Text>
+                    <Dropdown value={propertyCategory} options={propertyCategoryOptions} placeholder="Κατηγορία ακινήτου" onSelect={setPropertyCategory} testID="create-listing-property-category-dropdown" />
+                  </View>
+                </View>
+                <View style={styles.formRow}>
+                  <View style={styles.formColumn}>
+                    <Text style={styles.fieldLabel}>Είδος Ακινήτου</Text>
+                    <Dropdown value={propertyType} options={propertyTypeOptions} placeholder="Είδος ακινήτου" onSelect={setPropertyType} testID="create-listing-property-type-dropdown" />
+                  </View>
+                </View>
+                <View style={styles.formRow}>
+                  <View style={styles.formColumn}>
+                    <Text style={styles.fieldLabel}>Όροφος</Text>
+                    <Dropdown value={floor} options={floorOptions} placeholder="Όροφος" onSelect={setFloor} testID="create-listing-floor-dropdown" />
+                  </View>
+                </View>
+                <View style={styles.formRow}>
+                  <View style={styles.formColumn}>
+                    <Text style={styles.fieldLabel}>Δωμάτια</Text>
+                    <TextInput value={rooms} onChangeText={(value) => setRooms(digitsOnlyInput(value))} onBlur={() => setRooms(normalizeIntegerOnBlur(rooms, 1, 99, 1))} placeholder="Δωμάτια" placeholderTextColor={colors.onSurfaceTertiary} keyboardType="number-pad" maxLength={2} style={styles.input} testID="create-listing-rooms-input" />
+                  </View>
+                </View>
+                <View style={styles.formRow}>
+                  <View style={styles.formColumn}>
+                    <Text style={styles.fieldLabel}>Προσανατολισμός</Text>
+                    <Dropdown value={orientation} options={ORIENTATION_OPTIONS} placeholder="Προσανατολισμός" onSelect={setOrientation} testID="create-listing-orientation-dropdown" />
+                  </View>
+                </View>
+
                 <Text style={styles.sectionSubtitle}>Χώροι</Text>
                 <View style={styles.formRow}>
                   <View style={styles.formColumn}>
@@ -3530,7 +3116,7 @@ export default function CreateListingScreen() {
                   </View>
                 </View>
 
-                <Text style={styles.sectionSubtitle}>Κατασκευή και κόστος</Text>
+                <Text style={styles.sectionSubtitle}>Κατασκευή και κοινόχρηστα</Text>
                 <View style={styles.formRow}>
                   <View style={styles.formColumn}>
                     <Text style={styles.fieldLabel}>Έτος κατασκευής</Text>
@@ -3545,6 +3131,21 @@ export default function CreateListingScreen() {
                       testID="create-listing-extra-info-build-year"
                     />
                   </View>
+                  <View style={styles.formColumn}>
+                    <Text style={styles.fieldLabel}>Έτος ανακαίνισης</Text>
+                    <TextInput
+                      value={renovationYear}
+                      onChangeText={(value) => setRenovationYear(clampOptionalIntegerInput(value, 1900, CURRENT_BUILD_YEAR))}
+                      keyboardType="number-pad"
+                      maxLength={4}
+                      placeholder="π.χ. 2021"
+                      placeholderTextColor={colors.onSurfaceTertiary}
+                      style={styles.input}
+                      testID="create-listing-extra-info-renovation-year"
+                    />
+                  </View>
+                </View>
+                <View style={styles.formRow}>
                   <View style={styles.formColumn}>
                     <Text style={styles.fieldLabel}>Μηνιαία κοινόχρηστα (€)</Text>
                     <TextInput
@@ -3570,21 +3171,6 @@ export default function CreateListingScreen() {
                       placeholderTextColor={colors.onSurfaceTertiary}
                       style={styles.input}
                       testID="create-listing-extra-info-levels"
-                    />
-                  </View>
-                </View>
-                <View style={styles.formRow}>
-                  <View style={styles.formColumn}>
-                    <Text style={styles.fieldLabel}>Έτος ανακαίνισης</Text>
-                    <TextInput
-                      value={renovationYear}
-                      onChangeText={(value) => setRenovationYear(clampOptionalIntegerInput(value, 1900, CURRENT_BUILD_YEAR))}
-                      keyboardType="number-pad"
-                      maxLength={4}
-                      placeholder="π.χ. 2021"
-                      placeholderTextColor={colors.onSurfaceTertiary}
-                      style={styles.input}
-                      testID="create-listing-extra-info-renovation-year"
                     />
                   </View>
                 </View>
@@ -3634,7 +3220,6 @@ export default function CreateListingScreen() {
                   <Text style={styles.checkboxLabel}>Άμεσα διαθέσιμο</Text>
                 </Pressable>
 
-                <Text style={styles.fieldLabel}>Available From</Text>
                 <Dropdown
                   value={availableFromDateLabel}
                   options={availableFromDateOptions.map((item) => item.label)}
@@ -3646,22 +3231,147 @@ export default function CreateListingScreen() {
                   disabled={isImmediatelyAvailable}
                   testID="create-listing-extra-info-available-from"
                 />
-                <Text style={styles.fieldHint}>Η επιλογή ημερομηνίας επιτρέπει μόνο σημερινές ή μελλοντικές ημερομηνίες.</Text>
-
-                <Text style={styles.sectionSubtitle}>Χρονικές σημάνσεις</Text>
-                <View style={styles.readOnlyMetaCard}>
-                  <View style={styles.readOnlyMetaRow}>
-                    <Text style={styles.readOnlyMetaLabel}>Ημερομηνία δημοσίευσης</Text>
-                    <Text style={styles.readOnlyMetaValue}>{publishedAtLabel}</Text>
-                  </View>
-                  <View style={styles.readOnlyMetaRow}>
-                    <Text style={styles.readOnlyMetaLabel}>Τελευταία τροποποίηση</Text>
-                    <Text style={styles.readOnlyMetaValue}>{updatedAtLabel}</Text>
-                  </View>
-                </View>
               </View>
             ) : null}
           </View>
+
+          {isBrokerMode ? (
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Κατάσταση ακινήτου</Text>
+                <View style={styles.brokerDetailsContent}>
+                  <View style={styles.propertyStatusOptions}>
+                    {PROPERTY_STATUS_OPTIONS.map((option) => {
+                      const isSelected = propertyStatus === option.key;
+                      return (
+                        <Pressable
+                          key={option.key}
+                          style={[styles.propertyStatusOptionRow, isSelected && styles.propertyStatusOptionRowSelected]}
+                          onPress={() => setPropertyStatus(option.key)}
+                          testID={`create-listing-status-option-${option.key}`}
+                        >
+                          <Text style={styles.propertyStatusOptionLabel}>{option.label}</Text>
+                          <Ionicons
+                            name={isSelected ? "checkmark-circle" : "ellipse-outline"}
+                            size={22}
+                            color={isSelected ? colors.brand : colors.onSurfaceTertiary}
+                          />
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+
+                  {propertyStatus === "sold_rented" ? (
+                    <View>
+                      <TextInput
+                        value={closedDealPrice}
+                        onChangeText={(value) => setClosedDealPrice(digitsOnlyInput(value))}
+                        keyboardType="number-pad"
+                        placeholder={t("createListing.finalPricePlaceholder")}
+                        placeholderTextColor={colors.onSurfaceTertiary}
+                        style={styles.input}
+                        testID="create-listing-closed-deal-price"
+                      />
+                    </View>
+                  ) : null}
+                </View>
+            </View>
+          ) : null}
+
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Στοιχεία Επικοινωνίας</Text>
+            <View style={styles.contactToggleRow}>
+              <View style={styles.contactToggleTextWrap}>
+                <Text style={styles.contactToggleLabel}>Εμφάνιση τηλεφώνου επικοινωνίας στην αγγελία</Text>
+              </View>
+              <Switch
+                value={showPhoneNumber}
+                onValueChange={setShowPhoneNumber}
+                trackColor={{ false: colors.border, true: colors.brandSecondary }}
+                thumbColor={showPhoneNumber ? colors.brand : colors.onSurface}
+                testID="create-listing-show-phone-toggle"
+              />
+            </View>
+            {showPhoneNumber ? (
+              <View style={styles.contactToggleRow}>
+                <View style={styles.contactToggleTextWrap}>
+                  <Text style={styles.contactToggleLabel}>Απόκρυψη από μεσίτες</Text>
+                </View>
+                <Switch
+                  value={hidePhoneFromBrokers}
+                  onValueChange={setHidePhoneFromBrokers}
+                  trackColor={{ false: colors.border, true: colors.brandSecondary }}
+                  thumbColor={hidePhoneFromBrokers ? colors.brand : colors.onSurface}
+                  testID="create-listing-hide-phone-from-brokers-toggle"
+                />
+              </View>
+            ) : null}
+          </View>
+
+
+          {isBrokerMode ? (
+            <View
+              style={styles.card}
+              onLayout={(event) => {
+                matchingSectionY.current = event.nativeEvent.layout.y;
+              }}
+              testID="create-listing-client-matching"
+            >
+              <View style={styles.sectionHeaderRow}>
+                <View style={styles.matchingHeaderTextWrap}>
+                  <Text style={styles.sectionTitle}>Ταίριασμα με Υπάρχοντες Πελάτες (Off-market Exclusive)</Text>
+                  <Text style={styles.fieldHint}>Προτείνετε το ακίνητο σε συμβατούς πελάτες πριν την επίσημη δημοσίευση.</Text>
+                </View>
+                {loadingClientPool ? <ActivityIndicator size="small" color={colors.brandSecondary} /> : null}
+              </View>
+
+              {!loadingClientPool && !hasAnyListingData ? (
+                <Text style={styles.fieldHintBrand}>Συμπληρώστε τουλάχιστον ένα στοιχείο του ακινήτου για να δείτε συμβατούς πελάτες.</Text>
+              ) : !loadingClientPool && matchedClients.length === 0 ? (
+                <Text style={styles.fieldHint}>Δεν βρέθηκαν πελάτες των οποίων τα φίλτρα να ταιριάζουν με τα τρέχοντα στοιχεία.</Text>
+              ) : (
+                <View style={styles.matchedClientList}>
+                  {matchedClients.map((client) => (
+                    <View key={client.chatRoomId} style={styles.matchedClientRow}>
+                      {client.clientAvatar ? (
+                        <Image source={{ uri: client.clientAvatar }} style={styles.matchedClientAvatar} contentFit="cover" />
+                      ) : (
+                        <DefaultProfileAvatar size={42} iconSize={19} />
+                      )}
+                      <View style={styles.matchedClientInfo}>
+                        <Text style={styles.matchedClientName} numberOfLines={1}>{client.clientName}</Text>
+                        <View style={styles.compatibilityBadge}>
+                          <Text style={styles.compatibilityBadgeText}>{`${client.compatibilityScore}% Match`}</Text>
+                        </View>
+                      </View>
+                      <View style={styles.matchedClientActions}>
+                        <Pressable
+                          style={styles.matchedClientSendButton}
+                          onPress={() => void handleSendOffMarketListing(client)}
+                          disabled={sendingOffMarketClientId !== null}
+                          accessibilityLabel={`Αποστολή μηνύματος στον ${client.clientName}`}
+                          testID={`create-listing-match-send-${client.clientUserId}`}
+                        >
+                          {sendingOffMarketClientId === client.clientUserId ? (
+                            <ActivityIndicator size="small" color={colors.onBrand} />
+                          ) : (
+                            <Ionicons name="paper-plane-outline" size={18} color={colors.onBrand} />
+                          )}
+                        </Pressable>
+                        <Pressable
+                          style={styles.matchedClientAddButton}
+                          onPress={() => undefined}
+                          accessibilityLabel={`Προσθήκη ${client.clientName}`}
+                          testID={`create-listing-match-add-${client.clientUserId}`}
+                        >
+                          <Ionicons name="add-outline" size={18} color={colors.onSurfaceTertiary} />
+                        </Pressable>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </View>
+          ) : null}
 
           {isBrokerMode ? (
             <View style={styles.card}>
@@ -3709,8 +3419,7 @@ export default function CreateListingScreen() {
                       : null;
                     const activeIndex = editingEntry ? editingEntry.index : entriesForType.length + 1;
                     const inputValue = technicalSpecInputs[config.type] ?? "";
-                    const declaredCount = config.countField ? roomCountValues[config.countField] : null;
-                    const exceedsDeclaredCount = declaredCount !== null && activeIndex > declaredCount;
+                    const hasWarning = technicalSpecWarnings[config.type] === true;
                     const showAddButton = inputValue.trim().length > 0;
 
                     return (
@@ -3729,24 +3438,16 @@ export default function CreateListingScreen() {
                           />
                           {showAddButton ? (
                             <Pressable
-                              style={[
-                                styles.technicalSpecAddButton,
-                                exceedsDeclaredCount && styles.technicalSpecAddButtonDisabled,
-                              ]}
+                              style={styles.technicalSpecAddButton}
                               onPress={() => handleCommitTechnicalSpec(config)}
-                              disabled={exceedsDeclaredCount}
                               hitSlop={6}
                               testID={`create-listing-technical-spec-add-${config.type}`}
                             >
-                              <Ionicons
-                                name="add"
-                                size={20}
-                                color={exceedsDeclaredCount ? colors.onSurfaceTertiary : colors.onBrand}
-                              />
+                              <Ionicons name="add" size={20} color={colors.onBrand} />
                             </Pressable>
                           ) : null}
                         </View>
-                        {exceedsDeclaredCount && config.countField ? (
+                        {hasWarning && config.countField ? (
                           <Text
                             style={styles.technicalSpecWarningText}
                             testID={`create-listing-technical-spec-warning-${config.type}`}
@@ -3764,83 +3465,8 @@ export default function CreateListingScreen() {
 
           {isBrokerMode ? (
             <View style={styles.card}>
-              <Pressable
-                style={styles.expandHeaderRow}
-                onPress={() => setIsPropertyStatusExpanded((prev) => !prev)}
-                testID="create-listing-property-status-toggle"
-              >
-                <View style={styles.brokerSectionHeaderTextWrap}>
-                  <Text style={styles.sectionTitle}>Κατάσταση ακινήτου</Text>
-                  <View style={styles.propertyStatusBadge}>
-                    <Text style={styles.propertyStatusBadgeText}>
-                      {PROPERTY_STATUS_OPTIONS.find((option) => option.key === propertyStatus)?.label}
-                    </Text>
-                  </View>
-                </View>
-                <Ionicons
-                  name={isPropertyStatusExpanded ? "chevron-up" : "chevron-down"}
-                  size={20}
-                  color={colors.onSurface}
-                />
-              </Pressable>
+              <Text style={styles.sectionTitle}>Στοιχεία ιδιοκτήτη</Text>
 
-              {isPropertyStatusExpanded ? (
-                <View style={styles.brokerDetailsContent}>
-                  <View style={styles.propertyStatusOptions}>
-                    {PROPERTY_STATUS_OPTIONS.map((option) => {
-                      const isSelected = propertyStatus === option.key;
-                      return (
-                        <Pressable
-                          key={option.key}
-                          style={[styles.propertyStatusOptionRow, isSelected && styles.propertyStatusOptionRowSelected]}
-                          onPress={() => setPropertyStatus(option.key)}
-                          testID={`create-listing-status-option-${option.key}`}
-                        >
-                          <Text style={styles.propertyStatusOptionLabel}>{option.label}</Text>
-                          <Ionicons
-                            name={isSelected ? "checkmark-circle" : "ellipse-outline"}
-                            size={22}
-                            color={isSelected ? colors.brand : colors.onSurfaceTertiary}
-                          />
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-
-                  {propertyStatus === "sold_rented" ? (
-                    <View>
-                      <TextInput
-                        value={closedDealPrice}
-                        onChangeText={(value) => setClosedDealPrice(digitsOnlyInput(value))}
-                        keyboardType="number-pad"
-                        placeholder={t("createListing.finalPricePlaceholder")}
-                        placeholderTextColor={colors.onSurfaceTertiary}
-                        style={styles.input}
-                        testID="create-listing-closed-deal-price"
-                      />
-                    </View>
-                  ) : null}
-                </View>
-              ) : null}
-            </View>
-          ) : null}
-
-          {isBrokerMode ? (
-            <View style={styles.card}>
-              <Pressable
-                style={styles.expandHeaderRow}
-                onPress={() => setIsOwnerDetailsExpanded((prev) => !prev)}
-                testID="create-listing-owner-details-toggle"
-              >
-                <Text style={styles.sectionTitle}>Στοιχεία ιδιοκτήτη</Text>
-                <Ionicons
-                  name={isOwnerDetailsExpanded ? "chevron-up" : "chevron-down"}
-                  size={20}
-                  color={colors.onSurface}
-                />
-              </Pressable>
-
-              {isOwnerDetailsExpanded ? (
                 <View style={styles.brokerDetailsContent}>
                   <View>
                     <Text style={styles.fieldLabel}>Όνομα ιδιοκτήτη</Text>
@@ -3903,10 +3529,101 @@ export default function CreateListingScreen() {
                     />
                   </View>
                 </View>
-              ) : null}
+                <View style={styles.documentsHeaderTextWrap}>
+                  <Text style={styles.sectionTitle}>Αρχειοθήκη Εγγράφων</Text>
+                  {isDocumentRepositoryReady ? (
+                    <View style={styles.documentsReadyBadge} testID="create-listing-documents-ready-badge">
+                      <Ionicons name="checkmark-circle" size={14} color={colors.success} />
+                      <Text style={styles.documentsReadyBadgeText}>Έτοιμο για μεταβίβαση</Text>
+                    </View>
+                  ) : (
+                    <Text style={styles.fieldHint}>
+                      Συμπληρώστε και τις 8 κατηγορίες για να χαρακτηριστεί έτοιμη προς μεταβίβαση.
+                    </Text>
+                  )}
+                </View>
+                <View style={styles.documentsContent}>
+                  {DOCUMENT_CATEGORIES.map((category) => {
+                    const files = documents[category.key] ?? [];
+                    const hasFiles = files.length > 0;
+                    const isCategoryExpanded = expandedDocumentCategory === category.key;
+                    const isUploading = uploadingDocumentCategory === category.key;
+
+                    return (
+                      <View key={category.key} style={styles.documentCategoryBlock}>
+                        <Pressable
+                          style={styles.documentCategoryRow}
+                          onPress={() =>
+                            setExpandedDocumentCategory((prev) => (prev === category.key ? null : category.key))
+                          }
+                          testID={`create-listing-document-category-${category.key}`}
+                        >
+                          <Text style={styles.documentCategoryTitle}>{category.title}</Text>
+                          <View style={styles.documentCategoryActions}>
+                            {hasFiles ? (
+                              <Ionicons name="checkmark-circle" size={18} color={colors.success} />
+                            ) : null}
+                            <View style={[styles.documentCountBadge, hasFiles && styles.documentCountBadgeFilled]}>
+                              <Text
+                                style={[styles.documentCountBadgeText, hasFiles && styles.documentCountBadgeTextFilled]}
+                              >
+                                {files.length}
+                              </Text>
+                            </View>
+                            {isUploading ? (
+                              <ActivityIndicator size="small" color={colors.brandSecondary} />
+                            ) : (
+                              <Pressable
+                                onPress={() => void handleAttachDocument(category.key)}
+                                hitSlop={8}
+                                testID={`create-listing-document-attach-${category.key}`}
+                              >
+                                <Ionicons name="attach-outline" size={20} color={colors.brandSecondary} />
+                              </Pressable>
+                            )}
+                          </View>
+                        </Pressable>
+
+                        {isCategoryExpanded ? (
+                          <View style={styles.documentFileList}>
+                            {hasFiles ? (
+                              files.map((file) => (
+                                <View key={file.id} style={styles.documentFileRow}>
+                                  <View style={styles.documentFileTextWrap}>
+                                    <Text style={styles.documentFileName} numberOfLines={1}>
+                                      {file.name}
+                                    </Text>
+                                    <Text style={styles.documentFileMeta}>{formatFileSize(file.size)}</Text>
+                                  </View>
+                                  <Pressable
+                                    onPress={() => handleOpenDocument(file.url)}
+                                    hitSlop={8}
+                                    testID={`create-listing-document-open-${file.id}`}
+                                  >
+                                    <Ionicons name="download-outline" size={18} color={colors.onSurface} />
+                                  </Pressable>
+                                  <Pressable
+                                    onPress={() => handleRemoveDocument(category.key, file.id)}
+                                    hitSlop={8}
+                                    testID={`create-listing-document-remove-${file.id}`}
+                                  >
+                                    <Ionicons name="trash-outline" size={18} color={colors.error} />
+                                  </Pressable>
+                                </View>
+                              ))
+                            ) : (
+                              <Text style={styles.fieldHint}>Δεν έχουν επισυναφθεί έγγραφα σε αυτή την κατηγορία.</Text>
+                            )}
+                          </View>
+                        ) : null}
+                      </View>
+                    );
+                  })}
+                </View>
             </View>
           ) : null}
 
+          {/*
           {isBrokerMode ? (
             <View style={styles.card}>
               <Pressable
@@ -3932,12 +3649,12 @@ export default function CreateListingScreen() {
                     selectedHistoryNode={selectedHistoryNode}
                     onSelectNode={setSelectedHistoryNode}
                     colors={colors}
-                    styles={styles}
                   />
                 </View>
               ) : null}
             </View>
           ) : null}
+          */}
         </KeyboardAwareScrollView>
 
         {isBrokerMode ? (
@@ -4462,7 +4179,7 @@ function createStyles(colors: ThemeColors) {
     sectionSubtitle: {
       fontFamily: fonts.semibold,
       fontSize: fontSize.base,
-      color: colors.onSurface,
+      color: colors.brand,
       marginBottom: 2,
     },
     fieldLabel: {
@@ -4533,125 +4250,6 @@ function createStyles(colors: ThemeColors) {
     },
     ownerMotivationInput: {
       minHeight: 80,
-    },
-    priceHistoryChart: {
-      height: 292,
-      width: "100%",
-      position: "relative",
-      overflow: "hidden",
-    },
-    priceHistoryGridLine: {
-      position: "absolute",
-      height: 1,
-      backgroundColor: colors.divider,
-    },
-    priceHistoryAxisLabel: {
-      position: "absolute",
-      width: 48,
-      fontFamily: fonts.semibold,
-      fontSize: fontSize.xs,
-      color: colors.onSurfaceTertiary,
-      textAlign: "right",
-    },
-    priceHistoryLine: {
-      position: "absolute",
-      height: 2,
-      backgroundColor: colors.brand,
-    },
-    priceHistoryExpectationLine: {
-      position: "absolute",
-      height: 2,
-      backgroundColor: colors.onSurfaceTertiary,
-    },
-    priceHistoryNode: {
-      position: "absolute",
-      width: 14,
-      height: 14,
-      borderRadius: 7,
-      backgroundColor: colors.brand,
-      borderWidth: 2,
-      borderColor: colors.surfaceSecondary,
-    },
-    priceHistoryNodeSelected: {
-      backgroundColor: colors.brandSecondary,
-      borderColor: colors.onBrand,
-      transform: [{ scale: 1.2 }],
-    },
-    priceHistoryExpectationNode: {
-      position: "absolute",
-      width: 10,
-      height: 10,
-      borderRadius: 5,
-      backgroundColor: colors.onSurfaceTertiary,
-      borderWidth: 2,
-      borderColor: colors.surfaceSecondary,
-    },
-    priceHistoryDateLabel: {
-      position: "absolute",
-      width: 56,
-      fontFamily: fonts.regular,
-      fontSize: fontSize.xs,
-      color: colors.onSurfaceTertiary,
-      textAlign: "center",
-    },
-    priceHistoryTooltip: {
-      position: "absolute",
-      borderRadius: radius.md,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surfaceSecondary,
-      padding: spacing.sm,
-      gap: 2,
-      elevation: 4,
-      shadowColor: colors.onSurface,
-      shadowOpacity: 0.18,
-      shadowRadius: 5,
-      shadowOffset: { width: 0, height: 2 },
-      zIndex: 5,
-    },
-    priceHistoryTooltipText: {
-      fontFamily: fonts.semibold,
-      fontSize: fontSize.xs,
-      color: colors.onSurface,
-    },
-    priceHistoryTooltipPointer: {
-      position: "absolute",
-      bottom: -5,
-      left: "50%",
-      width: 10,
-      height: 10,
-      backgroundColor: colors.surfaceSecondary,
-      borderRightWidth: 1,
-      borderBottomWidth: 1,
-      borderColor: colors.border,
-      transform: [{ rotate: "45deg" }],
-    },
-    priceHistoryLegend: {
-      position: "absolute",
-      left: 52,
-      right: 16,
-      top: 238,
-      gap: spacing.xs,
-    },
-    priceHistoryLegendItem: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: spacing.xs,
-    },
-    priceHistoryLegendBrandIndicator: {
-      width: 10,
-      height: 10,
-      backgroundColor: colors.brand,
-    },
-    priceHistoryLegendExpectationIndicator: {
-      width: 10,
-      height: 10,
-      backgroundColor: colors.onSurfaceTertiary,
-    },
-    priceHistoryLegendText: {
-      fontFamily: fonts.regular,
-      fontSize: fontSize.xs,
-      color: colors.onSurfaceTertiary,
     },
     technicalSpecSavedList: {
       gap: spacing.sm,
@@ -4803,7 +4401,7 @@ function createStyles(colors: ThemeColors) {
     extraDetailsCategoryTitle: {
       fontFamily: fonts.semibold,
       fontSize: fontSize.base,
-      color: colors.onSurface,
+      color: colors.brand,
     },
     extraDetailsItemList: {
       gap: spacing.sm,
@@ -4883,6 +4481,12 @@ function createStyles(colors: ThemeColors) {
       fontFamily: fonts.regular,
       fontSize: fontSize.sm,
       color: colors.onSurfaceTertiary,
+      lineHeight: 18,
+    },
+    fieldHintBrand: {
+      fontFamily: fonts.regular,
+      fontSize: fontSize.sm,
+      color: colors.brand,
       lineHeight: 18,
     },
     editLoadingRow: {

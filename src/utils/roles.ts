@@ -9,6 +9,13 @@ export interface UserRoleData {
   not_looking_for_roommate?: boolean;
 }
 
+export function isBrokerOrSecretariat(user: { isBroker?: boolean; agencyRole?: string | null }): boolean {
+  return Boolean(
+    user.isBroker ||
+    ["ceo", "secretary", "secretariat"].includes(user.agencyRole ?? ""),
+  );
+}
+
 export function isBrokerOrAgencyUser(user?: UserRoleData | null): boolean {
   if (!user) return false;
 

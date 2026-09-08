@@ -1,5 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -10,7 +20,11 @@ import { getUserProfile } from "@/src/api/userProfile";
 import { useAuth } from "@/src/context/auth";
 import { useTheme } from "@/src/context/ThemeContext";
 import { db } from "@/src/config/firebase";
-import { fonts, fontSize, radius, spacing } from "@/src/theme";
+import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
+import { isBrokerOrSecretariat } from "@/src/utils/roles";
+
+const TAB_BAR_BOTTOM_SPACE = 90;
+const CURRENCY = "€";
 
 type PoolApartment = Record<string, unknown> & {
   id: string;
@@ -19,6 +33,8 @@ type PoolApartment = Record<string, unknown> & {
   city?: string;
   rent?: number;
   price?: number;
+  size?: number;
+  rooms?: number;
   image?: string;
   imageUrl?: string;
   images?: string[];
@@ -27,68 +43,77 @@ type PoolApartment = Record<string, unknown> & {
   rejectedBrokerIds?: string[];
 };
 
-function money(apartment: PoolApartment): string {
-  const value = typeof apartment.rent === "number" ? apartment.rent : typeof apartment.price === "number" ? apartment.price : 0;
-  return `€${value}/μήνα`;
-}
-
 export default function ApartmentPoolScreen() {
   const auth = useAuth();
   const router = useRouter();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => createStyles(colors), [colors]);
+
   const [agencyId, setAgencyId] = useState<string | null>(null);
   const [agencyName, setAgencyName] = useState<string | null>(null);
   const [apartments, setApartments] = useState<PoolApartment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [claimingId, setClaimingId] = useState<string | null>(null);
-  const [errorText, setErrorText] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const canAccessPool = isBrokerOrSecretariat(auth);
   const isExecutive = ["ceo", "secretary", "secretariat"].includes(auth.agencyRole ?? "");
 
-  const load = useCallback(async () => {
-    if (!auth.userId || !auth.isBroker) {
+  const loadAgencyData = useCallback(async () => {
+    if (!auth.userId || !canAccessPool) {
       setApartments([]);
       setLoading(false);
       return;
     }
-    setLoading(true);
-    setErrorText(null);
+
+    setErrorMessage(null);
     try {
       const profile = await getUserProfile(auth.userId);
       const resolvedAgencyId = profile?.agencyId?.trim() || "";
       setAgencyId(resolvedAgencyId || null);
+
       if (!resolvedAgencyId) {
         setAgencyName(null);
         setApartments([]);
         return;
       }
-      setApartments([]);
+
       const agencySnapshot = await getDoc(doc(db, "agencies", resolvedAgencyId));
-      const resolvedAgencyName = typeof auth.user?.agencyName === "string" && auth.user.agencyName.trim().length > 0
-        ? auth.user.agencyName.trim()
-        : typeof agencySnapshot.data()?.name === "string" && agencySnapshot.data()?.name.trim().length > 0
-          ? agencySnapshot.data()?.name.trim()
-          : typeof agencySnapshot.data()?.agencyName === "string" && agencySnapshot.data()?.agencyName.trim().length > 0
-            ? agencySnapshot.data()?.agencyName.trim()
-            : null;
+      const agencyData = agencySnapshot.data();
+
+      const resolvedAgencyName =
+        typeof auth.user?.agencyName === "string" && auth.user.agencyName.trim().length > 0
+          ? auth.user.agencyName.trim()
+          : typeof agencyData?.name === "string" && agencyData.name.trim().length > 0
+          ? agencyData.name.trim()
+          : typeof agencyData?.agencyName === "string" && agencyData.agencyName.trim().length > 0
+          ? agencyData.agencyName.trim()
+          : null;
+
       setAgencyName(resolvedAgencyName);
     } catch {
-      setErrorText("Δεν ήταν δυνατή η φόρτωση του Apartment Pool.");
+      setErrorMessage("Δεν ήταν δυνατή η ανάκτηση των στοιχείων του γραφείου.");
       setApartments([]);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  }, [auth.isBroker, auth.userId]);
+  }, [auth.user?.agencyName, auth.userId, canAccessPool]);
 
   useEffect(() => {
     let unsubscribe: () => void = () => undefined;
-    void load().then(() => {
+
+    void loadAgencyData().then(() => {
       if (!agencyId || !auth.userId) return;
-      unsubscribe = subscribeAgencyPoolApartments(agencyId, auth.userId, (rows) => setApartments(rows as PoolApartment[]));
+      unsubscribe = subscribeAgencyPoolApartments(agencyId, auth.userId, (rows) => {
+        setApartments(rows as PoolApartment[]);
+      });
     });
+
     return () => unsubscribe();
-  }, [agencyId, auth.userId, load]);
+  }, [agencyId, auth.userId, loadAgencyData]);
 
   const titleParts = useMemo(() => {
     const baseName = agencyName?.trim() || "Apartment Pool";
@@ -103,84 +128,506 @@ export default function ApartmentPoolScreen() {
     };
   }, [agencyName]);
 
-  const claim = async (apartment: PoolApartment) => {
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    void loadAgencyData();
+  }, [loadAgencyData]);
+
+  const handleClaim = async (apartment: PoolApartment) => {
     if (!auth.userId || !agencyId || claimingId) return;
+
     const brokerId = auth.userId;
-    const rejected = apartment.rejectedBrokerIds?.includes(brokerId);
-    const pendingForAnother = apartment.pendingClaimBrokerId && apartment.pendingClaimBrokerId !== brokerId;
-    if (rejected || pendingForAnother || apartment.pendingClaimBrokerId === brokerId) return;
-    const previous = apartments;
+    const isRejected = apartment.rejectedBrokerIds?.includes(brokerId);
+    const isPendingForOther = !!apartment.pendingClaimBrokerId && apartment.pendingClaimBrokerId !== brokerId;
+    const isPendingForMe = apartment.pendingClaimBrokerId === brokerId;
+
+    if (isRejected || isPendingForOther || isPendingForMe) return;
+
+    const previousApartments = [...apartments];
     setClaimingId(apartment.id);
-    setApartments((current) => current.map((item) => item.id === apartment.id ? { ...item, assignmentStatus: "claim_pending", pendingClaimBrokerId: brokerId } : item));
+
+    setApartments((current) =>
+      current.map((item) =>
+        item.id === apartment.id
+          ? { ...item, assignmentStatus: "claim_pending", pendingClaimBrokerId: brokerId }
+          : item
+      )
+    );
+
     try {
       await claimApartmentFromPool({ apartmentId: apartment.id, brokerId });
-    } catch (error) {
-      setApartments(previous);
-      Alert.alert("Η ανάληψη απέτυχε", error instanceof Error ? error.message : "Δοκιμάστε ξανά.");
+    } catch (err) {
+      setApartments(previousApartments);
+      Alert.alert(
+        "Ανεπιτυχής Ανάληψη",
+        err instanceof Error ? err.message : "Παρουσιάστηκε σφάλμα κατά την ανάληψη του ακινήτου."
+      );
     } finally {
       setClaimingId(null);
     }
   };
 
-  if (!auth.isBroker) return <View style={styles.center}><Ionicons name="lock-closed-outline" size={34} color={colors.onSurfaceTertiary} /><Text style={styles.empty}>Το Apartment Pool είναι διαθέσιμο μόνο σε συνεργάτες agency.</Text></View>;
+  const handleOpenDetail = (apartment: PoolApartment) => {
+    router.push({
+      pathname: "/apartment-detail",
+      params: { data: JSON.stringify(apartment) },
+    } as never);
+  };
 
-  return <View style={styles.container} testID="apartment-pool-screen">
-    <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
-      <View style={styles.headerSpacer} />
-      <View style={styles.titleWrap}>
-        {titleParts.leftWords && titleParts.rightWords ? (
-          <Text style={styles.title} numberOfLines={2}>
-            <Text style={[styles.titlePart, { color: colors.onSurface }]}>{titleParts.leftWords}</Text>
-            <Text style={[styles.titlePart, { color: colors.brand }]}>{` ${titleParts.rightWords}`}</Text>
-          </Text>
-        ) : (
-          <Text style={[styles.title, { color: colors.brand }]} numberOfLines={2}>{titleParts.rightWords}</Text>
-        )}
-        <Text style={styles.subtitle}>Ακίνητα διαθέσιμα για ανάληψη από το γραφείο</Text>
+  if (!canAccessPool) {
+    return (
+      <View style={styles.stateCenter}>
+        <View style={styles.iconCircleMuted}>
+          <Ionicons name="lock-closed-outline" size={32} color={colors.onSurfaceTertiary} />
+        </View>
+        <Text style={styles.emptyTitle}>Περιορισμένη Πρόσβαση</Text>
+        <Text style={styles.emptySubtitle}>
+          Το Apartment Pool είναι διαθέσιμο αποκλειστικά σε πιστοποιημένους μεσίτες με ενεργή ομάδα.
+        </Text>
       </View>
-      {isExecutive ? (
-        <Pressable style={styles.headerAction} onPress={() => router.push("/profile" as never)} hitSlop={8} accessibilityRole="button" accessibilityLabel="Ρυθμίσεις προφίλ">
-          <Ionicons name="settings-outline" size={22} color={colors.onSurface} />
-        </Pressable>
+    );
+  }
+
+  return (
+    <View style={styles.container} testID="apartment-pool-screen">
+      <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
+        <View style={styles.headerTopRow}>
+          <View style={styles.titleWrap}>
+            {titleParts.leftWords && titleParts.rightWords ? (
+              <Text style={styles.title} numberOfLines={2}>
+                <Text style={[styles.titlePart, { color: colors.onSurface }]}>{titleParts.leftWords}</Text>
+                <Text style={[styles.titlePart, { color: colors.brand }]}>{` ${titleParts.rightWords}`}</Text>
+              </Text>
+            ) : (
+              <Text style={[styles.title, { color: colors.brand }]} numberOfLines={2}>
+                {titleParts.rightWords}
+              </Text>
+            )}
+            <Text style={styles.subtitle}>Κοινό αποθετήριο αδιάθετων ακινήτων γραφείου</Text>
+          </View>
+
+          {isExecutive ? (
+            <Pressable
+              style={styles.headerIconButton}
+              onPress={() => router.push("/profile" as never)}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Ρυθμίσεις γραφείου"
+            >
+              <Ionicons name="settings-outline" size={20} color={colors.onSurface} />
+            </Pressable>
+          ) : (
+            <View style={styles.headerRightSpacer} />
+          )}
+        </View>
+      </View>
+
+      {errorMessage ? (
+        <View style={styles.errorBanner}>
+          <Ionicons name="alert-circle-outline" size={18} color={colors.error} />
+          <Text style={styles.errorBannerText}>{errorMessage}</Text>
+        </View>
+      ) : null}
+
+      {loading ? (
+        <View style={styles.stateCenter}>
+          <ActivityIndicator size="large" color={colors.brand} />
+          <Text style={styles.loadingText}>Φόρτωση ακινήτων pool...</Text>
+        </View>
+      ) : apartments.length === 0 ? (
+        <View style={styles.stateCenter}>
+          <View style={styles.iconCircleMuted}>
+            <Ionicons name="business-outline" size={34} color={colors.brand} />
+          </View>
+          <Text style={styles.emptyTitle}>Όλα τα ακίνητα έχουν ανατεθεί</Text>
+          <Text style={styles.emptySubtitle}>
+            Δεν υπάρχουν διαθέσιμα ακίνητα στο pool αυτή τη στιγμή. Μόλις αναρτηθεί νέα αγγελία χωρίς αποκλειστικότητα, θα εμφανιστεί εδώ.
+          </Text>
+        </View>
       ) : (
-        <View style={styles.headerActionSpacer} />
+        <ScrollView
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: TAB_BAR_BOTTOM_SPACE + insets.bottom }]}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={colors.brand}
+              colors={[colors.brand]}
+            />
+          }
+        >
+          <View style={styles.counterRow}>
+            <Text style={styles.counterText}>
+              ΔΙΑΘΕΣΙΜΑ ΠΡΟΣ ΑΝΑΛΗΨΗ ({apartments.length})
+            </Text>
+          </View>
+
+          {apartments.map((item) => {
+            const thumbnail = item.image || item.imageUrl || item.images?.[0] || "";
+            const isPendingForMe = item.pendingClaimBrokerId === auth.userId;
+            const isPendingForOther = !!item.pendingClaimBrokerId && item.pendingClaimBrokerId !== auth.userId;
+            const isRejected = !!auth.userId && item.rejectedBrokerIds?.includes(auth.userId);
+            const isClaimingThis = claimingId === item.id;
+            const isActionDisabled = isPendingForMe || isPendingForOther || isRejected || isClaimingThis;
+
+            const rentValue = typeof item.rent === "number" ? item.rent : typeof item.price === "number" ? item.price : 0;
+
+            return (
+              <View key={item.id} style={styles.poolCard} testID={`pool-card-${item.id}`}>
+                <Pressable
+                  style={({ pressed }) => [styles.cardInteractiveArea, pressed && styles.cardPressed]}
+                  onPress={() => handleOpenDetail(item)}
+                >
+                  {thumbnail ? (
+                    <Image
+                      source={{ uri: thumbnail }}
+                      style={styles.cardThumb}
+                      contentFit="cover"
+                      transition={150}
+                    />
+                  ) : (
+                    <View style={styles.cardThumbPlaceholder}>
+                      <Ionicons name="home-outline" size={24} color={colors.onSurfaceTertiary} />
+                    </View>
+                  )}
+
+                  <View style={styles.cardDetailsColumn}>
+                    <Text style={styles.cardTitle} numberOfLines={1}>
+                      {item.title?.trim() || "Ακίνητο χωρίς τίτλο"}
+                    </Text>
+
+                    <View style={styles.locationRow}>
+                      <Ionicons name="location-outline" size={13} color={colors.onSurfaceTertiary} />
+                      <Text style={styles.locationText} numberOfLines={1}>
+                        {item.area || "Άγνωστη περιοχή"}{item.city ? `, ${item.city}` : ""}
+                      </Text>
+                    </View>
+
+                    <View style={styles.metaBadgeRow}>
+                      <View style={styles.rentBadge}>
+                        <Text style={styles.rentBadgeText}>
+                          {CURRENCY}{rentValue}/μήνα
+                        </Text>
+                      </View>
+
+                      {typeof item.size === "number" && item.size > 0 && (
+                        <View style={styles.specBadge}>
+                          <Text style={styles.specBadgeText}>{item.size} m²</Text>
+                        </View>
+                      )}
+                    </View>
+
+                    {isPendingForMe ? (
+                      <View style={[styles.statusBadge, styles.statusBadgePending]}>
+                        <Ionicons name="time-outline" size={12} color={colors.brand} />
+                        <Text style={[styles.statusBadgeText, { color: colors.brand }]}>
+                          Αναμονή έγκρισης
+                        </Text>
+                      </View>
+                    ) : isPendingForOther ? (
+                      <View style={[styles.statusBadge, styles.statusBadgeWarning]}>
+                        <Ionicons name="hourglass-outline" size={12} color={colors.warning} />
+                        <Text style={[styles.statusBadgeText, { color: colors.warning }]}>
+                          Σε διεκδίκηση
+                        </Text>
+                      </View>
+                    ) : isRejected ? (
+                      <View style={[styles.statusBadge, styles.statusBadgeRejected]}>
+                        <Ionicons name="close-circle-outline" size={12} color={colors.error} />
+                        <Text style={[styles.statusBadgeText, { color: colors.error }]}>
+                          Μη διαθέσιμο
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
+                </Pressable>
+
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.claimActionBtn,
+                    isActionDisabled && styles.claimActionBtnDisabled,
+                    pressed && !isActionDisabled && styles.cardPressed,
+                  ]}
+                  onPress={() => void handleClaim(item)}
+                  disabled={isActionDisabled}
+                  hitSlop={8}
+                  testID={`pool-claim-btn-${item.id}`}
+                  accessibilityLabel="Ανάληψη διαχείρισης ακινήτου"
+                >
+                  {isClaimingThis ? (
+                    <ActivityIndicator size="small" color={colors.onBrand} />
+                  ) : (
+                    <Ionicons
+                      name={
+                        isPendingForMe
+                          ? "checkmark"
+                          : isPendingForOther || isRejected
+                          ? "lock-closed"
+                          : "add"
+                      }
+                      size={20}
+                      color={isActionDisabled ? colors.onSurfaceTertiary : colors.onBrand}
+                    />
+                  )}
+                </Pressable>
+              </View>
+            );
+          })}
+        </ScrollView>
       )}
     </View>
-    {errorText ? <Text style={styles.error}>{errorText}</Text> : null}
-    {loading ? <View style={styles.center}><ActivityIndicator color={colors.brand} /></View> : apartments.length === 0 ? <View style={styles.center}><Ionicons name="business-outline" size={38} color={colors.onSurfaceTertiary} /><Text style={styles.empty}>Δεν υπάρχουν διαθέσιμα ακίνητα στο pool.</Text></View> : <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>{apartments.map((apartment) => {
-      const image = apartment.image || apartment.imageUrl || apartment.images?.[0] || "";
-      const rejected = !!auth.userId && apartment.rejectedBrokerIds?.includes(auth.userId);
-      const pendingForAnother = !!apartment.pendingClaimBrokerId && apartment.pendingClaimBrokerId !== auth.userId;
-      const pendingForCurrent = apartment.pendingClaimBrokerId === auth.userId;
-      return <View key={apartment.id} style={styles.card} testID={`pool-apartment-${apartment.id}`}><Pressable style={styles.cardMain} onPress={() => router.push({ pathname: "/apartment-detail", params: { data: JSON.stringify(apartment) } } as never)}>{image ? <Image source={{ uri: image }} style={styles.image} /> : <View style={styles.imageFallback}><Ionicons name="home-outline" size={28} color={colors.onSurfaceTertiary} /></View>}<View style={styles.copy}><Text style={styles.cardTitle} numberOfLines={1}>{apartment.title || "Ακίνητο"}</Text><Text style={styles.meta} numberOfLines={1}>{apartment.area || ""}{apartment.city ? `, ${apartment.city}` : ""}</Text><Text style={styles.price}>{money(apartment)}</Text>{pendingForAnother ? <Text style={styles.pendingBadge}>Σε διαπραγμάτευση ανάθεσης</Text> : rejected ? <Text style={styles.rejectedBadge}>Μη διαθέσιμο προς ανάθεση</Text> : pendingForCurrent ? <Text style={styles.pendingBadge}>Το αίτημά σας αναμένει έγκριση</Text> : null}</View></Pressable><Pressable style={[styles.claimButton, (pendingForAnother || rejected || pendingForCurrent) && styles.claimButtonDisabled]} disabled={pendingForAnother || rejected || pendingForCurrent || claimingId === apartment.id} onPress={() => void claim(apartment)} testID={`pool-claim-${apartment.id}`}><Ionicons name={pendingForCurrent ? "time-outline" : rejected || pendingForAnother ? "lock-closed-outline" : "add"} size={22} color={pendingForAnother || rejected || pendingForCurrent ? colors.onSurfaceTertiary : colors.onBrand} /></Pressable></View>;
-    })}</ScrollView>}
-  </View>;
+  );
 }
 
-const createStyles = (colors: ReturnType<typeof useTheme>["colors"]) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.surface, paddingTop: spacing.xl },
-  header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.lg, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md },
-  headerSpacer: { width: 32, height: 32 },
-  headerAction: { width: 32, height: 32, borderRadius: radius.pill, alignItems: "center", justifyContent: "center" },
-  headerActionSpacer: { width: 32, height: 32 },
-  titleWrap: { flex: 1, alignItems: "center", justifyContent: "center" },
-  title: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface, textAlign: "center" },
-  titlePart: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], textAlign: "center" },
-  subtitle: { marginTop: spacing.xs, fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary, textAlign: "center" },
-  list: { paddingHorizontal: spacing.lg, paddingBottom: spacing["3xl"], gap: spacing.sm },
-  card: { minHeight: 108, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surfaceSecondary, flexDirection: "row", alignItems: "center", padding: spacing.sm, gap: spacing.sm },
-  cardMain: { flex: 1, flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  image: { width: 88, height: 88, borderRadius: radius.sm, backgroundColor: colors.surfaceTertiary },
-  imageFallback: { width: 88, height: 88, borderRadius: radius.sm, alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceTertiary },
-  copy: { flex: 1, gap: 3 },
-  cardTitle: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface },
-  meta: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
-  price: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.brand },
-  pendingBadge: { fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.warning },
-  rejectedBadge: { fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.error },
-  claimButton: { width: 44, height: 44, borderRadius: radius.pill, alignItems: "center", justifyContent: "center", backgroundColor: colors.brand },
-  claimButtonDisabled: { backgroundColor: colors.surfaceTertiary },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl, gap: spacing.md },
-  empty: { textAlign: "center", fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary },
-  error: { marginHorizontal: spacing.lg, marginBottom: spacing.md, color: colors.error, fontFamily: fonts.semibold },
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.surface,
+    },
+    header: {
+      paddingHorizontal: spacing.lg,
+      paddingBottom: spacing.md,
+      backgroundColor: colors.surface,
+      borderBottomLeftRadius: 24,
+      borderBottomRightRadius: 24,
+      shadowColor: "#000000",
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 6,
+      elevation: 4,
+      zIndex: 2,
+    },
+    headerTopRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: spacing.sm,
+    },
+    titleWrap: {
+      flex: 1,
+    },
+    title: {
+      fontFamily: fonts.displayExtra,
+      fontSize: fontSize["2xl"],
+      letterSpacing: -0.5,
+    },
+    titlePart: {
+      fontFamily: fonts.displayExtra,
+      fontSize: fontSize["2xl"],
+    },
+    subtitle: {
+      marginTop: 2,
+      fontFamily: fonts.regular,
+      fontSize: fontSize.xs,
+      color: colors.onSurfaceTertiary,
+    },
+    headerIconButton: {
+      width: 40,
+      height: 40,
+      borderRadius: radius.pill,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.surfaceSecondary,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    headerRightSpacer: {
+      width: 40,
+    },
+    errorBanner: {
+      margin: spacing.md,
+      padding: spacing.md,
+      backgroundColor: colors.surfaceSecondary,
+      borderLeftWidth: 4,
+      borderLeftColor: colors.error,
+      borderRadius: radius.md,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+    },
+    errorBannerText: {
+      flex: 1,
+      fontFamily: fonts.regular,
+      fontSize: fontSize.xs,
+      color: colors.error,
+    },
+    scrollContent: {
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.md,
+      gap: spacing.sm,
+    },
+    counterRow: {
+      paddingVertical: spacing.xs,
+      paddingHorizontal: 2,
+    },
+    counterText: {
+      fontFamily: fonts.bold,
+      fontSize: fontSize.xs,
+      color: colors.onSurfaceTertiary,
+      letterSpacing: 0.8,
+    },
+    poolCard: {
+      flexDirection: "row",
+      alignItems: "center",
+      padding: spacing.sm,
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      gap: spacing.sm,
+    },
+    cardInteractiveArea: {
+      flex: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+    },
+    cardPressed: {
+      opacity: 0.85,
+      transform: [{ scale: 0.99 }],
+    },
+    cardThumb: {
+      width: 82,
+      height: 82,
+      borderRadius: radius.md,
+      backgroundColor: colors.surfaceTertiary,
+    },
+    cardThumbPlaceholder: {
+      width: 82,
+      height: 82,
+      borderRadius: radius.md,
+      backgroundColor: colors.surfaceTertiary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    cardDetailsColumn: {
+      flex: 1,
+      minWidth: 0,
+      gap: 3,
+    },
+    cardTitle: {
+      fontFamily: fonts.bold,
+      fontSize: fontSize.base,
+      color: colors.onSurface,
+    },
+    locationRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 3,
+    },
+    locationText: {
+      flex: 1,
+      fontFamily: fonts.regular,
+      fontSize: fontSize.xs,
+      color: colors.onSurfaceTertiary,
+    },
+    metaBadgeRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+      marginTop: 2,
+    },
+    rentBadge: {
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 2,
+      borderRadius: radius.pill,
+      backgroundColor: colors.brandTertiary,
+    },
+    rentBadgeText: {
+      fontFamily: fonts.bold,
+      fontSize: fontSize.xs,
+      color: colors.brand,
+    },
+    specBadge: {
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 2,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+    },
+    specBadgeText: {
+      fontFamily: fonts.regular,
+      fontSize: fontSize.xs,
+      color: colors.onSurfaceTertiary,
+    },
+    statusBadge: {
+      alignSelf: "flex-start",
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      paddingHorizontal: spacing.xs + 2,
+      paddingVertical: 1,
+      borderRadius: radius.sm,
+      marginTop: 2,
+    },
+    statusBadgePending: {
+      backgroundColor: colors.brandTertiary,
+    },
+    statusBadgeWarning: {
+      backgroundColor: "rgba(234, 179, 8, 0.12)",
+    },
+    statusBadgeRejected: {
+      backgroundColor: "rgba(239, 68, 68, 0.12)",
+    },
+    statusBadgeText: {
+      fontFamily: fonts.semibold,
+      fontSize: 10,
+    },
+    claimActionBtn: {
+      width: 40,
+      height: 40,
+      borderRadius: radius.pill,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.brand,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.15,
+      shadowRadius: 3,
+      elevation: 2,
+    },
+    claimActionBtnDisabled: {
+      backgroundColor: colors.surfaceTertiary,
+      elevation: 0,
+      shadowOpacity: 0,
+    },
+    stateCenter: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      padding: spacing["2xl"],
+      gap: spacing.sm,
+    },
+    iconCircleMuted: {
+      width: 72,
+      height: 72,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surfaceSecondary,
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: spacing.xs,
+    },
+    emptyTitle: {
+      fontFamily: fonts.bold,
+      fontSize: fontSize.lg,
+      color: colors.onSurface,
+      textAlign: "center",
+    },
+    emptySubtitle: {
+      fontFamily: fonts.regular,
+      fontSize: fontSize.sm,
+      color: colors.onSurfaceTertiary,
+      textAlign: "center",
+      lineHeight: 19,
+    },
+    loadingText: {
+      marginTop: spacing.xs,
+      fontFamily: fonts.regular,
+      fontSize: fontSize.sm,
+      color: colors.onSurfaceTertiary,
+    },
+  });
+}

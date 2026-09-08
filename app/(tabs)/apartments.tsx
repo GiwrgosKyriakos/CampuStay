@@ -1580,6 +1580,22 @@ export default function ApartmentsScreen() {
                       : hostData?.looking_for_roommate === true || hostData?.isLookingForRoommate === true,
                 };
 
+                const currentUid = auth.userId;
+                const isOwner = Boolean(
+                  currentUid &&
+                  (listingWithCreatorMetadata.ownerId === currentUid || listingWithCreatorMetadata.hostId === currentUid)
+                );
+                const isAssigned = Boolean(
+                  currentUid &&
+                  auth.isBroker &&
+                  Array.isArray(listingWithCreatorMetadata.assignedBrokerIds) &&
+                  listingWithCreatorMetadata.assignedBrokerIds.includes(currentUid)
+                );
+
+                if (isOwner || isAssigned) {
+                  return listingWithCreatorMetadata;
+                }
+
                 return shouldDisplayListingForUser(listingWithCreatorMetadata, {
                   isBroker: auth.isBroker,
                   notLookingForRoommate: auth.notLookingForRoommate,
@@ -1874,10 +1890,14 @@ export default function ApartmentsScreen() {
       const isDirectOwner = !!currentUid && (apt.ownerId === currentUid || apt.hostId === currentUid);
       const isAssignedBroker = !!currentUid && auth.isBroker === true && Array.isArray(apt.assignedBrokerIds) && apt.assignedBrokerIds.includes(currentUid);
       const isOwnListing = isDirectOwner || isAssignedBroker;
-      if (!shouldDisplayListingForUser(apt, {
+      if (!isOwnListing && !shouldDisplayListingForUser(apt, {
         isBroker: auth.isBroker,
         notLookingForRoommate: auth.notLookingForRoommate,
       })) return false;
+      if (isViewingMyListings) {
+        if (!isOwnListing) return false;
+        if (!normalizedSearch) return true;
+      }
       const isPrivilegedClient = !!currentUid && Array.isArray(apt.offMarketAccessUserIds) && apt.offMarketAccessUserIds.includes(currentUid);
       if ((apt.isOffMarket || apt.status === "under_negotiation") && !isOwnListing && !isPrivilegedClient) return false;
       if (proposalApartmentIds.length > 0 && !proposalApartmentIds.includes(apt.id)) return false;
@@ -2775,16 +2795,16 @@ export default function ApartmentsScreen() {
           <View style={styles.compactHeaderRow}>
             <View style={styles.compactThumbSpacer} />
             <View style={[styles.compactCol, styles.compactAreaCol]}>
-              <Text style={styles.compactHeaderPill}>Περιοχή</Text>
+              <Text numberOfLines={1} style={styles.compactHeaderPill}>Τοποθεσία</Text>
             </View>
             <View style={[styles.compactCol, styles.compactSqmCol]}>
-              <Text style={styles.compactHeaderPill}>Τ.μ.</Text>
+              <Text numberOfLines={1} style={styles.compactHeaderPill}>Τ.μ.</Text>
             </View>
             <View style={[styles.compactCol, styles.compactAvailCol]}>
-              <Text style={styles.compactHeaderPill}>Διαθ.</Text>
+              <Text numberOfLines={1} style={styles.compactHeaderPillDiat}>Διαθ.</Text>
             </View>
             <View style={[styles.compactCol, styles.compactRentCol]}>
-              <Text style={styles.compactHeaderPill}>Νοίκιο</Text>
+              <Text numberOfLines={1} style={[styles.compactHeaderPill, styles.compactRentHeaderPill]}>Νοίκι</Text>
             </View>
           </View>
         )}
@@ -2804,6 +2824,9 @@ export default function ApartmentsScreen() {
           const quickChatMeta = canShowQuickChat ? chatMeta : undefined;
 
           if (isCompactActive) {
+            const street = apt.address?.trim() || apt.exactAddress?.trim();
+            const locationLabel = street ? `${apt.area}, ${street}` : apt.area;
+
             return (
               <TouchableOpacity
                 key={apt.id}
@@ -2827,7 +2850,7 @@ export default function ApartmentsScreen() {
 
                 <View style={[styles.compactCol, styles.compactAreaCol]}>
                   <Text style={styles.compactNeutralPill} numberOfLines={1}>
-                    {apt.area}
+                    {locationLabel}
                   </Text>
                 </View>
 
@@ -4232,21 +4255,40 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     justifyContent: "center",
     minWidth: 0,
   },
-  compactAreaCol: { flex: 2.2, alignItems: "flex-start" },
-  compactSqmCol: { flex: 0.85 },
-  compactAvailCol: { flex: 0.75 },
-  compactRentCol: { flex: 1.1, alignItems: "flex-end" },
+  compactAreaCol: { flex: 3.2, alignItems: "flex-start", paddingRight: 4 },
+  compactSqmCol: { flex: 0.7, alignItems: "center" },
+  compactAvailCol: { flex: 0.8, alignItems: "center" },
+  compactRentCol: { flex: 1.1, alignItems: "flex-start", marginLeft: spacing.xs },
   compactHeaderPill: {
     fontFamily: fonts.semibold,
-    fontSize: fontSize.sm,
+    fontSize: 11,
     color: colors.onSurfaceTertiary,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.pill,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 3,
     overflow: "hidden",
+    textAlign: "center",
+    includeFontPadding: false,
+  },
+  compactHeaderPillDiat: {
+    fontFamily: fonts.semibold,
+    fontSize: 11,
+    color: colors.onSurfaceTertiary,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.pill,
+    paddingHorizontal: 2,
+    paddingVertical: 3,
+    textAlign: "center",
+    includeFontPadding: false,
+  },
+  compactRentHeaderPill: {
+    alignSelf: "flex-start",
+    textAlign: "left",
   },
   compactRowCard: {
     flexDirection: "row",
@@ -4273,6 +4315,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   compactNeutralPill: {
     maxWidth: "100%",
+    width: "94%",
     fontFamily: fonts.semibold,
     fontSize: fontSize.sm,
     color: colors.onSurface,
@@ -4306,13 +4349,17 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderColor: colors.border,
   },
   compactRentPill: {
+    maxWidth: "100%",
     fontFamily: fonts.bold,
-    fontSize: fontSize.base,
+    fontSize: fontSize.sm,
     color: colors.onBrand,
     backgroundColor: colors.brand,
     borderRadius: radius.pill,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    textAlign: "left",
+    alignSelf: "flex-start",
+    flexShrink: 1,
     overflow: "hidden",
   },
   cardWrap: { position: "relative" },

@@ -19,6 +19,7 @@ import { LocaleProvider, useLocale } from "@/src/context/locale";
 import { ThemeProvider, useTheme } from "@/src/context/ThemeContext";
 import { AppLocale } from "@/src/locales";
 import { storage } from "@/src/utils/storage";
+import { isBrokerOrSecretariat } from "@/src/utils/roles";
 import { configureNotificationChannels, handleNotificationResponse, registerFcmTokenForUser, registerNotificationCategories } from "@/src/services/notifications";
 
 const HAS_SELECTED_LANGUAGE_KEY = "has_selected_language";
@@ -61,7 +62,6 @@ function AppContent() {
     "Jakarta-SemiBold": require("../assets/fonts/PlusJakartaSans-SemiBold.ttf"),
     "Jakarta-Bold": require("../assets/fonts/PlusJakartaSans-Bold.ttf"),
   });
-
   const fontsReady = (iconsLoaded || !!iconsError) && (fontsLoaded || !!fontsError);
   const authReady = !auth.isLoading;
   const appReady = fontsReady && authReady;
@@ -73,11 +73,7 @@ function AppContent() {
     topSegment === "agency-onboarding";
   const isUnauthenticated = auth.user === null && !auth.isGuest;
   const isAuthenticated = auth.user !== null;
-  const defaultHomeRoute = auth.isBroker
-    ? "/calendar"
-    : auth.notLookingForRoommate
-    ? "/apartments"
-    : "/explore-feed";
+  const defaultHomeRoute = isBrokerOrSecretariat(auth) ? "/(tabs)/apartment-pool" : "/(tabs)/apartments";
 
   useEffect(() => {
     if (!auth.userId || auth.isGuest) return;
@@ -218,7 +214,7 @@ function AppContent() {
       setIsTransitioning(true);
       
       setTimeout(() => {
-        if (active) router.replace(shouldForceProfileSetup ? "/edit-profile" : defaultHomeRoute as any);
+        if (active) router.replace(shouldForceProfileSetup ? "/edit-profile" : defaultHomeRoute);
       }, 0);
 
       setTimeout(() => {

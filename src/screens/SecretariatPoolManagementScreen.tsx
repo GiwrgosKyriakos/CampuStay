@@ -1,16 +1,37 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { getAgencyClaimRecords, getAgencyLeads, getAgencyPoolApartments, getAgencyStaff, reassignAgencyLead, resolveApartmentClaim, subscribeAgencyClaimRecords, subscribeAgencyLeads, type AgencyClaimRecord, type AgencyLead, type AgencyStaffMember } from "@/src/api/agencyCollaboration";
+import {
+  getAgencyClaimRecords,
+  getAgencyLeads,
+  getAgencyPoolApartments,
+  getAgencyStaff,
+  reassignAgencyLead,
+  resolveApartmentClaim,
+  subscribeAgencyClaimRecords,
+  subscribeAgencyLeads,
+  type AgencyClaimRecord,
+  type AgencyLead,
+  type AgencyStaffMember,
+} from "@/src/api/agencyCollaboration";
 import LeadsPoolSection from "@/src/components/LeadsPoolSection";
 import { useAuth } from "@/src/context/auth";
 import { useTheme } from "@/src/context/ThemeContext";
-import { fonts, fontSize, radius, spacing } from "@/src/theme";
+import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
 
 type SubTab = "listings" | "leads";
 const INACTIVITY_WINDOW = 24 * 60 * 60 * 1000;
+const TAB_BAR_BOTTOM_SPACE = 90;
 
 function timestampMillis(value: unknown): number {
   if (typeof value === "number") return value;
@@ -18,25 +39,32 @@ function timestampMillis(value: unknown): number {
   if (value && typeof value === "object") {
     const candidate = value as { toMillis?: () => number; seconds?: number; nanoseconds?: number };
     if (typeof candidate.toMillis === "function") return candidate.toMillis();
-    if (typeof candidate.seconds === "number") return candidate.seconds * 1000 + Math.floor((candidate.nanoseconds || 0) / 1_000_000);
+    if (typeof candidate.seconds === "number") {
+      return candidate.seconds * 1000 + Math.floor((candidate.nanoseconds || 0) / 1_000_000);
+    }
   }
   return 0;
 }
 
-function countdown(lead: AgencyLead): string {
+function countdown(lead: AgencyLead): { label: string; isOverdue: boolean } {
   const assignedAt = timestampMillis(lead.assignedAt);
-  if (!assignedAt) return "Χωρίς ώρα ανάθεσης";
+  if (!assignedAt) return { label: "Χωρίς ώρα ανάθεσης", isOverdue: false };
   const remaining = Math.max(0, INACTIVITY_WINDOW - (Date.now() - assignedAt));
   const hours = Math.floor(remaining / (60 * 60 * 1000));
   const minutes = Math.floor((remaining % (60 * 60 * 1000)) / (60 * 1000));
-  return remaining > 0 ? `Αδράνεια σε ${hours}ω ${minutes}λ` : "Έτοιμο για ανακατανομή";
+
+  if (remaining <= 0) {
+    return { label: "Έτοιμο για ανακατανομή", isOverdue: true };
+  }
+  return { label: `Αδράνεια σε ${hours}ω ${minutes}λ`, isOverdue: false };
 }
 
 export default function SecretariatPoolManagementScreen() {
   const auth = useAuth();
-  const router = useRouter();
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const styles = useMemo(() => createStyles(colors), [colors]);
+
   const [tab, setTab] = useState<SubTab>("listings");
   const [claims, setClaims] = useState<AgencyClaimRecord[]>([]);
   const [poolApartments, setPoolApartments] = useState<(Record<string, unknown> & { id: string })[]>([]);
@@ -45,72 +73,832 @@ export default function SecretariatPoolManagementScreen() {
   const [expandedLeadId, setExpandedLeadId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [workingId, setWorkingId] = useState<string | null>(null);
-  const allowed = !!auth.agencyId && ["ceo", "secretary", "secretariat"].includes(auth.agencyRole ?? "");
 
-  const load = useCallback(async () => {
-    if (!allowed || !auth.agencyId) { setLoading(false); return; }
+  const isExecutive =
+    Boolean(auth.agencyId) &&
+    ["ceo", "secretary", "secretariat"].includes(auth.agencyRole ?? "");
+
+  const loadData = useCallback(async () => {
+    if (!isExecutive || !auth.agencyId) {
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
-      const [claimRows, leadRows, staffRows, poolRows] = await Promise.all([getAgencyClaimRecords(auth.agencyId), getAgencyLeads(auth.agencyId), getAgencyStaff(auth.agencyId), getAgencyPoolApartments(auth.agencyId, auth.userId ?? "")]);
+      const [claimRows, leadRows, staffRows, poolRows] = await Promise.all([
+        getAgencyClaimRecords(auth.agencyId),
+        getAgencyLeads(auth.agencyId),
+        getAgencyStaff(auth.agencyId),
+        getAgencyPoolApartments(auth.agencyId, auth.userId ?? ""),
+      ]);
+
       setClaims(claimRows.filter((claim) => claim.status === "pending"));
       setPoolApartments(poolRows);
       setLeads(leadRows);
-      setStaff(staffRows.filter((member) => member.id !== auth.userId && member.agencyRole !== "secretary" && member.agencyRole !== "secretariat"));
-    } catch { setClaims([]); setPoolApartments([]); setLeads([]); setStaff([]); } finally { setLoading(false); }
-  }, [allowed, auth.agencyId, auth.userId]);
+      setStaff(
+        staffRows.filter(
+          (member) =>
+            member.id !== auth.userId &&
+            member.agencyRole !== "secretary" &&
+            member.agencyRole !== "secretariat",
+        ),
+      );
+    } catch {
+      setClaims([]);
+      setPoolApartments([]);
+      setLeads([]);
+      setStaff([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [auth.agencyId, auth.userId, isExecutive]);
 
-  useEffect(() => { void load(); }, [load]);
   useEffect(() => {
-    if (!allowed || !auth.agencyId) return;
-    const unsubscribeClaims = subscribeAgencyClaimRecords(auth.agencyId, (nextClaims) => setClaims(nextClaims.filter((claim) => claim.status === "pending")));
+    void loadData();
+  }, [loadData]);
+
+  useEffect(() => {
+    if (!isExecutive || !auth.agencyId) return;
+
+    const unsubscribeClaims = subscribeAgencyClaimRecords(auth.agencyId, (nextClaims) =>
+      setClaims(nextClaims.filter((claim) => claim.status === "pending")),
+    );
     const unsubscribeLeads = subscribeAgencyLeads(auth.agencyId, setLeads);
+
     return () => {
       unsubscribeClaims();
       unsubscribeLeads();
     };
-  }, [allowed, auth.agencyId]);
-  const resolveClaim = async (claim: AgencyClaimRecord, approved: boolean) => {
+  }, [auth.agencyId, isExecutive]);
+
+  const handleResolveClaim = async (claim: AgencyClaimRecord, approved: boolean) => {
     if (!auth.userId || workingId) return;
     setWorkingId(claim.id);
-    try { await resolveApartmentClaim({ claimId: claim.id, reviewerId: auth.userId, approved }); setClaims((previous) => previous.filter((item) => item.id !== claim.id)); } catch (error) { Alert.alert("Η ενέργεια απέτυχε", error instanceof Error ? error.message : "Δοκιμάστε ξανά."); } finally { setWorkingId(null); }
+
+    try {
+      await resolveApartmentClaim({
+        claimId: claim.id,
+        reviewerId: auth.userId,
+        approved,
+      });
+      setClaims((previous) => previous.filter((item) => item.id !== claim.id));
+    } catch (error) {
+      Alert.alert("Η ενέργεια απέτυχε", error instanceof Error ? error.message : "Δοκιμάστε ξανά.");
+    } finally {
+      setWorkingId(null);
+    }
   };
-  const reassign = async (lead: AgencyLead, target: AgencyStaffMember) => {
+
+  const handleReassign = async (lead: AgencyLead, target: AgencyStaffMember) => {
     if (!auth.userId || workingId) return;
     setWorkingId(lead.id);
-    try { await reassignAgencyLead({ leadId: lead.id, reviewerId: auth.userId, targetBrokerId: target.id }); setExpandedLeadId(null); await load(); } catch (error) { Alert.alert("Η ανάθεση απέτυχε", error instanceof Error ? error.message : "Δοκιμάστε ξανά."); } finally { setWorkingId(null); }
+
+    try {
+      await reassignAgencyLead({
+        leadId: lead.id,
+        reviewerId: auth.userId,
+        targetBrokerId: target.id,
+      });
+      setExpandedLeadId(null);
+      await loadData();
+    } catch (error) {
+      Alert.alert("Η ανάθεση απέτυχε", error instanceof Error ? error.message : "Δοκιμάστε ξανά.");
+    } finally {
+      setWorkingId(null);
+    }
   };
-  if (!allowed) return <View style={styles.center}><Ionicons name="lock-closed-outline" size={36} color={colors.onSurfaceTertiary} /><Text style={styles.empty}>Η οθόνη είναι διαθέσιμη μόνο στη Γραμματεία και τον CEO.</Text></View>;
+
+  if (!isExecutive) {
+    return (
+      <View style={styles.stateCenter}>
+        <View style={styles.iconCircleMuted}>
+          <Ionicons name="lock-closed-outline" size={32} color={colors.onSurfaceTertiary} />
+        </View>
+        <Text style={styles.emptyTitle}>Περιορισμένη Πρόσβαση</Text>
+        <Text style={styles.emptySubtitle}>
+          Η διαχείριση του κεντρικού Pool ακινήτων και leads επιτρέπεται αποκλειστικά στη Γραμματεία και τον CEO του γραφείου.
+        </Text>
+      </View>
+    );
+  }
+
   const assignedLeads = leads.filter((lead) => lead.status === "assigned");
-  return <View style={styles.container} testID="secretariat-pool-management-screen"><View style={styles.header}><Pressable onPress={() => router.back()} hitSlop={8}><Ionicons name="chevron-back" size={24} color={colors.onSurface} /></Pressable><View style={styles.headerCopy}><Text style={styles.title}>Εποπτεία Pool</Text><Text style={styles.subtitle}>Αναθέσεις ακινήτων και leads</Text></View><Pressable onPress={() => void load()} hitSlop={8}><Ionicons name="refresh-outline" size={23} color={colors.onSurface} /></Pressable></View><View style={styles.tabs}><Pressable style={[styles.tab, tab === "listings" && styles.tabActive]} onPress={() => setTab("listings")} testID="secretariat-pool-listings-tab"><Text style={[styles.tabText, tab === "listings" && styles.tabTextActive]}>Ακίνητα ({claims.length})</Text></Pressable><Pressable style={[styles.tab, tab === "leads" && styles.tabActive]} onPress={() => setTab("leads")} testID="secretariat-pool-leads-tab"><Text style={[styles.tabText, tab === "leads" && styles.tabActive]}>Leads ({assignedLeads.length})</Text></Pressable></View>{loading ? <View style={styles.center}><ActivityIndicator color={colors.brand} /></View> : tab === "listings" ? <ScrollView contentContainerStyle={styles.list}><Text style={styles.sectionTitle}>Pool Ακινήτων ({poolApartments.length})</Text>{poolApartments.map((apartment) => <View key={apartment.id} style={styles.poolListingRow} testID={`secretariat-pool-listing-${apartment.id}`}><View style={styles.cardCopy}><Text style={styles.cardTitle}>{String(apartment.title || "Ακίνητο")}</Text><Text style={styles.cardMeta}>{String(apartment.area || "")}{apartment.city ? `, ${String(apartment.city)}` : ""}</Text><Text style={styles.cardMeta}>{apartment.pendingClaimBrokerId ? "Υπάρχει εκκρεμές αίτημα" : "Διαθέσιμο για ανάληψη"}</Text></View><Ionicons name={apartment.pendingClaimBrokerId ? "time-outline" : "business-outline"} size={20} color={apartment.pendingClaimBrokerId ? colors.warning : colors.brand} /></View>)}<Text style={styles.sectionTitle}>Εκκρεμή αιτήματα ({claims.length})</Text>{claims.length === 0 ? <Text style={styles.empty}>Δεν υπάρχουν εκκρεμή αιτήματα ανάθεσης.</Text> : claims.map((claim) => <View key={claim.id} style={styles.card} testID={`secretariat-claim-${claim.id}`}><View style={styles.cardCopy}><Text style={styles.cardTitle}>{claim.apartmentTitle}</Text><Text style={styles.cardMeta}>Αίτημα από {claim.brokerName}</Text></View><View style={styles.actions}><Pressable style={styles.approve} disabled={workingId === claim.id} onPress={() => void resolveClaim(claim, true)}><Ionicons name="checkmark" size={19} color={colors.onBrand} /></Pressable><Pressable style={styles.reject} disabled={workingId === claim.id} onPress={() => void resolveClaim(claim, false)}><Ionicons name="close" size={19} color={colors.onBrand} /></Pressable></View></View>)}<View style={styles.poolSection}><Text style={styles.sectionTitle}>Αδιάθετα Leads</Text>{auth.agencyId && auth.userId ? <LeadsPoolSection agencyId={auth.agencyId} brokerId={auth.userId} onChanged={() => void load()} /> : null}</View></ScrollView> : <ScrollView contentContainerStyle={styles.list}>{assignedLeads.length === 0 ? <Text style={styles.empty}>Δεν υπάρχουν αναθέσεις leads.</Text> : assignedLeads.map((lead) => <View key={lead.id} style={styles.card} testID={`secretariat-lead-${lead.id}`}><View style={styles.cardCopy}><Text style={styles.cardTitle}>{lead.clientName}</Text><Text style={styles.cardMeta}>{lead.assignedBrokerId || "Χωρίς broker"} · {countdown(lead)}</Text><Text style={styles.cardMeta}>{lead.lastContactTimestamp ? "Υπάρχει επικοινωνία" : "Δεν έχει γίνει επικοινωνία"}</Text></View><Pressable style={styles.reassignButton} onPress={() => setExpandedLeadId((previous) => previous === lead.id ? null : lead.id)}><Ionicons name="swap-horizontal-outline" size={17} color={colors.brand} /><Text style={styles.reassignText}>Ανάθεση</Text></Pressable>{expandedLeadId === lead.id ? <View style={styles.staffList}>{staff.map((member) => <Pressable key={member.id} style={styles.staffRow} disabled={workingId === lead.id} onPress={() => void reassign(lead, member)}><Text style={styles.staffName}>{member.name}</Text><Ionicons name="chevron-forward" size={17} color={colors.onSurfaceTertiary} /></Pressable>)}</View> : null}</View>)}</ScrollView>}</View>;
+
+  return (
+    <View style={styles.container} testID="secretariat-pool-management-screen">
+      {/* Curved Elevated Header */}
+      <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
+        <View style={styles.headerTopRow}>
+          <View style={styles.titleWrap}>
+            <Text style={styles.title} numberOfLines={1}>
+              Εποπτεία Pool
+            </Text>
+            <Text style={styles.subtitle} numberOfLines={1}>
+              Έγκριση αναθέσεων ακινήτων και εποπτεία leads
+            </Text>
+          </View>
+        </View>
+
+        {/* Thick Segmented Pill Tabs */}
+        <View style={styles.tabsContainer}>
+          <Pressable
+            style={[styles.tabButton, tab === "listings" && styles.tabButtonActive]}
+            onPress={() => setTab("listings")}
+            testID="secretariat-pool-listings-tab"
+          >
+            <Ionicons
+              name={tab === "listings" ? "home" : "home-outline"}
+              size={15}
+              color={tab === "listings" ? colors.onBrand : colors.onSurfaceTertiary}
+            />
+            <Text style={[styles.tabButtonText, tab === "listings" && styles.tabButtonTextActive]}>
+              Ακίνητα ({claims.length})
+            </Text>
+          </Pressable>
+
+          <Pressable
+            style={[styles.tabButton, tab === "leads" && styles.tabButtonActive]}
+            onPress={() => setTab("leads")}
+            testID="secretariat-pool-leads-tab"
+          >
+            <Ionicons
+              name={tab === "leads" ? "people" : "people-outline"}
+              size={15}
+              color={tab === "leads" ? colors.onBrand : colors.onSurfaceTertiary}
+            />
+            <Text style={[styles.tabButtonText, tab === "leads" && styles.tabButtonTextActive]}>
+              Leads ({assignedLeads.length})
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+
+      {loading ? (
+        <View style={styles.stateCenter}>
+          <ActivityIndicator size="large" color={colors.brand} />
+          <Text style={styles.loadingText}>Φόρτωση δεδομένων γραμματείας...</Text>
+        </View>
+      ) : tab === "listings" ? (
+        <ScrollView
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: TAB_BAR_BOTTOM_SPACE + insets.bottom }]}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Section: Pending Claim Requests */}
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>
+              Εκκρεμή Αιτήματα Ανάθεσης ({claims.length})
+            </Text>
+          </View>
+
+          {claims.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <Ionicons name="checkmark-done-circle-outline" size={32} color={colors.onSurfaceTertiary} />
+              <Text style={styles.emptyCardText}>
+                Όλα τα αιτήματα ανάληψης έχουν διευθετηθεί.
+              </Text>
+            </View>
+          ) : (
+            claims.map((claim) => (
+              <View key={claim.id} style={styles.claimCard} testID={`secretariat-claim-${claim.id}`}>
+                <View style={styles.claimInfoColumn}>
+                  <Text style={styles.claimApartmentTitle} numberOfLines={1}>
+                    {claim.apartmentTitle || "Ακίνητο"}
+                  </Text>
+                  <View style={styles.brokerTag}>
+                    <Ionicons name="person-outline" size={12} color={colors.brand} />
+                    <Text style={styles.brokerTagText}>
+                      Αίτημα από: {claim.brokerName}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.actionButtonCluster}>
+                  <Pressable
+                    style={[styles.claimActionBtn, styles.approveBtn]}
+                    disabled={workingId === claim.id}
+                    onPress={() => void handleResolveClaim(claim, true)}
+                    hitSlop={6}
+                    accessibilityLabel="Έγκριση ανάθεσης"
+                  >
+                    {workingId === claim.id ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <Ionicons name="checkmark" size={18} color="#FFFFFF" />
+                    )}
+                  </Pressable>
+
+                  <Pressable
+                    style={[styles.claimActionBtn, styles.rejectBtn]}
+                    disabled={workingId === claim.id}
+                    onPress={() => void handleResolveClaim(claim, false)}
+                    hitSlop={6}
+                    accessibilityLabel="Απόρριψη ανάθεσης"
+                  >
+                    <Ionicons name="close" size={18} color="#FFFFFF" />
+                  </Pressable>
+                </View>
+              </View>
+            ))
+          )}
+
+          {/* Section: Agency Pool Inventory */}
+          <View style={[styles.sectionHeaderRow, { marginTop: spacing.md }]}>
+            <Text style={styles.sectionTitle}>
+              Αποθετήριο Pool ({poolApartments.length})
+            </Text>
+          </View>
+
+          {poolApartments.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <Ionicons name="business-outline" size={32} color={colors.onSurfaceTertiary} />
+              <Text style={styles.emptyCardText}>Το pool του γραφείου είναι άδειο.</Text>
+            </View>
+          ) : (
+            poolApartments.map((apartment) => {
+              const isPending = Boolean(apartment.pendingClaimBrokerId);
+              return (
+                <View
+                  key={apartment.id}
+                  style={styles.poolInventoryRow}
+                  testID={`secretariat-pool-listing-${apartment.id}`}
+                >
+                  <View style={styles.inventoryIconBox}>
+                    <Ionicons
+                      name={isPending ? "time-outline" : "home-outline"}
+                      size={18}
+                      color={isPending ? colors.warning : colors.brand}
+                    />
+                  </View>
+
+                  <View style={styles.inventoryTextWrap}>
+                    <Text style={styles.inventoryTitle} numberOfLines={1}>
+                      {String(apartment.title || "Ακίνητο")}
+                    </Text>
+                    <Text style={styles.inventoryMeta} numberOfLines={1}>
+                      {String(apartment.area || "")}
+                      {apartment.city ? `, ${String(apartment.city)}` : ""}
+                    </Text>
+                  </View>
+
+                  <View
+                    style={[
+                      styles.statusPill,
+                      isPending ? styles.statusPillPending : styles.statusPillAvailable,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.statusPillText,
+                        { color: isPending ? colors.warning : colors.brand },
+                      ]}
+                    >
+                      {isPending ? "Σε αίτημα" : "Διαθέσιμο"}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })
+          )}
+
+          {/* Section: Unassigned Leads Section */}
+          <View style={styles.leadsPoolWrapper}>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionTitle}>Αδιάθετα Leads Γραφείου</Text>
+            </View>
+            {auth.agencyId && auth.userId ? (
+              <LeadsPoolSection
+                agencyId={auth.agencyId}
+                brokerId={auth.userId}
+                onChanged={() => void loadData()}
+              />
+            ) : null}
+          </View>
+        </ScrollView>
+      ) : (
+        /* Leads SubTab */
+        <ScrollView
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: TAB_BAR_BOTTOM_SPACE + insets.bottom }]}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>
+              Ενεργές Αναθέσεις Leads ({assignedLeads.length})
+            </Text>
+          </View>
+
+          {assignedLeads.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <Ionicons name="people-outline" size={32} color={colors.onSurfaceTertiary} />
+              <Text style={styles.emptyCardText}>Δεν υπάρχουν εκχωρημένα leads αυτή τη στιγμή.</Text>
+            </View>
+          ) : (
+            assignedLeads.map((lead) => {
+              const timer = countdown(lead);
+              const isExpanded = expandedLeadId === lead.id;
+
+              return (
+                <View key={lead.id} style={styles.leadCard} testID={`secretariat-lead-${lead.id}`}>
+                  <View style={styles.leadHeaderRow}>
+                    <View style={styles.leadMainDetails}>
+                      <Text style={styles.leadClientName} numberOfLines={1}>
+                        {lead.clientName}
+                      </Text>
+
+                      <View style={styles.leadMetaRow}>
+                        <Ionicons name="person-circle-outline" size={13} color={colors.onSurfaceTertiary} />
+                        <Text style={styles.leadMetaText} numberOfLines={1}>
+                          {lead.assignedBrokerId || "Χωρίς ανάθεση"}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <Pressable
+                      style={[styles.reassignToggleBtn, isExpanded && styles.reassignToggleBtnActive]}
+                      onPress={() => setExpandedLeadId((prev) => (prev === lead.id ? null : lead.id))}
+                      hitSlop={6}
+                    >
+                      <Ionicons
+                        name="swap-horizontal"
+                        size={14}
+                        color={isExpanded ? colors.onBrand : colors.brand}
+                      />
+                      <Text
+                        style={[
+                          styles.reassignToggleText,
+                          isExpanded && styles.reassignToggleTextActive,
+                        ]}
+                      >
+                        Ανάθεση
+                      </Text>
+                    </Pressable>
+                  </View>
+
+                  <View style={styles.leadStatusBadges}>
+                    <View
+                      style={[
+                        styles.timerBadge,
+                        timer.isOverdue ? styles.timerBadgeOverdue : styles.timerBadgeActive,
+                      ]}
+                    >
+                      <Ionicons
+                        name={timer.isOverdue ? "alert-circle-outline" : "timer-outline"}
+                        size={12}
+                        color={timer.isOverdue ? colors.error : colors.warning}
+                      />
+                      <Text
+                        style={[
+                          styles.timerBadgeText,
+                          { color: timer.isOverdue ? colors.error : colors.warning },
+                        ]}
+                      >
+                        {timer.label}
+                      </Text>
+                    </View>
+
+                    <View style={styles.contactStatusBadge}>
+                      <Ionicons
+                        name={lead.lastContactTimestamp ? "chatbubble-ellipses-outline" : "close-circle-outline"}
+                        size={12}
+                        color={lead.lastContactTimestamp ? colors.success : colors.onSurfaceTertiary}
+                      />
+                      <Text
+                        style={[
+                          styles.contactStatusText,
+                          { color: lead.lastContactTimestamp ? colors.success : colors.onSurfaceTertiary },
+                        ]}
+                      >
+                        {lead.lastContactTimestamp ? "Υπάρχει επαφή" : "Χωρίς επαφή"}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Reassignment Dropdown Drawer */}
+                  {isExpanded && (
+                    <View style={styles.staffDropdownContainer}>
+                      <Text style={styles.staffDropdownTitle}>Επιλέξτε Μεσίτη για Ανακατανομή:</Text>
+                      {staff.length === 0 ? (
+                        <Text style={styles.emptyInlineMuted}>
+                          Δεν υπάρχουν διαθέσιμοι μεσίτες στο γραφείο.
+                        </Text>
+                      ) : (
+                        staff.map((member) => (
+                          <Pressable
+                            key={member.id}
+                            style={styles.staffOptionRow}
+                            disabled={workingId === lead.id}
+                            onPress={() => void handleReassign(lead, member)}
+                          >
+                            <View style={styles.staffAvatarPlaceholder}>
+                              <Ionicons name="person" size={13} color={colors.brand} />
+                            </View>
+                            <Text style={styles.staffOptionName} numberOfLines={1}>
+                              {member.name}
+                            </Text>
+                            <Ionicons name="chevron-forward" size={15} color={colors.onSurfaceTertiary} />
+                          </Pressable>
+                        ))
+                      )}
+                    </View>
+                  )}
+                </View>
+              );
+            })
+          )}
+        </ScrollView>
+      )}
+    </View>
+  );
 }
 
-const createStyles = (colors: ReturnType<typeof useTheme>["colors"]) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.surface, paddingTop: spacing.xl },
-  header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.lg, flexDirection: "row", alignItems: "flex-start", gap: spacing.md },
-  headerCopy: { flex: 1 },
-  title: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface },
-  subtitle: { marginTop: spacing.xs, fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
-  tabs: { marginHorizontal: spacing.lg, padding: 4, borderRadius: radius.pill, backgroundColor: colors.surfaceSecondary, flexDirection: "row", gap: 4 },
-  tab: { flex: 1, minHeight: 40, borderRadius: radius.pill, alignItems: "center", justifyContent: "center" },
-  tabActive: { backgroundColor: colors.brand },
-  tabText: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface },
-  tabTextActive: { color: colors.onBrand },
-  list: { padding: spacing.lg, paddingBottom: spacing["3xl"], gap: spacing.sm },
-  card: { borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceSecondary, padding: spacing.md, flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: spacing.sm },
-  cardCopy: { flex: 1, minWidth: 160, gap: 3 },
-  cardTitle: { fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onSurface },
-  cardMeta: { fontFamily: fonts.regular, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
-  actions: { flexDirection: "row", gap: spacing.sm },
-  approve: { width: 38, height: 38, borderRadius: radius.pill, alignItems: "center", justifyContent: "center", backgroundColor: colors.success },
-  reject: { width: 38, height: 38, borderRadius: radius.pill, alignItems: "center", justifyContent: "center", backgroundColor: colors.error },
-  reassignButton: { minHeight: 36, borderRadius: radius.md, paddingHorizontal: spacing.sm, flexDirection: "row", alignItems: "center", gap: spacing.xs, borderWidth: 1, borderColor: colors.brand },
-  reassignText: { fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.brand },
-  staffList: { width: "100%", gap: spacing.xs, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm },
-  staffRow: { minHeight: 38, paddingHorizontal: spacing.sm, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: radius.sm, backgroundColor: colors.surface },
-  staffName: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface },
-  poolListingRow: { minHeight: 64, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceSecondary, padding: spacing.md, flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  poolSection: { marginTop: spacing.lg, gap: spacing.sm },
-  sectionTitle: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl, gap: spacing.md },
-  empty: { textAlign: "center", fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary },
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.surface,
+    },
+    header: {
+      paddingHorizontal: spacing.lg,
+      paddingBottom: spacing.md,
+      backgroundColor: colors.surface,
+      borderBottomLeftRadius: 24,
+      borderBottomRightRadius: 24,
+      shadowColor: "#000000",
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 6,
+      elevation: 4,
+      zIndex: 2,
+      gap: spacing.sm,
+    },
+    headerTopRow: {
+      flexDirection: "row",
+      alignItems: "center",
+    },
+    titleWrap: {
+      flex: 1,
+      width: "100%",
+      minWidth: 0,
+    },
+    title: {
+      fontFamily: fonts.displayExtra,
+      fontSize: fontSize["2xl"],
+      color: colors.onSurface,
+      letterSpacing: -0.5,
+    },
+    subtitle: {
+      marginTop: 1,
+      fontFamily: fonts.regular,
+      fontSize: fontSize.xs,
+      color: colors.onSurfaceTertiary,
+    },
+    tabsContainer: {
+      flexDirection: "row",
+      backgroundColor: colors.surfaceSecondary,
+      padding: 3,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      borderColor: colors.border,
+      gap: spacing.xs,
+    },
+    tabButton: {
+      flex: 1,
+      height: 36,
+      borderRadius: radius.pill,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 5,
+    },
+    tabButtonActive: {
+      backgroundColor: colors.brand,
+    },
+    tabButtonText: {
+      fontFamily: fonts.regular,
+      fontSize: fontSize.xs,
+      color: colors.onSurfaceTertiary,
+    },
+    tabButtonTextActive: {
+      color: colors.onBrand,
+      fontFamily: fonts.bold,
+    },
+    scrollContent: {
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.md,
+      gap: spacing.sm,
+    },
+    sectionHeaderRow: {
+      paddingVertical: spacing.xs,
+      paddingHorizontal: 2,
+    },
+    sectionTitle: {
+      fontFamily: fonts.bold,
+      fontSize: fontSize.sm,
+      color: colors.onSurface,
+      letterSpacing: 0.2,
+    },
+    emptyCard: {
+      alignItems: "center",
+      justifyContent: "center",
+      padding: spacing.xl,
+      borderRadius: radius.lg,
+      backgroundColor: colors.surfaceSecondary,
+      borderWidth: 1,
+      borderColor: colors.border,
+      gap: spacing.xs,
+      marginVertical: spacing.xs,
+    },
+    emptyCardText: {
+      fontFamily: fonts.regular,
+      fontSize: fontSize.xs,
+      color: colors.onSurfaceTertiary,
+      textAlign: "center",
+    },
+    claimCard: {
+      flexDirection: "row",
+      alignItems: "center",
+      padding: spacing.md,
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      gap: spacing.sm,
+    },
+    claimInfoColumn: {
+      flex: 1,
+      minWidth: 0,
+      gap: 4,
+    },
+    claimApartmentTitle: {
+      fontFamily: fonts.bold,
+      fontSize: fontSize.base,
+      color: colors.onSurface,
+    },
+    brokerTag: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+    },
+    brokerTagText: {
+      fontFamily: fonts.regular,
+      fontSize: fontSize.xs,
+      color: colors.brand,
+    },
+    actionButtonCluster: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+    },
+    claimActionBtn: {
+      width: 36,
+      height: 36,
+      borderRadius: radius.pill,
+      alignItems: "center",
+      justifyContent: "center",
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.15,
+      shadowRadius: 2,
+      elevation: 2,
+    },
+    approveBtn: {
+      backgroundColor: colors.success,
+    },
+    rejectBtn: {
+      backgroundColor: colors.error,
+    },
+    poolInventoryRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      padding: spacing.sm + 2,
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      gap: spacing.sm,
+    },
+    inventoryIconBox: {
+      width: 36,
+      height: 36,
+      borderRadius: radius.md,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    inventoryTextWrap: {
+      flex: 1,
+      minWidth: 0,
+      gap: 1,
+    },
+    inventoryTitle: {
+      fontFamily: fonts.bold,
+      fontSize: fontSize.sm,
+      color: colors.onSurface,
+    },
+    inventoryMeta: {
+      fontFamily: fonts.regular,
+      fontSize: fontSize.xs,
+      color: colors.onSurfaceTertiary,
+    },
+    statusPill: {
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 3,
+      borderRadius: radius.pill,
+    },
+    statusPillPending: {
+      backgroundColor: "rgba(234, 179, 8, 0.12)",
+    },
+    statusPillAvailable: {
+      backgroundColor: colors.brandTertiary,
+    },
+    statusPillText: {
+      fontFamily: fonts.bold,
+      fontSize: 10,
+    },
+    leadsPoolWrapper: {
+      marginTop: spacing.sm,
+      gap: spacing.xs,
+    },
+    leadCard: {
+      padding: spacing.md,
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      gap: spacing.sm,
+    },
+    leadHeaderRow: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      justifyContent: "space-between",
+      gap: spacing.sm,
+    },
+    leadMainDetails: {
+      flex: 1,
+      minWidth: 0,
+      gap: 3,
+    },
+    leadClientName: {
+      fontFamily: fonts.bold,
+      fontSize: fontSize.base,
+      color: colors.onSurface,
+    },
+    leadMetaRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+    },
+    leadMetaText: {
+      fontFamily: fonts.regular,
+      fontSize: fontSize.xs,
+      color: colors.onSurfaceTertiary,
+    },
+    reassignToggleBtn: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 5,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      borderColor: colors.brand,
+      backgroundColor: colors.surface,
+    },
+    reassignToggleBtnActive: {
+      backgroundColor: colors.brand,
+      borderColor: colors.brand,
+    },
+    reassignToggleText: {
+      fontFamily: fonts.bold,
+      fontSize: 11,
+      color: colors.brand,
+    },
+    reassignToggleTextActive: {
+      color: colors.onBrand,
+    },
+    leadStatusBadges: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+      flexWrap: "wrap",
+    },
+    timerBadge: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 2,
+      borderRadius: radius.pill,
+    },
+    timerBadgeActive: {
+      backgroundColor: "rgba(234, 179, 8, 0.12)",
+    },
+    timerBadgeOverdue: {
+      backgroundColor: "rgba(239, 68, 68, 0.12)",
+    },
+    timerBadgeText: {
+      fontFamily: fonts.semibold,
+      fontSize: 10,
+    },
+    contactStatusBadge: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 2,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+    },
+    contactStatusText: {
+      fontFamily: fonts.regular,
+      fontSize: 10,
+    },
+    staffDropdownContainer: {
+      marginTop: spacing.xs,
+      paddingTop: spacing.sm,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.border,
+      gap: spacing.xs,
+    },
+    staffDropdownTitle: {
+      fontFamily: fonts.semibold,
+      fontSize: 11,
+      color: colors.onSurfaceTertiary,
+      marginBottom: 2,
+    },
+    staffOptionRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 6,
+      borderRadius: radius.md,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      gap: spacing.xs,
+    },
+    staffAvatarPlaceholder: {
+      width: 22,
+      height: 22,
+      borderRadius: radius.pill,
+      backgroundColor: colors.brandTertiary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    staffOptionName: {
+      flex: 1,
+      fontFamily: fonts.regular,
+      fontSize: fontSize.xs,
+      color: colors.onSurface,
+    },
+    emptyInlineMuted: {
+      fontFamily: fonts.regular,
+      fontSize: fontSize.xs,
+      color: colors.onSurfaceTertiary,
+      fontStyle: "italic",
+    },
+    stateCenter: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      padding: spacing["2xl"],
+      backgroundColor: colors.surface,
+      gap: spacing.sm,
+    },
+    iconCircleMuted: {
+      width: 72,
+      height: 72,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surfaceSecondary,
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: spacing.xs,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    emptyTitle: {
+      fontFamily: fonts.bold,
+      fontSize: fontSize.lg,
+      color: colors.onSurface,
+      textAlign: "center",
+    },
+    emptySubtitle: {
+      fontFamily: fonts.regular,
+      fontSize: fontSize.sm,
+      color: colors.onSurfaceTertiary,
+      textAlign: "center",
+      lineHeight: 19,
+      maxWidth: 310,
+    },
+    loadingText: {
+      marginTop: spacing.xs,
+      fontFamily: fonts.regular,
+      fontSize: fontSize.sm,
+      color: colors.onSurfaceTertiary,
+    },
+  });
+}
