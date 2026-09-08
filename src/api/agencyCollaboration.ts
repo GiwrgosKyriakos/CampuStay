@@ -11,12 +11,12 @@ import {
   updateDoc,
   where,
 } from "firebase/firestore";
-import { httpsCallable } from "firebase/functions";
+import { getFunctions, httpsCallable } from "firebase/functions";
 
-import { db } from "@/src/config/firebase";
+import { app, db } from "@/src/config/firebase";
 import { firebaseFunctions } from "@/src/config/functions";
 import { logAnalyticsEvent } from "@/src/api/analyticsEvents";
-import type { BrokerCommissionSplit, Deal } from "@/src/types/deal";
+import type { BrokerCommissionSplit, Deal, FiscalInvoiceMetadata } from "@/src/types/deal";
 import type { CommissionSettlementInvoice } from "@/src/types/commission";
 import type { KeySafeLogEntry, OpenHouseConfig } from "@/src/types/apartment";
 import type { StandardLeadSource } from "@/src/types/analytics";
@@ -195,11 +195,17 @@ export function calculateCommissionSplits(params: { totalCommission: number; age
     throw new Error("Τα ποσοστά εκκαθάρισης πρέπει να είναι έγκυρα και να αθροίζουν ακριβώς 100%.");
   }
   const round = (value: number) => Math.round(value * 100) / 100;
-  const splits: BrokerCommissionSplit[] = [
-    { brokerId: params.listingBroker.id, brokerName: params.listingBroker.name, role: "listing_agent", percentage: listingPercentage, amount: round(totalCommission * listingPercentage / 100) },
-    { brokerId: params.buyerBroker.id, brokerName: params.buyerBroker.name, role: "buyer_agent", percentage: buyerPercentage, amount: round(totalCommission * buyerPercentage / 100) },
-  ];
-  if (params.coveringBroker) splits.push({ brokerId: params.coveringBroker.id, brokerName: params.coveringBroker.name, role: "covering_agent", percentage: coveringPercentage, amount: round(totalCommission * coveringPercentage / 100) });
+  const splits: BrokerCommissionSplit[] = [];
+  const addSplit = (broker: { id: string; name: string }, role: BrokerCommissionSplit["role"], percentage: number) => {
+    if (percentage === 0) return;
+    const brokerId = broker.id.trim();
+    if (!brokerId) throw new Error(`Απαιτείται broker για ποσοστό ${percentage}%.`);
+    splits.push({ brokerId, brokerName: broker.name, role, percentage, amount: round(totalCommission * percentage / 100) });
+  };
+
+  addSplit(params.listingBroker, "listing_agent", listingPercentage);
+  addSplit(params.buyerBroker, "buyer_agent", buyerPercentage);
+  if (params.coveringBroker) addSplit(params.coveringBroker, "covering_agent", coveringPercentage);
   return { agencyAmount: round(totalCommission * agencyCutPercentage / 100), brokerSplits: splits };
 }
 
@@ -219,16 +225,44 @@ export function subscribeAgencyClosedDeals(agencyId: string, onChange: (deals: D
   }, () => onChange([]));
 }
 
-export async function issueCommissionSettlement(params: { agencyId: string; deal: Deal; apartmentTitle?: string; invoiceNumber?: string; agencyShare: number; agencyCutPercentage?: number; brokerSplits: BrokerCommissionSplit[] }): Promise<CommissionSettlementInvoice> {
-  const callable = httpsCallable<Record<string, unknown>, { status: string; dealId: string }>(firebaseFunctions, "finalizeCommissionSettlementCallable");
-  const settlementArguments = { dealId: params.deal.id, officePercentage: params.agencyCutPercentage ?? params.deal.agencyCutPercentage, listingBrokerPercentage: params.brokerSplits.find((split) => split.role === "listing_agent")?.percentage ?? 0, sellingBrokerPercentage: params.brokerSplits.find((split) => split.role === "buyer_agent")?.percentage ?? 0, ...(params.brokerSplits.find((split) => split.role === "covering_agent") ? { coveringBrokerPercentage: params.brokerSplits.find((split) => split.role === "covering_agent")?.percentage ?? 0 } : {}) };
-  const currentStatus = params.deal.settlementStatus ?? "pending_review";
-  if (currentStatus === "pending_review") await callable({ action: "approve", ...settlementArguments });
-  const invoiceNumber = params.invoiceNumber?.trim() || `INV-${Date.now()}`;
-  if (currentStatus === "pending_review" || currentStatus === "approved") await callable({ action: "issue", ...settlementArguments, invoiceNumber });
-  if (currentStatus !== "settled" && currentStatus !== "issued") await callable({ action: "settle", ...settlementArguments });
-  if (currentStatus === "issued") await callable({ action: "settle", ...settlementArguments });
-  return { id: params.deal.id, dealId: params.deal.id, apartmentId: params.deal.apartmentId, apartmentTitle: params.apartmentTitle?.trim() || params.deal.apartmentTitle || "Ακίνητο", totalDealAmount: params.deal.dealAmount ?? params.deal.commissionTotal, totalCommission: params.deal.commissionTotal, agencyShare: params.agencyShare, brokerSplits: params.brokerSplits, invoiceNumber, invoiceStatus: "settled", issuedAt: Date.now(), settledAt: Date.now(), createdAt: Date.now() };
+export async function issueCommissionSettlement(params: { agencyId: string; deal: Deal; apartmentTitle?: string; invoiceNumber?: string; invoiceSeries?: string; agencyShare: number; agencyCutPercentage?: number; brokerSplits: BrokerCommissionSplit[] }): Promise<CommissionSettlementInvoice> {
+  type IssueFiscalInvoiceRequest = {
+    dealId: string;
+    agencyId: string;
+    agencyShare: number;
+    agencyCutPercentage: number;
+    brokerSplits: { brokerId: string; brokerName: string; amount: number; percentage: number }[];
+    invoiceSeries?: string;
+  };
+  type IssueFiscalInvoiceResponse = { success: boolean; fiscalRecord: FiscalInvoiceMetadata };
+
+  const fiscalFunctions = getFunctions(app, "europe-west1");
+  const callIssueInvoice = httpsCallable<IssueFiscalInvoiceRequest, IssueFiscalInvoiceResponse>(fiscalFunctions, "issueFiscalInvoice");
+  const response = await callIssueInvoice({
+    dealId: params.deal.id,
+    agencyId: params.agencyId,
+    agencyShare: params.agencyShare,
+    agencyCutPercentage: params.agencyCutPercentage ?? params.deal.agencyCutPercentage,
+    brokerSplits: params.brokerSplits.map(({ brokerId, brokerName, amount, percentage }) => ({ brokerId, brokerName, amount, percentage })),
+    ...(params.invoiceSeries?.trim() ? { invoiceSeries: params.invoiceSeries.trim() } : {}),
+  });
+  const fiscalRecord = response.data.fiscalRecord;
+  return {
+    id: params.deal.id,
+    dealId: params.deal.id,
+    apartmentId: params.deal.apartmentId,
+    apartmentTitle: params.apartmentTitle?.trim() || params.deal.apartmentTitle || "Ακίνητο",
+    totalDealAmount: params.deal.dealAmount ?? params.deal.commissionTotal,
+    totalCommission: params.deal.commissionTotal,
+    agencyShare: params.agencyShare,
+    brokerSplits: params.brokerSplits,
+    invoiceNumber: fiscalRecord.invoiceNumber,
+    invoiceStatus: "settled",
+    fiscalInvoice: fiscalRecord,
+    issuedAt: fiscalRecord.issuedAt,
+    settledAt: Date.now(),
+    createdAt: fiscalRecord.issuedAt,
+  };
 }
 
 export async function createOrGetColleagueChat(params: { currentUserId: string; colleagueId: string }): Promise<string> {

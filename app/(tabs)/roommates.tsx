@@ -448,7 +448,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   brandRow: { flexDirection: "row", alignItems: "center" },
   brandTextWrap: { flex: 1 },
   headerActionsRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  iconBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: radius.pill, backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border },
+  iconBtn: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: radius.pill, backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border },
   iconBtnActive: { backgroundColor: colors.brand, borderColor: colors.brand },
   brand: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface },
   brandAccent: { color: colors.brand },

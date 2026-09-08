@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "@/src/context/ThemeContext";
-import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Switch, TouchableOpacity, PanResponder, Modal, ActivityIndicator } from "react-native";
+import { Animated, View, Text, StyleSheet, ScrollView, Pressable, TextInput, Switch, TouchableOpacity, PanResponder, Modal, ActivityIndicator, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -44,6 +44,7 @@ import { shouldDisplayListingForUser } from "@/src/utils/listingFilters";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 84;
+const COLLAPSE_DISTANCE = 110;
 const darkMapStyle = [
   { elementType: "geometry", stylers: [{ color: "#050e1a" }] },
   { elementType: "labels.text.fill", stylers: [{ color: "#8aa4c6" }] },
@@ -95,6 +96,42 @@ export interface SavedFilterSet extends FilterSetPayload {
   userId: string;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface ActiveFilterChipItem {
+  key: string;
+  label: string;
+  onRemove: () => void;
+}
+
+interface ActiveFilterChipState {
+  rentMin: string;
+  rentMax: string;
+  minSqmPrice: string;
+  maxSqmPrice: string;
+  cityQuery: string;
+  sizeMin: string;
+  sizeMax: string;
+  petFriendly: boolean;
+  nearMetro: boolean;
+  propertyTypes: readonly string[];
+  propertyCategories: readonly string[];
+  floors: readonly string[];
+  bedroomsMin: string;
+  bathroomsMin: string;
+  furnishedStatus: "all" | "furnished" | "unfurnished";
+  heatingTypes: readonly string[];
+  energyClasses: readonly string[];
+  constructionYearMin: string;
+  renovationYearMin: string;
+  selectedAmenities: readonly string[];
+  userHardCriteria: readonly HardCriteriaKey[];
+  hasPolygon: boolean;
+}
+
+interface ActiveFilterChipDescriptor {
+  key: string;
+  label: string;
 }
 
 export function formatFilterSetSummary(filters: FilterSetPayload): string {
@@ -511,6 +548,47 @@ function translateApartmentTag(tag: string): string {
   return translated === `apartments.tags.${tag}` ? tag.replace(/_/g, " ") : translated;
 }
 
+export function getActiveFilterChipDescriptors(state: ActiveFilterChipState): ActiveFilterChipDescriptor[] {
+  const descriptors: ActiveFilterChipDescriptor[] = [];
+  const addRange = (key: string, min: string, max: string, suffix = "", prefix = "") => {
+    if (min || max) descriptors.push({ key, label: `${prefix}${min || "0"} - ${prefix}${max || "∞"}${suffix}` });
+  };
+  const getOptionLabel = (options: readonly FilterChipOption[], value: string): string => options.find((option) => option.value === value)?.label ?? value;
+
+  addRange("rent", state.rentMin, state.rentMax, "", "€");
+  addRange("size", state.sizeMin, state.sizeMax, " m²");
+
+  state.floors.forEach((value) => descriptors.push({ key: `floor:${value}`, label: `Όροφος: ${getOptionLabel(FLOOR_FILTER_OPTIONS, value)}` }));
+  if (state.cityQuery.trim()) descriptors.push({ key: "city", label: `Περιοχή: ${state.cityQuery.trim()}` });
+  state.propertyTypes.forEach((value) => descriptors.push({ key: `property-type:${value}`, label: getOptionLabel(PROPERTY_TYPE_FILTER_OPTIONS, value) }));
+  state.propertyCategories.forEach((value) => descriptors.push({ key: `property-category:${value}`, label: getOptionLabel(PROPERTY_CATEGORY_FILTER_OPTIONS, value) }));
+  addRange("sqm-price", state.minSqmPrice, state.maxSqmPrice, " €/m²");
+  if (state.bedroomsMin) descriptors.push({ key: "bedrooms", label: `${state.bedroomsMin}+ υπνοδωμ.` });
+  if (state.bathroomsMin) descriptors.push({ key: "bathrooms", label: `${state.bathroomsMin}+ μπάνια` });
+  if (state.furnishedStatus !== "all" || state.selectedAmenities.includes("furnished")) {
+    descriptors.push({ key: "furnished", label: state.furnishedStatus === "unfurnished" ? "Μη επιπλωμένο" : "Επιπλωμένο" });
+  }
+  state.heatingTypes.forEach((value) => descriptors.push({ key: `heating:${value}`, label: getOptionLabel(HEATING_FILTER_OPTIONS, value) }));
+  state.energyClasses.forEach((value) => descriptors.push({ key: `energy:${value}`, label: getOptionLabel(ENERGY_CLASS_FILTER_OPTIONS, value) }));
+  if (state.constructionYearMin) descriptors.push({ key: "construction-year", label: `Κατασκευή ${state.constructionYearMin}+` });
+  if (state.renovationYearMin) descriptors.push({ key: "renovation-year", label: `Ανακαίνιση ${state.renovationYearMin}+` });
+
+  const combinedAmenities = new Set(state.selectedAmenities);
+  if (state.petFriendly) combinedAmenities.add("pet_friendly");
+  if (state.nearMetro) combinedAmenities.add("near_metro");
+  combinedAmenities.forEach((value) => {
+    const option = AMENITY_FILTER_OPTIONS.find((item) => item.value === value);
+    if (option && value !== "furnished") descriptors.push({ key: `amenity:${value}`, label: option.label });
+  });
+  if (state.hasPolygon) descriptors.push({ key: "polygon", label: "Περιοχή χάρτη" });
+  state.userHardCriteria.forEach((value) => descriptors.push({
+    key: `hard-criteria:${value}`,
+    label: HARD_CRITERIA_OPTIONS.find((option) => option.key === value)?.label ?? value,
+  }));
+
+  return descriptors;
+}
+
 function getApartmentCompatibilityScore(apt: Apartment, filterSet: FilterSetPayload): number {
   return calculateTenantCompatibilityScore({
     city: apt.city,
@@ -726,6 +804,30 @@ export default function ApartmentsScreen() {
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const [headerHeight, setHeaderHeight] = useState(0);
+  const headerCollapsedRef = useRef(false);
+  const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
+  const topHeaderTranslateY = scrollY.interpolate({
+    inputRange: [0, COLLAPSE_DISTANCE],
+    outputRange: [0, -COLLAPSE_DISTANCE],
+    extrapolate: "clamp",
+  });
+  const topHeaderOpacity = scrollY.interpolate({
+    inputRange: [0, COLLAPSE_DISTANCE * 0.6],
+    outputRange: [1, 0],
+    extrapolate: "clamp",
+  });
+  const actionButtonsOpacity = scrollY.interpolate({
+    inputRange: [0, COLLAPSE_DISTANCE * 0.5],
+    outputRange: [1, 0],
+    extrapolate: "clamp",
+  });
+  const filterPillsOpacity = scrollY.interpolate({
+    inputRange: [COLLAPSE_DISTANCE * 0.4, COLLAPSE_DISTANCE],
+    outputRange: [0, 1],
+    extrapolate: "clamp",
+  });
   const router = useRouter();
   const auth = useAuth();
   const params = useLocalSearchParams<{
@@ -833,6 +935,89 @@ export default function ApartmentsScreen() {
       setter(value);
     },
     [detachSavedFilterSet],
+  );
+
+  const activeFilterChipState = useMemo<ActiveFilterChipState>(() => ({
+    rentMin,
+    rentMax,
+    minSqmPrice,
+    maxSqmPrice,
+    cityQuery,
+    sizeMin,
+    sizeMax,
+    petFriendly,
+    nearMetro,
+    propertyTypes,
+    propertyCategories,
+    floors,
+    bedroomsMin,
+    bathroomsMin,
+    furnishedStatus,
+    heatingTypes,
+    energyClasses,
+    constructionYearMin,
+    renovationYearMin,
+    selectedAmenities,
+    userHardCriteria,
+    hasPolygon: polygonCoordinates.length >= 3,
+  }), [bathroomsMin, bedroomsMin, cityQuery, constructionYearMin, energyClasses, floors, furnishedStatus, heatingTypes, maxSqmPrice, minSqmPrice, nearMetro, petFriendly, polygonCoordinates.length, propertyCategories, propertyTypes, rentMax, rentMin, renovationYearMin, selectedAmenities, sizeMax, sizeMin, userHardCriteria]);
+
+  const removeActiveFilter = useCallback((key: string) => {
+    const removeStringValue = (setter: React.Dispatch<React.SetStateAction<string[]>>, value: string) => {
+      updateFilterValue(setter, (current) => current.filter((item) => item !== value));
+    };
+
+    if (key === "rent") {
+      updateFilterValue<string>(setRentMin, "");
+      updateFilterValue<string>(setRentMax, "");
+    } else if (key === "size") {
+      updateFilterValue<string>(setSizeMin, "");
+      updateFilterValue<string>(setSizeMax, "");
+    } else if (key === "sqm-price") {
+      updateFilterValue<string>(setMinSqmPrice, "");
+      updateFilterValue<string>(setMaxSqmPrice, "");
+    } else if (key === "city") {
+      updateFilterValue<string>(setCityQuery, "");
+    } else if (key === "bedrooms") {
+      updateFilterValue<string>(setBedroomsMin, "");
+    } else if (key === "bathrooms") {
+      updateFilterValue<string>(setBathroomsMin, "");
+    } else if (key === "furnished") {
+      updateFilterValue<"all" | "furnished" | "unfurnished">(setFurnishedStatus, "all");
+      removeStringValue(setSelectedAmenities, "furnished");
+    } else if (key === "construction-year") {
+      updateFilterValue<string>(setConstructionYearMin, "");
+    } else if (key === "renovation-year") {
+      updateFilterValue<string>(setRenovationYearMin, "");
+    } else if (key === "polygon") {
+      updateFilterValue<LatLng[]>(setPolygonCoordinates, []);
+    } else if (key.startsWith("property-type:")) {
+      removeStringValue(setPropertyTypes, key.slice("property-type:".length));
+    } else if (key.startsWith("property-category:")) {
+      removeStringValue(setPropertyCategories, key.slice("property-category:".length));
+    } else if (key.startsWith("floor:")) {
+      removeStringValue(setFloors, key.slice("floor:".length));
+    } else if (key.startsWith("heating:")) {
+      removeStringValue(setHeatingTypes, key.slice("heating:".length));
+    } else if (key.startsWith("energy:")) {
+      removeStringValue(setEnergyClasses, key.slice("energy:".length));
+    } else if (key.startsWith("amenity:")) {
+      const value = key.slice("amenity:".length);
+      if (value === "pet_friendly") updateFilterValue<boolean>(setPetFriendly, false);
+      if (value === "near_metro") updateFilterValue<boolean>(setNearMetro, false);
+      removeStringValue(setSelectedAmenities, value);
+    } else if (key.startsWith("hard-criteria:")) {
+      const value = key.slice("hard-criteria:".length) as HardCriteriaKey;
+      updateFilterValue(setUserHardCriteria, (current) => current.filter((item) => item !== value));
+    }
+  }, [updateFilterValue]);
+
+  const activeFilterChips = useMemo<ActiveFilterChipItem[]>(
+    () => getActiveFilterChipDescriptors(activeFilterChipState).map((descriptor) => ({
+      ...descriptor,
+      onRemove: () => removeActiveFilter(descriptor.key),
+    })),
+    [activeFilterChipState, removeActiveFilter],
   );
 
   const currentFilterSet = useMemo<FilterSetPayload>(
@@ -1748,6 +1933,21 @@ export default function ApartmentsScreen() {
     [handleSwipeTabChange, viewMode],
   );
 
+  const handleListScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const nextCollapsed = event.nativeEvent.contentOffset.y >= COLLAPSE_DISTANCE * 0.5;
+    if (nextCollapsed === headerCollapsedRef.current) return;
+    headerCollapsedRef.current = nextCollapsed;
+    setIsHeaderCollapsed(nextCollapsed);
+  }, []);
+
+  const listScrollHandler = useMemo(
+    () => Animated.event(
+      [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+      { listener: handleListScroll, useNativeDriver: true },
+    ),
+    [handleListScroll, scrollY],
+  );
+
   useEffect(() => {
     if (auth.isGuest || !auth.userId || !canOpenHostInbox) {
       setHostInboxHasUnread(false);
@@ -2161,11 +2361,41 @@ export default function ApartmentsScreen() {
   }, [mapApartments, recenterMap, viewMode]);
 
   const isCompactActive = isViewingMyListings && myListingsLayout === "compact";
+  const renderActiveFilterPillStrip = (testID: string) => activeFilterChips.length > 0 ? (
+    <ScrollView
+      contentContainerStyle={styles.filterPillsScrollContent}
+      horizontal
+      keyboardShouldPersistTaps="handled"
+      showsHorizontalScrollIndicator={false}
+      style={styles.filterPillsScrollContainer}
+      testID={testID}
+    >
+      {activeFilterChips.map((chip) => (
+        <View key={chip.key} style={styles.filterPillChip}>
+          <Text numberOfLines={1} style={styles.filterPillText}>{chip.label}</Text>
+          <Pressable
+            accessibilityLabel={`Αφαίρεση φίλτρου ${chip.label}`}
+            accessibilityRole="button"
+            hitSlop={6}
+            onPress={chip.onRemove}
+            style={styles.filterPillRemoveBtn}
+            testID={`apartments-active-filter-remove-${chip.key}`}
+          >
+            <Ionicons color={colors.brand} name="close-circle" size={14} />
+          </Pressable>
+        </View>
+      ))}
+    </ScrollView>
+  ) : null;
 
   return (
     <View style={styles.container} testID="apartments-screen">
-      <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
-        <View style={styles.titleRowTop}>
+      <Animated.View
+        onLayout={(event) => setHeaderHeight(event.nativeEvent.layout.height)}
+        style={[styles.header, styles.collapsibleHeader, { paddingTop: insets.top + spacing.sm, transform: [{ translateY: topHeaderTranslateY }] }]}
+      >
+        <Animated.View style={{ opacity: topHeaderOpacity }}>
+          <View style={styles.titleRowTop}>
           <Text style={styles.title}>{t("apartments.title")}</Text>
           <View style={styles.topActionsRow}>
             {!auth.isBroker ? (
@@ -2194,8 +2424,14 @@ export default function ApartmentsScreen() {
               </Pressable>
             ) : null}
           </View>
-        </View>
-        <View style={styles.headerControlsRow}>
+          </View>
+        </Animated.View>
+        <View style={styles.morphingRowContainer}>
+          <Animated.View
+            pointerEvents={isHeaderCollapsed ? "none" : "auto"}
+            style={[styles.actionButtonsRow, { opacity: actionButtonsOpacity }]}
+          >
+          <View style={styles.headerControlsRow}>
           <Pressable
             style={[styles.iconControlButton, showFilters && styles.iconControlButtonActive]}
             onPress={() => setShowFilters((v) => !v)}
@@ -2290,6 +2526,14 @@ export default function ApartmentsScreen() {
               </Pressable>
             </View>
           ) : null}
+          </View>
+          </Animated.View>
+          <Animated.View
+            pointerEvents={isHeaderCollapsed ? "auto" : "none"}
+            style={[styles.filterPillsRowAbsolute, { opacity: filterPillsOpacity }]}
+          >
+            {renderActiveFilterPillStrip("apartments-active-filter-pills")}
+          </Animated.View>
         </View>
         {selectedProposalList ? (
           <View style={styles.activeProposalFilterBar}>
@@ -2303,6 +2547,7 @@ export default function ApartmentsScreen() {
           </View>
         ) : null}
         {showSearch && (
+          <Animated.View style={{ opacity: topHeaderOpacity }}>
           <View style={styles.searchPanel} testID="apartments-search-panel">
             <View style={styles.searchInputWrap}>
               <Ionicons name="search-outline" size={18} color={colors.onSurfaceTertiary} />
@@ -2379,6 +2624,7 @@ export default function ApartmentsScreen() {
               </View>
             ) : null}
           </View>
+          </Animated.View>
         )}
         {showFilters && (
           <KeyboardAwareScrollView
@@ -2731,7 +2977,15 @@ export default function ApartmentsScreen() {
             </View>
           </KeyboardAwareScrollView>
         )}
-      </View>
+      </Animated.View>
+      {activeFilterChips.length > 0 ? (
+        <Animated.View
+          pointerEvents={isHeaderCollapsed ? "auto" : "none"}
+          style={[styles.compactStickyHeader, { paddingTop: insets.top + spacing.xs, opacity: filterPillsOpacity }]}
+        >
+          {renderActiveFilterPillStrip("apartments-active-filter-pills-sticky")}
+        </Animated.View>
+      ) : null}
       <HardCriteriaSelectionModal
         visible={hardCriteriaModalVisible}
         selected={userHardCriteria}
@@ -2786,10 +3040,14 @@ export default function ApartmentsScreen() {
           ) : null}
         </View>
       ) : loading ? (
-        <ApartmentsFeedSkeleton style={styles.flexOne} testID="apartments-loading-skeleton" />
-      ) : <ScrollView
-        contentContainerStyle={[styles.list, isCompactActive && styles.compactList, { paddingBottom: TAB_BAR_SPACE + insets.bottom }]}
+        <View style={[styles.flexOne, { paddingTop: headerHeight }]}>
+          <ApartmentsFeedSkeleton style={styles.flexOne} testID="apartments-loading-skeleton" />
+        </View>
+      ) : <Animated.ScrollView
+        contentContainerStyle={[styles.list, isCompactActive && styles.compactList, { paddingTop: headerHeight + spacing.sm, paddingBottom: TAB_BAR_SPACE + insets.bottom }]}
         showsVerticalScrollIndicator={false}
+        onScroll={listScrollHandler}
+        scrollEventThrottle={16}
       >
         {isCompactActive && sortedApartments.length > 0 && (
           <View style={styles.compactHeaderRow}>
@@ -2911,7 +3169,7 @@ export default function ApartmentsScreen() {
             )}
           </View>
         )}
-      </ScrollView>}
+      </Animated.ScrollView>}
       </View>
       {showCreateFab && (
         <View style={[styles.fabCluster, { bottom: TAB_BAR_SPACE + insets.bottom + spacing.md }]}>
@@ -3357,6 +3615,14 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
   flexOne: { flex: 1 },
   header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md, gap: spacing.xs, borderBottomLeftRadius: 24, borderBottomRightRadius: 24, backgroundColor: colors.surface, shadowColor: "#000000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 5, elevation: 3 },
+  collapsibleHeader: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    overflow: "hidden",
+  },
   titleRowTop: {
     flexDirection: "row",
     alignItems: "center",
@@ -3388,6 +3654,71 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
+  },
+  morphingRowContainer: {
+    height: 54,
+    position: "relative",
+    justifyContent: "center",
+  },
+  actionButtonsRow: {
+    width: "100%",
+  },
+  filterPillsRowAbsolute: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    justifyContent: "center",
+  },
+  compactStickyHeader: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 11,
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 4,
+    paddingBottom: spacing.sm,
+  },
+  filterPillsScrollContainer: {
+    flexGrow: 0,
+    height: 38,
+  },
+  filterPillsScrollContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    paddingHorizontal: spacing.lg,
+  },
+  filterPillChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: colors.brandTertiary,
+    borderColor: colors.brand,
+    borderWidth: 1,
+    paddingLeft: spacing.sm + 2,
+    paddingRight: 6,
+    paddingVertical: 5,
+    borderRadius: radius.pill,
+  },
+  filterPillText: {
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.xs,
+    color: colors.onBrandTertiary,
+  },
+  filterPillRemoveBtn: {
+    alignItems: "center",
+    justifyContent: "center",
   },
   iconControlButton: {
     width: 46,

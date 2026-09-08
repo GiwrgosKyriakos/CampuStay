@@ -18,6 +18,8 @@ import {
   issueCommissionSettlement,
   subscribeAgencyClosedDeals,
 } from "@/src/api/agencyCollaboration";
+import { FadeInView } from "@/src/components/ui/FadeInView";
+import { SkeletonBox } from "@/src/components/ui/SkeletonBox";
 import type { Deal } from "@/src/types/deal";
 import { useAuth } from "@/src/context/auth";
 import { useTheme } from "@/src/context/ThemeContext";
@@ -25,6 +27,15 @@ import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme"
 
 const TAB_BAR_BOTTOM_SPACE = 90;
 const CURRENCY = "€";
+const VAT_RATE = 0.24;
+
+type SettlementTab = "pending" | "settled";
+
+type DealSettlementAudit = Deal & {
+  invoiceNumber?: string;
+  issuedAt?: unknown;
+  settledAt?: unknown;
+};
 
 type SplitInputs = {
   agency: string;
@@ -33,6 +44,31 @@ type SplitInputs = {
   covering: string;
   invoice: string;
 };
+
+function formatMoneyBreakdown(grossAmount: number, withVat: boolean): string {
+  const gross = Number.isFinite(grossAmount) ? grossAmount : 0;
+  if (!withVat) {
+    return `${CURRENCY}${gross.toLocaleString("el-GR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+
+  const net = gross / (1 + VAT_RATE);
+  const vat = gross - net;
+  return `${CURRENCY}${gross.toLocaleString("el-GR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (Καθαρό: ${CURRENCY}${net.toLocaleString("el-GR", { minimumFractionDigits: 2 })} · ΦΠΑ: ${CURRENCY}${vat.toLocaleString("el-GR", { minimumFractionDigits: 2 })})`;
+}
+
+function formatSettlementDate(value: unknown): string {
+  let millis = 0;
+  if (typeof value === "number") millis = value;
+  if (typeof value === "string") millis = Date.parse(value) || 0;
+  if (value && typeof value === "object") {
+    const timestamp = value as { toDate?: () => Date; toMillis?: () => number; seconds?: number };
+    if (typeof timestamp.toDate === "function") millis = timestamp.toDate().getTime();
+    else if (typeof timestamp.toMillis === "function") millis = timestamp.toMillis();
+    else if (typeof timestamp.seconds === "number") millis = timestamp.seconds * 1000;
+  }
+  if (!millis) return "Χωρίς ημερομηνία";
+  return new Date(millis).toLocaleDateString("el-GR", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
 
 function defaultInputs(deal: Deal): SplitInputs {
   const listing = deal.brokerSplits.find((split) => split.role === "listing_agent");
@@ -119,6 +155,8 @@ export default function SecretariatSettlementsScreen() {
   const [inputs, setInputs] = useState<Record<string, SplitInputs>>({});
   const [loading, setLoading] = useState(true);
   const [workingId, setWorkingId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<SettlementTab>("pending");
+  const [includeVat, setIncludeVat] = useState(false);
 
   const isExecutive =
     Boolean(auth.agencyId) &&
@@ -181,6 +219,22 @@ export default function SecretariatSettlementsScreen() {
     }));
   };
 
+  const applyPreset = (dealId: string, agency: number, listing: number, buyer: number, covering = 0) => {
+    const deal = deals.find((item) => item.id === dealId);
+    if (!deal) return;
+
+    setInputs((previous) => ({
+      ...previous,
+      [dealId]: {
+        ...(previous[dealId] ?? defaultInputs(deal)),
+        agency: String(agency),
+        listing: String(listing),
+        buyer: String(buyer),
+        covering: String(covering),
+      },
+    }));
+  };
+
   const handleSettle = async (deal: Deal) => {
     if (!auth.agencyId || workingId) return;
 
@@ -221,6 +275,16 @@ export default function SecretariatSettlementsScreen() {
     }
   };
 
+  const pendingDeals = useMemo(
+    () => deals.filter((deal) => (deal.settlementStatus ?? "pending_review") !== "settled"),
+    [deals],
+  );
+  const settledDeals = useMemo(
+    () => deals.filter((deal) => deal.settlementStatus === "settled"),
+    [deals],
+  );
+  const visibleDeals = activeTab === "pending" ? pendingDeals : settledDeals;
+
   if (!isExecutive) {
     return (
       <View style={styles.stateCenter}>
@@ -252,40 +316,80 @@ export default function SecretariatSettlementsScreen() {
       </View>
 
       {loading ? (
-        <View style={styles.stateCenter}>
-          <ActivityIndicator size="large" color={colors.brand} />
-          <Text style={styles.loadingText}>Φόρτωση κλειστών deals...</Text>
-        </View>
+        <SecretariatSettlementsSkeleton styles={styles} insetsBottom={insets.bottom} />
       ) : deals.length === 0 ? (
-        <View style={styles.stateCenter}>
-          <View style={styles.iconCircleMuted}>
-            <Ionicons name="receipt-outline" size={34} color={colors.brand} />
+        <FadeInView style={{ flex: 1 }}>
+          <View style={styles.stateCenter}>
+            <View style={styles.iconCircleMuted}>
+              <Ionicons name="receipt-outline" size={34} color={colors.brand} />
+            </View>
+            <Text style={styles.emptyTitle}>Καμία Εκκρεμής Εκκαθάριση</Text>
+            <Text style={styles.emptySubtitle}>
+              Δεν υπάρχουν ολοκληρωμένες συμφωνίες (100%) προς έκδοση τιμολογίου ή εκκαθάριση προμήθειας αυτή τη στιγμή.
+            </Text>
           </View>
-          <Text style={styles.emptyTitle}>Καμία Εκκρεμής Εκκαθάριση</Text>
-          <Text style={styles.emptySubtitle}>
-            Δεν υπάρχουν ολοκληρωμένες συμφωνίες (100%) προς έκδοση τιμολογίου ή εκκαθάριση προμήθειας αυτή τη στιγμή.
-          </Text>
-        </View>
+        </FadeInView>
       ) : (
-        <KeyboardAwareScrollView
-          contentContainerStyle={[styles.scrollContent, { paddingBottom: TAB_BAR_BOTTOM_SPACE + insets.bottom }]}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-        >
+        <FadeInView style={{ flex: 1 }}>
+          <KeyboardAwareScrollView
+            contentContainerStyle={[styles.scrollContent, { paddingBottom: TAB_BAR_BOTTOM_SPACE + insets.bottom }]}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+          >
+          <View style={styles.controlsBar}>
+            <View style={styles.tabPillsContainer}>
+              <Pressable
+                style={[styles.filterTabPill, activeTab === "pending" && styles.filterTabPillActive]}
+                onPress={() => setActiveTab("pending")}
+              >
+                <Text style={[styles.filterTabText, activeTab === "pending" && styles.filterTabTextActive]}>
+                  Εκκρεμή ({pendingDeals.length})
+                </Text>
+              </Pressable>
+              <Pressable
+                style={[styles.filterTabPill, activeTab === "settled" && styles.filterTabPillActive]}
+                onPress={() => setActiveTab("settled")}
+              >
+                <Text style={[styles.filterTabText, activeTab === "settled" && styles.filterTabTextActive]}>
+                  Εξοφλημένα ({settledDeals.length})
+                </Text>
+              </Pressable>
+            </View>
+
+            <Pressable
+              style={[styles.vatToggleBtn, includeVat && styles.vatToggleBtnActive]}
+              onPress={() => setIncludeVat((previous) => !previous)}
+              hitSlop={6}
+            >
+              <Ionicons name="calculator-outline" size={13} color={includeVat ? colors.onBrand : colors.brand} />
+              <Text style={[styles.vatToggleText, includeVat && styles.vatToggleTextActive]}>
+                {includeVat ? "Ανάλυση ΦΠΑ 24% (ON)" : "ΦΠΑ 24%"}
+              </Text>
+            </Pressable>
+          </View>
+
           <View style={styles.counterRow}>
             <Text style={styles.counterText}>
-              ΟΛΟΚΛΗΡΩΜΕΝΑ DEALS ΠΡΟΣ ΕΚΚΑΘΑΡΙΣΗ ({deals.length})
+              {activeTab === "pending" ? "DEALS ΠΡΟΣ ΕΚΚΑΘΑΡΙΣΗ" : "ΕΞΟΦΛΗΜΕΝΑ DEALS"} ({visibleDeals.length})
             </Text>
           </View>
 
-          {deals.map((deal) => {
+          {visibleDeals.length === 0 ? (
+            <View style={styles.emptyListCard}>
+              <Ionicons name={activeTab === "settled" ? "checkmark-done-circle-outline" : "receipt-outline"} size={32} color={colors.onSurfaceTertiary} />
+              <Text style={styles.emptyListText}>
+                {activeTab === "settled" ? "Δεν υπάρχουν εξοφλημένα deals." : "Δεν υπάρχουν εκκρεμείς εκκαθαρίσεις."}
+              </Text>
+            </View>
+          ) : visibleDeals.map((deal) => {
             const values = inputs[deal.id] ?? defaultInputs(deal);
             const calculated = getSettlementCalculation(deal, values);
             const settlementStatus = deal.settlementStatus ?? "pending_review";
             const statusMeta = settlementStatusMeta(settlementStatus, colors);
             const isSettled = settlementStatus === "settled";
             const isActionDisabled = workingId === deal.id || !calculated || isSettled;
+            const auditDeal = deal as DealSettlementAudit;
 
             return (
               <View
@@ -302,7 +406,7 @@ export default function SecretariatSettlementsScreen() {
                     <Text style={styles.commissionTotalText}>
                       Συνολική προμήθεια:{" "}
                       <Text style={styles.commissionTotalValue}>
-                        {CURRENCY}{deal.commissionTotal.toLocaleString("el-GR", { minimumFractionDigits: 2 })}
+                          {formatMoneyBreakdown(deal.commissionTotal, includeVat)}
                       </Text>
                     </Text>
                   </View>
@@ -314,165 +418,245 @@ export default function SecretariatSettlementsScreen() {
                   </View>
                 </View>
 
-                {/* Percentage Distribution Inputs */}
-                <Text style={styles.inputSectionLabel}>Ποσοστά Διανομής (%)</Text>
-                <View style={styles.inputsRow}>
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Γραφείο</Text>
-                    <View style={styles.inputBoxWrap}>
-                      <TextInput
-                        value={values.agency}
-                        onChangeText={(val) =>
-                          updateInput(deal.id, "agency", val.replace(/[^0-9.]/g, ""))
-                        }
-                        keyboardType="decimal-pad"
-                        style={styles.inputField}
-                        placeholder="50"
-                        placeholderTextColor={colors.onSurfaceTertiary}
-                      />
-                      <Text style={styles.inputAdornment}>%</Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Listing</Text>
-                    <View style={styles.inputBoxWrap}>
-                      <TextInput
-                        value={values.listing}
-                        onChangeText={(val) =>
-                          updateInput(deal.id, "listing", val.replace(/[^0-9.]/g, ""))
-                        }
-                        keyboardType="decimal-pad"
-                        style={styles.inputField}
-                        placeholder="25"
-                        placeholderTextColor={colors.onSurfaceTertiary}
-                      />
-                      <Text style={styles.inputAdornment}>%</Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Buyer</Text>
-                    <View style={styles.inputBoxWrap}>
-                      <TextInput
-                        value={values.buyer}
-                        onChangeText={(val) =>
-                          updateInput(deal.id, "buyer", val.replace(/[^0-9.]/g, ""))
-                        }
-                        keyboardType="decimal-pad"
-                        style={styles.inputField}
-                        placeholder="25"
-                        placeholderTextColor={colors.onSurfaceTertiary}
-                      />
-                      <Text style={styles.inputAdornment}>%</Text>
-                    </View>
-                  </View>
-
-                  {deal.coveringBrokerId ? (
-                    <View style={styles.inputGroup}>
-                      <Text style={styles.inputLabel}>Covering</Text>
-                      <View style={styles.inputBoxWrap}>
-                        <TextInput
-                          value={values.covering}
-                          onChangeText={(val) =>
-                            updateInput(deal.id, "covering", val.replace(/[^0-9.]/g, ""))
-                          }
-                          keyboardType="decimal-pad"
-                          style={styles.inputField}
-                          placeholder="0"
-                          placeholderTextColor={colors.onSurfaceTertiary}
-                        />
-                        <Text style={styles.inputAdornment}>%</Text>
-                      </View>
-                    </View>
-                  ) : null}
-                </View>
-
-                {/* Real-time Calculation Breakdown Box */}
-                {calculated ? (
-                  <View style={styles.calcContainer}>
-                    <View style={styles.calcRow}>
-                      <View style={styles.calcLabelGroup}>
-                        <Ionicons name="business-outline" size={13} color={colors.brand} />
-                        <Text style={styles.calcPartyName}>Μερίδιο Γραφείου (Agency):</Text>
-                      </View>
-                      <Text style={styles.calcAmountAgency}>
-                        {CURRENCY}{calculated.agencyAmount.toLocaleString("el-GR", { minimumFractionDigits: 2 })}
+                {isSettled ? (
+                  <View style={styles.settledReceiptBox}>
+                    <View style={styles.receiptRow}>
+                      <Ionicons color={colors.success} name="receipt-outline" size={15} />
+                      <Text style={styles.receiptInvoiceText}>
+                        Παραστατικό: {auditDeal.invoiceNumber || "Χωρίς αριθμό"}
                       </Text>
                     </View>
-
-                    {calculated.brokerSplits.map((split) => (
-                      <View key={split.brokerId} style={styles.calcRow}>
-                        <View style={styles.calcLabelGroup}>
-                          <Ionicons name="person-outline" size={13} color={colors.onSurfaceTertiary} />
-                          <Text style={styles.calcPartyName} numberOfLines={1}>
-                            {split.brokerName}:
-                          </Text>
-                        </View>
-                        <Text style={styles.calcAmountBroker}>
-                          {CURRENCY}{split.amount.toLocaleString("el-GR", { minimumFractionDigits: 2 })}
+                    <Text style={styles.receiptDateText}>
+                      Ημερομηνία εξόφλησης: {formatSettlementDate(auditDeal.settledAt)}
+                    </Text>
+                    <View style={styles.receiptSplitsRow}>
+                      <Text style={styles.receiptSplitText}>
+                        Γραφείο: {formatMoneyBreakdown(deal.agencyCutAmount ?? 0, includeVat)}
+                      </Text>
+                      {deal.brokerSplits.map((split) => (
+                        <Text key={`${split.brokerId}-${split.role}`} style={styles.receiptSplitText}>
+                          {split.brokerName}: {formatMoneyBreakdown(split.amount, includeVat)}
                         </Text>
-                      </View>
-                    ))}
+                      ))}
+                    </View>
                   </View>
                 ) : (
-                  <View style={styles.validationErrorBox}>
-                    <Ionicons name="alert-circle-outline" size={14} color={colors.error} />
-                    <Text style={styles.validationErrorText}>
-                      Το άθροισμα των μεριδίων πρέπει να ισούται ακριβώς με 100%.
-                    </Text>
-                  </View>
-                )}
+                  <>
+                    <Text style={styles.inputSectionLabel}>Ποσοστά Διανομής (%)</Text>
+                    <View style={styles.presetRow}>
+                      <Pressable style={styles.presetPill} onPress={() => applyPreset(deal.id, 50, 50, 0)}>
+                        <Text style={styles.presetText}>50% Γραφείο / 50% Listing</Text>
+                      </Pressable>
+                      <Pressable style={styles.presetPill} onPress={() => applyPreset(deal.id, 50, 25, 25)}>
+                        <Text style={styles.presetText}>50% / 25% / 25%</Text>
+                      </Pressable>
+                      <Pressable style={styles.presetPill} onPress={() => applyPreset(deal.id, 40, 30, 30)}>
+                        <Text style={styles.presetText}>40% / 30% / 30%</Text>
+                      </Pressable>
+                    </View>
+                    <View style={styles.inputsRow}>
+                      <View style={styles.inputGroup}>
+                        <Text style={styles.inputLabel}>Γραφείο</Text>
+                        <View style={styles.inputBoxWrap}>
+                          <TextInput
+                            value={values.agency}
+                            onChangeText={(val) => updateInput(deal.id, "agency", val.replace(/[^0-9.]/g, ""))}
+                            keyboardType="decimal-pad"
+                            style={styles.inputField}
+                            placeholder="50"
+                            placeholderTextColor={colors.onSurfaceTertiary}
+                          />
+                          <Text style={styles.inputAdornment}>%</Text>
+                        </View>
+                      </View>
 
-                {/* Invoice Number Input */}
-                <View style={styles.invoiceRow}>
-                  <Ionicons name="document-text-outline" size={16} color={colors.onSurfaceTertiary} />
-                  <TextInput
-                    value={values.invoice}
-                    onChangeText={(val) => updateInput(deal.id, "invoice", val)}
-                    placeholder="Αριθμός τιμολογίου / Παραστατικού (προαιρετικό)"
-                    placeholderTextColor={colors.onSurfaceTertiary}
-                    style={styles.invoiceInputField}
-                  />
-                </View>
+                      <View style={styles.inputGroup}>
+                        <Text style={styles.inputLabel}>Listing</Text>
+                        <View style={styles.inputBoxWrap}>
+                          <TextInput
+                            value={values.listing}
+                            onChangeText={(val) => updateInput(deal.id, "listing", val.replace(/[^0-9.]/g, ""))}
+                            keyboardType="decimal-pad"
+                            style={styles.inputField}
+                            placeholder="25"
+                            placeholderTextColor={colors.onSurfaceTertiary}
+                          />
+                          <Text style={styles.inputAdornment}>%</Text>
+                        </View>
+                      </View>
 
-                {/* Settle / Issue Action Button */}
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.settleActionButton,
-                    isActionDisabled && styles.settleActionButtonDisabled,
-                    pressed && !isActionDisabled && styles.btnPressed,
-                  ]}
-                  disabled={isActionDisabled}
-                  onPress={() => void handleSettle(deal)}
-                  hitSlop={6}
-                >
-                  {workingId === deal.id ? (
-                    <ActivityIndicator size="small" color={colors.onBrand} />
-                  ) : (
-                    <>
-                      <Ionicons
-                        name={isSettled ? "checkmark-done-circle" : "receipt-outline"}
-                        size={18}
-                        color={isActionDisabled ? colors.onSurfaceTertiary : colors.onBrand}
+                      <View style={styles.inputGroup}>
+                        <Text style={styles.inputLabel}>Buyer</Text>
+                        <View style={styles.inputBoxWrap}>
+                          <TextInput
+                            value={values.buyer}
+                            onChangeText={(val) => updateInput(deal.id, "buyer", val.replace(/[^0-9.]/g, ""))}
+                            keyboardType="decimal-pad"
+                            style={styles.inputField}
+                            placeholder="25"
+                            placeholderTextColor={colors.onSurfaceTertiary}
+                          />
+                          <Text style={styles.inputAdornment}>%</Text>
+                        </View>
+                      </View>
+
+                      {deal.coveringBrokerId ? (
+                        <View style={styles.inputGroup}>
+                          <Text style={styles.inputLabel}>Covering</Text>
+                          <View style={styles.inputBoxWrap}>
+                            <TextInput
+                              value={values.covering}
+                              onChangeText={(val) => updateInput(deal.id, "covering", val.replace(/[^0-9.]/g, ""))}
+                              keyboardType="decimal-pad"
+                              style={styles.inputField}
+                              placeholder="0"
+                              placeholderTextColor={colors.onSurfaceTertiary}
+                            />
+                            <Text style={styles.inputAdornment}>%</Text>
+                          </View>
+                        </View>
+                      ) : null}
+                    </View>
+
+                    {calculated ? (
+                      <View style={styles.calcContainer}>
+                        <View style={styles.calcRow}>
+                          <View style={styles.calcLabelGroup}>
+                            <Ionicons name="business-outline" size={13} color={colors.brand} />
+                            <Text style={styles.calcPartyName}>Μερίδιο Γραφείου (Agency):</Text>
+                          </View>
+                          <View style={styles.calcAmountWrap}>
+                            <Text style={styles.calcAmountAgency}>{formatMoneyBreakdown(calculated.agencyAmount, false)}</Text>
+                            {includeVat ? (
+                              <Text style={styles.vatSubLine}>
+                                Καθαρό: {formatMoneyBreakdown(calculated.agencyAmount / (1 + VAT_RATE), false)} · ΦΠΑ: {formatMoneyBreakdown(calculated.agencyAmount - calculated.agencyAmount / (1 + VAT_RATE), false)}
+                              </Text>
+                            ) : null}
+                          </View>
+                        </View>
+
+                        {calculated.brokerSplits.map((split) => (
+                          <View key={split.brokerId} style={styles.calcRow}>
+                            <View style={styles.calcLabelGroup}>
+                              <Ionicons name="person-outline" size={13} color={colors.onSurfaceTertiary} />
+                              <Text style={styles.calcPartyName} numberOfLines={1}>{split.brokerName}:</Text>
+                            </View>
+                            <View style={styles.calcAmountWrap}>
+                              <Text style={styles.calcAmountBroker}>{formatMoneyBreakdown(split.amount, false)}</Text>
+                              {includeVat ? (
+                                <Text style={styles.vatSubLine}>
+                                  Καθαρό: {formatMoneyBreakdown(split.amount / (1 + VAT_RATE), false)} · ΦΠΑ: {formatMoneyBreakdown(split.amount - split.amount / (1 + VAT_RATE), false)}
+                                </Text>
+                              ) : null}
+                            </View>
+                          </View>
+                        ))}
+                      </View>
+                    ) : (
+                      <View style={styles.validationErrorBox}>
+                        <Ionicons name="alert-circle-outline" size={14} color={colors.error} />
+                        <Text style={styles.validationErrorText}>Το άθροισμα των μεριδίων πρέπει να ισούται ακριβώς με 100%.</Text>
+                      </View>
+                    )}
+
+                    <View style={styles.invoiceRow}>
+                      <Ionicons name="document-text-outline" size={16} color={colors.onSurfaceTertiary} />
+                      <TextInput
+                        value={values.invoice}
+                        onChangeText={(val) => updateInput(deal.id, "invoice", val)}
+                        placeholder="Αριθμός τιμολογίου / Παραστατικού (προαιρετικό)"
+                        placeholderTextColor={colors.onSurfaceTertiary}
+                        style={styles.invoiceInputField}
                       />
-                      <Text
-                        style={[
-                          styles.settleActionText,
-                          isActionDisabled && styles.settleActionTextDisabled,
-                        ]}
-                      >
-                        {isSettled ? "Εκκαθάριση Ολοκληρώθηκε" : "Έκδοση Τιμολογίου & Εκκαθάριση"}
-                      </Text>
-                    </>
-                  )}
-                </Pressable>
+                    </View>
+
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.settleActionButton,
+                        isActionDisabled && styles.settleActionButtonDisabled,
+                        pressed && !isActionDisabled && styles.btnPressed,
+                      ]}
+                      disabled={isActionDisabled}
+                      onPress={() => void handleSettle(deal)}
+                      hitSlop={6}
+                    >
+                      {workingId === deal.id ? (
+                        <ActivityIndicator size="small" color={colors.onBrand} />
+                      ) : (
+                        <>
+                          <Ionicons name="receipt-outline" size={18} color={isActionDisabled ? colors.onSurfaceTertiary : colors.onBrand} />
+                          <Text style={[styles.settleActionText, isActionDisabled && styles.settleActionTextDisabled]}>
+                            Έκδοση Τιμολογίου & Εκκαθάριση
+                          </Text>
+                        </>
+                      )}
+                    </Pressable>
+                  </>
+                )}
               </View>
             );
           })}
-        </KeyboardAwareScrollView>
+          </KeyboardAwareScrollView>
+        </FadeInView>
       )}
     </View>
+  );
+}
+
+function SecretariatSettlementsSkeleton({
+  styles,
+  insetsBottom,
+}: {
+  styles: ReturnType<typeof createStyles>;
+  insetsBottom: number;
+}) {
+  return (
+    <KeyboardAwareScrollView
+      contentContainerStyle={[styles.scrollContent, { paddingBottom: TAB_BAR_BOTTOM_SPACE + insetsBottom }]}
+      showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+    >
+      <View style={styles.controlsBar}>
+        <SkeletonBox width={180} height={36} borderRadius={radius.pill} />
+        <SkeletonBox width={90} height={32} borderRadius={radius.pill} />
+      </View>
+      <View style={styles.counterRow}>
+        <SkeletonBox width="46%" height={12} borderRadius={radius.sm} />
+      </View>
+      {Array.from({ length: 2 }, (_item, index) => (
+        <View key={`settlement-skeleton-${index}`} style={styles.dealCard}>
+          <View style={styles.cardHeader}>
+            <View style={styles.cardTitleWrap}>
+              <SkeletonBox width="50%" height={18} borderRadius={radius.sm} />
+              <SkeletonBox width="35%" height={14} borderRadius={radius.sm} />
+            </View>
+            <SkeletonBox width={76} height={22} borderRadius={radius.pill} />
+          </View>
+          <SkeletonBox width="44%" height={12} borderRadius={radius.sm} />
+          <View style={styles.presetRow}>
+            <SkeletonBox width={108} height={24} borderRadius={radius.pill} />
+            <SkeletonBox width={88} height={24} borderRadius={radius.pill} />
+            <SkeletonBox width={72} height={24} borderRadius={radius.pill} />
+          </View>
+          <View style={styles.inputsRow}>
+            <SkeletonBox width="23%" height={38} borderRadius={radius.md} />
+            <SkeletonBox width="23%" height={38} borderRadius={radius.md} />
+            <SkeletonBox width="23%" height={38} borderRadius={radius.md} />
+            <SkeletonBox width="23%" height={38} borderRadius={radius.md} />
+          </View>
+          <View style={styles.calcContainer}>
+            {Array.from({ length: 3 }, (_row, rowIndex) => (
+              <View key={`calculation-skeleton-${rowIndex}`} style={styles.calcRow}>
+                <SkeletonBox width="48%" height={10} borderRadius={radius.sm} />
+                <SkeletonBox width="24%" height={10} borderRadius={radius.sm} />
+              </View>
+            ))}
+          </View>
+          <SkeletonBox width="100%" height={42} borderRadius={radius.md} />
+          <SkeletonBox width="100%" height={44} borderRadius={radius.pill} />
+        </View>
+      ))}
+    </KeyboardAwareScrollView>
   );
 }
 
@@ -521,6 +705,64 @@ function createStyles(colors: ThemeColors) {
       paddingTop: spacing.md,
       gap: spacing.md,
     },
+    controlsBar: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.xs,
+      gap: spacing.sm,
+      flexWrap: "wrap",
+    },
+    tabPillsContainer: {
+      flexDirection: "row",
+      backgroundColor: colors.surfaceSecondary,
+      padding: 3,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      borderColor: colors.border,
+      gap: 3,
+    },
+    filterTabPill: {
+      paddingHorizontal: spacing.md,
+      paddingVertical: 5,
+      borderRadius: radius.pill,
+    },
+    filterTabPillActive: {
+      backgroundColor: colors.brand,
+    },
+    filterTabText: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.xs,
+      color: colors.onSurfaceTertiary,
+    },
+    filterTabTextActive: {
+      fontFamily: fonts.bold,
+      color: colors.onBrand,
+    },
+    vatToggleBtn: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      paddingHorizontal: spacing.sm + 2,
+      paddingVertical: 5,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surfaceSecondary,
+      borderWidth: 1,
+      borderColor: colors.brand,
+    },
+    vatToggleBtnActive: {
+      backgroundColor: colors.brand,
+      borderColor: colors.brand,
+    },
+    vatToggleText: {
+      fontFamily: fonts.bold,
+      fontSize: 10,
+      color: colors.brand,
+    },
+    vatToggleTextActive: {
+      color: colors.onBrand,
+    },
     counterRow: {
       paddingVertical: spacing.xs,
       paddingHorizontal: 2,
@@ -563,6 +805,22 @@ function createStyles(colors: ThemeColors) {
     commissionTotalValue: {
       fontFamily: fonts.bold,
       color: colors.brand,
+    },
+    emptyListCard: {
+      alignItems: "center",
+      justifyContent: "center",
+      padding: spacing.xl,
+      borderRadius: radius.lg,
+      backgroundColor: colors.surfaceSecondary,
+      borderWidth: 1,
+      borderColor: colors.border,
+      gap: spacing.xs,
+    },
+    emptyListText: {
+      fontFamily: fonts.regular,
+      fontSize: fontSize.xs,
+      color: colors.onSurfaceTertiary,
+      textAlign: "center",
     },
     statusBadge: {
       paddingHorizontal: spacing.sm,
@@ -654,6 +912,71 @@ function createStyles(colors: ThemeColors) {
       fontFamily: fonts.bold,
       fontSize: fontSize.xs,
       color: colors.onSurface,
+    },
+    calcAmountWrap: {
+      alignItems: "flex-end",
+      maxWidth: "60%",
+    },
+    vatSubLine: {
+      fontFamily: fonts.regular,
+      fontSize: 9,
+      color: colors.onSurfaceTertiary,
+      textAlign: "right",
+    },
+    presetRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+      flexWrap: "wrap",
+      marginTop: 2,
+    },
+    presetPill: {
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 3,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    presetText: {
+      fontFamily: fonts.semibold,
+      fontSize: 10,
+      color: colors.onSurfaceTertiary,
+    },
+    settledReceiptBox: {
+      padding: spacing.sm,
+      borderRadius: radius.md,
+      backgroundColor: "rgba(34, 197, 94, 0.08)",
+      borderWidth: 1,
+      borderColor: "rgba(34, 197, 94, 0.2)",
+      gap: 4,
+    },
+    receiptRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+    },
+    receiptInvoiceText: {
+      flex: 1,
+      fontFamily: fonts.bold,
+      fontSize: fontSize.xs,
+      color: colors.success,
+    },
+    receiptDateText: {
+      fontFamily: fonts.regular,
+      fontSize: fontSize.xs,
+      color: colors.onSurfaceTertiary,
+    },
+    receiptSplitsRow: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: spacing.sm,
+      paddingTop: 2,
+    },
+    receiptSplitText: {
+      fontFamily: fonts.semibold,
+      fontSize: 10,
+      color: colors.onSurfaceTertiary,
     },
     validationErrorBox: {
       flexDirection: "row",

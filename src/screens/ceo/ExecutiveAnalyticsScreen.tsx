@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { subscribeCEOAnalyticsSummary } from "@/src/api/ceoAnalytics";
+import { SkeletonBox } from "@/src/components/ui/SkeletonBox";
 import { isExecutiveAnalyticsRole } from "@/src/utils/analyticsEngine";
 import { useAuth } from "@/src/context/auth";
 import { useTheme } from "@/src/context/ThemeContext";
@@ -12,6 +13,8 @@ import type { AnalyticsTimeWindow, CEOAnalyticsSummary, LeadSource, LostDealReas
 import { t } from "@/src/locales";
 
 const TAB_BAR_BOTTOM_SPACE = 90;
+
+type AgentSortMode = "winRate" | "showings" | "velocity";
 
 const TIME_WINDOWS: { value: AnalyticsTimeWindow; label: string }[] = [
   { value: "month", label: "Αυτό το Μήνα" },
@@ -69,15 +72,34 @@ export default function ExecutiveAnalyticsScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
+  const [, setSummaryCache] = useState<Partial<Record<AnalyticsTimeWindow, CEOAnalyticsSummary>>>({});
+  const summaryCacheRef = useRef<Partial<Record<AnalyticsTimeWindow, CEOAnalyticsSummary>>>({});
+  const cacheOwnerRef = useRef<string | null>(null);
+  const [agentSort, setAgentSort] = useState<AgentSortMode>("winRate");
+  const [domFilterStagnantOnly, setDomFilterStagnantOnly] = useState(false);
+  const [simulatedClosings, setSimulatedClosings] = useState(0);
 
   useEffect(() => {
-    if (!isExecutive || !auth.userId) {
+    const cacheOwner = `${auth.userId ?? ""}:${auth.agencyId ?? ""}`;
+    if (cacheOwnerRef.current !== cacheOwner) {
+      cacheOwnerRef.current = cacheOwner;
+      summaryCacheRef.current = {};
+      setSummaryCache({});
+    }
+
+    if (!isExecutive || !auth.userId || !auth.agencyId) {
       setSummary(null);
       setLoading(false);
       return () => undefined;
     }
 
-    setLoading(true);
+    const cachedSummary = summaryCacheRef.current[window];
+    if (cachedSummary) {
+      setSummary(cachedSummary);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
     setError(null);
     let subscribed = true;
 
@@ -85,6 +107,8 @@ export default function ExecutiveAnalyticsScreen() {
       { userId: auth.userId, agencyId: auth.agencyId, window },
       (nextSummary) => {
         if (subscribed) {
+          summaryCacheRef.current = { ...summaryCacheRef.current, [window]: nextSummary };
+          setSummaryCache((previous) => ({ ...previous, [window]: nextSummary }));
           setSummary(nextSummary);
           setLoading(false);
           setError(null);
@@ -92,7 +116,7 @@ export default function ExecutiveAnalyticsScreen() {
       },
       (subscriptionError) => {
         if (subscribed) {
-          setSummary(null);
+          if (!summaryCacheRef.current[window]) setSummary(null);
           setLoading(false);
           setError(subscriptionError.message);
         }
@@ -104,6 +128,21 @@ export default function ExecutiveAnalyticsScreen() {
       unsubscribe();
     };
   }, [auth.agencyId, auth.userId, isExecutive, refreshToken, window]);
+
+  const sortedAgents = useMemo(() => {
+    if (!summary?.agentsMetrics) return [];
+    return [...summary.agentsMetrics].sort((first, second) => {
+      if (agentSort === "winRate") return second.winRate - first.winRate;
+      if (agentSort === "showings") return second.showingsCount - first.showingsCount;
+      return first.avgClosingTimeDays - second.avgClosingTimeDays;
+    });
+  }, [summary?.agentsMetrics, agentSort]);
+
+  const displayedPendingListings = useMemo(() => {
+    if (!summary?.longestPendingListings) return [];
+    if (!domFilterStagnantOnly) return summary.longestPendingListings;
+    return summary.longestPendingListings.filter((listing) => listing.daysOnMarket > 45);
+  }, [summary?.longestPendingListings, domFilterStagnantOnly]);
 
   if (!isExecutive) {
     return (
@@ -138,6 +177,16 @@ export default function ExecutiveAnalyticsScreen() {
         : point.grossCommission,
     ),
   );
+
+  const averageRevenuePerClosedDeal = summary && summary.listingFunnel.closedDeals > 0
+    ? summary.realizedRevenue.totalRevenue / summary.listingFunnel.closedDeals
+    : 0;
+  const simulatedRevenue = summary
+    ? summary.realizedRevenue.totalRevenue + simulatedClosings * averageRevenuePerClosedDeal
+    : 0;
+  const simulatedAchievementPercent = summary && summary.benchmarkMetrics.targetMonthlyRevenue > 0
+    ? (simulatedRevenue / summary.benchmarkMetrics.targetMonthlyRevenue) * 100
+    : 0;
 
   const frictionLabels = {
     views_to_inquiries: "Προβολές προς leads",
@@ -187,10 +236,7 @@ export default function ExecutiveAnalyticsScreen() {
       </View>
 
       {loading ? (
-        <View style={styles.stateCenter}>
-          <ActivityIndicator size="large" color={colors.brand} />
-          <Text style={styles.loadingText}>Φόρτωση αναφορών & αναλυτικών...</Text>
-        </View>
+        <ExecutiveAnalyticsSkeleton styles={styles} insetsBottom={insets.bottom} />
       ) : error ? (
         <View style={styles.stateCenter}>
           <View style={styles.iconCircleMuted}>
@@ -274,6 +320,46 @@ export default function ExecutiveAnalyticsScreen() {
             <Text style={styles.metaSubtext}>
               Μηνιαίος στόχος: {formatMoney(summary.benchmarkMetrics.targetMonthlyRevenue)} · Σταθμισμένη πρόβλεψη
             </Text>
+
+            <View style={styles.targetSimulationBox}>
+              <View style={styles.targetSimulationHeader}>
+                <View style={styles.targetSimulationCopy}>
+                  <Text style={styles.subheadingText}>Προσομοίωση νέων κλεισιμάτων</Text>
+                  <Text style={styles.metaSubtext}>Μέση αξία ανά κλειστό deal: {formatMoney(averageRevenuePerClosedDeal)}</Text>
+                </View>
+                <View style={styles.simulationStepper}>
+                  <Pressable
+                    style={styles.simulationStepButton}
+                    onPress={() => setSimulatedClosings((value) => Math.max(0, value - 1))}
+                    disabled={simulatedClosings === 0}
+                    accessibilityLabel="Μείωση προσομοιωμένων κλεισιμάτων"
+                  >
+                    <Ionicons name="remove" size={15} color={simulatedClosings === 0 ? colors.onSurfaceTertiary : colors.brand} />
+                  </Pressable>
+                  <Text style={styles.simulationStepValue}>{simulatedClosings}</Text>
+                  <Pressable
+                    style={styles.simulationStepButton}
+                    onPress={() => setSimulatedClosings((value) => Math.min(99, value + 1))}
+                    accessibilityLabel="Αύξηση προσομοιωμένων κλεισιμάτων"
+                  >
+                    <Ionicons name="add" size={15} color={colors.brand} />
+                  </Pressable>
+                </View>
+              </View>
+              <View style={styles.targetSimulationMetricRow}>
+                <Text style={styles.metaSubtext}>Προβλεπόμενα έσοδα</Text>
+                <Text style={styles.targetSimulationValue}>{formatMoney(simulatedRevenue)}</Text>
+                <Text style={styles.forecastTargetValue}>{simulatedAchievementPercent.toFixed(0)}%</Text>
+              </View>
+              <View style={styles.trackContainer}>
+                <View
+                  style={[
+                    styles.trackFillSecondary,
+                    { width: `${Math.min(100, Math.max(0, simulatedAchievementPercent))}%` },
+                  ]}
+                />
+              </View>
+            </View>
 
             <View style={styles.metricCardsRow}>
               <View style={styles.miniCard}>
@@ -359,11 +445,27 @@ export default function ExecutiveAnalyticsScreen() {
               </View>
             </View>
 
-            <Text style={styles.subheadingText}>Μεγαλύτερη παραμονή στην αγορά</Text>
-            {summary.longestPendingListings.length === 0 ? (
+            <View style={styles.domHeaderRow}>
+              <Text style={styles.subheadingText}>Μεγαλύτερη παραμονή στην αγορά</Text>
+              <Pressable
+                style={[styles.domFilterToggle, domFilterStagnantOnly && styles.domFilterToggleActive]}
+                onPress={() => setDomFilterStagnantOnly((value) => !value)}
+                hitSlop={6}
+              >
+                <Ionicons
+                  name={domFilterStagnantOnly ? "alert-circle" : "filter-outline"}
+                  size={12}
+                  color={domFilterStagnantOnly ? colors.onBrand : colors.onSurfaceTertiary}
+                />
+                <Text style={[styles.domFilterToggleText, domFilterStagnantOnly && styles.domFilterToggleTextActive]}>
+                  {domFilterStagnantOnly ? "Μόνο στάσιμα (>45 ημ)" : "Όλα"}
+                </Text>
+              </Pressable>
+            </View>
+            {displayedPendingListings.length === 0 ? (
               <Text style={styles.emptyInlineText}>Δεν υπάρχουν καταχωρίσεις στο επιλεγμένο διάστημα.</Text>
             ) : (
-              summary.longestPendingListings.map((listing) => (
+              displayedPendingListings.map((listing) => (
                 <View key={listing.id} style={styles.pendingRow}>
                   <View style={styles.pendingCopy}>
                     <Text style={styles.pendingTitle} numberOfLines={1}>
@@ -378,7 +480,7 @@ export default function ExecutiveAnalyticsScreen() {
               ))
             )}
 
-            {summary.longestPendingListings.some((listing) => listing.daysOnMarket > 45) ? (
+            {displayedPendingListings.some((listing) => listing.daysOnMarket > 45) ? (
               <View style={styles.alertCard}>
                 <Ionicons name="warning-outline" size={18} color={colors.warning} />
                 <Text style={styles.alertCardText}>
@@ -455,7 +557,25 @@ export default function ExecutiveAnalyticsScreen() {
             {summary.agentsMetrics.length === 0 ? (
               <Text style={styles.emptyInlineText}>Δεν υπάρχουν δεδομένα συνεργατών.</Text>
             ) : (
-              summary.agentsMetrics.map((agent, index) => (
+              <>
+                <View style={styles.agentSortBar}>
+                  <Text style={styles.subheadingText}>Κατάταξη Συνεργατών</Text>
+                  <View style={styles.agentSortPills}>
+                    {(["winRate", "showings", "velocity"] as const).map((mode) => (
+                      <Pressable
+                        key={mode}
+                        style={[styles.agentSortPill, agentSort === mode && styles.agentSortPillActive]}
+                        onPress={() => setAgentSort(mode)}
+                        hitSlop={4}
+                      >
+                        <Text style={[styles.agentSortPillText, agentSort === mode && styles.agentSortPillTextActive]}>
+                          {mode === "winRate" ? "Win Rate" : mode === "showings" ? "Υποδείξεις" : "Ταχύτητα"}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+                {sortedAgents.map((agent, index) => (
                 <View key={agent.brokerId} style={styles.agentCard}>
                   <View style={styles.rankPill}>
                     <Text style={styles.rankText}>{index + 1}</Text>
@@ -476,7 +596,8 @@ export default function ExecutiveAnalyticsScreen() {
                     <Text style={styles.agentScoreLabel}>Win rate</Text>
                   </View>
                 </View>
-              ))
+                ))}
+              </>
             )}
 
             <View style={styles.divider} />
@@ -631,6 +752,88 @@ export default function ExecutiveAnalyticsScreen() {
         </ScrollView>
       ) : null}
     </View>
+  );
+}
+
+function ExecutiveAnalyticsSkeleton({
+  styles,
+  insetsBottom,
+}: {
+  styles: ReturnType<typeof createStyles>;
+  insetsBottom: number;
+}) {
+  return (
+    <ScrollView
+      contentContainerStyle={[styles.content, { paddingBottom: TAB_BAR_BOTTOM_SPACE + insetsBottom }]}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={styles.kpiGrid}>
+        {Array.from({ length: 4 }, (_item, index) => (
+          <View key={`kpi-skeleton-${index}`} style={styles.kpiCard}>
+            <SkeletonBox width={32} height={32} borderRadius={radius.sm} />
+            <SkeletonBox width="64%" height={12} borderRadius={radius.sm} />
+            <SkeletonBox width="76%" height={22} borderRadius={radius.sm} />
+            <SkeletonBox width="92%" height={10} borderRadius={radius.sm} />
+          </View>
+        ))}
+      </View>
+
+      <View style={styles.sectionCard}>
+        <View style={styles.sectionHeaderRow}>
+          <SkeletonBox width={30} height={30} borderRadius={radius.sm} />
+          <SkeletonBox width="58%" height={16} borderRadius={radius.sm} />
+        </View>
+        <View style={styles.forecastTargetHeader}>
+          <SkeletonBox width="42%" height={14} borderRadius={radius.sm} />
+          <SkeletonBox width="28%" height={14} borderRadius={radius.sm} />
+        </View>
+        <SkeletonBox width="100%" height={8} borderRadius={radius.pill} />
+        <SkeletonBox width="72%" height={10} borderRadius={radius.sm} />
+        <View style={styles.targetSimulationBox}>
+          <View style={styles.targetSimulationHeader}>
+            <View style={styles.targetSimulationCopy}>
+              <SkeletonBox width="70%" height={12} borderRadius={radius.sm} />
+              <SkeletonBox width="86%" height={10} borderRadius={radius.sm} />
+            </View>
+            <SkeletonBox width={76} height={28} borderRadius={radius.pill} />
+          </View>
+          <SkeletonBox width="100%" height={8} borderRadius={radius.pill} />
+        </View>
+        <View style={styles.metricCardsRow}>
+          <SkeletonBox width="31%" height={54} borderRadius={radius.md} />
+          <SkeletonBox width="31%" height={54} borderRadius={radius.md} />
+          <SkeletonBox width="31%" height={54} borderRadius={radius.md} />
+        </View>
+      </View>
+
+      <View style={styles.sectionCard}>
+        <View style={styles.sectionHeaderRow}>
+          <SkeletonBox width={30} height={30} borderRadius={radius.sm} />
+          <SkeletonBox width="62%" height={16} borderRadius={radius.sm} />
+        </View>
+        <View style={styles.performanceStatsRow}>
+          <SkeletonBox width={76} height={24} borderRadius={radius.sm} />
+          <SkeletonBox width={76} height={24} borderRadius={radius.sm} />
+        </View>
+        <View style={styles.funnelBlock}>
+          {Array.from({ length: 4 }, (_item, index) => (
+            <View key={`funnel-skeleton-${index}`} style={styles.funnelItemWrap}>
+              <View style={styles.rowBetween}>
+                <SkeletonBox width="35%" height={12} borderRadius={radius.sm} />
+                <SkeletonBox width="18%" height={12} borderRadius={radius.sm} />
+              </View>
+              <SkeletonBox width="100%" height={8} borderRadius={radius.pill} />
+            </View>
+          ))}
+        </View>
+        <View style={styles.domHeaderRow}>
+          <SkeletonBox width="58%" height={14} borderRadius={radius.sm} />
+          <SkeletonBox width={54} height={24} borderRadius={radius.pill} />
+        </View>
+        <SkeletonBox width="72%" height={12} borderRadius={radius.sm} />
+        <SkeletonBox width="48%" height={10} borderRadius={radius.sm} />
+      </View>
+    </ScrollView>
   );
 }
 
@@ -959,6 +1162,57 @@ function createStyles(colors: ThemeColors) {
       fontSize: fontSize.sm,
       color: colors.brand,
     },
+    targetSimulationBox: {
+      padding: spacing.sm,
+      borderRadius: radius.md,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      gap: spacing.xs,
+    },
+    targetSimulationHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: spacing.sm,
+    },
+    targetSimulationCopy: {
+      flex: 1,
+      gap: 2,
+    },
+    simulationStepper: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+    },
+    simulationStepButton: {
+      width: 28,
+      height: 28,
+      borderRadius: radius.pill,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.brandTertiary,
+    },
+    simulationStepValue: {
+      minWidth: 20,
+      textAlign: "center",
+      fontFamily: fonts.bold,
+      fontSize: fontSize.sm,
+      color: colors.onSurface,
+    },
+    targetSimulationMetricRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: spacing.sm,
+    },
+    targetSimulationValue: {
+      flex: 1,
+      textAlign: "right",
+      fontFamily: fonts.bold,
+      fontSize: fontSize.sm,
+      color: colors.onSurface,
+    },
     funnelBlock: {
       gap: spacing.xs,
     },
@@ -1011,6 +1265,37 @@ function createStyles(colors: ThemeColors) {
       fontSize: fontSize.xs,
       color: colors.onSurfaceTertiary,
     },
+    domHeaderRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginTop: spacing.xs,
+      gap: spacing.sm,
+    },
+    domFilterToggle: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 3,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    domFilterToggleActive: {
+      backgroundColor: colors.error,
+      borderColor: colors.error,
+    },
+    domFilterToggleText: {
+      fontFamily: fonts.semibold,
+      fontSize: 10,
+      color: colors.onSurfaceTertiary,
+    },
+    domFilterToggleTextActive: {
+      fontFamily: fonts.bold,
+      color: colors.onBrand,
+    },
     alertText: {
       color: colors.error,
     },
@@ -1048,6 +1333,39 @@ function createStyles(colors: ThemeColors) {
       fontFamily: fonts.regular,
       fontSize: 10,
       color: colors.onSurfaceTertiary,
+    },
+    agentSortBar: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginTop: spacing.xs,
+      marginBottom: spacing.xs,
+      gap: spacing.sm,
+    },
+    agentSortPills: {
+      flexDirection: "row",
+      gap: 4,
+    },
+    agentSortPill: {
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 3,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    agentSortPillActive: {
+      backgroundColor: colors.brand,
+      borderColor: colors.brand,
+    },
+    agentSortPillText: {
+      fontFamily: fonts.semibold,
+      fontSize: 10,
+      color: colors.onSurfaceTertiary,
+    },
+    agentSortPillTextActive: {
+      fontFamily: fonts.bold,
+      color: colors.onBrand,
     },
     roiPill: {
       borderRadius: radius.pill,

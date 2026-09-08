@@ -25,11 +25,14 @@ import {
   type AgencyStaffMember,
 } from "@/src/api/agencyCollaboration";
 import LeadsPoolSection from "@/src/components/LeadsPoolSection";
+import { FadeInView } from "@/src/components/ui/FadeInView";
+import { SkeletonBox } from "@/src/components/ui/SkeletonBox";
 import { useAuth } from "@/src/context/auth";
 import { useTheme } from "@/src/context/ThemeContext";
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
 
 type SubTab = "listings" | "leads";
+type LeadFilterType = "all" | "overdue" | "active";
 const INACTIVITY_WINDOW = 24 * 60 * 60 * 1000;
 const TAB_BAR_BOTTOM_SPACE = 90;
 
@@ -46,17 +49,30 @@ function timestampMillis(value: unknown): number {
   return 0;
 }
 
-function countdown(lead: AgencyLead): { label: string; isOverdue: boolean } {
+function getLeadUrgency(lead: AgencyLead): {
+  remainingMs: number;
+  progressPercent: number;
+  isOverdue: boolean;
+  formattedTime: string;
+} {
   const assignedAt = timestampMillis(lead.assignedAt);
-  if (!assignedAt) return { label: "Χωρίς ώρα ανάθεσης", isOverdue: false };
-  const remaining = Math.max(0, INACTIVITY_WINDOW - (Date.now() - assignedAt));
+  if (!assignedAt) {
+    return { remainingMs: 0, progressPercent: 100, isOverdue: false, formattedTime: "Χωρίς ώρα" };
+  }
+
+  const elapsed = Date.now() - assignedAt;
+  const remaining = Math.max(0, INACTIVITY_WINDOW - elapsed);
+  const progressPercent = Math.min(100, Math.max(0, (elapsed / INACTIVITY_WINDOW) * 100));
+  const isOverdue = remaining <= 0;
   const hours = Math.floor(remaining / (60 * 60 * 1000));
   const minutes = Math.floor((remaining % (60 * 60 * 1000)) / (60 * 1000));
 
-  if (remaining <= 0) {
-    return { label: "Έτοιμο για ανακατανομή", isOverdue: true };
-  }
-  return { label: `Αδράνεια σε ${hours}ω ${minutes}λ`, isOverdue: false };
+  return {
+    remainingMs: remaining,
+    progressPercent,
+    isOverdue,
+    formattedTime: isOverdue ? "Έληξε (>24ω)" : `${hours}ω ${minutes}λ`,
+  };
 }
 
 export default function SecretariatPoolManagementScreen() {
@@ -73,6 +89,8 @@ export default function SecretariatPoolManagementScreen() {
   const [expandedLeadId, setExpandedLeadId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [workingId, setWorkingId] = useState<string | null>(null);
+  const [leadFilter, setLeadFilter] = useState<LeadFilterType>("all");
+  const [, setClock] = useState(() => Date.now());
 
   const isExecutive =
     Boolean(auth.agencyId) &&
@@ -132,6 +150,11 @@ export default function SecretariatPoolManagementScreen() {
     };
   }, [auth.agencyId, isExecutive]);
 
+  useEffect(() => {
+    const interval = setInterval(() => setClock(Date.now()), 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   const handleResolveClaim = async (claim: AgencyClaimRecord, approved: boolean) => {
     if (!auth.userId || workingId) return;
     setWorkingId(claim.id);
@@ -169,6 +192,35 @@ export default function SecretariatPoolManagementScreen() {
     }
   };
 
+  const staffWorkloadMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    leads.forEach((lead) => {
+      if (lead.status === "assigned" && lead.assignedBrokerId) {
+        map[lead.assignedBrokerId] = (map[lead.assignedBrokerId] || 0) + 1;
+      }
+    });
+    return map;
+  }, [leads]);
+
+  const assignedLeads = useMemo(
+    () => leads.filter((lead) => lead.status === "assigned"),
+    [leads],
+  );
+  const filteredAssignedLeads = useMemo(() => {
+    if (leadFilter === "overdue") {
+      return assignedLeads.filter((lead) => getLeadUrgency(lead).isOverdue);
+    }
+    if (leadFilter === "active") {
+      return assignedLeads.filter((lead) => !getLeadUrgency(lead).isOverdue);
+    }
+    return assignedLeads;
+  }, [assignedLeads, leadFilter]);
+  const overdueLeads = useMemo(
+    () => assignedLeads.filter((lead) => getLeadUrgency(lead).isOverdue),
+    [assignedLeads],
+  );
+  const overdueCount = overdueLeads.length;
+
   if (!isExecutive) {
     return (
       <View style={styles.stateCenter}>
@@ -183,7 +235,49 @@ export default function SecretariatPoolManagementScreen() {
     );
   }
 
-  const assignedLeads = leads.filter((lead) => lead.status === "assigned");
+  const handleAutoReassignOverdue = async () => {
+    if (!auth.userId || workingId || overdueLeads.length === 0 || staff.length === 0) return;
+
+    const reviewerId = auth.userId;
+    setWorkingId("bulk-overdue");
+    try {
+      const workload: Record<string, number> = { ...staffWorkloadMap };
+      const assignments = overdueLeads.flatMap((lead) => {
+        const eligibleStaff = staff.filter((member) => member.id !== lead.assignedBrokerId);
+        const candidates = eligibleStaff.length > 0 ? eligibleStaff : staff;
+        const target = [...candidates].sort(
+          (left, right) => (workload[left.id] || 0) - (workload[right.id] || 0),
+        )[0];
+        if (!target) return [];
+        workload[target.id] = (workload[target.id] || 0) + 1;
+        return [{ lead, target }];
+      });
+
+      const results = await Promise.allSettled(
+        assignments.map(({ lead, target }) => reassignAgencyLead({
+          leadId: lead.id,
+          reviewerId,
+          targetBrokerId: target.id,
+        })),
+      );
+      const successfulCount = results.filter((result) => result.status === "fulfilled").length;
+      const failedCount = results.length - successfulCount;
+
+      setExpandedLeadId(null);
+      await loadData();
+      if (successfulCount === 0 && failedCount > 0) {
+        Alert.alert("Η ανακατανομή απέτυχε", "Δεν ολοκληρώθηκε καμία ανάθεση. Δοκιμάστε ξανά.");
+      } else if (failedCount > 0) {
+        Alert.alert("Η ανακατανομή ολοκληρώθηκε", `Ολοκληρώθηκε η ανακατανομή ${successfulCount} leads. ${failedCount} απέτυχαν.`);
+      } else {
+        Alert.alert("Η ανακατανομή ολοκληρώθηκε", `Ολοκληρώθηκε η ανακατανομή ${successfulCount} leads.`);
+      }
+    } catch (error) {
+      Alert.alert("Η ανακατανομή απέτυχε", error instanceof Error ? error.message : "Δοκιμάστε ξανά.");
+    } finally {
+      setWorkingId(null);
+    }
+  };
 
   return (
     <View style={styles.container} testID="secretariat-pool-management-screen">
@@ -202,48 +296,55 @@ export default function SecretariatPoolManagementScreen() {
 
         {/* Thick Segmented Pill Tabs */}
         <View style={styles.tabsContainer}>
-          <Pressable
-            style={[styles.tabButton, tab === "listings" && styles.tabButtonActive]}
-            onPress={() => setTab("listings")}
-            testID="secretariat-pool-listings-tab"
-          >
-            <Ionicons
-              name={tab === "listings" ? "home" : "home-outline"}
-              size={15}
-              color={tab === "listings" ? colors.onBrand : colors.onSurfaceTertiary}
-            />
-            <Text style={[styles.tabButtonText, tab === "listings" && styles.tabButtonTextActive]}>
-              Ακίνητα ({claims.length})
-            </Text>
-          </Pressable>
+          {loading ? (
+            <>
+              <SkeletonBox width="48%" height={36} borderRadius={radius.pill} />
+              <SkeletonBox width="48%" height={36} borderRadius={radius.pill} />
+            </>
+          ) : (
+            <>
+              <Pressable
+                style={[styles.tabButton, tab === "listings" && styles.tabButtonActive]}
+                onPress={() => setTab("listings")}
+                testID="secretariat-pool-listings-tab"
+              >
+                <Ionicons
+                  name={tab === "listings" ? "home" : "home-outline"}
+                  size={15}
+                  color={tab === "listings" ? colors.onBrand : colors.onSurfaceTertiary}
+                />
+                <Text style={[styles.tabButtonText, tab === "listings" && styles.tabButtonTextActive]}>
+                  Ακίνητα ({claims.length})
+                </Text>
+              </Pressable>
 
-          <Pressable
-            style={[styles.tabButton, tab === "leads" && styles.tabButtonActive]}
-            onPress={() => setTab("leads")}
-            testID="secretariat-pool-leads-tab"
-          >
-            <Ionicons
-              name={tab === "leads" ? "people" : "people-outline"}
-              size={15}
-              color={tab === "leads" ? colors.onBrand : colors.onSurfaceTertiary}
-            />
-            <Text style={[styles.tabButtonText, tab === "leads" && styles.tabButtonTextActive]}>
-              Leads ({assignedLeads.length})
-            </Text>
-          </Pressable>
+              <Pressable
+                style={[styles.tabButton, tab === "leads" && styles.tabButtonActive]}
+                onPress={() => setTab("leads")}
+                testID="secretariat-pool-leads-tab"
+              >
+                <Ionicons
+                  name={tab === "leads" ? "people" : "people-outline"}
+                  size={15}
+                  color={tab === "leads" ? colors.onBrand : colors.onSurfaceTertiary}
+                />
+                <Text style={[styles.tabButtonText, tab === "leads" && styles.tabButtonTextActive]}>
+                  Leads ({assignedLeads.length})
+                </Text>
+              </Pressable>
+            </>
+          )}
         </View>
       </View>
 
       {loading ? (
-        <View style={styles.stateCenter}>
-          <ActivityIndicator size="large" color={colors.brand} />
-          <Text style={styles.loadingText}>Φόρτωση δεδομένων γραμματείας...</Text>
-        </View>
+        <SecretariatPoolSkeleton tab={tab} styles={styles} insetsBottom={insets.bottom} />
       ) : tab === "listings" ? (
-        <ScrollView
-          contentContainerStyle={[styles.scrollContent, { paddingBottom: TAB_BAR_BOTTOM_SPACE + insets.bottom }]}
-          showsVerticalScrollIndicator={false}
-        >
+        <FadeInView style={{ flex: 1 }}>
+          <ScrollView
+            contentContainerStyle={[styles.scrollContent, { paddingBottom: TAB_BAR_BOTTOM_SPACE + insets.bottom }]}
+            showsVerticalScrollIndicator={false}
+          >
           {/* Section: Pending Claim Requests */}
           <View style={styles.sectionHeaderRow}>
             <Text style={styles.sectionTitle}>
@@ -374,27 +475,84 @@ export default function SecretariatPoolManagementScreen() {
               />
             ) : null}
           </View>
-        </ScrollView>
+          </ScrollView>
+        </FadeInView>
       ) : (
         /* Leads SubTab */
-        <ScrollView
-          contentContainerStyle={[styles.scrollContent, { paddingBottom: TAB_BAR_BOTTOM_SPACE + insets.bottom }]}
-          showsVerticalScrollIndicator={false}
-        >
+        <FadeInView style={{ flex: 1 }}>
+          <ScrollView
+            contentContainerStyle={[styles.scrollContent, { paddingBottom: TAB_BAR_BOTTOM_SPACE + insets.bottom }]}
+            showsVerticalScrollIndicator={false}
+          >
+          {overdueCount > 0 ? (
+            <View style={styles.overdueActionBanner}>
+              <View style={styles.overdueBannerIcon}>
+                <Ionicons name="alert-circle" size={18} color={colors.error} />
+              </View>
+              <View style={styles.overdueBannerTextWrap}>
+                <Text style={styles.overdueBannerTitle}>Υπάρχουν {overdueCount} leads σε αδράνεια</Text>
+                <Text style={styles.overdueBannerSubtitle}>Αναθέστε τα αυτόματα στους λιγότερο φορτωμένους μεσίτες.</Text>
+              </View>
+              <Pressable
+                style={styles.overdueActionButton}
+                disabled={workingId !== null || staff.length === 0}
+                onPress={() => void handleAutoReassignOverdue()}
+                accessibilityLabel="Αυτόματη ανακατανομή ανενεργών leads"
+              >
+                {workingId === "bulk-overdue" ? (
+                  <ActivityIndicator size="small" color={colors.onBrand} />
+                ) : (
+                  <Ionicons name="shuffle-outline" size={16} color={colors.onBrand} />
+                )}
+                <Text style={styles.overdueActionButtonText}>Αυτόματη ανάθεση</Text>
+              </Pressable>
+            </View>
+          ) : null}
+
           <View style={styles.sectionHeaderRow}>
             <Text style={styles.sectionTitle}>
               Ενεργές Αναθέσεις Leads ({assignedLeads.length})
             </Text>
           </View>
 
-          {assignedLeads.length === 0 ? (
+          <View style={styles.leadFilterRow}>
+            <Pressable
+              style={[styles.leadFilterChip, leadFilter === "all" && styles.leadFilterChipActive]}
+              onPress={() => setLeadFilter("all")}
+            >
+              <Text style={[styles.leadFilterText, leadFilter === "all" && styles.leadFilterTextActive]}>
+                Όλα ({assignedLeads.length})
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[styles.leadFilterChip, leadFilter === "overdue" && styles.leadFilterChipActiveOverdue]}
+              onPress={() => setLeadFilter("overdue")}
+            >
+              <Ionicons name="alert-circle" size={13} color={leadFilter === "overdue" ? colors.onBrand : colors.error} />
+              <Text style={[styles.leadFilterText, leadFilter === "overdue" && styles.leadFilterTextActiveOverdue]}>
+                Σε αδράνεια ({overdueCount})
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[styles.leadFilterChip, leadFilter === "active" && styles.leadFilterChipActive]}
+              onPress={() => setLeadFilter("active")}
+            >
+              <Text style={[styles.leadFilterText, leadFilter === "active" && styles.leadFilterTextActive]}>
+                Ενεργά ({assignedLeads.length - overdueCount})
+              </Text>
+            </Pressable>
+          </View>
+
+          {filteredAssignedLeads.length === 0 ? (
             <View style={styles.emptyCard}>
               <Ionicons name="people-outline" size={32} color={colors.onSurfaceTertiary} />
-              <Text style={styles.emptyCardText}>Δεν υπάρχουν εκχωρημένα leads αυτή τη στιγμή.</Text>
+              <Text style={styles.emptyCardText}>
+                {assignedLeads.length === 0 ? "Δεν υπάρχουν εκχωρημένα leads αυτή τη στιγμή." : "Δεν υπάρχουν leads σε αυτό το φίλτρο."}
+              </Text>
             </View>
           ) : (
-            assignedLeads.map((lead) => {
-              const timer = countdown(lead);
+            filteredAssignedLeads.map((lead) => {
+              const urgency = getLeadUrgency(lead);
               const isExpanded = expandedLeadId === lead.id;
 
               return (
@@ -434,28 +592,44 @@ export default function SecretariatPoolManagementScreen() {
                     </Pressable>
                   </View>
 
-                  <View style={styles.leadStatusBadges}>
+                  <View style={styles.urgencyContainer}>
+                    <View style={styles.urgencyLabelRow}>
                     <View
                       style={[
                         styles.timerBadge,
-                        timer.isOverdue ? styles.timerBadgeOverdue : styles.timerBadgeActive,
+                        urgency.isOverdue ? styles.timerBadgeOverdue : styles.timerBadgeActive,
                       ]}
                     >
                       <Ionicons
-                        name={timer.isOverdue ? "alert-circle-outline" : "timer-outline"}
+                        name={urgency.isOverdue ? "alert-circle-outline" : "timer-outline"}
                         size={12}
-                        color={timer.isOverdue ? colors.error : colors.warning}
+                        color={urgency.isOverdue ? colors.error : colors.warning}
                       />
                       <Text
                         style={[
                           styles.timerBadgeText,
-                          { color: timer.isOverdue ? colors.error : colors.warning },
+                          { color: urgency.isOverdue ? colors.error : colors.warning },
                         ]}
                       >
-                        {timer.label}
+                        {urgency.formattedTime}
                       </Text>
                     </View>
+                      <Text style={styles.urgencyMetaText}>Περιθώριο 24 ωρών</Text>
+                    </View>
+                    <View style={styles.progressBarTrack}>
+                      <View
+                        style={[
+                          styles.progressBarFill,
+                          {
+                            width: `${urgency.progressPercent}%`,
+                            backgroundColor: urgency.isOverdue ? colors.error : colors.warning,
+                          },
+                        ]}
+                      />
+                    </View>
+                  </View>
 
+                  <View style={styles.leadStatusBadges}>
                     <View style={styles.contactStatusBadge}>
                       <Ionicons
                         name={lead.lastContactTimestamp ? "chatbubble-ellipses-outline" : "close-circle-outline"}
@@ -476,28 +650,38 @@ export default function SecretariatPoolManagementScreen() {
                   {/* Reassignment Dropdown Drawer */}
                   {isExpanded && (
                     <View style={styles.staffDropdownContainer}>
-                      <Text style={styles.staffDropdownTitle}>Επιλέξτε Μεσίτη για Ανακατανομή:</Text>
+                      <Text style={styles.staffDropdownTitle}>Επιλέξτε μεσίτη για ανάθεση (ταξινόμηση κατά φόρτο):</Text>
                       {staff.length === 0 ? (
                         <Text style={styles.emptyInlineMuted}>
                           Δεν υπάρχουν διαθέσιμοι μεσίτες στο γραφείο.
                         </Text>
                       ) : (
-                        staff.map((member) => (
-                          <Pressable
-                            key={member.id}
-                            style={styles.staffOptionRow}
-                            disabled={workingId === lead.id}
-                            onPress={() => void handleReassign(lead, member)}
-                          >
-                            <View style={styles.staffAvatarPlaceholder}>
-                              <Ionicons name="person" size={13} color={colors.brand} />
-                            </View>
-                            <Text style={styles.staffOptionName} numberOfLines={1}>
-                              {member.name}
-                            </Text>
-                            <Ionicons name="chevron-forward" size={15} color={colors.onSurfaceTertiary} />
-                          </Pressable>
-                        ))
+                        [...staff]
+                          .sort((left, right) => (staffWorkloadMap[left.id] || 0) - (staffWorkloadMap[right.id] || 0))
+                          .map((member) => {
+                            const activeLeads = staffWorkloadMap[member.id] || 0;
+                            return (
+                              <Pressable
+                                key={member.id}
+                                style={styles.staffOptionRow}
+                                disabled={workingId !== null}
+                                onPress={() => void handleReassign(lead, member)}
+                              >
+                                <View style={styles.staffAvatarPlaceholder}>
+                                  <Ionicons name="person" size={13} color={colors.brand} />
+                                </View>
+                                <View style={styles.staffNameWrap}>
+                                  <Text style={styles.staffOptionName} numberOfLines={1}>
+                                    {member.name}
+                                  </Text>
+                                  <Text style={styles.staffWorkloadText}>
+                                    {activeLeads === 0 ? "Διαθέσιμος (0 leads)" : `${activeLeads} ενεργά leads`}
+                                  </Text>
+                                </View>
+                                <Ionicons name="chevron-forward" size={15} color={colors.onSurfaceTertiary} />
+                              </Pressable>
+                            );
+                          })
                       )}
                     </View>
                   )}
@@ -505,9 +689,93 @@ export default function SecretariatPoolManagementScreen() {
               );
             })
           )}
-        </ScrollView>
+          </ScrollView>
+        </FadeInView>
       )}
     </View>
+  );
+}
+
+function SecretariatPoolSkeleton({
+  tab,
+  styles,
+  insetsBottom,
+}: {
+  tab: SubTab;
+  styles: ReturnType<typeof createStyles>;
+  insetsBottom: number;
+}) {
+  return (
+    <ScrollView
+      contentContainerStyle={[styles.scrollContent, { paddingBottom: TAB_BAR_BOTTOM_SPACE + insetsBottom }]}
+      showsVerticalScrollIndicator={false}
+    >
+      {tab === "listings" ? (
+        <>
+          <View style={styles.sectionHeaderRow}>
+            <SkeletonBox width="58%" height={14} borderRadius={radius.sm} />
+          </View>
+          {Array.from({ length: 3 }, (_item, index) => (
+            <View key={`claim-skeleton-${index}`} style={styles.claimCard}>
+              <View style={styles.claimInfoColumn}>
+                <SkeletonBox width="72%" height={16} borderRadius={radius.sm} />
+                <SkeletonBox width="54%" height={12} borderRadius={radius.sm} />
+              </View>
+              <View style={styles.actionButtonCluster}>
+                <SkeletonBox width={36} height={36} borderRadius={radius.pill} />
+                <SkeletonBox width={36} height={36} borderRadius={radius.pill} />
+              </View>
+            </View>
+          ))}
+
+          <View style={[styles.sectionHeaderRow, { marginTop: spacing.md }]}>
+            <SkeletonBox width="52%" height={14} borderRadius={radius.sm} />
+          </View>
+          {Array.from({ length: 2 }, (_item, index) => (
+            <View key={`inventory-skeleton-${index}`} style={styles.poolInventoryRow}>
+              <SkeletonBox width={36} height={36} borderRadius={radius.md} />
+              <View style={styles.inventoryTextWrap}>
+                <SkeletonBox width="76%" height={14} borderRadius={radius.sm} />
+                <SkeletonBox width="52%" height={10} borderRadius={radius.sm} />
+              </View>
+              <SkeletonBox width={50} height={20} borderRadius={radius.pill} />
+            </View>
+          ))}
+        </>
+      ) : (
+        <>
+          <View style={styles.sectionHeaderRow}>
+            <SkeletonBox width="64%" height={14} borderRadius={radius.sm} />
+          </View>
+          <View style={styles.leadFilterRow}>
+            <SkeletonBox width={62} height={32} borderRadius={radius.pill} />
+            <SkeletonBox width={86} height={32} borderRadius={radius.pill} />
+            <SkeletonBox width={72} height={32} borderRadius={radius.pill} />
+          </View>
+          {Array.from({ length: 3 }, (_item, index) => (
+            <View key={`lead-skeleton-${index}`} style={styles.leadCard}>
+              <View style={styles.leadHeaderRow}>
+                <View style={styles.leadMainDetails}>
+                  <SkeletonBox width="68%" height={16} borderRadius={radius.sm} />
+                  <SkeletonBox width="48%" height={12} borderRadius={radius.sm} />
+                </View>
+                <SkeletonBox width={76} height={28} borderRadius={radius.pill} />
+              </View>
+              <View style={styles.urgencyContainer}>
+                <View style={styles.urgencyLabelRow}>
+                  <SkeletonBox width={82} height={20} borderRadius={radius.pill} />
+                  <SkeletonBox width={88} height={10} borderRadius={radius.sm} />
+                </View>
+                <SkeletonBox width="100%" height={4} borderRadius={radius.pill} />
+              </View>
+              <View style={styles.leadStatusBadges}>
+                <SkeletonBox width={92} height={22} borderRadius={radius.pill} />
+              </View>
+            </View>
+          ))}
+        </>
+      )}
+    </ScrollView>
   );
 }
 
@@ -586,6 +854,54 @@ function createStyles(colors: ThemeColors) {
       paddingHorizontal: spacing.lg,
       paddingTop: spacing.md,
       gap: spacing.sm,
+    },
+    overdueActionBanner: {
+      flexDirection: "row",
+      alignItems: "center",
+      padding: spacing.sm,
+      backgroundColor: "rgba(239, 68, 68, 0.08)",
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: "rgba(239, 68, 68, 0.24)",
+      gap: spacing.sm,
+    },
+    overdueBannerIcon: {
+      width: 32,
+      height: 32,
+      borderRadius: radius.pill,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "rgba(239, 68, 68, 0.12)",
+    },
+    overdueBannerTextWrap: {
+      flex: 1,
+      minWidth: 0,
+      gap: 2,
+    },
+    overdueBannerTitle: {
+      fontFamily: fonts.bold,
+      fontSize: fontSize.xs,
+      color: colors.onSurface,
+    },
+    overdueBannerSubtitle: {
+      fontFamily: fonts.regular,
+      fontSize: 10,
+      color: colors.onSurfaceTertiary,
+    },
+    overdueActionButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 7,
+      borderRadius: radius.pill,
+      backgroundColor: colors.error,
+      gap: 4,
+    },
+    overdueActionButtonText: {
+      fontFamily: fonts.bold,
+      fontSize: 10,
+      color: colors.onBrand,
     },
     sectionHeaderRow: {
       paddingVertical: spacing.xs,
@@ -784,6 +1100,68 @@ function createStyles(colors: ThemeColors) {
       gap: spacing.xs,
       flexWrap: "wrap",
     },
+    leadFilterRow: {
+      flexDirection: "row",
+      gap: spacing.xs,
+      paddingHorizontal: 2,
+      marginBottom: spacing.xs,
+    },
+    leadFilterChip: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 5,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surfaceSecondary,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    leadFilterChipActive: {
+      backgroundColor: colors.brand,
+      borderColor: colors.brand,
+    },
+    leadFilterChipActiveOverdue: {
+      backgroundColor: colors.error,
+      borderColor: colors.error,
+    },
+    leadFilterText: {
+      fontFamily: fonts.semibold,
+      fontSize: 11,
+      color: colors.onSurfaceTertiary,
+    },
+    leadFilterTextActive: {
+      color: colors.onBrand,
+      fontFamily: fonts.bold,
+    },
+    leadFilterTextActiveOverdue: {
+      color: colors.onBrand,
+      fontFamily: fonts.bold,
+    },
+    urgencyContainer: {
+      marginTop: 4,
+      gap: 3,
+    },
+    urgencyLabelRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    urgencyMetaText: {
+      fontFamily: fonts.regular,
+      fontSize: 10,
+      color: colors.onSurfaceTertiary,
+    },
+    progressBarTrack: {
+      height: 4,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surfaceTertiary,
+      overflow: "hidden",
+    },
+    progressBarFill: {
+      height: "100%",
+      borderRadius: radius.pill,
+    },
     timerBadge: {
       flexDirection: "row",
       alignItems: "center",
@@ -850,10 +1228,19 @@ function createStyles(colors: ThemeColors) {
       justifyContent: "center",
     },
     staffOptionName: {
-      flex: 1,
       fontFamily: fonts.regular,
       fontSize: fontSize.xs,
       color: colors.onSurface,
+    },
+    staffNameWrap: {
+      flex: 1,
+      minWidth: 0,
+      gap: 1,
+    },
+    staffWorkloadText: {
+      fontFamily: fonts.regular,
+      fontSize: 10,
+      color: colors.onSurfaceTertiary,
     },
     emptyInlineMuted: {
       fontFamily: fonts.regular,

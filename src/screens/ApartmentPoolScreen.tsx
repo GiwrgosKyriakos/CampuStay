@@ -16,6 +16,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { doc, getDoc } from "firebase/firestore";
 
 import { claimApartmentFromPool, subscribeAgencyPoolApartments } from "@/src/api/agencyCollaboration";
+import { FadeInView } from "@/src/components/ui/FadeInView";
+import { SkeletonBox } from "@/src/components/ui/SkeletonBox";
 import { getUserProfile } from "@/src/api/userProfile";
 import { useAuth } from "@/src/context/auth";
 import { useTheme } from "@/src/context/ThemeContext";
@@ -230,33 +232,33 @@ export default function ApartmentPoolScreen() {
       ) : null}
 
       {loading ? (
-        <View style={styles.stateCenter}>
-          <ActivityIndicator size="large" color={colors.brand} />
-          <Text style={styles.loadingText}>Φόρτωση ακινήτων pool...</Text>
-        </View>
+        <ApartmentPoolSkeleton styles={styles} insetsBottom={insets.bottom} />
       ) : apartments.length === 0 ? (
-        <View style={styles.stateCenter}>
-          <View style={styles.iconCircleMuted}>
-            <Ionicons name="business-outline" size={34} color={colors.brand} />
+        <FadeInView style={{ flex: 1 }}>
+          <View style={styles.stateCenter}>
+            <View style={styles.iconCircleMuted}>
+              <Ionicons name="business-outline" size={34} color={colors.brand} />
+            </View>
+            <Text style={styles.emptyTitle}>Όλα τα ακίνητα έχουν ανατεθεί</Text>
+            <Text style={styles.emptySubtitle}>
+              Δεν υπάρχουν διαθέσιμα ακίνητα στο pool αυτή τη στιγμή. Μόλις αναρτηθεί νέα αγγελία χωρίς αποκλειστικότητα, θα εμφανιστεί εδώ.
+            </Text>
           </View>
-          <Text style={styles.emptyTitle}>Όλα τα ακίνητα έχουν ανατεθεί</Text>
-          <Text style={styles.emptySubtitle}>
-            Δεν υπάρχουν διαθέσιμα ακίνητα στο pool αυτή τη στιγμή. Μόλις αναρτηθεί νέα αγγελία χωρίς αποκλειστικότητα, θα εμφανιστεί εδώ.
-          </Text>
-        </View>
+        </FadeInView>
       ) : (
-        <ScrollView
-          contentContainerStyle={[styles.scrollContent, { paddingBottom: TAB_BAR_BOTTOM_SPACE + insets.bottom }]}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={colors.brand}
-              colors={[colors.brand]}
-            />
-          }
-        >
+        <FadeInView style={{ flex: 1 }}>
+          <ScrollView
+            contentContainerStyle={[styles.scrollContent, { paddingBottom: TAB_BAR_BOTTOM_SPACE + insets.bottom }]}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                tintColor={colors.brand}
+                colors={[colors.brand]}
+              />
+            }
+          >
           <View style={styles.counterRow}>
             <Text style={styles.counterText}>
               ΔΙΑΘΕΣΙΜΑ ΠΡΟΣ ΑΝΑΛΗΨΗ ({apartments.length})
@@ -374,9 +376,43 @@ export default function ApartmentPoolScreen() {
               </View>
             );
           })}
-        </ScrollView>
+          </ScrollView>
+        </FadeInView>
       )}
     </View>
+  );
+}
+
+function ApartmentPoolSkeleton({
+  styles,
+  insetsBottom,
+}: {
+  styles: ReturnType<typeof createStyles>;
+  insetsBottom: number;
+}) {
+  return (
+    <ScrollView
+      contentContainerStyle={[styles.scrollContent, { paddingBottom: TAB_BAR_BOTTOM_SPACE + insetsBottom }]}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={styles.counterRow}>
+        <SkeletonBox width="60%" height={12} borderRadius={radius.sm} />
+      </View>
+      {Array.from({ length: 4 }, (_item, index) => (
+        <View key={`apartment-skeleton-${index}`} style={styles.poolCard}>
+          <SkeletonBox width={82} height={82} borderRadius={radius.md} />
+          <View style={[styles.cardDetailsColumn, styles.skeletonCardDetailsColumn]}>
+            <SkeletonBox width="75%" height={16} borderRadius={radius.sm} />
+            <SkeletonBox width="50%" height={12} borderRadius={radius.sm} style={{ marginTop: 6 }} />
+            <View style={styles.metaBadgeRow}>
+              <SkeletonBox width={65} height={20} borderRadius={radius.pill} />
+              <SkeletonBox width={65} height={20} borderRadius={radius.pill} />
+            </View>
+          </View>
+          <SkeletonBox width={40} height={40} borderRadius={radius.pill} />
+        </View>
+      ))}
+    </ScrollView>
   );
 }
 
@@ -506,6 +542,9 @@ function createStyles(colors: ThemeColors) {
       flex: 1,
       minWidth: 0,
       gap: 3,
+    },
+    skeletonCardDetailsColumn: {
+      gap: 6,
     },
     cardTitle: {
       fontFamily: fonts.bold,

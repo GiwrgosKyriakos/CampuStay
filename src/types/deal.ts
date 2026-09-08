@@ -22,6 +22,22 @@ export interface BrokerCommissionSplit {
   amount: number;
 }
 
+export interface FiscalInvoiceMetadata {
+  invoiceNumber: string;
+  series?: string;
+  mark?: string;
+  uid?: string;
+  invoicePdfUrl?: string;
+  issuedAt: number;
+  vatRate: number;
+  netAmount: number;
+  vatAmount: number;
+  grossAmount: number;
+  issuerTaxId: string;
+}
+
+export type SettlementStatus = "pending_review" | "approved" | "issued" | "settled";
+
 export interface Deal {
   id: string;
   apartmentId: string;
@@ -38,7 +54,9 @@ export interface Deal {
   agencyCutPercentage: number;
   agencyCutAmount: number;
   brokerSplits: BrokerCommissionSplit[];
-  settlementStatus?: "pending_review" | "approved" | "issued" | "settled";
+  settlementStatus?: SettlementStatus;
+  fiscalInvoice?: FiscalInvoiceMetadata;
+  agencyShare?: number;
   status: "active" | "under_negotiation" | "closed" | "cancelled";
   checklist?: DealChecklistItem[];
   createdAt: number;

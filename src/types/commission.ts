@@ -1,4 +1,4 @@
-import type { BrokerCommissionSplit } from "@/src/types/deal";
+import type { BrokerCommissionSplit, FiscalInvoiceMetadata } from "@/src/types/deal";
 
 export interface CommissionSettlementInvoice {
   id: string;
@@ -11,6 +11,7 @@ export interface CommissionSettlementInvoice {
   brokerSplits: BrokerCommissionSplit[];
   invoiceNumber: string;
   invoiceStatus: "pending_review" | "approved" | "issued" | "settled";
+  fiscalInvoice?: FiscalInvoiceMetadata;
   issuedAt?: number;
   settledAt?: number;
   createdAt: number;

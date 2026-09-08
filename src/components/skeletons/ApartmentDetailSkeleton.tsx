@@ -1,97 +1,153 @@
-import React, { useEffect, useMemo, useRef } from "react";
-import { Animated, ScrollView, StyleSheet, View } from "react-native";
+import React from "react";
+import { StyleSheet, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { SkeletonBox } from "@/src/components/ui/SkeletonBox";
 import { useTheme } from "@/src/context/ThemeContext";
-import { radius, spacing, type ThemeColors } from "@/src/theme";
+import { radius, spacing } from "@/src/theme";
 
 export default function ApartmentDetailSkeleton() {
   const { colors } = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
-  const pulse = useRef(new Animated.Value(0.45)).current;
-
-  useEffect(() => {
-    const animation = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, { toValue: 1, duration: 750, useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 0.45, duration: 750, useNativeDriver: true }),
-      ]),
-    );
-    animation.start();
-    return () => animation.stop();
-  }, [pulse]);
+  const insets = useSafeAreaInsets();
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} testID="apartment-detail-skeleton">
-      <Animated.View style={[styles.hero, { opacity: pulse }]}>
-        <Animated.View style={[styles.heroBadge, { opacity: pulse }]} />
-      </Animated.View>
-
-      <View style={styles.infoBlock}>
-        <Animated.View style={[styles.titleLine, { opacity: pulse }]} />
-        <Animated.View style={[styles.locationLine, { opacity: pulse }]} />
-        <View style={styles.specsRow}>
-          <Animated.View style={[styles.specPill, { opacity: pulse }]} />
-          <Animated.View style={[styles.specPill, { opacity: pulse }]} />
-          <Animated.View style={[styles.specPill, { opacity: pulse }]} />
+    <View style={[styles.container, { backgroundColor: colors.surface }]} testID="apartment-detail-skeleton">
+      <View style={[styles.heroWrap, { backgroundColor: colors.surfaceSecondary }]}>
+        <SkeletonBox width="100%" height={280} borderRadius={0} />
+        <View style={styles.heroRentBadge}>
+          <SkeletonBox width={110} height={42} borderRadius={radius.pill} />
         </View>
       </View>
 
-      <View style={styles.section}>
-        <Animated.View style={[styles.sectionTitle, { opacity: pulse }]} />
-        <View style={styles.amenitiesGrid}>
-          {Array.from({ length: 8 }).map((_, index) => (
-            <Animated.View key={index} style={[styles.amenityCell, { opacity: pulse }]} />
-          ))}
+      <View style={styles.bodyContent}>
+        <View style={styles.titleRow}>
+          <SkeletonBox width="65%" height={26} borderRadius={radius.sm} />
+          <SkeletonBox width={42} height={42} borderRadius={radius.pill} />
+        </View>
+        <SkeletonBox width="45%" height={16} borderRadius={radius.sm} />
+
+        <View style={styles.statsRow}>
+          <SkeletonBox width={88} height={28} borderRadius={radius.pill} />
+          <SkeletonBox width={88} height={28} borderRadius={radius.pill} />
+          <SkeletonBox width={72} height={28} borderRadius={radius.pill} />
+        </View>
+
+        <View style={styles.sectionBlock}>
+          <SkeletonBox width="35%" height={20} borderRadius={radius.sm} />
+          <View style={styles.amenitiesGrid}>
+            {Array.from({ length: 6 }, (_item, index) => (
+              <View
+                key={`amenity-skeleton-${index}`}
+                style={[styles.amenityCell, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+              >
+                <SkeletonBox width={24} height={24} borderRadius={radius.sm} />
+                <SkeletonBox width="70%" height={12} borderRadius={radius.sm} />
+              </View>
+            ))}
+          </View>
+        </View>
+
+        <View style={[styles.descBox, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+          <SkeletonBox width="100%" height={14} borderRadius={radius.sm} />
+          <SkeletonBox width="92%" height={14} borderRadius={radius.sm} />
+          <SkeletonBox width="60%" height={14} borderRadius={radius.sm} />
         </View>
       </View>
 
-      <View style={styles.section}>
-        <Animated.View style={[styles.sectionTitle, styles.descriptionTitle, { opacity: pulse }]} />
-        <Animated.View style={[styles.descriptionLine, { opacity: pulse }]} />
-        <Animated.View style={[styles.descriptionLine, styles.descriptionLineMedium, { opacity: pulse }]} />
-        <Animated.View style={[styles.descriptionLine, { opacity: pulse }]} />
-        <Animated.View style={[styles.descriptionLine, styles.descriptionLineShort, { opacity: pulse }]} />
+      <View
+        style={[
+          styles.footer,
+          {
+            backgroundColor: colors.surface,
+            borderColor: colors.border,
+            paddingBottom: spacing.lg + insets.bottom,
+          },
+        ]}
+      >
+        <SkeletonBox width="100%" height={56} borderRadius={radius.pill} />
       </View>
-
-      <View style={styles.section}>
-        <Animated.View style={[styles.sectionTitle, { opacity: pulse }]} />
-        <Animated.View style={[styles.map, { opacity: pulse }]} />
-      </View>
-    </ScrollView>
+    </View>
   );
 }
 
-function createStyles(colors: ThemeColors) {
-  return StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.surface },
-    content: { paddingBottom: spacing.xl, gap: spacing.lg },
-    hero: {
-      height: 280,
-      position: "relative",
-      backgroundColor: colors.surfaceTertiary,
-    },
-    heroBadge: {
-      position: "absolute",
-      right: spacing.lg,
-      bottom: spacing.lg,
-      width: 100,
-      height: 42,
-      borderRadius: radius.pill,
-      backgroundColor: colors.surfaceSecondary,
-    },
-    infoBlock: { paddingHorizontal: spacing.lg, paddingTop: spacing.lg, gap: spacing.md },
-    titleLine: { width: "72%", height: 28, borderRadius: radius.sm, backgroundColor: colors.surfaceTertiary },
-    locationLine: { width: "44%", height: 16, borderRadius: radius.sm, backgroundColor: colors.surfaceTertiary },
-    specsRow: { flexDirection: "row", gap: spacing.sm },
-    specPill: { width: 86, height: 30, borderRadius: radius.pill, backgroundColor: colors.surfaceTertiary },
-    section: { paddingHorizontal: spacing.lg, gap: spacing.sm },
-    sectionTitle: { width: "38%", height: 20, borderRadius: radius.sm, backgroundColor: colors.surfaceTertiary },
-    descriptionTitle: { width: "32%" },
-    amenitiesGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
-    amenityCell: { width: "22%", height: 56, borderRadius: radius.md, backgroundColor: colors.surfaceTertiary },
-    descriptionLine: { width: "100%", height: 13, borderRadius: radius.sm, backgroundColor: colors.surfaceTertiary },
-    descriptionLineMedium: { width: "88%" },
-    descriptionLineShort: { width: "64%" },
-    map: { height: 220, borderRadius: radius.md, backgroundColor: colors.surfaceTertiary },
-  });
-}
+const styles = StyleSheet.create({
+  container: { flex: 1 },
+  heroWrap: {
+    position: "relative",
+    height: 280,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    overflow: "hidden",
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 4,
+    zIndex: 2,
+  },
+  heroRentBadge: {
+    position: "absolute",
+    bottom: spacing.md + 4,
+    right: spacing.md + 4,
+  },
+  bodyContent: {
+    flex: 1,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    gap: spacing.md,
+  },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  statsRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  sectionBlock: {
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  amenitiesGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+  },
+  amenityCell: {
+    width: "30%",
+    flexGrow: 1,
+    height: 64,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.xs,
+    padding: spacing.xs,
+  },
+  descBox: {
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
+  footer: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 6,
+    zIndex: 10,
+  },
+});

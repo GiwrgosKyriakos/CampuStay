@@ -9,8 +9,9 @@ import { aggregateAnalytics } from "./cron/aggregateAnalytics";
 import { sendPushToUser } from "./lib/push";
 import { onNewChatMessage } from "./triggers/onNewChatMessage";
 import { onListingWithdrawal, onListingWithdrawalEventCreated } from "./triggers/onListingWithdrawal";
-import { processLeadInactivityDispatch } from "./cron/leadInactivityDispatch";
+import { reassignExpiredLeadsCron } from "./scheduled/reassignExpiredLeads";
 import { processMailOutbox } from "./cron/mailOutbox";
+import { issueFiscalInvoice } from "./invoicing/issueFiscalInvoice";
 import { onContractCompleted } from "./triggers/onContractCompleted";
 import { getContractDownloadUrl, recordSigningEvidence, sendSigningOtp, updateContractPayload, verifySigningOtp } from "./callables/signingOtp";
 import { verifyContractSignatureAuditTrailCallable } from "./callables/contractAudit";
@@ -107,7 +108,7 @@ export const scheduledVisitReminders = processScheduledVisitReminders;
 export const scheduledDealStagnation = processDealStagnation;
 export const scheduledAnalyticsAggregation = aggregateAnalytics;
 export const scheduledMailOutbox = processMailOutbox;
-export { processLeadInactivityDispatch };
+export { reassignExpiredLeadsCron };
 export { onNewChatMessage, onListingWithdrawal, onListingWithdrawalEventCreated };
 export {
   onAppointmentCreated,
@@ -124,6 +125,7 @@ export {
   onCanonicalDealStageUpdated,
 };
 export { onContractCompleted, getContractDownloadUrl, recordSigningEvidence, sendSigningOtp, updateContractPayload, verifySigningOtp, verifyContractSignatureAuditTrailCallable };
+export { issueFiscalInvoice };
 export { advanceDealStageCallable, claimLeadCallable, claimPropertyCallable, createCrossBrokerShowingCallable, delegateShowingCallable, finalizeChecklistDocumentUploadCallable, finalizeCommissionSettlementCallable, initializeDealCallable, migrateLegacyDealsCallable, publishListingAssignmentCallable, recordKeySafeActionCallable, recordShowingFeedbackCallable, reassignLeadCallable, reviewChecklistDocumentCallable, reviewClaimCallable };
 export { generateCmaReport, generateListingCopywriting, analyzeShowingFeedbackSentiment, buildOwnerActivityPdfReport };
 
