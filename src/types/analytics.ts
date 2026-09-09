@@ -58,6 +58,7 @@ export interface CampaignSpend {
   currency: "EUR";
   recordedAt: number;
   recordedBy: string;
+  recordedByName?: string;
 }
 
 /** @deprecated Use CampaignSpend. */

@@ -774,7 +774,7 @@ function DirectChatScreen() {
         // να μικρύνει το layout, και μετά κάνουμε scroll στο τελευταίο μήνυμα.
         setTimeout(() => {
           scrollRef.current?.scrollToOffset({ offset: 0, animated: true });
-        }, 80);
+        }, 60);
       },
     );
 
@@ -3645,8 +3645,8 @@ function DirectChatScreen() {
       ) : (
         <KeyboardAvoidingView
           style={styles.flex}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-          keyboardVerticalOffset={Platform.OS === "ios" ? insets.top + 8 : 0}
+          behavior="padding"
+          keyboardVerticalOffset={Platform.OS === "ios" ? insets.top + 10 : 0}
         >
           {isBrokerClientChat && !auth.isBroker && !hasSharedSearchHistory && !searchSharingPromptShown ? (
             <View style={styles.searchHistoryShareBanner} testID="chat-search-history-share-banner">
@@ -3775,7 +3775,7 @@ function DirectChatScreen() {
             style={[
               styles.inputBar,
               {
-                paddingBottom: isKeyboardOpen ? spacing.sm : insets.bottom + spacing.sm,
+                paddingBottom: isKeyboardOpen ? spacing.sm : Math.max(insets.bottom + spacing.sm, spacing.sm),
               },
               inputBlocked && styles.inputBarLocked,
             ]}
@@ -3791,6 +3791,8 @@ function DirectChatScreen() {
               numberOfLines={1}
               testID="chat-input"
               onSubmitEditing={send}
+              onFocus={() => setIsKeyboardOpen(true)}
+              onBlur={() => setIsKeyboardOpen(false)}
               editable={!inputBlocked}
             />
             <VoiceInputButton

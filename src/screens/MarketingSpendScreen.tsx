@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { collection, limit, onSnapshot, orderBy, query } from "firebase/firestore";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { getUserProfile } from "@/src/api/userProfile";
 import MarketingSpendEntry from "@/src/components/MarketingSpendEntry";
 import { FadeInView } from "@/src/components/ui/FadeInView";
 import { SkeletonBox } from "@/src/components/ui/SkeletonBox";
@@ -18,6 +19,7 @@ interface MarketingSpendRecord {
   amount: number;
   period: string;
   recordedBy?: string;
+  recordedByName?: string;
   createdAtMillis?: number;
   notes?: string;
 }
@@ -60,6 +62,7 @@ export default function MarketingSpendScreen() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const agencyId = auth.agencyId ?? "";
   const [spendHistory, setSpendHistory] = useState<MarketingSpendRecord[]>([]);
+  const [brokerNames, setBrokerNames] = useState<Record<string, string>>({});
   const [loadingHistory, setLoadingHistory] = useState(true);
 
   useEffect(() => {
@@ -93,7 +96,8 @@ export default function MarketingSpendScreen() {
             channel: stringValue(data.channel ?? data.source, "Άλλο"),
             amount: numberValue(data.amount ?? data.spendAmount),
             period: stringValue(data.period ?? data.month, "Τρέχων μήνας"),
-            recordedBy: typeof (data.recordedByName ?? data.recordedBy) === "string" ? String(data.recordedByName ?? data.recordedBy) : undefined,
+            recordedBy: typeof data.recordedBy === "string" && data.recordedBy.trim() ? data.recordedBy.trim() : undefined,
+            recordedByName: typeof data.recordedByName === "string" && data.recordedByName.trim() ? data.recordedByName.trim() : undefined,
             createdAtMillis,
             notes: typeof data.notes === "string" ? data.notes : undefined,
           };
@@ -106,6 +110,26 @@ export default function MarketingSpendScreen() {
 
     return unsubscribe;
   }, [agencyId]);
+
+  useEffect(() => {
+    const idsToResolve = Array.from(new Set(
+      spendHistory
+        .filter((item) => item.recordedBy && !item.recordedByName && !brokerNames[item.recordedBy])
+        .map((item) => item.recordedBy as string),
+    ));
+    if (idsToResolve.length === 0) return;
+
+    let cancelled = false;
+    void Promise.all(idsToResolve.map(async (userId) => {
+      const profile = await getUserProfile(userId).catch(() => null);
+      return [userId, profile?.name?.trim() || "Μεσίτης"] as const;
+    })).then((resolvedNames) => {
+      if (cancelled) return;
+      setBrokerNames((current) => ({ ...current, ...Object.fromEntries(resolvedNames) }));
+    });
+
+    return () => { cancelled = true; };
+  }, [brokerNames, spendHistory]);
 
   const currentMonthSpend = useMemo(
     () => spendHistory.reduce((sum, item) => sum + numberValue(item.amount), 0),
@@ -163,14 +187,11 @@ export default function MarketingSpendScreen() {
 
             <View style={styles.historyHeaderRow}>
               <Text style={styles.sectionTitle}>Ιστορικό & Πρόσφατες Καταγραφές</Text>
-              <View style={styles.totalBadge}>
-                <Text style={styles.totalBadgeText}>Σύνολο: €{currentMonthSpend.toLocaleString("el-GR")}</Text>
-              </View>
             </View>
 
             <View style={styles.summaryCard}>
               <View style={styles.summaryMetric}>
-                <Text style={styles.summaryLabel}>Συνολική Δαπάνη Καταγεγραμμένη</Text>
+                <Text style={styles.summaryLabel}>Συνολική Δαπάνη</Text>
                 <Text style={styles.summaryValue}>€{currentMonthSpend.toLocaleString("el-GR")}</Text>
               </View>
               <View style={styles.summaryMetric}>
@@ -194,7 +215,7 @@ export default function MarketingSpendScreen() {
                   <View style={styles.historyDetails}>
                     <Text numberOfLines={1} style={styles.historyChannel}>{item.channel}</Text>
                     <Text style={styles.historyMeta}>
-                      Περίοδος: {item.period}{item.recordedBy ? ` · Από: ${item.recordedBy}` : ""}
+                      Περίοδος: {item.period}{item.recordedBy || item.recordedByName ? ` · Από: ${item.recordedByName || (item.recordedBy ? brokerNames[item.recordedBy] : undefined) || "Μεσίτης"}` : ""}
                     </Text>
                   </View>
 
@@ -327,6 +348,7 @@ function createStyles(colors: ThemeColors) {
       fontFamily: fonts.bold,
       fontSize: fontSize.base,
       color: colors.onSurface,
+      textAlign: "center",
     },
     totalBadge: {
       backgroundColor: colors.brandTertiary,
@@ -358,11 +380,13 @@ function createStyles(colors: ThemeColors) {
       fontFamily: fonts.regular,
       fontSize: fontSize.xs,
       color: colors.onSurfaceTertiary,
+      textAlign: "center",
     },
     summaryValue: {
       fontFamily: fonts.bold,
       fontSize: fontSize.lg,
       color: colors.brand,
+      textAlign: "center",
     },
     historyCard: {
       flexDirection: "row",

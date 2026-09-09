@@ -246,7 +246,7 @@ useEffect(() => {
     [candidates, filters],
   );
 
-  const deckKey = `${filters.gender.join(",")}-${filters.ageMin}-${filters.ageMax}-${filters.budgetMin}-${filters.budgetMax}-${candidates.length}`;
+  const deckKey = `${filters.gender.join(",")}-${filters.ageMin}-${filters.ageMax}-${filters.budgetMin}-${filters.budgetMax}`;
 
   const openSheet = useCallback(() => setSheetVisible(true), []);
   const closeSheet = useCallback(() => setSheetVisible(false), []);
@@ -261,7 +261,6 @@ useEffect(() => {
 
   const onLike = useCallback((p: RoommateProfile) => {
     console.log("[Roommates] Swipe right received", { profileId: p.id, isGuest: auth.isGuest });
-    setCandidates((prev) => prev.filter((candidate) => candidate.id !== p.id));
 
     if (auth.isGuest) {
       console.log("[Roommates] Guest mode: skipping swipe persistence", { profileId: p.id, direction: "right" });
@@ -291,7 +290,6 @@ useEffect(() => {
 
   const onNope = useCallback((p: RoommateProfile) => {
     console.log("[Roommates] Swipe left received", { profileId: p.id, isGuest: auth.isGuest });
-    setCandidates((prev) => prev.filter((candidate) => candidate.id !== p.id));
 
     if (auth.isGuest) {
       console.log("[Roommates] Guest mode: skipping swipe persistence", { profileId: p.id, direction: "left" });

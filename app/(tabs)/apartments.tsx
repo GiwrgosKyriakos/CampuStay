@@ -4,6 +4,7 @@ import { Animated, View, Text, StyleSheet, ScrollView, Pressable, TextInput, Swi
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
+import Svg, { Polyline } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { addDoc, collection, doc, getDoc, getDocs, onSnapshot, orderBy, query, serverTimestamp, setDoc, where, limit } from "firebase/firestore";
@@ -42,9 +43,24 @@ import VoiceInputButton from "@/src/components/common/VoiceInputButton";
 import { useVoiceInputPreview } from "@/src/hooks/useVoiceInputPreview";
 import { shouldDisplayListingForUser } from "@/src/utils/listingFilters";
 
+function ObtuseChevron({ isExpanded, color }: { isExpanded: boolean; color: string }) {
+  return (
+    <Svg width={24} height={7} viewBox="0 0 24 7">
+      <Polyline
+        points={isExpanded ? "2,6 12,1 22,6" : "2,1 12,6 22,1"}
+        fill="none"
+        stroke={color}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={1.8}
+      />
+    </Svg>
+  );
+}
+
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 84;
-const COLLAPSE_DISTANCE = 110;
+const COLLAPSE_DISTANCE = 46;
 const darkMapStyle = [
   { elementType: "geometry", stylers: [{ color: "#050e1a" }] },
   { elementType: "labels.text.fill", stylers: [{ color: "#8aa4c6" }] },
@@ -804,28 +820,30 @@ export default function ApartmentsScreen() {
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
-  const scrollY = useRef(new Animated.Value(0)).current;
+  const scrollOffset = useRef(new Animated.Value(0)).current;
   const [headerHeight, setHeaderHeight] = useState(0);
+  const headerRevealAnim = useRef(new Animated.Value(1)).current;
+  const lastScrollY = useRef(0);
   const headerCollapsedRef = useRef(false);
   const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
-  const topHeaderTranslateY = scrollY.interpolate({
-    inputRange: [0, COLLAPSE_DISTANCE],
-    outputRange: [0, -COLLAPSE_DISTANCE],
+  const topHeaderTranslateY = headerRevealAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-COLLAPSE_DISTANCE, 0],
     extrapolate: "clamp",
   });
-  const topHeaderOpacity = scrollY.interpolate({
-    inputRange: [0, COLLAPSE_DISTANCE * 0.6],
-    outputRange: [1, 0],
-    extrapolate: "clamp",
-  });
-  const actionButtonsOpacity = scrollY.interpolate({
-    inputRange: [0, COLLAPSE_DISTANCE * 0.5],
-    outputRange: [1, 0],
-    extrapolate: "clamp",
-  });
-  const filterPillsOpacity = scrollY.interpolate({
-    inputRange: [COLLAPSE_DISTANCE * 0.4, COLLAPSE_DISTANCE],
+  const topHeaderOpacity = headerRevealAnim.interpolate({
+    inputRange: [0, 1],
     outputRange: [0, 1],
+    extrapolate: "clamp",
+  });
+  const actionButtonsOpacity = headerRevealAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 1],
+    extrapolate: "clamp",
+  });
+  const filterPillsOpacity = headerRevealAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 0],
     extrapolate: "clamp",
   });
   const router = useRouter();
@@ -1933,19 +1951,46 @@ export default function ApartmentsScreen() {
     [handleSwipeTabChange, viewMode],
   );
 
-  const handleListScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const nextCollapsed = event.nativeEvent.contentOffset.y >= COLLAPSE_DISTANCE * 0.5;
+  const animateHeaderReveal = useCallback((shouldReveal: boolean) => {
+    const nextCollapsed = !shouldReveal;
     if (nextCollapsed === headerCollapsedRef.current) return;
+
     headerCollapsedRef.current = nextCollapsed;
     setIsHeaderCollapsed(nextCollapsed);
-  }, []);
+    Animated.timing(headerRevealAnim, {
+      toValue: shouldReveal ? 1 : 0,
+      duration: 220,
+      useNativeDriver: true,
+    }).start();
+  }, [headerRevealAnim]);
+
+  const handleExpandHeader = useCallback(() => {
+    animateHeaderReveal(true);
+  }, [animateHeaderReveal]);
+
+  const handleListScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const currentY = event.nativeEvent.contentOffset.y;
+    const delta = currentY - lastScrollY.current;
+    lastScrollY.current = currentY;
+
+    if (currentY <= 15) {
+      animateHeaderReveal(true);
+      return;
+    }
+
+    if (delta > 6) {
+      animateHeaderReveal(false);
+    } else if (delta < -6) {
+      animateHeaderReveal(true);
+    }
+  }, [animateHeaderReveal]);
 
   const listScrollHandler = useMemo(
     () => Animated.event(
-      [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+      [{ nativeEvent: { contentOffset: { y: scrollOffset } } }],
       { listener: handleListScroll, useNativeDriver: true },
     ),
-    [handleListScroll, scrollY],
+    [handleListScroll, scrollOffset],
   );
 
   useEffect(() => {
@@ -2392,7 +2437,7 @@ export default function ApartmentsScreen() {
     <View style={styles.container} testID="apartments-screen">
       <Animated.View
         onLayout={(event) => setHeaderHeight(event.nativeEvent.layout.height)}
-        style={[styles.header, styles.collapsibleHeader, { paddingTop: insets.top + spacing.sm, transform: [{ translateY: topHeaderTranslateY }] }]}
+        style={[styles.header, styles.collapsibleHeader, { paddingTop: insets.top, transform: [{ translateY: topHeaderTranslateY }] }]}
       >
         <Animated.View style={{ opacity: topHeaderOpacity }}>
           <View style={styles.titleRowTop}>
@@ -2535,6 +2580,17 @@ export default function ApartmentsScreen() {
             {renderActiveFilterPillStrip("apartments-active-filter-pills")}
           </Animated.View>
         </View>
+        <Pressable
+          style={[styles.obtuseToggleHandleCenter, !isHeaderCollapsed && styles.obtuseToggleHandleHidden]}
+          pointerEvents={isHeaderCollapsed ? "auto" : "none"}
+          onPress={handleExpandHeader}
+          hitSlop={{ top: 4, bottom: 4, left: 24, right: 24 }}
+          accessibilityLabel="Ανάπτυξη κεφαλίδας"
+          accessibilityRole="button"
+          testID="apartments-header-expand-chevron"
+        >
+          <ObtuseChevron color={colors.brand} isExpanded={false} />
+        </Pressable>
         {selectedProposalList ? (
           <View style={styles.activeProposalFilterBar}>
             <View style={[styles.activeFilterChip, { backgroundColor: colors.brandTertiary }]} testID="apartments-active-proposal-list-chip">
@@ -2978,14 +3034,6 @@ export default function ApartmentsScreen() {
           </KeyboardAwareScrollView>
         )}
       </Animated.View>
-      {activeFilterChips.length > 0 ? (
-        <Animated.View
-          pointerEvents={isHeaderCollapsed ? "auto" : "none"}
-          style={[styles.compactStickyHeader, { paddingTop: insets.top + spacing.xs, opacity: filterPillsOpacity }]}
-        >
-          {renderActiveFilterPillStrip("apartments-active-filter-pills-sticky")}
-        </Animated.View>
-      ) : null}
       <HardCriteriaSelectionModal
         visible={hardCriteriaModalVisible}
         selected={userHardCriteria}
@@ -3614,7 +3662,7 @@ export default function ApartmentsScreen() {
 const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
   flexOne: { flex: 1 },
-  header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md, gap: spacing.xs, borderBottomLeftRadius: 24, borderBottomRightRadius: 24, backgroundColor: colors.surface, shadowColor: "#000000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 5, elevation: 3 },
+  header: { paddingHorizontal: spacing.lg, paddingBottom: 2, gap: spacing.xs, borderBottomLeftRadius: 24, borderBottomRightRadius: 24, backgroundColor: colors.surface, shadowColor: "#000000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 5, elevation: 3 },
   collapsibleHeader: {
     position: "absolute",
     top: 0,
@@ -3650,13 +3698,12 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderColor: colors.brand,
   },
   headerControlsRow: {
-    marginTop: spacing.sm,
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
   },
   morphingRowContainer: {
-    height: 54,
+    height: 42,
     position: "relative",
     justifyContent: "center",
   },
@@ -3671,33 +3718,28 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     bottom: 0,
     justifyContent: "center",
   },
-  compactStickyHeader: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 11,
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
-    shadowColor: "#000000",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 4,
-    paddingBottom: spacing.sm,
+  obtuseToggleHandleCenter: {
+    width: "100%",
+    height: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 1,
+    backgroundColor: "transparent",
+    borderWidth: 0,
+  },
+  obtuseToggleHandleHidden: {
+    opacity: 0,
   },
   filterPillsScrollContainer: {
     flexGrow: 0,
-    height: 38,
+    height: 30,
   },
   filterPillsScrollContent: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.xs,
-    paddingHorizontal: spacing.lg,
+    paddingLeft: 0,
+    paddingRight: spacing.lg,
   },
   filterPillChip: {
     flexDirection: "row",
@@ -3721,8 +3763,8 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     justifyContent: "center",
   },
   iconControlButton: {
-    width: 46,
-    height: 46,
+    width: 42,
+    height: 42,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#D9F0FF",
@@ -4043,7 +4085,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     alignItems: "center",
     backgroundColor: "#D9F0FF",
     borderRadius: radius.pill,
-    height: 46,
+    height: 42,
     borderWidth: 1,
     borderColor: "#A8D9FF",
   },

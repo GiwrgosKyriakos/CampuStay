@@ -3,7 +3,9 @@ import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View 
 import { Ionicons } from "@expo/vector-icons";
 
 import { saveCampaignSpend } from "@/src/api/marketingSpend";
+import { getUserProfile } from "@/src/api/userProfile";
 import StandardLeadSourcePicker from "@/src/components/StandardLeadSourcePicker";
+import { useAuth } from "@/src/context/auth";
 import { useTheme } from "@/src/context/ThemeContext";
 import { fonts, fontSize, radius, spacing } from "@/src/theme";
 import type { StandardLeadSource } from "@/src/types/analytics";
@@ -15,6 +17,7 @@ function currentMonth(): string {
 }
 
 export default function MarketingSpendEntry({ agencyId, recordedBy }: { agencyId: string; recordedBy: string }) {
+  const auth = useAuth();
   const { colors } = useTheme();
   const styles = createStyles(colors);
   const [visible, setVisible] = useState(false);
@@ -27,7 +30,9 @@ export default function MarketingSpendEntry({ agencyId, recordedBy }: { agencyId
     if (saving) return;
     setSaving(true);
     try {
-      await saveCampaignSpend({ agencyId, recordedBy, source, month, spendAmount: Number(amount.replace(",", ".")) });
+      const profile = await getUserProfile(recordedBy);
+      const recordedByName = profile?.name?.trim() || auth.user?.name?.trim() || "Μεσίτης";
+      await saveCampaignSpend({ agencyId, recordedBy, recordedByName, source, month, spendAmount: Number(amount.replace(",", ".")) });
       reset();
       setVisible(false);
     } catch (error) {
