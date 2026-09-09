@@ -19,7 +19,7 @@ import { LocaleProvider, useLocale } from "@/src/context/locale";
 import { ThemeProvider, useTheme } from "@/src/context/ThemeContext";
 import { AppLocale } from "@/src/locales";
 import { storage } from "@/src/utils/storage";
-import { isBrokerOrSecretariat } from "@/src/utils/roles";
+import { getRoleHomeTab } from "@/src/utils/roles";
 import { configureNotificationChannels, handleNotificationResponse, registerFcmTokenForUser, registerNotificationCategories } from "@/src/services/notifications";
 
 const HAS_SELECTED_LANGUAGE_KEY = "has_selected_language";
@@ -73,7 +73,7 @@ function AppContent() {
     topSegment === "agency-onboarding";
   const isUnauthenticated = auth.user === null && !auth.isGuest;
   const isAuthenticated = auth.user !== null;
-  const defaultHomeRoute = isBrokerOrSecretariat(auth) ? "/(tabs)/apartment-pool" : "/(tabs)/apartments";
+  const defaultHomeRoute = `/(tabs)/${getRoleHomeTab(auth)}` as const;
 
   useEffect(() => {
     if (!auth.userId || auth.isGuest) return;

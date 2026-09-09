@@ -7,6 +7,7 @@ import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import { radius, spacing, type ThemeColors } from "@/src/theme";
 import { useTheme } from "@/src/context/ThemeContext";
 import { useAuth } from "@/src/context/auth";
+import { isAgencyExecutive } from "@/src/utils/roles";
 
 export const TAB_BAR_HEIGHT = 64; // Exported in case other screens (like Reels) need to calculate bottom clearance
 
@@ -32,7 +33,7 @@ export default function GlassTabBar({ state, navigation, descriptors }: BottomTa
   
   // Διατήρηση των σύγχρονων ρόλων από το GlassTabBar_4.tsx
   const isBroker = !!auth.isBroker;
-  const isExecutive = auth.agencyRole === "ceo" || auth.agencyRole === "secretary" || auth.agencyRole === "secretariat";
+  const isExecutive = isAgencyExecutive(auth);
   const hasAgencyMembership = isBroker && !!auth.agencyId;
   const notLookingForRoommate = auth.notLookingForRoommate === true;
   
@@ -45,7 +46,7 @@ export default function GlassTabBar({ state, navigation, descriptors }: BottomTa
         const href = (descriptors[route.key]?.options as { href?: string | null } | undefined)?.href;
         if (href === null) return false;
         
-        if (isExecutive) return ["settlements", "secretariat-pool", "apartment-pool", "marketing-spend", "analytics"].includes(route.name);
+        if (isExecutive) return ["apartments", "calendar", "matches", "settlements", "secretariat-pool", "apartment-pool", "marketing-spend", "analytics"].includes(route.name);
         if (isBroker) return ["calendar", "matches", hasAgencyMembership ? "apartment-pool" : "explore-feed", "apartments", "broker"].includes(route.name);
         if (notLookingForRoommate) return ["calendar", "matches", "explore-feed", "apartments", "profile"].includes(route.name);
         if (route.name === "roommates") return !notLookingForRoommate;
@@ -54,7 +55,7 @@ export default function GlassTabBar({ state, navigation, descriptors }: BottomTa
       })
       .sort((left, right) => {
         const order = isExecutive
-          ? ["settlements", "secretariat-pool", "apartment-pool", "marketing-spend", "analytics"]
+          ? ["apartments", "calendar", "matches", "settlements", "secretariat-pool", "apartment-pool", "marketing-spend", "analytics"]
           : isBroker
           ? ["calendar", "matches", hasAgencyMembership ? "apartment-pool" : "explore-feed", "apartments", "broker"]
           : notLookingForRoommate

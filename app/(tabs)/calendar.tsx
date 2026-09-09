@@ -31,6 +31,7 @@ import { t } from "@/src/locales";
 import type { ContractDraftContext } from "@/src/types/esignature";
 import { getCalendarNoteDate } from "@/src/utils/calendarNoteReminders";
 import { cancelScheduledNotification, schedulePostVisitFeedbackReminder } from "@/src/utils/notificationService";
+import { getRoleHomeTab } from "@/src/utils/roles";
 import MonthYearPickerModal from "@/src/components/calendar/MonthYearPickerModal";
 
 type CalendarViewMode = "month" | "week" | "day";
@@ -949,6 +950,7 @@ function BrokerCalendarScreen() {
 
   const brokerId = auth.user?.user_id ?? auth.userId ?? "";
   const isClientMode = !auth.isBroker && auth.notLookingForRoommate === true;
+  const isHomeTab = getRoleHomeTab(auth) === "calendar";
   const headerTitle = useMemo(
     () => getHeaderTitleForCalendarMode(currentDate, calendarViewMode),
     [calendarViewMode, currentDate],
@@ -968,6 +970,8 @@ function BrokerCalendarScreen() {
   useFocusEffect(
     useCallback(() => {
       const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+        if (!isHomeTab) return false;
+
         if (calendarViewMode === "day") {
           setCurrentDate(startOfWeek(currentDate));
           setCalendarViewMode("week");
@@ -979,11 +983,11 @@ function BrokerCalendarScreen() {
           return true;
         }
 
-        return true;
+        return false;
       });
 
       return () => subscription.remove();
-    }, [calendarViewMode, currentDate]),
+    }, [calendarViewMode, currentDate, isHomeTab]),
   );
 
   useEffect(() => {

@@ -9,10 +9,34 @@ export interface UserRoleData {
   not_looking_for_roommate?: boolean;
 }
 
+export type RoleHomeTab = "apartments" | "calendar" | "roommates";
+
+export interface RoleAuthState {
+  isBroker?: boolean;
+  agencyId?: string | null;
+  agencyRole?: string | null;
+  notLookingForRoommate?: boolean;
+  looking_for_roommate?: boolean;
+}
+
+export function isAgencyExecutive(user: RoleAuthState): boolean {
+  return Boolean(
+    user.agencyId &&
+    ["ceo", "secretary", "secretariat"].includes(user.agencyRole ?? ""),
+  );
+}
+
+export function getRoleHomeTab(auth: RoleAuthState): RoleHomeTab {
+  if (isAgencyExecutive(auth)) return "apartments";
+  if (auth.isBroker) return "calendar";
+  if (auth.notLookingForRoommate === true || auth.looking_for_roommate === false) return "calendar";
+  return "roommates";
+}
+
 export function isBrokerOrSecretariat(user: { isBroker?: boolean; agencyRole?: string | null }): boolean {
   return Boolean(
     user.isBroker ||
-    ["ceo", "secretary", "secretariat"].includes(user.agencyRole ?? ""),
+    isAgencyExecutive(user),
   );
 }
 

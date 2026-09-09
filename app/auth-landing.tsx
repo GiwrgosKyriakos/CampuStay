@@ -10,7 +10,7 @@ import * as WebBrowser from "expo-web-browser";
 import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
 import { useAuth } from "@/src/context/auth";
 import { t } from "@/src/locales";
-import { isBrokerOrSecretariat } from "@/src/utils/roles";
+import { getRoleHomeTab } from "@/src/utils/roles";
 
 export default function AuthLandingScreen() {
   const { colors } = useTheme();
@@ -19,7 +19,7 @@ export default function AuthLandingScreen() {
   const router = useRouter();
   const auth = useAuth();
   const [googleLoading, setGoogleLoading] = useState(false);
-  const defaultHomeRoute = isBrokerOrSecretariat(auth) ? "/(tabs)/apartment-pool" : "/(tabs)/apartments";
+  const defaultHomeRoute = `/(tabs)/${getRoleHomeTab(auth)}` as const;
 
   React.useEffect(() => {
     if (!auth.isLoading && auth.isLoggedIn) {

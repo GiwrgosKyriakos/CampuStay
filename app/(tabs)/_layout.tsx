@@ -5,26 +5,43 @@ import GlassTabBar from "@/src/components/GlassTabBar";
 import { useTheme } from "@/src/context/ThemeContext";
 import { useAuth } from "@/src/context/auth";
 import { t } from "@/src/locales";
-import { isBrokerOrSecretariat } from "@/src/utils/roles";
+import { getRoleHomeTab, isAgencyExecutive, isBrokerOrSecretariat } from "@/src/utils/roles";
+import { useRouter, useSegments } from "expo-router";
+import { useEffect } from "react";
+import { BackHandler } from "react-native";
 
 export default function TabsLayout() {
   const { colors } = useTheme();
   const auth = useAuth();
+  const router = useRouter();
+  const segments = useSegments();
   const isBroker = !!auth.isBroker;
   const notLookingForRoommate = auth.notLookingForRoommate === true;
   const hasAgency = isBroker && !!auth.agencyId;
   const isCeo = auth.agencyRole === "ceo";
   const isSecretary = auth.agencyRole === "secretary" || auth.agencyRole === "secretariat";
-  const isExecutive = isCeo || isSecretary;
+  const isExecutive = isAgencyExecutive(auth);
   const canViewSettlements = hasAgency && isCeo;
   const canViewExecutiveTools = hasAgency && isExecutive;
   const effectiveBroker = isBroker || isExecutive;
   const isBrokerOrSecretariatUser = isBrokerOrSecretariat(auth);
-  const initialRouteName = isBrokerOrSecretariatUser ? "apartment-pool" : "apartments";
+  const homeTab = getRoleHomeTab(auth);
+  const currentTab = segments[0] === "(tabs)" ? segments[1] : undefined;
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (!currentTab || currentTab === homeTab) return false;
+
+      router.replace(`/(tabs)/${homeTab}`);
+      return true;
+    });
+
+    return () => subscription.remove();
+  }, [currentTab, homeTab, router]);
 
   return (
     <Tabs
-      initialRouteName={initialRouteName}
+      initialRouteName={homeTab}
       tabBar={(props) => <GlassTabBar {...props} />}
       screenOptions={{
         headerShown: false,
@@ -40,7 +57,7 @@ export default function TabsLayout() {
         options={{
           title: "Calendar",
           tabBarIcon: ({ color, size }) => <Ionicons color={color} name="calendar-outline" size={size} />,
-          href: effectiveBroker && !isExecutive ? undefined : notLookingForRoommate ? undefined : null,
+          href: effectiveBroker || notLookingForRoommate ? undefined : null,
         }}
       />
       <Tabs.Screen
@@ -54,7 +71,7 @@ export default function TabsLayout() {
         name="matches"
         options={{
           title: t("tabs.matches"),
-          href: effectiveBroker && !isExecutive ? undefined : !effectiveBroker ? undefined : null,
+          href: undefined,
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons color={color} name={isBroker ? (focused ? "mail" : "mail-outline") : (focused ? "heart" : "heart-outline")} size={size} />
           ),
@@ -88,7 +105,7 @@ export default function TabsLayout() {
         name="apartments"
         options={{
           title: t("tabs.apartments"),
-          href: isExecutive ? null : undefined,
+          href: undefined,
         }}
       />
       <Tabs.Screen
