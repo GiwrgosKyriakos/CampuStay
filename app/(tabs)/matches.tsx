@@ -297,6 +297,22 @@ export default function MatchesScreen() {
   const inboxLoadMoreLockRef = React.useRef(false);
   const isBroker = !!auth.isBroker;
   const notLookingForRoommate = auth.notLookingForRoommate === true;
+  const [hasApartmentShareFlag, setHasApartmentShareFlag] = useState(false);
+
+  useEffect(() => {
+    if (auth.isGuest || !auth.userId || isBroker) {
+      setHasApartmentShareFlag(false);
+      return;
+    }
+
+    const userRef = doc(db, "users", auth.userId);
+    const unsubscribe = onSnapshot(userRef, (snapshot) => {
+      const data = snapshot.exists() ? snapshot.data() : null;
+      setHasApartmentShareFlag(Boolean(data?.already_have_apartment_to_share || data?.has_place));
+    });
+
+    return () => unsubscribe();
+  }, [auth.isGuest, auth.userId, isBroker]);
 
   useEffect(() => {
     if (auth.isGuest || !auth.userId || isBroker) {
@@ -845,6 +861,12 @@ export default function MatchesScreen() {
 
   if (isBroker) {
     return <HostInboxContent titleOverride="Inbox Μεσίτη" showBackButton={false} />;
+  }
+
+  const isHostSharer = !isBroker && notLookingForRoommate && hasApartmentShareFlag;
+
+  if (isHostSharer) {
+    return <HostInboxContent titleOverride="Incoming Requests" showBackButton={false} />;
   }
 
   return (

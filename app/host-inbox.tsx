@@ -557,16 +557,18 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
               <Ionicons name={infoOpen ? "information-circle" : "information-circle-outline"} size={20} color={infoOpen ? colors.brand : colors.onSurface} />
             </Pressable>
           ) : null}
-          <Pressable
-            onPress={() => setColleaguesVisible(true)}
-            style={styles.headerActionBtn}
-            testID="host-inbox-colleagues-toggle"
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel="Συνεργάτες"
-          >
-            <Ionicons name="people-outline" size={20} color={colors.onSurface} />
-          </Pressable>
+          {canSeeBrokerRoleMetadata ? (
+            <Pressable
+              onPress={() => setColleaguesVisible(true)}
+              style={styles.headerActionBtn}
+              testID="host-inbox-colleagues-toggle"
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Συνεργάτες"
+            >
+              <Ionicons name="people-outline" size={20} color={colors.onSurface} />
+            </Pressable>
+          ) : null}
           <Pressable
             onPress={() => {
               setSearchOpen((prev) => {

@@ -212,6 +212,7 @@ interface FirestoreApartmentDoc {
   propertyType?: string;
   floor?: string;
   rooms?: number;
+  maxRoommates?: number;
   area?: string;
   city?: string;
   address?: string;
@@ -593,6 +594,7 @@ export default function CreateListingScreen() {
   const [addressLongitude, setAddressLongitude] = useState<number | null>(null);
   const [hasExactLocation, setHasExactLocation] = useState(false);
   const [sizeSqm, setSizeSqm] = useState("");
+  const [maxRoommates, setMaxRoommates] = useState("");
   const [propertyCategory, setPropertyCategory] = useState<string | null>(null);
   const [propertyType, setPropertyType] = useState<string | null>(null);
   const [floor, setFloor] = useState<string | null>(null);
@@ -1324,6 +1326,11 @@ export default function CreateListingScreen() {
         setAddressLongitude(typeof data.longitude === "number" ? data.longitude : null);
         setHasExactLocation(data.hasExactLocation === true);
         setSizeSqm(mappedSize > 0 ? String(mappedSize) : "");
+        setMaxRoommates(
+          typeof data.maxRoommates === "number" && Number.isFinite(data.maxRoommates)
+            ? String(Math.max(0, Math.trunc(data.maxRoommates)))
+            : "",
+        );
         const mappedMaxDiscount =
           typeof data.maxDiscountPercent === "number" && Number.isFinite(data.maxDiscountPercent)
             ? Math.min(100, Math.max(0, Math.trunc(data.maxDiscountPercent)))
@@ -1845,6 +1852,7 @@ export default function CreateListingScreen() {
       rooms: normalizedRooms,
       size: Number(sizeSqm) || 0,
       sqft: Number(sizeSqm) || 0,
+      maxRoommates: maxRoommates.trim() ? parseInt(maxRoommates, 10) : undefined,
       image: imageList[0] || "",
       imageUrl: imageList[0] || "",
       images: imageList,
@@ -1888,7 +1896,7 @@ export default function CreateListingScreen() {
       visibility: options?.visibility ?? (isOffMarket ? "client_only" : "public"),
       offMarketAccessUserIds: options?.offMarketAccessUserIds ?? offMarketAccessUserIds,
     };
-  }, [address, addressLatitude, addressLongitude, agencyData, area, availableFromDate, buildYear, city, closedDealPrice, commonExpenses, currentPriceHistory, customOwnerMotivation, description, energyClass, existingAssignedBrokerIds, extraDetailsState, files2d3d, floor, hasExactLocation, heatingSystem, hidePhoneFromBrokers, isImmediatelyAvailable, isOffMarket, kitchens, levels, livingRooms, listingOwnerId, logoStyle, maxDiscountPercent, monthlyRent, offMarketAccessUserIds, orientation, ownerMotivationType, ownerName, ownerPhone, ownerPriceExpectation, photos, propertyCategory, propertyStatus, propertyType, rooms, selectedAmenitySlugs, showExactAddress, showPhoneNumber, sizeSqm, technicalSpecificationsPayload, title, watermarkEnabled, watermarkType, windowFrames, renovationYear, bathrooms, auth.userId]);
+  }, [address, addressLatitude, addressLongitude, agencyData, area, availableFromDate, buildYear, city, closedDealPrice, commonExpenses, currentPriceHistory, customOwnerMotivation, description, energyClass, existingAssignedBrokerIds, extraDetailsState, files2d3d, floor, hasExactLocation, heatingSystem, hidePhoneFromBrokers, isImmediatelyAvailable, isOffMarket, kitchens, levels, livingRooms, listingOwnerId, logoStyle, maxDiscountPercent, maxRoommates, monthlyRent, offMarketAccessUserIds, orientation, ownerMotivationType, ownerName, ownerPhone, ownerPriceExpectation, photos, propertyCategory, propertyStatus, propertyType, rooms, selectedAmenitySlugs, showExactAddress, showPhoneNumber, sizeSqm, technicalSpecificationsPayload, title, watermarkEnabled, watermarkType, windowFrames, renovationYear, bathrooms, auth.userId]);
 
   const ensureOwnerForListing = useCallback(async (apartmentId: string, options: { addToBroker?: boolean } = {}): Promise<string | null> => {
     if (!isBrokerMode || !auth.userId || !ownerName.trim()) return null;
@@ -2014,7 +2022,7 @@ export default function CreateListingScreen() {
       });
     }, 1000);
     return () => clearTimeout(timer);
-  }, [address, amenities, area, auth.isBroker, buildCurrentListingPayload, city, currentListingId, description, floor, isOffMarket, monthlyRent, photos, rooms, sizeSqm, title]);
+  }, [address, amenities, area, auth.isBroker, buildCurrentListingPayload, city, currentListingId, description, floor, isOffMarket, maxRoommates, monthlyRent, photos, rooms, sizeSqm, title]);
 
   const validateAndSubmit = async (publishMode?: "direct" | "pool") => {
         const parsedMaxDiscount = maxDiscountPercent.trim().length > 0 ? Number(maxDiscountPercent) : null;
@@ -2162,6 +2170,7 @@ export default function CreateListingScreen() {
         rooms: normalizedRooms,
         size: Number(sizeSqm),
         sqft: Number(sizeSqm),
+        maxRoommates: maxRoommates.trim() ? parseInt(maxRoommates, 10) : undefined,
         image: firstImage,
         imageUrl: firstImage,
         images: uploadedImages,
@@ -2409,11 +2418,42 @@ export default function CreateListingScreen() {
                 />
               </View>
               <View style={styles.formColumn}>
+                <Text style={styles.sectionTitle}>Max Offer</Text>
+                <View style={styles.percentInputRow}>
+                  <TextInput
+                    value={maxDiscountPercent}
+                    onChangeText={(value) => {
+                      const digitsOnly = value.replace(/[^0-9]/g, "");
+                      if (!digitsOnly.length) {
+                        setMaxDiscountPercent("");
+                        return;
+                      }
+
+                      const parsed = Number(digitsOnly);
+                      if (Number.isNaN(parsed)) return;
+                      setMaxDiscountPercent(String(Math.min(100, parsed)));
+                    }}
+                    placeholder={t("createListing.maxOfferDiscountPlaceholder")}
+                    placeholderTextColor={colors.onSurfaceTertiary}
+                    keyboardType="number-pad"
+                    maxLength={3}
+                    style={[styles.input, styles.percentInput]}
+                    testID="create-listing-max-discount-input"
+                  />
+                  <Text style={styles.percentSuffix}>%</Text>
+                </View>
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.card}>
+            <View style={styles.formRow}>
+              <View style={styles.formColumn}>
                 <Text style={styles.sectionTitle}>Τίτλος Αγγελίας</Text>
                 <TextInput
                   value={title}
                   onChangeText={setTitle}
-                  placeholder={`π.χ. ${t("createListing.listingTitle", { area: area || "Περιοχή" })} (Προαιρετικό)`}
+                  placeholder={`π.χ. ${t("createListing.listingTitle", { area: area || "Περιοχή" })}`}
                   placeholderTextColor={colors.onSurfaceTertiary}
                   style={styles.input}
                   maxLength={60}
@@ -2421,9 +2461,6 @@ export default function CreateListingScreen() {
                 />
               </View>
             </View>
-          </View>
-
-          <View style={styles.card}>
             <View style={styles.descriptionHeaderRow}>
               <Text style={styles.sectionTitle}>Περιγραφή</Text>
               <Pressable
@@ -2480,30 +2517,16 @@ export default function CreateListingScreen() {
                 />
               </View>
               <View style={styles.formColumn}>
-                <Text style={styles.sectionTitle}>Max Offer</Text>
-                <View style={styles.percentInputRow}>
-                  <TextInput
-                    value={maxDiscountPercent}
-                    onChangeText={(value) => {
-                      const digitsOnly = value.replace(/[^0-9]/g, "");
-                      if (!digitsOnly.length) {
-                        setMaxDiscountPercent("");
-                        return;
-                      }
-
-                      const parsed = Number(digitsOnly);
-                      if (Number.isNaN(parsed)) return;
-                      setMaxDiscountPercent(String(Math.min(100, parsed)));
-                    }}
-                    placeholder={t("createListing.maxOfferDiscountPlaceholder")}
-                    placeholderTextColor={colors.onSurfaceTertiary}
-                    keyboardType="number-pad"
-                    maxLength={3}
-                    style={[styles.input, styles.percentInput]}
-                    testID="create-listing-max-discount-input"
-                  />
-                  <Text style={styles.percentSuffix}>%</Text>
-                </View>
+                <Text style={styles.sectionTitle}>Roommates</Text>
+                <TextInput
+                  value={maxRoommates}
+                  onChangeText={(value) => setMaxRoommates(value.replace(/[^0-9]/g, ""))}
+                  placeholder="π.χ. 2"
+                  placeholderTextColor={colors.onSurfaceTertiary}
+                  keyboardType="number-pad"
+                  style={styles.input}
+                  testID="create-listing-max-roommates-input"
+                />
               </View>
             </View>
           </View>

@@ -90,6 +90,8 @@ export interface FilterSetPayload extends SharedFilterSetPayload {
   rentMax?: string;
   minSqmPrice?: string;
   maxSqmPrice?: string;
+  selectedCity?: string;
+  areaQuery?: string;
   cityQuery?: string;
   sizeMin?: string;
   sizeMax?: string;
@@ -125,7 +127,8 @@ interface ActiveFilterChipState {
   rentMax: string;
   minSqmPrice: string;
   maxSqmPrice: string;
-  cityQuery: string;
+  selectedCity: string;
+  areaQuery: string;
   sizeMin: string;
   sizeMax: string;
   petFriendly: boolean;
@@ -161,9 +164,8 @@ export function formatFilterSetSummary(filters: FilterSetPayload): string {
   if (filters.sizeMin || filters.sizeMax) {
     parts.push(`${filters.sizeMin || "0"} - ${filters.sizeMax || "∞"} m²`);
   }
-  if (filters.cityQuery?.trim()) {
-    parts.push(filters.cityQuery.trim());
-  }
+  if (filters.selectedCity?.trim()) parts.push(filters.selectedCity.trim());
+  if (filters.areaQuery?.trim()) parts.push(filters.areaQuery.trim());
   if (filters.petFriendly) parts.push("Pets");
   if (filters.nearMetro) parts.push("Metro");
   if (filters.propertyTypes?.length) parts.push(filters.propertyTypes.join(", "));
@@ -424,6 +426,7 @@ interface Apartment {
   maxDiscountPercent?: number;
   rooms: number;
   size: number;
+  maxRoommates?: number;
   createdAt?: number;
   image: string;
   images?: string[];
@@ -475,6 +478,7 @@ interface FirestoreApartmentDoc {
   maxDiscountPercent?: number;
   rooms?: number;
   size?: number;
+  maxRoommates?: number;
   sqft?: number;
   image?: string;
   images?: string[];
@@ -575,7 +579,8 @@ export function getActiveFilterChipDescriptors(state: ActiveFilterChipState): Ac
   addRange("size", state.sizeMin, state.sizeMax, " m²");
 
   state.floors.forEach((value) => descriptors.push({ key: `floor:${value}`, label: `Όροφος: ${getOptionLabel(FLOOR_FILTER_OPTIONS, value)}` }));
-  if (state.cityQuery.trim()) descriptors.push({ key: "city", label: `Περιοχή: ${state.cityQuery.trim()}` });
+  if (state.selectedCity.trim()) descriptors.push({ key: "city", label: `Πόλη: ${state.selectedCity.trim()}` });
+  if (state.areaQuery.trim()) descriptors.push({ key: "area", label: `Περιοχή: ${state.areaQuery.trim()}` });
   state.propertyTypes.forEach((value) => descriptors.push({ key: `property-type:${value}`, label: getOptionLabel(PROPERTY_TYPE_FILTER_OPTIONS, value) }));
   state.propertyCategories.forEach((value) => descriptors.push({ key: `property-category:${value}`, label: getOptionLabel(PROPERTY_CATEGORY_FILTER_OPTIONS, value) }));
   addRange("sqm-price", state.minSqmPrice, state.maxSqmPrice, " €/m²");
@@ -771,6 +776,15 @@ function ApartmentGridCard({
             <Text style={styles.stat}>{`${apt.rooms} ${t("apartments.rooms")}`}</Text>
             <View style={styles.dot} />
             <Text style={styles.stat}>{apt.size} m²</Text>
+            {typeof apt.maxRoommates === "number" && apt.maxRoommates > 0 ? (
+              <>
+                <View style={styles.dot} />
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+                  <Ionicons name="people-outline" size={13} color="rgba(255,255,255,0.9)" />
+                  <Text style={styles.stat}>{apt.maxRoommates}</Text>
+                </View>
+              </>
+            ) : null}
           </View>
           <View style={styles.tagRow}>
             {apt.tags.map((tag) => (
@@ -867,7 +881,9 @@ export default function ApartmentsScreen() {
   const [rentMax, setRentMax] = useState("");
   const [minSqmPrice, setMinSqmPrice] = useState<string>("");
   const [maxSqmPrice, setMaxSqmPrice] = useState<string>("");
-  const [cityQuery, setCityQuery] = useState("");
+  const [selectedCity, setSelectedCity] = useState("");
+  const [areaQuery, setAreaQuery] = useState("");
+  const [cityPickerVisible, setCityPickerVisible] = useState(false);
   const [sizeMin, setSizeMin] = useState("");
   const [sizeMax, setSizeMax] = useState("");
   const [petFriendly, setPetFriendly] = useState(false);
@@ -933,12 +949,16 @@ export default function ApartmentsScreen() {
   const [loadingNotes, setLoadingNotes] = useState(false);
   const [notesList, setNotesList] = useState<ApartmentNoteItem[]>([]);
   const [notesOrderSaving, setNotesOrderSaving] = useState(false);
+  const cityFilterOverrideRef = useRef(false);
+  const profileCityLoadedForUserRef = useRef<string | null>(null);
+  const cities = t("editProfile.options.cities") as unknown as string[];
   const SWIPE_THRESHOLD = 56;
   const canOpenHostInbox = hasPublishedHostApartment || hasApartmentShareFlag;
   const canManageListings = !auth.isGuest && (hasPublishedHostApartment || hasApartmentShareFlag || auth.isBroker);
   const isHostUser = canManageListings;
   const showCreateFab = !auth.isGuest && (!hideCreateFab || auth.isBroker);
-  const showHostInboxFab = !auth.isGuest && !auth.isBroker && !hideCreateFab && canOpenHostInbox;
+  const isHostSharer = !auth.isBroker && auth.notLookingForRoommate === true && hasApartmentShareFlag;
+  const showHostInboxFab = !auth.isGuest && !auth.isBroker && !hideCreateFab && canOpenHostInbox && !isHostSharer;
 
   const detachSavedFilterSet = useCallback(() => {
     if (activeSavedSetId !== null) {
@@ -960,7 +980,8 @@ export default function ApartmentsScreen() {
     rentMax,
     minSqmPrice,
     maxSqmPrice,
-    cityQuery,
+    selectedCity,
+    areaQuery,
     sizeMin,
     sizeMax,
     petFriendly,
@@ -978,7 +999,7 @@ export default function ApartmentsScreen() {
     selectedAmenities,
     userHardCriteria,
     hasPolygon: polygonCoordinates.length >= 3,
-  }), [bathroomsMin, bedroomsMin, cityQuery, constructionYearMin, energyClasses, floors, furnishedStatus, heatingTypes, maxSqmPrice, minSqmPrice, nearMetro, petFriendly, polygonCoordinates.length, propertyCategories, propertyTypes, rentMax, rentMin, renovationYearMin, selectedAmenities, sizeMax, sizeMin, userHardCriteria]);
+  }), [areaQuery, bathroomsMin, bedroomsMin, constructionYearMin, energyClasses, floors, furnishedStatus, heatingTypes, maxSqmPrice, minSqmPrice, nearMetro, petFriendly, polygonCoordinates.length, propertyCategories, propertyTypes, rentMax, rentMin, renovationYearMin, selectedAmenities, selectedCity, sizeMax, sizeMin, userHardCriteria]);
 
   const removeActiveFilter = useCallback((key: string) => {
     const removeStringValue = (setter: React.Dispatch<React.SetStateAction<string[]>>, value: string) => {
@@ -995,7 +1016,10 @@ export default function ApartmentsScreen() {
       updateFilterValue<string>(setMinSqmPrice, "");
       updateFilterValue<string>(setMaxSqmPrice, "");
     } else if (key === "city") {
-      updateFilterValue<string>(setCityQuery, "");
+      cityFilterOverrideRef.current = true;
+      updateFilterValue<string>(setSelectedCity, "");
+    } else if (key === "area") {
+      updateFilterValue<string>(setAreaQuery, "");
     } else if (key === "bedrooms") {
       updateFilterValue<string>(setBedroomsMin, "");
     } else if (key === "bathrooms") {
@@ -1045,7 +1069,8 @@ export default function ApartmentsScreen() {
       rentMax: rentMax || undefined,
       minSqmPrice: minSqmPrice || undefined,
       maxSqmPrice: maxSqmPrice || undefined,
-      cityQuery: cityQuery || undefined,
+      selectedCity: selectedCity || undefined,
+      areaQuery: areaQuery || undefined,
       sizeMin: sizeMin || undefined,
       sizeMax: sizeMax || undefined,
       petFriendly,
@@ -1067,7 +1092,7 @@ export default function ApartmentsScreen() {
       polygonCoordinates: polygonCoordinates.length >= 3 ? polygonCoordinates : undefined,
       sortBy,
     }),
-    [bathroomsMin, bedroomsMin, cityQuery, constructionYearMin, energyClasses, filterSetTitle, floors, furnishedStatus, heatingTypes, maxSqmPrice, nearMetro, petFriendly, polygonCoordinates, propertyCategories, propertyTypes, rentMax, rentMin, renovationYearMin, selectedAmenities, showMatchScoreOnMap, sizeMax, sizeMin, sortBy, userHardCriteria, minSqmPrice],
+    [areaQuery, bathroomsMin, bedroomsMin, constructionYearMin, energyClasses, filterSetTitle, floors, furnishedStatus, heatingTypes, maxSqmPrice, minSqmPrice, nearMetro, petFriendly, polygonCoordinates, propertyCategories, propertyTypes, rentMax, rentMin, renovationYearMin, selectedAmenities, selectedCity, showMatchScoreOnMap, sizeMax, sizeMin, sortBy, userHardCriteria],
   );
 
   const savedFilterSetsRef = useMemo(() => auth.userId ? collection(db, "users", auth.userId, "savedFilterSets") : null, [auth.userId]);
@@ -1120,11 +1145,13 @@ export default function ApartmentsScreen() {
   }, [auth.userId, currentFilterSet, loadSavedFilterSets, savedFilterSetsRef, savingFilterSet]);
 
   const applySavedFilterSet = useCallback((savedSet: SavedFilterSet) => {
+    cityFilterOverrideRef.current = true;
     setRentMin(savedSet.rentMin ?? "");
     setRentMax(savedSet.rentMax ?? "");
     setMinSqmPrice(savedSet.minSqmPrice ?? "");
     setMaxSqmPrice(savedSet.maxSqmPrice ?? "");
-    setCityQuery(savedSet.cityQuery ?? "");
+    setSelectedCity(savedSet.selectedCity?.trim() || savedSet.cityQuery?.trim() || "");
+    setAreaQuery(savedSet.areaQuery ?? "");
     setSizeMin(savedSet.sizeMin ?? "");
     setSizeMax(savedSet.sizeMax ?? "");
     setPetFriendly(savedSet.petFriendly === true);
@@ -1313,7 +1340,9 @@ export default function ApartmentsScreen() {
         rentMax: rentMax || "",
         minSqmPrice: minSqmPrice || "",
         maxSqmPrice: maxSqmPrice || "",
-        cityQuery: cityQuery || "",
+        cityQuery: selectedCity || areaQuery || "",
+        selectedCity: selectedCity || "",
+        areaQuery: areaQuery || "",
         sizeMin: sizeMin || "",
         sizeMax: sizeMax || "",
         petFriendly: Boolean(petFriendly),
@@ -1344,7 +1373,7 @@ export default function ApartmentsScreen() {
         rentMax: rentMax || undefined,
         minSqmPrice: minSqmPrice || undefined,
         maxSqmPrice: maxSqmPrice || undefined,
-        cityQuery: cityQuery || undefined,
+        cityQuery: selectedCity || areaQuery || undefined,
         sizeMin: sizeMin || undefined,
         sizeMax: sizeMax || undefined,
         petFriendly: Boolean(petFriendly),
@@ -1393,17 +1422,19 @@ export default function ApartmentsScreen() {
     } finally {
       setSendingBrokerId(null);
     }
-  }, [auth.userId, availableBrokers, bathroomsMin, bedroomsMin, cityQuery, constructionYearMin, currentFilterSet, energyClasses, filterSetTitle, floors, furnishedStatus, heatingTypes, maxSqmPrice, minSqmPrice, nearMetro, petFriendly, polygonCoordinates, propertyCategories, propertyTypes, rentMax, rentMin, renovationYearMin, selectedAmenities, sendingBrokerId, showMatchScoreOnMap, sizeMax, sizeMin, sortBy]);
+  }, [areaQuery, auth.userId, availableBrokers, bathroomsMin, bedroomsMin, constructionYearMin, currentFilterSet, energyClasses, filterSetTitle, floors, furnishedStatus, heatingTypes, maxSqmPrice, minSqmPrice, nearMetro, petFriendly, polygonCoordinates, propertyCategories, propertyTypes, rentMax, rentMin, renovationYearMin, selectedCity, selectedAmenities, sendingBrokerId, showMatchScoreOnMap, sizeMax, sizeMin, sortBy]);
 
   useEffect(() => {
     if (typeof importedFilters !== "string" || !importedFilters.trim()) return;
     try {
       const imported = JSON.parse(importedFilters) as Partial<FilterSetPayload>;
+      cityFilterOverrideRef.current = true;
       setRentMin(imported.rentMin || "");
       setRentMax(imported.rentMax || "");
       setMinSqmPrice(imported.minSqmPrice || "");
       setMaxSqmPrice(imported.maxSqmPrice || "");
-      setCityQuery(imported.cityQuery || "");
+      setSelectedCity(imported.selectedCity?.trim() || imported.cityQuery?.trim() || "");
+      setAreaQuery(imported.areaQuery || "");
       setSizeMin(imported.sizeMin || "");
       setSizeMax(imported.sizeMax || "");
       setPetFriendly(imported.petFriendly === true);
@@ -1431,6 +1462,33 @@ export default function ApartmentsScreen() {
       // Ignore malformed imported filter payloads.
     }
   }, [importedFilters]);
+
+  useEffect(() => {
+    if (auth.isGuest || !auth.userId) {
+      profileCityLoadedForUserRef.current = null;
+      cityFilterOverrideRef.current = false;
+      return;
+    }
+    if (profileCityLoadedForUserRef.current === auth.userId) return;
+
+    profileCityLoadedForUserRef.current = auth.userId;
+    cityFilterOverrideRef.current = false;
+    if (typeof importedFilters === "string" && importedFilters.trim()) return;
+
+    let active = true;
+    void getUserProfile(auth.userId)
+      .then((profile) => {
+        const profileCity = profile?.city?.trim();
+        if (active && profileCity && !cityFilterOverrideRef.current) {
+          setSelectedCity(profileCity);
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      active = false;
+    };
+  }, [auth.isGuest, auth.userId, importedFilters]);
 
   useEffect(() => {
     if (typeof proposalApartmentIdsParam !== "string" || !proposalApartmentIdsParam.trim()) {
@@ -1734,6 +1792,7 @@ export default function ApartmentsScreen() {
                   rent: typeof data.rent === "number" ? data.rent : typeof data.price === "number" ? data.price : 0,
                   rooms: typeof data.rooms === "number" ? data.rooms : 1,
                   size: typeof data.size === "number" ? data.size : typeof data.sqft === "number" ? data.sqft : 0,
+                  maxRoommates: typeof data.maxRoommates === "number" ? data.maxRoommates : undefined,
                   createdAt: parseTimestampToMillis(data.createdAt),
                   image: resolvedImages[0] || "",
                   images: resolvedImages,
@@ -2127,7 +2186,8 @@ export default function ApartmentsScreen() {
     const minimumBathrooms = bathroomsMin ? Number(bathroomsMin) : null;
     const minimumConstructionYear = constructionYearMin ? Number(constructionYearMin) : null;
     const minimumRenovationYear = renovationYearMin ? Number(renovationYearMin) : null;
-    const locationQuery = cityQuery.trim().toLowerCase();
+    const normalizedSelectedCity = normalizeText(selectedCity);
+    const normalizedAreaQuery = normalizeText(areaQuery);
     const normalizedSearch = normalizeText(searchQuery);
     const currentUid = auth.userId;
 
@@ -2195,10 +2255,8 @@ export default function ApartmentsScreen() {
         if (!isPointInPolygon({ latitude: apt.latitude!, longitude: apt.longitude! }, polygonCoordinates)) return false;
       }
 
-      const cityMatch =
-        locationQuery.length === 0 ||
-        apt.city.toLowerCase().includes(locationQuery) ||
-        apt.area.toLowerCase().includes(locationQuery);
+      const cityMatch = normalizedSelectedCity.length === 0 || normalizeText(apt.city) === normalizedSelectedCity;
+      const areaMatch = normalizedAreaQuery.length === 0 || normalizeText(apt.area).includes(normalizedAreaQuery);
       const rentMatch =
         (minRent == null || apt.rent >= minRent) &&
         (maxRent == null || apt.rent <= maxRent);
@@ -2230,7 +2288,7 @@ export default function ApartmentsScreen() {
       if (!Number.isNaN(minSqm) && sqmPrice < minSqm) return false;
       if (!Number.isNaN(maxSqm) && sqmPrice > maxSqm) return false;
 
-      return cityMatch && rentMatch && sizeMatch && petMatch && metroMatch && typeMatch && categoryMatch && floorMatch && bedroomsMatch && bathroomsMatch && furnishedMatch && heatingMatch && energyMatch && constructionMatch && renovationMatch && amenitiesMatch;
+      return cityMatch && areaMatch && rentMatch && sizeMatch && petMatch && metroMatch && typeMatch && categoryMatch && floorMatch && bedroomsMatch && bathroomsMatch && furnishedMatch && heatingMatch && energyMatch && constructionMatch && renovationMatch && amenitiesMatch;
     });
 
     if (!normalizedSearch) return baseFiltered;
@@ -2267,7 +2325,7 @@ export default function ApartmentsScreen() {
     auth.userId,
     bathroomsMin,
     bedroomsMin,
-    cityQuery,
+    areaQuery,
     constructionYearMin,
     energyClasses,
     floors,
@@ -2283,6 +2341,7 @@ export default function ApartmentsScreen() {
     rentMax,
     rentMin,
     searchQuery,
+    selectedCity,
     selectedBrokerFilter,
     selectedAgency,
     agencyBrokerIds,
@@ -2471,7 +2530,7 @@ export default function ApartmentsScreen() {
           </View>
           </View>
         </Animated.View>
-        <View style={styles.morphingRowContainer}>
+        <View style={[styles.morphingRowContainer, isHeaderCollapsed && activeFilterChips.length === 0 && styles.morphingRowContainerEmpty]}>
           <Animated.View
             pointerEvents={isHeaderCollapsed ? "none" : "auto"}
             style={[styles.actionButtonsRow, { opacity: actionButtonsOpacity }]}
@@ -2900,14 +2959,38 @@ export default function ApartmentsScreen() {
               />
             </View>
 
-            <Text style={styles.filterLabel}>{t("apartments.areaCity")}</Text>
+            <Text style={styles.filterLabel}>Πόλη</Text>
+            <Pressable
+              style={styles.sortSelectionBar}
+              onPress={() => setCityPickerVisible(true)}
+              testID="apartments-city-filter"
+            >
+              <Text style={styles.sortSelectionText}>{selectedCity || "Όλες οι πόλεις"}</Text>
+              {selectedCity ? (
+                <Pressable
+                  onPress={(event) => {
+                    event.stopPropagation();
+                    cityFilterOverrideRef.current = true;
+                    updateFilterValue<string>(setSelectedCity, "");
+                  }}
+                  hitSlop={8}
+                  testID="apartments-city-filter-clear"
+                >
+                  <Ionicons name="close-circle" size={18} color={colors.onSurfaceTertiary} />
+                </Pressable>
+              ) : (
+                <Ionicons name="chevron-down" size={18} color={colors.onSurfaceTertiary} />
+              )}
+            </Pressable>
+
+            <Text style={styles.filterLabel}>Περιοχή / Γειτονιά</Text>
             <TextInput
               style={styles.singleInput}
-              value={cityQuery}
-              onChangeText={(value) => updateFilterValue(setCityQuery, value)}
-              placeholder={t("apartments.cityPlaceholder")}
+              value={areaQuery}
+              onChangeText={(value) => updateFilterValue(setAreaQuery, value)}
+              placeholder="π.χ. Κυψέλη, Τούμπα"
               placeholderTextColor={colors.onSurfaceTertiary}
-              testID="apartments-city-filter"
+              testID="apartments-area-filter"
             />
 
             <Text style={styles.filterLabel}>{t("apartments.squareMeters")}</Text>
@@ -3272,6 +3355,61 @@ export default function ApartmentsScreen() {
       />
 
       <Modal
+        visible={cityPickerVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCityPickerVisible(false)}
+      >
+        <View style={styles.filterHistoryBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setCityPickerVisible(false)} />
+          <View style={styles.filterHistoryCard} testID="apartments-city-picker-modal">
+            <View style={styles.filterHistoryHeader}>
+              <Text style={styles.filterHistoryTitle}>Πόλη</Text>
+              <Pressable
+                style={styles.filterHistoryCloseButton}
+                onPress={() => setCityPickerVisible(false)}
+                testID="apartments-city-picker-close"
+              >
+                <Ionicons name="close-outline" size={22} color={colors.onSurface} />
+              </Pressable>
+            </View>
+            <ScrollView style={styles.filterHistoryList} contentContainerStyle={styles.filterHistoryListContent}>
+              <Pressable
+                style={styles.sortOptionRow}
+                onPress={() => {
+                  cityFilterOverrideRef.current = true;
+                  updateFilterValue<string>(setSelectedCity, "");
+                  setCityPickerVisible(false);
+                }}
+                testID="apartments-city-option-all"
+              >
+                <Text style={[styles.sortOptionText, !selectedCity && styles.sortOptionTextActive]}>Όλες οι πόλεις</Text>
+                {!selectedCity ? <Ionicons name="checkmark" size={18} color={colors.brand} /> : null}
+              </Pressable>
+              {cities.map((city) => {
+                const isSelected = city === selectedCity;
+                return (
+                  <Pressable
+                    key={city}
+                    style={styles.sortOptionRow}
+                    onPress={() => {
+                      cityFilterOverrideRef.current = true;
+                      updateFilterValue<string>(setSelectedCity, city);
+                      setCityPickerVisible(false);
+                    }}
+                    testID={`apartments-city-option-${city}`}
+                  >
+                    <Text style={[styles.sortOptionText, isSelected && styles.sortOptionTextActive]}>{city}</Text>
+                    {isSelected ? <Ionicons name="checkmark" size={18} color={colors.brand} /> : null}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
         visible={showOnlyModalType !== null}
         transparent
         animationType="fade"
@@ -3504,8 +3642,13 @@ export default function ApartmentsScreen() {
                     <Text style={styles.filterPreviewValue}>{`${selectedSetForPreview.minSqmPrice || "0"} - ${selectedSetForPreview.maxSqmPrice || "∞"} €/m²`}</Text>
                   </View>
                   <View style={styles.filterPreviewPill}>
-                    <Text style={styles.filterPreviewLabel}>Περιοχή / Πόλη</Text>
-                    <Text style={styles.filterPreviewValue}>{selectedSetForPreview.cityQuery?.trim() || "Όλες οι περιοχές"}</Text>
+                    <Text style={styles.filterPreviewLabel}>Πόλη / Περιοχή</Text>
+                    <Text style={styles.filterPreviewValue}>
+                      {[
+                        selectedSetForPreview.selectedCity?.trim() || selectedSetForPreview.cityQuery?.trim(),
+                        selectedSetForPreview.areaQuery?.trim(),
+                      ].filter(Boolean).join(" · ") || "Όλες οι περιοχές"}
+                    </Text>
                   </View>
                   <View style={styles.filterPreviewPill}>
                     <Text style={styles.filterPreviewLabel}>Εμβαδόν</Text>
@@ -3706,6 +3849,10 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     height: 42,
     position: "relative",
     justifyContent: "center",
+  },
+  morphingRowContainerEmpty: {
+    height: 0,
+    overflow: "hidden",
   },
   actionButtonsRow: {
     width: "100%",

@@ -207,6 +207,7 @@ interface Apartment {
   maxDiscountPercent?: number;
   rooms: number;
   size: number;
+  maxRoommates?: number;
   image: string;
   tags: string[];
   amenities?: string[];
@@ -252,6 +253,7 @@ interface FirestoreApartmentDoc {
   maxDiscountPercent?: number;
   rooms?: number;
   size?: number;
+  maxRoommates?: number;
   sqft?: number;
   image?: string;
   imageUrl?: string;
@@ -745,6 +747,7 @@ export default function ApartmentDetailScreen() {
   const [resolvedExtraDetails, setResolvedExtraDetails] = useState<Record<string, boolean> | null>(null);
   const [resolvedExtraInformation, setResolvedExtraInformation] = useState<ListingExtraInformation | null>(null);
   const [resolvedRooms, setResolvedRooms] = useState<number | null>(null);
+  const [resolvedMaxRoommates, setResolvedMaxRoommates] = useState<number | null>(null);
   const [resolvedFloor, setResolvedFloor] = useState<string | null>(null);
   const [resolvedPropertyCategory, setResolvedPropertyCategory] = useState<string | null>(null);
   const [resolvedPropertyType, setResolvedPropertyType] = useState<string | null>(null);
@@ -1664,6 +1667,11 @@ export default function ApartmentDetailScreen() {
         }
 
         setResolvedRooms(typeof docData.rooms === "number" && Number.isFinite(docData.rooms) ? Math.max(1, Math.trunc(docData.rooms)) : null);
+        setResolvedMaxRoommates(
+          typeof docData.maxRoommates === "number" && Number.isFinite(docData.maxRoommates)
+            ? Math.max(0, Math.trunc(docData.maxRoommates))
+            : null,
+        );
         setResolvedFloor(typeof docData.floor === "string" && docData.floor.trim().length > 0 ? docData.floor.trim() : null);
         setResolvedPropertyCategory(
           typeof docData.propertyCategory === "string" && docData.propertyCategory.trim().length > 0
@@ -2299,6 +2307,7 @@ export default function ApartmentDetailScreen() {
     String(entry).toLowerCase().trim(),
   );
   const displayRooms = resolvedRooms ?? apt.rooms;
+  const displayMaxRoommates = resolvedMaxRoommates ?? apt.maxRoommates;
   const displayFloor = resolvedFloor ?? (apt.floor?.trim() || "");
   const displayPropertyCategory = resolvedPropertyCategory ?? (apt.propertyCategory?.trim() || "");
   const displayPropertyType = resolvedPropertyType ?? (apt.propertyType?.trim() || "");
@@ -2999,6 +3008,12 @@ export default function ApartmentDetailScreen() {
               <View style={styles.statPill}>
                 <Ionicons color={colors.onBrandTertiary} name="layers-outline" size={14} />
                 <Text style={styles.statText}>{displayFloor}</Text>
+              </View>
+            ) : null}
+            {typeof displayMaxRoommates === "number" && displayMaxRoommates > 0 ? (
+              <View style={styles.statPill}>
+                <Ionicons color={colors.onBrandTertiary} name="people-outline" size={14} />
+                <Text style={styles.statText}>{`${displayMaxRoommates} ${displayMaxRoommates === 1 ? "άτομο" : "άτομα"}`}</Text>
               </View>
             ) : null}
           </View>
