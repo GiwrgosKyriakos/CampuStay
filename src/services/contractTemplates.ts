@@ -95,6 +95,7 @@ export interface AssignmentMandateVariables extends ContractAuditVariables, Agen
 }
 
 export interface RoommateAgreementVariables extends ContractAuditVariables {
+  parties: RoommateAgreementParty[];
   documentId: string;
   signingDateTime: string;
   propertyCity: string;
@@ -144,6 +145,20 @@ export interface RoommateAgreementVariables extends ContractAuditVariables {
   roommate2Ip: string;
   roommate1SignatureImage: string;
   roommate2SignatureImage: string;
+}
+
+export interface RoommateAgreementParty {
+  label: string;
+  name: string;
+  idCardNumber: string;
+  afm: string;
+  phone: string;
+  email: string;
+  address: string;
+  signatureImage: string;
+  gps: string;
+  otpId: string;
+  ip: string;
 }
 
 export interface HoldingDepositVariables extends ContractAuditVariables {
@@ -234,12 +249,29 @@ function signatureImage(value: string): string {
     : `<div class="signature-empty">Χώρος ψηφιακής υπογραφής</div>`;
 }
 
-function table(rows: Array<[string, string]>, className = ""): string {
+function table(rows: [string, string][], className = ""): string {
   return `<table class="${escapeHtml(className)}"><tbody>${rows.map(([label, value]) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value)}</td></tr>`).join("")}</tbody></table>`;
 }
 
 function propertyTable(headers: string[], values: string[]): string {
   return `<table class="property-table"><thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead><tbody><tr>${values.map((value) => `<td>${escapeHtml(value)}</td>`).join("")}</tr></tbody></table>`;
+}
+
+function roommateComparisonTables(parties: RoommateAgreementParty[]): string {
+  const attributes: [string, (party: RoommateAgreementParty) => string][] = [
+    ["Ονοματεπώνυμο", (party) => party.name],
+    ["Α.Δ.Τ. / Αρ. Διαβατηρίου", (party) => party.idCardNumber],
+    ["Α.Φ.Μ.", (party) => party.afm],
+    ["Τηλέφωνο Επικοινωνίας", (party) => party.phone],
+    ["Email", (party) => party.email],
+    ["Διεύθυνση Μόνιμης Κατοικίας", (party) => party.address],
+  ];
+  const tables: string[] = [];
+  for (let index = 0; index < parties.length; index += 2) {
+    const pair = parties.slice(index, index + 2);
+    tables.push(`<table class="comparison-table"><thead><tr><th scope="col">Κατηγορία / Στοιχείο</th>${pair.map((party) => `<th scope="col">${escapeHtml(party.label)}</th>`).join("")}</tr></thead><tbody>${attributes.map(([label, getValue]) => `<tr><th scope="row">${escapeHtml(label)}</th>${pair.map((party) => `<td>${escapeHtml(getValue(party))}</td>`).join("")}</tr>`).join("")}</tbody></table>`);
+  }
+  return tables.join("");
 }
 
 function section(title: string, content: string): string {
@@ -250,12 +282,12 @@ function numbered(items: string[]): string {
   return `<ol>${items.map((item) => `<li>${item}</li>`).join("")}</ol>`;
 }
 
-function partiesTable(leftTitle: string, left: Array<[string, string]>, rightTitle: string, right: Array<[string, string]>): string {
-  const render = (title: string, rows: Array<[string, string]>) => `<div class="party"><h3>${escapeHtml(title)}</h3>${table(rows)}</div>`;
+function partiesTable(leftTitle: string, left: [string, string][], rightTitle: string, right: [string, string][]): string {
+  const render = (title: string, rows: [string, string][]) => `<div class="party"><h3>${escapeHtml(title)}</h3>${table(rows)}</div>`;
   return `<div class="party-grid">${render(leftTitle, left)}${render(rightTitle, right)}</div>`;
 }
 
-function auditFooter(audit: ContractAuditVariables, extraRows: Array<[string, string]> = []): string {
+function auditFooter(audit: ContractAuditVariables, extraRows: [string, string][] = []): string {
   return `<footer class="audit"><h2>Τεχνικά στοιχεία ψηφιακής υπογραφής &amp; eIDAS compliance</h2><p>Το έγγραφο καταρτίστηκε και υπεγράφη ηλεκτρονικά. Τα παρακάτω στοιχεία αποτελούν το audit trail της διαδικασίας και αποτυπώνουν την ακεραιότητα και την ιχνηλασιμότητα του εγγράφου.</p>${table([
     ["Χρονοσήμανση συστήματος (Server Timestamp)", audit.signingDateTime],
     ["Συντεταγμένες Γεωεντοπισμού (GPS)", audit.signingGpsCoordinates],
@@ -266,7 +298,7 @@ function auditFooter(audit: ContractAuditVariables, extraRows: Array<[string, st
   ])}</footer>`;
 }
 
-function signatureGrid(columns: Array<{ title: string; image: string; name: string; afm?: string }>): string {
+function signatureGrid(columns: { title: string; image: string; name: string; afm?: string }[]): string {
   return `<section class="signatures"><h2>Οι συμβαλλόμενοι</h2><div class="signature-grid">${columns.map((column) => `<div class="signature-box"><strong>${escapeHtml(column.title)}</strong>${signatureImage(column.image)}<span class="signature-caption">Ψηφιακή υπογραφή επί οθόνης</span><b>${escapeHtml(column.name)}</b>${column.afm ? `<span>Α.Φ.Μ.: ${escapeHtml(column.afm)}</span>` : ""}</div>`).join("")}</div></section>`;
 }
 
@@ -292,6 +324,11 @@ function documentHtml(title: string, documentId: string, signingDateTime: string
     .property-table { table-layout: fixed; font-size: 9px; }
     .property-table th { width: auto; text-align: center; }
     .property-table td { word-break: break-word; }
+    .comparison-table { table-layout: fixed; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 9px; }
+    .comparison-table th, .comparison-table td { padding: 8px 12px; border: 1px solid #e2e8f0; overflow-wrap: anywhere; word-break: break-word; }
+    .comparison-table thead th { width: auto; background: #e8f1f2; color: #123e49; font-weight: 700; }
+    .comparison-table thead th:first-child { width: 30%; }
+    .comparison-table tbody th { width: 30%; background: #f6f8f8; font-weight: 700; }
     .party-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
     .party { border: 1px solid #c7d2d5; padding: 7px; }
     .party table { font-size: 9px; }
@@ -311,7 +348,7 @@ function documentHtml(title: string, documentId: string, signingDateTime: string
   </style></head><body><main class="page"><header class="masthead"><div class="eyebrow">CampusStay · Νομικό έγγραφο</div><h1>${escapeHtml(title)}</h1><div class="meta">Αριθμός εγγράφου: ${escapeHtml(documentId)} · Ημερομηνία &amp; ώρα: ${escapeHtml(signingDateTime)} · Τόπος: ${escapeHtml(city)}</div></header>${body}</main></body></html>`;
 }
 
-function agencyRows(variables: AgencyLegalVariables): Array<[string, string]> {
+function agencyRows(variables: AgencyLegalVariables): [string, string][] {
   return [
     ["Επωνυμία / Διακριτικός τίτλος", `${variables.agencyName} (${variables.agencyLegalForm})`],
     ["Έδρα", variables.agencyAddress],
@@ -374,10 +411,12 @@ export function generateAssignmentMandateHtml(variables: AssignmentMandateVariab
 }
 
 export function generateRoommateAgreementHtml(variables: RoommateAgreementVariables): string {
-  const body = `${section("1. Συμβαλλόμενα μέρη (οι συγκάτοικοι)", partiesTable(
-    "Α. Ο/Η πρώτος/-η συγκάτοικος", [["Ονοματεπώνυμο", variables.roommate1Name], ["Όνομα πατρός", variables.roommate1FatherName], ["Α.Δ.Τ. / Διαβατήριο", variables.roommate1Adt], ["Α.Φ.Μ. / Δ.Ο.Υ.", `${variables.roommate1Afm} · ${variables.roommate1Doy}`], ["Τηλέφωνο / Email", `${variables.roommate1Phone} · ${variables.roommate1Email}`]],
-    "Β. Ο/Η δεύτερος/-η συγκάτοικος", [["Ονοματεπώνυμο", variables.roommate2Name], ["Όνομα πατρός", variables.roommate2FatherName], ["Α.Δ.Τ. / Διαβατήριο", variables.roommate2Adt], ["Α.Φ.Μ. / Δ.Ο.Υ.", `${variables.roommate2Afm} · ${variables.roommate2Doy}`], ["Τηλέφωνο / Email", `${variables.roommate2Phone} · ${variables.roommate2Email}`]],
-  ))}<p><b>Επιπλέον συμβαλλόμενοι:</b> ${escapeHtml(variables.roommateExtraParties)}</p>
+  const parties = variables.parties.length > 0 ? variables.parties : [
+    { label: "Συγκάτοικος 1", name: variables.roommate1Name, idCardNumber: variables.roommate1Adt, afm: variables.roommate1Afm, phone: variables.roommate1Phone, email: variables.roommate1Email, address: "Δεν έχει συμπληρωθεί", signatureImage: variables.roommate1SignatureImage, gps: variables.roommate1Gps, otpId: variables.roommate1OtpId, ip: variables.roommate1Ip },
+    { label: "Συγκάτοικος 2", name: variables.roommate2Name, idCardNumber: variables.roommate2Adt, afm: variables.roommate2Afm, phone: variables.roommate2Phone, email: variables.roommate2Email, address: "Δεν έχει συμπληρωθεί", signatureImage: variables.roommate2SignatureImage, gps: variables.roommate2Gps, otpId: variables.roommate2OtpId, ip: variables.roommate2Ip },
+  ];
+  const partyAuditRows = parties.flatMap((party) => [[`GPS ${party.label}`, party.gps], [`OTP ID ${party.label}`, party.otpId], [`IP τερματικού ${party.label}`, party.ip]] as [string, string][]);
+  const body = `${section("1. Συμβαλλόμενα μέρη (οι συγκάτοικοι)", roommateComparisonTables(parties))}
   ${section("2. Στοιχεία ακινήτου & κατανομή χώρων", `<p>Οι συμβαλλόμενοι συνοικούν στο μίσθιο επί της διεύθυνσης <b>${escapeHtml(variables.propertyAddress)}</b>, περιοχή ${escapeHtml(variables.propertyArea)}, όροφος ${escapeHtml(variables.propertyFloor)}, επιφάνεια ${escapeHtml(variables.propertySqm)} τ.μ. (κωδικός ${escapeHtml(variables.propertyCode)}).</p>${table([[`Ιδιωτικός χώρος ${variables.roommate1Name}`, variables.roommate1RoomDesc], [`Ιδιωτικός χώρος ${variables.roommate2Name}`, variables.roommate2RoomDesc], ["Κοινόχρηστοι χώροι", "Σαλόνι, κουζίνα, διάδρομοι, λουτρά και εξώστες, με ισότιμη χρήση από όλους."]])}`)}
   ${section("3. Οικονομικοί όροι & επιμερισμός δαπανών", table([["Συνολικό μηνιαίο μίσθωμα", `${variables.totalMonthlyRent} €`], [variables.roommate1Name, `${variables.roommate1RentShare} € / μήνα`], [variables.roommate2Name, `${variables.roommate2RentShare} € / μήνα`], ["Ημέρα καταβολής", `${variables.rentPaymentDayOfMonth}η ημέρα κάθε μήνα`], ["Συνολική εγγύηση", `${variables.totalSecurityDeposit} €`], [`Μερίδιο εγγύησης ${variables.roommate1Name}`, `${variables.roommate1DepositShare} €`], [`Μερίδιο εγγύησης ${variables.roommate2Name}`, `${variables.roommate2DepositShare} €`], ["Κοινόχρηστα / λογαριασμοί", `${variables.utilitiesSplitMode}. Εξόφληση εντός ${variables.billsPaymentDeadlineDays} ημερών.`]]))}
   ${section("4. Κανόνες σπιτιού & συμβίωσης", numbered([
@@ -388,8 +427,8 @@ export function generateRoommateAgreementHtml(variables: RoommateAgreementVariab
   ]))}
   ${section("5. Αποχώρηση συγκατοίκου & αντικατάσταση", numbered([`Πρόωρη αποχώρηση απαιτεί έγγραφη ενημέρωση ${escapeHtml(variables.departureNoticeDays)} ημέρες νωρίτερα.`, "Ο αποχωρών προτείνει αντικαταστάτη αποδεκτό από τους υπόλοιπους και τον ιδιοκτήτη, διαφορετικά παραμένει υπεύθυνος για το μερίδιό του.", "Το μερίδιο εγγύησης αποδίδεται από τον νέο συγκάτοικο ή από την εκκαθάριση της μίσθωσης, μετά την αφαίρεση οφειλών ή ζημιών."]))}
   ${section("6. Προσωπικά δεδομένα (GDPR)", `<p>Οι συμβαλλόμενοι συναινούν στην επεξεργασία των στοιχείων τους από την πλατφόρμα CampusStay αποκλειστικά για τη διαχείριση της συγκατοίκησης, των κοινών εξόδων και του παρόντος συμφωνητικού.</p>`)}
-  ${signatureGrid([{ title: "Ο/Η 1ος συγκάτοικος", image: variables.roommate1SignatureImage, name: variables.roommate1Name, afm: variables.roommate1Afm }, { title: "Ο/Η 2ος συγκάτοικος", image: variables.roommate2SignatureImage, name: variables.roommate2Name, afm: variables.roommate2Afm }])}
-  ${auditFooter(variables, [["GPS 1ου συγκατοίκου", variables.roommate1Gps], ["GPS 2ου συγκατοίκου", variables.roommate2Gps], ["OTP ID 1ου συγκατοίκου", variables.roommate1OtpId], ["OTP ID 2ου συγκατοίκου", variables.roommate2OtpId], ["IP τερματικού 1ου / 2ου", `${variables.roommate1Ip} / ${variables.roommate2Ip}`]])}`;
+  ${signatureGrid(parties.map((party) => ({ title: party.label, image: party.signatureImage, name: party.name, afm: party.afm })))}
+  ${auditFooter(variables, partyAuditRows)}`;
   return documentHtml("Ιδιωτικό Συμφωνητικό Συγκατοίκησης & Εσωτερικός Κανονισμός", variables.documentId, variables.signingDateTime, variables.propertyCity, body);
 }
 
@@ -493,9 +532,76 @@ function buildAssignment(data: ContractTemplateData): AssignmentMandateVariables
   return { ...a, ...audit(data, owner), documentId: data.document.id, signingDateTime: dateTime(data.document.createdAt), propertyCity: p.city, assignmentType: payload.assignmentMode === "exclusive" ? "Αποκλειστική" : "Μη Αποκλειστική - Απλή", brokerName: text(broker.signerName), ownerName: text(owner.signerName || ownerParty.fullName), ownerFatherName: field(payload, "ownerFatherName"), ownerAdt: text(owner.signerIdCardNumber || ownerParty.idCardNumber), ownerAfm: text(owner.signerAfm || ownerParty.afm), ownerDoy: field(payload, "ownerDoy"), ownerAddress: field(payload, "ownerAddress"), ownerPhone: text(owner.signerPhone || ownerParty.phone), ownerEmail: text(owner.signerEmail || ownerParty.email), ownershipPercentage: field(payload, "ownershipPercentage", "100"), transactionType: field(payload, "transactionType", "πώληση / εκμίσθωση"), propertyCode: p.code, propertyAddress: p.address, propertyArea: p.area, propertyFloor: p.floor, propertyType: p.type, propertySqm: p.sqm, propertyKaek: field(payload, "propertyKaek"), askingPrice: amount(payload.agreedListingPrice ?? p.price), minAcceptablePrice: amount(payload.minAcceptablePrice), storageSqm: field(payload, "storageSqm"), parkingSlot: field(payload, "parkingSlot"), assignmentDurationMonths: text(payload.durationMonths ?? 6), expirationDate: field(payload, "expirationDate"), commissionRate: text(payload.commissionRatePercentage ?? 2), commissionAmount: amount(payload.commissionAmountCalculated ?? totals.commission), vatRate: "24", totalCommissionWithVat: amount(totals.totalPayable), brokerSignatureImage: broker.signatureBase64, ownerSignatureImage: owner.signatureBase64 };
 }
 
+function optionalString(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  }
+  return "";
+}
+
+function objectRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function buildRoommateParties(data: ContractTemplateData): RoommateAgreementParty[] {
+  const payload = data.document.contractPayload;
+  const rawSources = Array.isArray(payload.parties) ? payload.parties : Array.isArray(payload.roommates) ? payload.roommates : [];
+  const sources = rawSources.map(objectRecord);
+  const sourceFor = (id: string) => sources.find((source) => optionalString(source.id, source.participantId, source.signerId) === id) ?? {};
+  const participants = data.participants.filter((entry) => entry.role !== "broker");
+  const participantEntries = participants.length > 0
+    ? participants.map((entry) => ({
+      id: entry.id,
+      name: entry.fullName,
+      afm: entry.afm,
+      idCardNumber: entry.idCardNumber,
+      phone: entry.phone,
+      email: entry.email,
+    }))
+    : data.document.signers.filter((entry) => entry.signerRole !== "broker").map((entry) => ({
+      id: entry.signerId,
+      name: entry.signerName,
+      afm: entry.signerAfm,
+      idCardNumber: entry.signerIdCardNumber,
+      phone: entry.signerPhone,
+      email: entry.signerEmail,
+    }));
+  const knownIds = new Set(participantEntries.map((entry) => entry.id));
+  const payloadEntries = sources
+    .map((source) => ({
+      id: optionalString(source.id, source.participantId, source.signerId),
+      name: optionalString(source.name, source.fullName),
+      afm: optionalString(source.afm, source.taxNumber),
+      idCardNumber: optionalString(source.idCardNumber, source.idCard, source.passportNumber),
+      phone: optionalString(source.phone, source.phoneNumber),
+      email: optionalString(source.email),
+    }))
+    .filter((entry) => entry.id && !knownIds.has(entry.id));
+  const entries = [...participantEntries, ...payloadEntries];
+
+  return entries.map((entry, index) => {
+    const evidence = data.document.signers.find((signerEntry) => signerEntry.signerId === entry.id);
+    const source = sourceFor(entry.id);
+    return {
+      label: `Συγκάτοικος ${index + 1}`,
+      name: text(optionalString(evidence?.signerName, entry.name, source.name, source.fullName)),
+      idCardNumber: text(optionalString(evidence?.signerIdCardNumber, entry.idCardNumber, source.idCardNumber, source.idCard, source.passportNumber)),
+      afm: text(optionalString(evidence?.signerAfm, entry.afm, source.afm, source.taxNumber)),
+      phone: text(optionalString(evidence?.signerPhone, entry.phone, source.phone, source.phoneNumber)),
+      email: text(optionalString(evidence?.signerEmail, entry.email, source.email)),
+      address: text(optionalString(source.address, source.permanentAddress, source.homeAddress)),
+      signatureImage: evidence?.signatureBase64 ?? "",
+      gps: evidence ? gps(evidence) : "Δεν έχει καταγραφεί",
+      otpId: evidence?.otpVerificationId || evidence?.evidenceId || "Δεν εφαρμόζεται",
+      ip: evidence?.ipAddress || "Δεν έχει καταγραφεί",
+    };
+  });
+}
+
 function buildRoommate(data: ContractTemplateData): RoommateAgreementVariables {
   const p = commonProperty(data); const payload = data.document.contractPayload; const first = signer(data, "roommate", 0); const second = signer(data, "roommate", 1); const firstParty = participant(data, "roommate", 0); const secondParty = participant(data, "roommate", 1); const split = payload.utilitySplitPercentages ?? {}; const rules = payload.houseRulesConfig; const rulesObject = rules && typeof rules === "object" ? rules : {};
-  return { ...audit(data, first), documentId: data.document.id, signingDateTime: dateTime(data.document.createdAt), propertyCity: p.city, roommate1Name: text(first.signerName || firstParty.fullName), roommate1FatherName: field(payload, "roommate1FatherName"), roommate1Adt: text(first.signerIdCardNumber || firstParty.idCardNumber), roommate1Afm: text(first.signerAfm || firstParty.afm), roommate1Doy: field(payload, "roommate1Doy"), roommate1Phone: text(first.signerPhone || firstParty.phone), roommate1Email: text(first.signerEmail || firstParty.email), roommate2Name: text(second.signerName || secondParty.fullName), roommate2FatherName: field(payload, "roommate2FatherName"), roommate2Adt: text(second.signerIdCardNumber || secondParty.idCardNumber), roommate2Afm: text(second.signerAfm || secondParty.afm), roommate2Doy: field(payload, "roommate2Doy"), roommate2Phone: text(second.signerPhone || secondParty.phone), roommate2Email: text(second.signerEmail || secondParty.email), roommateExtraParties: field(payload, "roommateExtraParties"), propertyAddress: p.address, propertyArea: p.area, propertyFloor: p.floor, propertySqm: p.sqm, propertyCode: p.code, roommate1RoomDesc: field(payload, "roommate1RoomDesc"), roommate2RoomDesc: field(payload, "roommate2RoomDesc"), totalMonthlyRent: amount(payload.monthlyRentOrPrice), roommate1RentShare: amount(payload.roommate1RentShare), roommate2RentShare: amount(payload.roommate2RentShare), rentPaymentDayOfMonth: field(payload, "rentPaymentDayOfMonth", "1"), totalSecurityDeposit: amount(payload.holdingDepositTerms?.amount), roommate1DepositShare: amount(payload.roommate1DepositShare), roommate2DepositShare: amount(payload.roommate2DepositShare), utilitiesSplitMode: `${text(split[first.signerId], "50")}% / ${text(split[second.signerId], "50")}%`, billsPaymentDeadlineDays: field(payload, "billsPaymentDeadlineDays", "7"), quietHoursStart: field(payload, "quietHoursStart", "23:00"), cleaningSchedule: text(rulesObject.cleaningSchedule), maxGuestOvernightDays: field(payload, "maxGuestOvernightDays", "3"), smokingPolicy: field(payload, "smokingPolicy"), petPolicy: field(payload, "petPolicy"), petPolicyTerms: field(payload, "petPolicyTerms"), departureNoticeDays: field(payload, "departureNoticeDays", "30"), roommate1Gps: gps(first), roommate2Gps: gps(second), roommate1OtpId: first.otpVerificationId || first.evidenceId || "Δεν εφαρμόζεται", roommate2OtpId: second.otpVerificationId || second.evidenceId || "Δεν εφαρμόζεται", roommate1Ip: first.ipAddress || "Δεν έχει καταγραφεί", roommate2Ip: second.ipAddress || "Δεν έχει καταγραφεί", roommate1SignatureImage: first.signatureBase64, roommate2SignatureImage: second.signatureBase64 };
+  return { ...audit(data, first), parties: buildRoommateParties(data), documentId: data.document.id, signingDateTime: dateTime(data.document.createdAt), propertyCity: p.city, roommate1Name: text(first.signerName || firstParty.fullName), roommate1FatherName: field(payload, "roommate1FatherName"), roommate1Adt: text(first.signerIdCardNumber || firstParty.idCardNumber), roommate1Afm: text(first.signerAfm || firstParty.afm), roommate1Doy: field(payload, "roommate1Doy"), roommate1Phone: text(first.signerPhone || firstParty.phone), roommate1Email: text(first.signerEmail || firstParty.email), roommate2Name: text(second.signerName || secondParty.fullName), roommate2FatherName: field(payload, "roommate2FatherName"), roommate2Adt: text(second.signerIdCardNumber || secondParty.idCardNumber), roommate2Afm: text(second.signerAfm || secondParty.afm), roommate2Doy: field(payload, "roommate2Doy"), roommate2Phone: text(second.signerPhone || secondParty.phone), roommate2Email: text(second.signerEmail || secondParty.email), roommateExtraParties: field(payload, "roommateExtraParties"), propertyAddress: p.address, propertyArea: p.area, propertyFloor: p.floor, propertySqm: p.sqm, propertyCode: p.code, roommate1RoomDesc: field(payload, "roommate1RoomDesc"), roommate2RoomDesc: field(payload, "roommate2RoomDesc"), totalMonthlyRent: amount(payload.monthlyRentOrPrice), roommate1RentShare: amount(payload.roommate1RentShare), roommate2RentShare: amount(payload.roommate2RentShare), rentPaymentDayOfMonth: field(payload, "rentPaymentDayOfMonth", "1"), totalSecurityDeposit: amount(payload.holdingDepositTerms?.amount), roommate1DepositShare: amount(payload.roommate1DepositShare), roommate2DepositShare: amount(payload.roommate2DepositShare), utilitiesSplitMode: `${text(split[first.signerId], "50")}% / ${text(split[second.signerId], "50")}%`, billsPaymentDeadlineDays: field(payload, "billsPaymentDeadlineDays", "7"), quietHoursStart: field(payload, "quietHoursStart", "23:00"), cleaningSchedule: text(rulesObject.cleaningSchedule), maxGuestOvernightDays: field(payload, "maxGuestOvernightDays", "3"), smokingPolicy: field(payload, "smokingPolicy"), petPolicy: field(payload, "petPolicy"), petPolicyTerms: field(payload, "petPolicyTerms"), departureNoticeDays: field(payload, "departureNoticeDays", "30"), roommate1Gps: gps(first), roommate2Gps: gps(second), roommate1OtpId: first.otpVerificationId || first.evidenceId || "Δεν εφαρμόζεται", roommate2OtpId: second.otpVerificationId || second.evidenceId || "Δεν εφαρμόζεται", roommate1Ip: first.ipAddress || "Δεν έχει καταγραφεί", roommate2Ip: second.ipAddress || "Δεν έχει καταγραφεί", roommate1SignatureImage: first.signatureBase64, roommate2SignatureImage: second.signatureBase64 };
 }
 
 function buildHolding(data: ContractTemplateData): HoldingDepositVariables {

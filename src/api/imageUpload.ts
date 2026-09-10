@@ -1,6 +1,45 @@
 import { deleteObject, getDownloadURL, listAll, ref, uploadBytes } from "firebase/storage";
+import { onAuthStateChanged, type User } from "firebase/auth";
 import { doc, serverTimestamp, setDoc } from "firebase/firestore";
-import { db, storage } from "@/src/config/firebase";
+import { db, firebaseAuth, storage } from "@/src/config/firebase";
+
+const AUTH_WAIT_TIMEOUT_MS = 10000;
+const AUTH_SESSION_ERROR = "Η σύνδεση χρήστη δεν είναι έτοιμη για μεταφόρτωση.";
+
+async function refreshFirebaseToken(user: User): Promise<void> {
+  try {
+    await user.getIdToken(true);
+  } catch (error) {
+    console.error("[ImageUpload] Firebase Auth token refresh failed", error);
+    throw new Error(AUTH_SESSION_ERROR);
+  }
+}
+
+export async function ensureFirebaseAuthSession(): Promise<User> {
+  const currentUser = firebaseAuth.currentUser;
+  if (currentUser) {
+    await refreshFirebaseToken(currentUser);
+    return currentUser;
+  }
+
+  const resolvedUser = await new Promise<User>((resolve, reject) => {
+    let unsubscribe: (() => void) | undefined;
+    const timeout = setTimeout(() => {
+      unsubscribe?.();
+      reject(new Error(AUTH_SESSION_ERROR));
+    }, AUTH_WAIT_TIMEOUT_MS);
+
+    unsubscribe = onAuthStateChanged(firebaseAuth, (user) => {
+      if (!user) return;
+      clearTimeout(timeout);
+      unsubscribe?.();
+      resolve(user);
+    });
+  });
+
+  await refreshFirebaseToken(resolvedUser);
+  return resolvedUser;
+}
 
 function isRemoteUrl(uri: string): boolean {
   return /^https?:\/\//.test(uri);
@@ -56,6 +95,7 @@ export async function uploadImageAsync(uri: string, path: string, contentType?: 
   }
 
   const blob = await uriToBlob(uri);
+  await ensureFirebaseAuthSession();
   const imageRef = ref(storage, path);
 
   try {

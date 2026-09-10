@@ -1,19 +1,25 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Animated,
   DimensionValue,
-  Easing,
   KeyboardAvoidingView,
   Modal,
-  PanResponder,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
   useWindowDimensions,
 } from "react-native";
+import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
+import Animated, {
+  runOnJS,
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+  Easing,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { fonts, fontSize, radius, spacing } from "@/src/theme";
@@ -56,40 +62,16 @@ export default function BaseBottomSheet({
   const { height: screenHeight } = useWindowDimensions();
   const [mounted, setMounted] = useState(visible);
   const isClosingRef = useRef(false);
-  const scrollOffsetRef = useRef(0);
-  const translateY = useRef(new Animated.Value(screenHeight)).current;
-  const backdropOpacity = useRef(new Animated.Value(0)).current;
-  const panResponder = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_event, gestureState) => {
-        const reachedTop = scrollOffsetRef.current <= 0;
-        return gestureState.dy > 8 && gestureState.dy > Math.abs(gestureState.dx) && (gestureState.vy >= 0 || reachedTop);
-      },
-      onPanResponderMove: (_event, gestureState) => {
-        translateY.setValue(Math.max(0, gestureState.dy));
-        backdropOpacity.setValue(Math.max(0, 0.5 - gestureState.dy / screenHeight));
-      },
-      onPanResponderRelease: (_event, gestureState) => {
-        if (gestureState.dy > Math.min(120, screenHeight * 0.16)) {
-          requestClose();
-          return;
-        }
-        Animated.parallel([
-          Animated.spring(translateY, { toValue: 0, useNativeDriver: true, bounciness: 4 }),
-          Animated.timing(backdropOpacity, { toValue: 0.5, duration: 120, useNativeDriver: true }),
-        ]).start();
-      },
-      onPanResponderTerminate: () => {
-        Animated.parallel([
-          Animated.spring(translateY, { toValue: 0, useNativeDriver: true, bounciness: 4 }),
-          Animated.timing(backdropOpacity, { toValue: 0.5, duration: 120, useNativeDriver: true }),
-        ]).start();
-      },
-    }),
-  ).current;
+  const mountedRef = useRef(visible);
+  const translateY = useSharedValue(screenHeight);
+  const backdropOpacity = useSharedValue(0);
+  const scrollOffset = useSharedValue(0);
+  const isDraggingSheet = useSharedValue(false);
+  const dragStartTranslationY = useSharedValue(0);
 
   const finishClose = useCallback(() => {
     isClosingRef.current = false;
+    mountedRef.current = false;
     setMounted(false);
     onClose();
   }, [onClose]);
@@ -97,49 +79,164 @@ export default function BaseBottomSheet({
   const requestClose = useCallback(() => {
     if (isClosingRef.current) return;
     isClosingRef.current = true;
-    Animated.parallel([
-      Animated.timing(translateY, {
-        toValue: screenHeight,
-        duration: EXIT_DURATION,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(backdropOpacity, {
-        toValue: 0,
-        duration: EXIT_DURATION,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-    ]).start(({ finished }) => {
-      if (finished) finishClose();
+    translateY.value = withTiming(screenHeight, {
+      duration: EXIT_DURATION,
+      easing: Easing.out(Easing.cubic),
+    }, (finished) => {
+      if (finished) runOnJS(finishClose)();
+    });
+    backdropOpacity.value = withTiming(0, {
+      duration: EXIT_DURATION,
+      easing: Easing.out(Easing.cubic),
     });
   }, [backdropOpacity, finishClose, screenHeight, translateY]);
+
+  const scrollHandler = useAnimatedScrollHandler({
+    onScroll: (event) => {
+      scrollOffset.value = event.contentOffset.y;
+    },
+  });
+
+  const headerPanGesture = Gesture.Pan()
+    .activeOffsetY([0, 8])
+    .failOffsetX([-25, 25])
+    .cancelsTouchesInView(false)
+    .onUpdate((event) => {
+      if (event.translationY > 0) {
+        translateY.value = event.translationY;
+        backdropOpacity.value = Math.max(0, 0.5 - event.translationY / screenHeight);
+      }
+    })
+    .onEnd((event) => {
+      if (event.translationY > Math.min(100, screenHeight * 0.15) || event.velocityY > 500) {
+        runOnJS(requestClose)();
+        return;
+      }
+      translateY.value = withSpring(0, { damping: 20, stiffness: 200 });
+      backdropOpacity.value = withTiming(0.5, { duration: 150 });
+    });
+
+  const universalPanGesture = Gesture.Pan()
+    .activeOffsetY([0, 8])
+    .failOffsetX([-25, 25])
+    .cancelsTouchesInView(false)
+    .onUpdate((event) => {
+      if (event.translationY > 0) {
+        translateY.value = event.translationY;
+        backdropOpacity.value = Math.max(0, 0.5 - event.translationY / screenHeight);
+      }
+    })
+    .onEnd((event) => {
+      if (event.translationY > Math.min(100, screenHeight * 0.15) || event.velocityY > 500) {
+        runOnJS(requestClose)();
+        return;
+      }
+      translateY.value = withSpring(0, { damping: 20, stiffness: 200 });
+      backdropOpacity.value = withTiming(0.5, { duration: 150 });
+    });
+
+  const contentPanGesture = Gesture.Pan()
+    .activeOffsetY(8)
+    .failOffsetX([-25, 25])
+    .cancelsTouchesInView(false)
+    .onStart(() => {
+      isDraggingSheet.value = scrollOffset.value <= 0;
+      dragStartTranslationY.value = 0;
+    })
+    .onUpdate((event) => {
+      if (!isDraggingSheet.value && scrollOffset.value <= 0 && event.translationY > 0) {
+        isDraggingSheet.value = true;
+        dragStartTranslationY.value = event.translationY;
+      }
+      const sheetTranslationY = event.translationY - dragStartTranslationY.value;
+      if (isDraggingSheet.value && sheetTranslationY > 0) {
+        translateY.value = sheetTranslationY;
+        backdropOpacity.value = Math.max(0, 0.5 - sheetTranslationY / screenHeight);
+      }
+    })
+    .onEnd((event) => {
+      const sheetTranslationY = event.translationY - dragStartTranslationY.value;
+      const shouldDismiss = isDraggingSheet.value && (sheetTranslationY > Math.min(100, screenHeight * 0.15) || event.velocityY > 500);
+      isDraggingSheet.value = false;
+      if (shouldDismiss) {
+        runOnJS(requestClose)();
+        return;
+      }
+      translateY.value = withSpring(0, { damping: 20, stiffness: 200 });
+      backdropOpacity.value = withTiming(0.5, { duration: 150 });
+    })
+    .onFinalize(() => {
+      isDraggingSheet.value = false;
+    });
+
+  const nativeScrollGesture = Gesture.Native();
+  const contentGesture = Gesture.Simultaneous(contentPanGesture, nativeScrollGesture);
+  const sheetStyle = useAnimatedStyle(() => ({ transform: [{ translateY: translateY.value }] }));
+  const backdropStyle = useAnimatedStyle(() => ({ opacity: backdropOpacity.value }));
 
   useEffect(() => {
     if (visible) {
       isClosingRef.current = false;
+      mountedRef.current = true;
       setMounted(true);
-      translateY.setValue(screenHeight);
-      backdropOpacity.setValue(0);
-      Animated.parallel([
-        Animated.timing(translateY, {
-          toValue: 0,
-          duration: ENTER_DURATION,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-        Animated.timing(backdropOpacity, {
-          toValue: 0.5,
-          duration: ENTER_DURATION,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-      ]).start();
+      translateY.value = screenHeight;
+      backdropOpacity.value = 0;
+      translateY.value = withTiming(0, { duration: ENTER_DURATION, easing: Easing.out(Easing.cubic) });
+      backdropOpacity.value = withTiming(0.5, { duration: ENTER_DURATION, easing: Easing.out(Easing.cubic) });
       return;
     }
 
-    if (mounted) requestClose();
+    if (mountedRef.current) requestClose();
   }, [backdropOpacity, requestClose, screenHeight, translateY, visible]);
+
+  const headerContent = showDragHandle || title || subtitle || headerRight ? (
+    <View style={styles.headerGestureSurface}>
+      {showDragHandle ? <View style={[styles.dragHandle, { backgroundColor: colors.onSurfaceTertiary }]} /> : null}
+      {title || subtitle || headerRight ? (
+        <View style={[styles.header, { borderBottomColor: colors.border }]}>
+          <View style={styles.headerCopy}>
+            {title ? <Text style={[styles.title, { color: colors.onSurface }]}>{title}</Text> : null}
+            {subtitle ? <Text style={[styles.subtitle, { color: colors.onSurfaceTertiary }]}>{subtitle}</Text> : null}
+          </View>
+          {headerRight}
+        </View>
+      ) : null}
+    </View>
+  ) : null;
+
+  const sheetContent = (
+    <Animated.View
+      style={[
+        styles.sheet,
+        sheetStyle,
+        { backgroundColor: colors.surface, borderColor: colors.border, maxHeight },
+      ]}
+    >
+      {headerContent ? (scrollable ? <GestureDetector gesture={headerPanGesture}>{headerContent}</GestureDetector> : headerContent) : null}
+      <View style={styles.body}>
+        {scrollable ? (
+          <GestureDetector gesture={contentGesture}>
+            <Animated.ScrollView
+              style={styles.scrollView}
+              contentContainerStyle={{ flexGrow: 1, paddingBottom: Math.max(insets.bottom, spacing.md) + spacing.md }}
+              bounces={false}
+              overScrollMode="never"
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              showsVerticalScrollIndicator={false}
+              onScroll={scrollHandler}
+              scrollEventThrottle={16}
+            >
+              {children}
+            </Animated.ScrollView>
+          </GestureDetector>
+        ) : (
+          <View style={[styles.nonScrollableBody, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>{children}</View>
+        )}
+      </View>
+      {footer ? <View style={[styles.footer, { borderTopColor: colors.border, paddingBottom: Math.max(insets.bottom, spacing.md) }]}>{footer}</View> : null}
+    </Animated.View>
+  );
 
   return (
     <Modal
@@ -149,62 +246,30 @@ export default function BaseBottomSheet({
       statusBarTranslucent
       onRequestClose={requestClose}
     >
-      <KeyboardAvoidingView
-        style={styles.root}
-        behavior={avoidKeyboard && Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={avoidKeyboard && Platform.OS === "ios" ? insets.top : 0}
-      >
-        <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]}>
-          <Pressable
-            style={StyleSheet.absoluteFill}
-            onPress={preventDismissOnTouchOutside ? undefined : requestClose}
-            accessible={!preventDismissOnTouchOutside}
-            accessibilityRole="button"
-            accessibilityLabel="Close"
-          />
-        </Animated.View>
-        <Animated.View
-          {...panResponder.panHandlers}
-          style={[
-            styles.sheet,
-            { backgroundColor: colors.surface, borderColor: colors.border, maxHeight, transform: [{ translateY }] },
-          ]}
+      <GestureHandlerRootView style={styles.gestureRoot}>
+        <KeyboardAvoidingView
+          style={styles.root}
+          behavior={avoidKeyboard ? (Platform.OS === "ios" ? "padding" : "height") : undefined}
+          keyboardVerticalOffset={avoidKeyboard && Platform.OS === "ios" ? insets.top : 0}
         >
-          {showDragHandle ? <View style={[styles.dragHandle, { backgroundColor: colors.onSurfaceTertiary }]} /> : null}
-          {title || subtitle || headerRight ? (
-            <View style={[styles.header, { borderBottomColor: colors.border }]}>
-              <View style={styles.headerCopy}>
-                {title ? <Text style={[styles.title, { color: colors.onSurface }]}>{title}</Text> : null}
-                {subtitle ? <Text style={[styles.subtitle, { color: colors.onSurfaceTertiary }]}>{subtitle}</Text> : null}
-              </View>
-              {headerRight}
-            </View>
-          ) : null}
-          <View style={styles.body}>
-            {scrollable ? (
-              <ScrollView
-                style={styles.scrollView}
-                contentContainerStyle={{ flexGrow: 1, paddingBottom: Math.max(insets.bottom, spacing.md) + spacing.md }}
-                keyboardShouldPersistTaps="handled"
-                keyboardDismissMode="on-drag"
-                showsVerticalScrollIndicator={false}
-                onScroll={(event) => { scrollOffsetRef.current = event.nativeEvent.contentOffset.y; }}
-                scrollEventThrottle={16}
-              >
-                {children}
-              </ScrollView>
-            ) : (
-              <View style={[styles.nonScrollableBody, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>{children}</View>
-            )}
-          </View>
-          {footer ? <View style={[styles.footer, { borderTopColor: colors.border, paddingBottom: Math.max(insets.bottom, spacing.md) }]}>{footer}</View> : null}
-        </Animated.View>
-      </KeyboardAvoidingView>
+          <Animated.View style={[styles.backdrop, backdropStyle]}>
+            <Pressable
+              style={StyleSheet.absoluteFill}
+              onPress={preventDismissOnTouchOutside ? undefined : requestClose}
+              accessible={!preventDismissOnTouchOutside}
+              accessibilityRole="button"
+              accessibilityLabel="Close"
+            />
+          </Animated.View>
+          {scrollable ? sheetContent : <GestureDetector gesture={universalPanGesture}>{sheetContent}</GestureDetector>}
+        </KeyboardAvoidingView>
+      </GestureHandlerRootView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
+  gestureRoot: { flex: 1 },
   root: { flex: 1, justifyContent: "flex-end" },
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "#000000" },
   sheet: {
@@ -221,6 +286,7 @@ const styles = StyleSheet.create({
     elevation: 14,
   },
   dragHandle: { alignSelf: "center", width: 42, height: 4, borderRadius: radius.pill, marginTop: spacing.sm, marginBottom: spacing.xs, opacity: 0.45 },
+  headerGestureSurface: { width: "100%" },
   header: { minHeight: 54, flexDirection: "row", alignItems: "center", gap: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm },
   headerCopy: { flex: 1, gap: 2 },
   title: { fontFamily: fonts.display, fontSize: fontSize.lg },

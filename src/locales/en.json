@@ -1225,7 +1225,7 @@
     "capturingGps": "Capturing location...",
     "gpsPending": "Location evidence is required before signing.",
     "stepProgress": "Step {{step}} of {{total}}",
-    "finalize": "Finalize signature",
+    "finalize": "Sign & Submit",
     "signatureRecorded": "Your signature was recorded. The remaining parties can now sign.",
     "contractSignedSuccess": "Document signed successfully and dispatched to all parties via email.",
     "shareViaWhatsApp": "Share via WhatsApp",
@@ -1241,6 +1241,11 @@
       "otpVerify": "The SMS code could not be verified.",
       "payload": "The contract details could not be saved.",
       "finalize": "The document could not be finalized.",
+      "authRequired": "Your session is not ready. Sign in again and retry the upload.",
+      "requiredFields": "Complete the required fields before continuing.",
+      "idRequired": "Complete both sides of the identity document capture before continuing.",
+      "otpRequired": "Complete SMS verification before continuing.",
+      "signatureRequired": "Complete the signature and required evidence before submitting.",
       "whatsapp": "WhatsApp could not be opened."
     }
   }

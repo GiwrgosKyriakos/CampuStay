@@ -4,20 +4,26 @@ import * as Linking from "expo-linking";
 import * as Location from "expo-location";
 import {
   ActivityIndicator,
+  Keyboard,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  type TextInputProps,
   View,
 } from "react-native";
 import { WebView } from "react-native-webview";
 import SignatureCanvas, { type SignatureViewRef } from "react-native-signature-canvas";
 import { Ionicons } from "@expo/vector-icons";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import IdCameraCapture from "@/src/components/IdCameraCapture";
 import BaseBottomSheet from "@/src/components/common/BaseBottomSheet";
+import ContractPreviewModal from "@/src/components/ContractPreviewModal";
+import { ensureFirebaseAuthSession } from "@/src/api/imageUpload";
 import {
   createContractDocument,
   getContractDownloadUrl,
@@ -28,7 +34,7 @@ import {
   uploadContractPdf,
   verifySigningOtp,
 } from "@/src/api/contracts";
-import { db } from "@/src/config/firebase";
+import { db, firebaseAuth } from "@/src/config/firebase";
 import { useAuth } from "@/src/context/auth";
 import { useTheme } from "@/src/context/ThemeContext";
 import { getContractTitle, buildContractHtml } from "@/src/services/contractTemplates";
@@ -148,8 +154,40 @@ function getSignerFromContract(contract: DigitalContractDocument | null, signerI
   return contract?.signers.find((signer) => signer.signerId === signerId) ?? null;
 }
 
+const contractPreviewRendererStyles = StyleSheet.create({
+  wrap: { flex: 1 },
+  webView: { flex: 1, backgroundColor: "#FFFFFF" },
+});
+
+const ContractWebViewPreview = React.memo(function ContractWebViewPreview({ html }: { html: string }) {
+  return (
+    <View pointerEvents="none" style={contractPreviewRendererStyles.wrap}>
+      <WebView source={{ html }} originWhitelist={["*"]} style={contractPreviewRendererStyles.webView} />
+    </View>
+  );
+});
+
+const contractInputStyles = StyleSheet.create({
+  input: { minHeight: 46, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md, fontFamily: fonts.regular, fontSize: fontSize.base },
+  multilineInput: { minHeight: 110, paddingTop: spacing.sm },
+});
+
+type ContractInputProps = Omit<TextInputProps, "value" | "onChangeText" | "onBlur" | "style"> & {
+  value: string;
+  onChangeText: NonNullable<TextInputProps["onChangeText"]>;
+  onBlur?: TextInputProps["onBlur"];
+  borderColor: string;
+  textColor: string;
+  backgroundColor: string;
+};
+
+const ContractInput = React.memo(function ContractInput({ value, onChangeText, onBlur, borderColor, textColor, backgroundColor, multiline, ...props }: ContractInputProps) {
+  return <TextInput {...props} value={value} onChangeText={onChangeText} onBlur={onBlur} multiline={multiline} style={[contractInputStyles.input, multiline && contractInputStyles.multilineInput, { borderColor, color: textColor, backgroundColor }]} />;
+});
+
 export default function SignContractModal({ visible, draft, contractId, signerId: signerIdProp, onClose, onCreated, onCompleted }: SignContractModalProps) {
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const auth = useAuth();
   const defaultSignerId = signerIdProp?.trim() || auth.userId || "";
   const [selectedSignerId, setSelectedSignerId] = useState("");
@@ -189,7 +227,18 @@ export default function SignContractModal({ visible, draft, contractId, signerId
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [errorText, setErrorText] = useState("");
   const [successContract, setSuccessContract] = useState<DigitalContractDocument | null>(null);
+  const [previewVisible, setPreviewVisible] = useState(false);
+  const [previewRevision, setPreviewRevision] = useState(0);
   const signatureRef = useRef<SignatureViewRef>(null);
+  const formScrollRef = useRef<ScrollView | null>(null);
+  const previewInputValuesRef = useRef({ signerAfm: "", signerIdCardNumber: "", holdingDepositAmount: "", bankReference: "", cashReceiptNote: "", refundabilityConditions: "", houseRulesText: "", utilitySplitPercentage: "", idFrontUrl: "", idBackUrl: "" });
+
+  previewInputValuesRef.current = { signerAfm, signerIdCardNumber, holdingDepositAmount, bankReference, cashReceiptNote, refundabilityConditions, houseRulesText, utilitySplitPercentage, idFrontUrl, idBackUrl };
+  const refreshPreview = useCallback(() => setPreviewRevision((revision) => revision + 1), []);
+  const handleAfmChange = useCallback((value: string) => setSignerAfm(value.replace(/[^0-9]/g, "")), []);
+  const handleDepositChange = useCallback((value: string) => setHoldingDepositAmount(value.replace(/[^0-9.,]/g, "")), []);
+  const handleUtilitySplitChange = useCallback((value: string) => setUtilitySplitPercentage(value.replace(/[^0-9.,]/g, "")), []);
+  const handleOtpChange = useCallback((value: string) => setOtpCode(value.replace(/[^0-9]/g, "")), []);
 
   const draftKey = useMemo(() => draft ? JSON.stringify({
     agencyId: draft.agencyId,
@@ -226,6 +275,8 @@ export default function SignContractModal({ visible, draft, contractId, signerId
       setIsLoading(true);
       setErrorText("");
       setSuccessContract(null);
+      setPreviewVisible(false);
+      setPreviewRevision(0);
       setStep(1);
       setSignatureData("");
       setLocationCoords(null);
@@ -318,6 +369,7 @@ export default function SignContractModal({ visible, draft, contractId, signerId
         setBankReference(resolvedContract.contractPayload.bankReference ?? "");
         setCashReceiptNote(resolvedContract.contractPayload.cashReceiptNote ?? "");
         setRefundabilityConditions(resolvedContract.contractPayload.refundabilityConditions ?? resolvedContract.contractPayload.holdingDepositTerms?.refundabilityConditions ?? "");
+        setPreviewRevision((revision) => revision + 1);
         if (resolvedContract.status === "signed") setSuccessContract(resolvedContract);
         if (!loadedContract) onCreated?.(resolvedContract);
       } catch (error) {
@@ -334,23 +386,25 @@ export default function SignContractModal({ visible, draft, contractId, signerId
 
   const currentSigner = useMemo(() => getSignerFromContract(contract, signerId), [contract, signerId]);
   const previewHtml = useMemo(() => {
-    if (!contract || !agency) return "<html><body></body></html>";
+    void previewRevision;
+    if (step !== 1 || !contract || !agency) return "<html><body></body></html>";
+    const previewInputs = previewInputValuesRef.current;
     const previewSigners = contract.signers.map((signer) => signer.signerId === signerId ? {
       ...signer,
-      signerAfm: signerAfm.trim() || signer.signerAfm,
-      signerIdCardNumber: signerIdCardNumber.trim() || signer.signerIdCardNumber,
-      idCardPhotoUrl: idFrontUrl || signer.idCardPhotoUrl,
-      idCardBackPhotoUrl: idBackUrl || signer.idCardBackPhotoUrl,
+      signerAfm: previewInputs.signerAfm.trim() || signer.signerAfm,
+      signerIdCardNumber: previewInputs.signerIdCardNumber.trim() || signer.signerIdCardNumber,
+      idCardPhotoUrl: previewInputs.idFrontUrl || signer.idCardPhotoUrl,
+      idCardBackPhotoUrl: previewInputs.idBackUrl || signer.idCardBackPhotoUrl,
     } : signer);
     const previewParticipants = participants.map((participant) => participant.id === signerId ? {
       ...participant,
-      afm: signerAfm.trim() || participant.afm,
-      idCardNumber: signerIdCardNumber.trim() || participant.idCardNumber,
+      afm: previewInputs.signerAfm.trim() || participant.afm,
+      idCardNumber: previewInputs.signerIdCardNumber.trim() || participant.idCardNumber,
     } : participant);
     const previewPayload = {
       ...contract.contractPayload,
-      ...(contract.contractType === "holding_deposit_viewing" ? { holdingDepositAmount: Number(holdingDepositAmount.replace(",", ".")), bankReference, cashReceiptNote, refundabilityConditions } : {}),
-      ...(contract.contractType === "roommate_agreement" ? { houseRulesConfig: { ...contract.contractPayload.houseRulesConfig, houseRules: houseRulesText.split("\n").map((rule) => rule.trim()).filter(Boolean) }, utilitySplitPercentages: { [signerId]: Number(utilitySplitPercentage.replace(",", ".")), ...(contract.signers.find((signer) => signer.signerId !== signerId) ? { [contract.signers.find((signer) => signer.signerId !== signerId)!.signerId]: 100 - Number(utilitySplitPercentage.replace(",", ".")) } : {}) }, holdingDepositTerms: { amount: Number(holdingDepositAmount.replace(",", ".")), refundabilityConditions } } : {}),
+      ...(contract.contractType === "holding_deposit_viewing" ? { holdingDepositAmount: Number(previewInputs.holdingDepositAmount.replace(",", ".")), bankReference: previewInputs.bankReference, cashReceiptNote: previewInputs.cashReceiptNote, refundabilityConditions: previewInputs.refundabilityConditions } : {}),
+      ...(contract.contractType === "roommate_agreement" ? { houseRulesConfig: { ...contract.contractPayload.houseRulesConfig, houseRules: previewInputs.houseRulesText.split("\n").map((rule) => rule.trim()).filter(Boolean) }, utilitySplitPercentages: { [signerId]: Number(previewInputs.utilitySplitPercentage.replace(",", ".")), ...(contract.signers.find((signer) => signer.signerId !== signerId) ? { [contract.signers.find((signer) => signer.signerId !== signerId)!.signerId]: 100 - Number(previewInputs.utilitySplitPercentage.replace(",", ".")) } : {}) }, holdingDepositTerms: { amount: Number(previewInputs.holdingDepositAmount.replace(",", ".")), refundabilityConditions: previewInputs.refundabilityConditions } } : {}),
     };
     try {
       return buildContractHtml({ document: { ...contract, signers: previewSigners, contractPayload: previewPayload }, agency, property, participants: previewParticipants });
@@ -358,7 +412,7 @@ export default function SignContractModal({ visible, draft, contractId, signerId
       const message = error instanceof Error ? error.message : "Το πρότυπο απαιτεί συμπληρωμένα στοιχεία.";
       return `<html><body style="font-family: sans-serif; padding: 20px"><strong>${message}</strong></body></html>`;
     }
-  }, [agency, bankReference, cashReceiptNote, contract, holdingDepositAmount, houseRulesText, idBackUrl, idFrontUrl, participants, property, refundabilityConditions, signerAfm, signerIdCardNumber, signerId, utilitySplitPercentage]);
+  }, [agency, contract, participants, previewRevision, property, signerId, step]);
 
   const captureLocation = useCallback(async () => {
     if (isCapturingLocation || locationCoords) return;
@@ -381,6 +435,11 @@ export default function SignContractModal({ visible, draft, contractId, signerId
   useEffect(() => {
     if (visible && step === 4 && !locationCoords) void captureLocation();
   }, [captureLocation, locationCoords, step, visible]);
+
+  useEffect(() => {
+    if (!visible) return;
+    formScrollRef.current?.scrollTo({ y: 0, animated: false });
+  }, [step, visible]);
 
   const handleSendOtp = async () => {
     if (!contract || !signerId || isSendingOtp) return;
@@ -509,6 +568,22 @@ export default function SignContractModal({ visible, draft, contractId, signerId
     }
   };
 
+  const ensureSigningUploadAuth = useCallback(async () => {
+    if (!firebaseAuth.currentUser?.uid) {
+      const message = t("esign.errors.authRequired");
+      setErrorText(message);
+      throw new Error(message);
+    }
+
+    try {
+      await ensureFirebaseAuthSession();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t("esign.errors.authRequired");
+      setErrorText(message);
+      throw error;
+    }
+  }, []);
+
   const contractPayloadValid = contract?.contractType === "holding_deposit_viewing"
     ? Number(holdingDepositAmount.replace(",", ".")) > 0 && Boolean(bankReference.trim() || cashReceiptNote.trim()) && refundabilityConditions.trim().length > 0
     : contract?.contractType === "roommate_agreement"
@@ -522,9 +597,20 @@ export default function SignContractModal({ visible, draft, contractId, signerId
       : step === 3
         ? currentSigner?.signerRole === "broker" || otpVerified
         : Boolean(signatureData && locationCoords && idFrontUrl && idBackUrl && idCaptureTimestamp > 0 && idCaptureMetadata.front && idCaptureMetadata.back && signerIdCardNumber.trim() && (currentSigner?.signerRole === "broker" || otpVerified));
+  const stepValidationMessage = step === 1
+    ? t("esign.errors.requiredFields")
+    : step === 2
+      ? t("esign.errors.idRequired")
+      : step === 3
+        ? t("esign.errors.otpRequired")
+        : t("esign.errors.signatureRequired");
 
   const goNext = async () => {
-    if (!canContinueFromStep) return;
+    if (!canContinueFromStep) {
+      setErrorText(stepValidationMessage);
+      return;
+    }
+    Keyboard.dismiss();
     const hasEditablePayload = contract?.contractType === "holding_deposit_viewing" || contract?.contractType === "roommate_agreement";
     if (step === 1 && hasEditablePayload && contract && !contract.signers.some((signer) => signer.signatureBase64.trim())) {
       setIsSavingPayload(true);
@@ -548,7 +634,55 @@ export default function SignContractModal({ visible, draft, contractId, signerId
     if (step < 4) setStep((current) => (current + 1) as 1 | 2 | 3 | 4);
   };
 
+  const previewTitle = contract?.title || (contract ? getContractTitle(contract.contractType) : t("esign.title"));
+  const actionFooter = !isLoading && !successContract ? (
+    <View style={[styles.footerCard, { backgroundColor: colors.surface, borderColor: colors.border, marginBottom: Math.max(insets.bottom, spacing.md) + spacing.md }]}>
+      <View style={styles.footerRow}>
+        <View style={styles.footerActionSlot}>
+          {step > 1 ? (
+            <Pressable
+              style={[styles.footerButton, { borderColor: colors.border }]}
+              onPress={() => { Keyboard.dismiss(); setStep((current) => (current - 1) as 1 | 2 | 3 | 4); }}
+              testID="esign-back"
+            >
+              <Ionicons name="arrow-back" size={17} color={colors.onSurface} />
+              <Text style={[styles.footerButtonText, { color: colors.onSurface }]}>{t("common.actions.back")}</Text>
+            </Pressable>
+          ) : <View style={styles.footerActionPlaceholder} />}
+        </View>
+        <View style={styles.footerIndicator} accessibilityRole="text">
+          <Text style={[styles.footerIndicatorText, { color: colors.onSurfaceTertiary }]}>{t("esign.stepProgress", { step, total: 4 })}</Text>
+          <View style={styles.footerDots}>
+            {[1, 2, 3, 4].map((item) => <View key={item} style={[styles.footerDot, { backgroundColor: item <= step ? colors.brand : colors.surfaceTertiary }]} />)}
+          </View>
+        </View>
+        <View style={[styles.footerActionSlot, styles.footerActionSlotEnd]}>
+          {step < 4 ? (
+            <Pressable
+              style={[styles.footerButton, styles.footerPrimary, { backgroundColor: colors.brand }, isSavingPayload && styles.disabledButton]}
+              onPress={() => void goNext()}
+              disabled={isSavingPayload}
+              testID="esign-next"
+            >
+              {isSavingPayload ? <ActivityIndicator color={colors.onBrand} /> : <><Text style={[styles.footerButtonText, { color: colors.onBrand }]}>{t("common.actions.continue")}</Text><Ionicons name="arrow-forward" size={17} color={colors.onBrand} /></>}
+            </Pressable>
+          ) : (
+            <Pressable
+              style={[styles.footerButton, styles.footerPrimary, { backgroundColor: colors.brand }, isFinalizing && styles.disabledButton]}
+              onPress={() => { if (!canContinueFromStep) { setErrorText(stepValidationMessage); return; } Keyboard.dismiss(); void handleFinalize(); }}
+              disabled={isFinalizing}
+              testID="esign-finalize"
+            >
+              {isFinalizing ? <ActivityIndicator color={colors.onBrand} /> : <><Ionicons name="shield-checkmark-outline" size={17} color={colors.onBrand} /><Text style={[styles.footerButtonText, { color: colors.onBrand }]}>{t("esign.finalize")}</Text></>}
+            </Pressable>
+          )}
+        </View>
+      </View>
+    </View>
+  ) : null;
+
   return (
+    <>
     <BaseBottomSheet visible={visible} onClose={onClose} scrollable={false} maxHeight="94%">
         <View style={{ backgroundColor: colors.surface, borderColor: colors.border }}>
           <View style={styles.headerRow}>
@@ -586,36 +720,53 @@ export default function SignContractModal({ visible, draft, contractId, signerId
               <Pressable style={[styles.secondaryButton, { borderColor: colors.border }]} onPress={onClose} testID="esign-success-close"><Text style={[styles.secondaryButtonText, { color: colors.onSurface }]}>{t("common.actions.done")}</Text></Pressable>
             </View>
           ) : (
-            <ScrollView style={styles.body} contentContainerStyle={styles.bodyContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+            <KeyboardAwareScrollView
+              style={styles.body}
+              contentContainerStyle={[styles.bodyContent, styles.keyboardBodyContent]}
+              ref={formScrollRef}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="interactive"
+              bottomOffset={spacing.lg}
+              extraKeyboardSpace={spacing.lg}
+              showsVerticalScrollIndicator={false}
+            >
               {step === 1 ? (
                 <>
                   <View style={styles.sectionHeading}><Ionicons name="document-text-outline" size={20} color={colors.brand} /><Text style={[styles.sectionTitle, { color: colors.onSurface }]}>{t("esign.reviewTitle")}</Text></View>
-                  <View style={[styles.previewFrame, { borderColor: colors.border }]}><WebView source={{ html: previewHtml }} originWhitelist={["*"]} style={styles.previewWebView} /></View>
+                  <Pressable
+                    style={({ pressed }) => [styles.previewFrame, { borderColor: colors.border }, pressed && styles.previewFramePressed]}
+                    onPress={() => { refreshPreview(); setPreviewVisible(true); }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Άνοιγμα πλήρους προεπισκόπησης συμβολαίου"
+                    testID="esign-open-contract-preview"
+                  >
+                    <ContractWebViewPreview html={previewHtml} />
+                  </Pressable>
                   <Text style={[styles.sectionHint, { color: colors.onSurfaceTertiary }]}>{t("esign.verifyIdentityHint")}</Text>
                   <Text style={[styles.label, { color: colors.onSurface }]}>{t("esign.afmLabel")}</Text>
-                  <TextInput value={signerAfm} onChangeText={(value) => setSignerAfm(value.replace(/[^0-9]/g, ""))} keyboardType="number-pad" style={[styles.input, { borderColor: colors.border, color: colors.onSurface, backgroundColor: colors.surfaceSecondary }]} placeholder={t("esign.afmPlaceholder")} placeholderTextColor={colors.onSurfaceTertiary} maxLength={9} testID="esign-afm-input" />
+                  <ContractInput value={signerAfm} onChangeText={handleAfmChange} onBlur={refreshPreview} keyboardType="number-pad" borderColor={colors.border} textColor={colors.onSurface} backgroundColor={colors.surfaceSecondary} placeholder={t("esign.afmPlaceholder")} placeholderTextColor={colors.onSurfaceTertiary} maxLength={9} testID="esign-afm-input" />
                   <Text style={[styles.label, { color: colors.onSurface }]}>{t("esign.idCardLabel")}</Text>
-                  <TextInput value={signerIdCardNumber} onChangeText={setSignerIdCardNumber} style={[styles.input, { borderColor: colors.border, color: colors.onSurface, backgroundColor: colors.surfaceSecondary }]} placeholder={t("esign.idCardPlaceholder")} placeholderTextColor={colors.onSurfaceTertiary} autoCapitalize="characters" testID="esign-id-card-input" />
+                  <ContractInput value={signerIdCardNumber} onChangeText={setSignerIdCardNumber} onBlur={refreshPreview} borderColor={colors.border} textColor={colors.onSurface} backgroundColor={colors.surfaceSecondary} placeholder={t("esign.idCardPlaceholder")} placeholderTextColor={colors.onSurfaceTertiary} autoCapitalize="characters" testID="esign-id-card-input" />
                   {currentSignerAlreadySigned ? <Text style={[styles.sectionHint, { color: colors.warning }]}>{t("esign.alreadySigned")}</Text> : null}
                   {contract?.contractType === "holding_deposit_viewing" ? <>
                     <Text style={[styles.label, { color: colors.onSurface }]}>{t("esign.holdingDepositAmountLabel")}</Text>
-                    <TextInput value={holdingDepositAmount} onChangeText={(value) => setHoldingDepositAmount(value.replace(/[^0-9.,]/g, ""))} keyboardType="decimal-pad" style={[styles.input, { borderColor: colors.border, color: colors.onSurface, backgroundColor: colors.surfaceSecondary }]} placeholder={t("esign.holdingDepositAmountPlaceholder")} placeholderTextColor={colors.onSurfaceTertiary} testID="esign-holding-deposit-input" />
+                    <ContractInput value={holdingDepositAmount} onChangeText={handleDepositChange} onBlur={refreshPreview} keyboardType="decimal-pad" borderColor={colors.border} textColor={colors.onSurface} backgroundColor={colors.surfaceSecondary} placeholder={t("esign.holdingDepositAmountPlaceholder")} placeholderTextColor={colors.onSurfaceTertiary} testID="esign-holding-deposit-input" />
                     <Text style={[styles.label, { color: colors.onSurface }]}>Τραπεζική αναφορά</Text>
-                    <TextInput value={bankReference} onChangeText={setBankReference} style={[styles.input, { borderColor: colors.border, color: colors.onSurface, backgroundColor: colors.surfaceSecondary }]} placeholder="Αριθμός συναλλαγής" placeholderTextColor={colors.onSurfaceTertiary} />
+                    <ContractInput value={bankReference} onChangeText={setBankReference} onBlur={refreshPreview} borderColor={colors.border} textColor={colors.onSurface} backgroundColor={colors.surfaceSecondary} placeholder="Αριθμός συναλλαγής" placeholderTextColor={colors.onSurfaceTertiary} />
                     <Text style={[styles.label, { color: colors.onSurface }]}>Σημείωση απόδειξης μετρητών</Text>
-                    <TextInput value={cashReceiptNote} onChangeText={setCashReceiptNote} style={[styles.input, { borderColor: colors.border, color: colors.onSurface, backgroundColor: colors.surfaceSecondary }]} placeholder="Αριθμός ή περιγραφή απόδειξης" placeholderTextColor={colors.onSurfaceTertiary} />
+                    <ContractInput value={cashReceiptNote} onChangeText={setCashReceiptNote} onBlur={refreshPreview} borderColor={colors.border} textColor={colors.onSurface} backgroundColor={colors.surfaceSecondary} placeholder="Αριθμός ή περιγραφή απόδειξης" placeholderTextColor={colors.onSurfaceTertiary} />
                     <Text style={[styles.label, { color: colors.onSurface }]}>Όροι επιστροφής προκαταβολής</Text>
-                    <TextInput value={refundabilityConditions} onChangeText={setRefundabilityConditions} multiline textAlignVertical="top" style={[styles.input, styles.multilineInput, { borderColor: colors.border, color: colors.onSurface, backgroundColor: colors.surfaceSecondary }]} placeholder="Πότε επιστρέφεται ή παρακρατείται" placeholderTextColor={colors.onSurfaceTertiary} />
+                    <ContractInput value={refundabilityConditions} onChangeText={setRefundabilityConditions} onBlur={refreshPreview} multiline textAlignVertical="top" borderColor={colors.border} textColor={colors.onSurface} backgroundColor={colors.surfaceSecondary} placeholder="Πότε επιστρέφεται ή παρακρατείται" placeholderTextColor={colors.onSurfaceTertiary} />
                   </> : null}
                   {contract?.contractType === "roommate_agreement" ? <>
                     <Text style={[styles.label, { color: colors.onSurface }]}>{t("esign.houseRulesLabel")}</Text>
-                    <TextInput value={houseRulesText} onChangeText={setHouseRulesText} multiline textAlignVertical="top" style={[styles.input, styles.multilineInput, { borderColor: colors.border, color: colors.onSurface, backgroundColor: colors.surfaceSecondary }]} placeholder={t("esign.houseRulesPlaceholder")} placeholderTextColor={colors.onSurfaceTertiary} maxLength={2000} testID="esign-house-rules-input" />
+                    <ContractInput value={houseRulesText} onChangeText={setHouseRulesText} onBlur={refreshPreview} multiline textAlignVertical="top" borderColor={colors.border} textColor={colors.onSurface} backgroundColor={colors.surfaceSecondary} placeholder={t("esign.houseRulesPlaceholder")} placeholderTextColor={colors.onSurfaceTertiary} maxLength={2000} testID="esign-house-rules-input" />
                     <Text style={[styles.label, { color: colors.onSurface }]}>Ποσοστό κοινόχρηστων εξόδων του υπογράφοντος</Text>
-                    <TextInput value={utilitySplitPercentage} onChangeText={(value) => setUtilitySplitPercentage(value.replace(/[^0-9.,]/g, ""))} keyboardType="decimal-pad" style={[styles.input, { borderColor: colors.border, color: colors.onSurface, backgroundColor: colors.surfaceSecondary }]} placeholder="50" placeholderTextColor={colors.onSurfaceTertiary} />
+                    <ContractInput value={utilitySplitPercentage} onChangeText={handleUtilitySplitChange} onBlur={refreshPreview} keyboardType="decimal-pad" borderColor={colors.border} textColor={colors.onSurface} backgroundColor={colors.surfaceSecondary} placeholder="50" placeholderTextColor={colors.onSurfaceTertiary} />
                     <Text style={[styles.label, { color: colors.onSurface }]}>Ποσό εγγύησης</Text>
-                    <TextInput value={holdingDepositAmount} onChangeText={(value) => setHoldingDepositAmount(value.replace(/[^0-9.,]/g, ""))} keyboardType="decimal-pad" style={[styles.input, { borderColor: colors.border, color: colors.onSurface, backgroundColor: colors.surfaceSecondary }]} placeholder="Ποσό σε EUR" placeholderTextColor={colors.onSurfaceTertiary} />
+                    <ContractInput value={holdingDepositAmount} onChangeText={handleDepositChange} onBlur={refreshPreview} keyboardType="decimal-pad" borderColor={colors.border} textColor={colors.onSurface} backgroundColor={colors.surfaceSecondary} placeholder="Ποσό σε EUR" placeholderTextColor={colors.onSurfaceTertiary} />
                     <Text style={[styles.label, { color: colors.onSurface }]}>Όροι επιστροφής εγγύησης</Text>
-                    <TextInput value={refundabilityConditions} onChangeText={setRefundabilityConditions} multiline textAlignVertical="top" style={[styles.input, styles.multilineInput, { borderColor: colors.border, color: colors.onSurface, backgroundColor: colors.surfaceSecondary }]} placeholder="Πότε επιστρέφεται ή παρακρατείται" placeholderTextColor={colors.onSurfaceTertiary} />
+                    <ContractInput value={refundabilityConditions} onChangeText={setRefundabilityConditions} onBlur={refreshPreview} multiline textAlignVertical="top" borderColor={colors.border} textColor={colors.onSurface} backgroundColor={colors.surfaceSecondary} placeholder="Πότε επιστρέφεται ή παρακρατείται" placeholderTextColor={colors.onSurfaceTertiary} />
                   </> : null}
                 </>
               ) : null}
@@ -637,7 +788,7 @@ export default function SignContractModal({ visible, draft, contractId, signerId
                   <View style={styles.sectionHeading}><Ionicons name="shield-checkmark-outline" size={20} color={colors.brand} /><Text style={[styles.sectionTitle, { color: colors.onSurface }]}>{t("esign.otpTitle")}</Text></View>
                   {currentSigner?.signerRole !== "broker" ? <>
                     <Pressable style={[styles.secondaryButton, { borderColor: colors.border }]} onPress={() => void handleSendOtp()} disabled={isSendingOtp} testID="esign-send-otp">{isSendingOtp ? <ActivityIndicator color={colors.brand} /> : <><Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.brand} /><Text style={[styles.secondaryButtonText, { color: colors.brand }]}>{t("esign.sendOtp")}</Text></>}</Pressable>
-                    <TextInput value={otpCode} onChangeText={(value) => setOtpCode(value.replace(/[^0-9]/g, ""))} keyboardType="number-pad" maxLength={6} style={[styles.input, { borderColor: colors.border, color: colors.onSurface, backgroundColor: colors.surfaceSecondary }]} placeholder={t("esign.otpPlaceholder")} placeholderTextColor={colors.onSurfaceTertiary} testID="esign-otp-input" />
+                    <ContractInput value={otpCode} onChangeText={handleOtpChange} keyboardType="number-pad" maxLength={6} borderColor={colors.border} textColor={colors.onSurface} backgroundColor={colors.surfaceSecondary} placeholder={t("esign.otpPlaceholder")} placeholderTextColor={colors.onSurfaceTertiary} testID="esign-otp-input" />
                     <Pressable style={[styles.primaryButton, { backgroundColor: colors.brand }, (!/^\d{6}$/.test(otpCode) || isVerifyingOtp) && styles.disabledButton]} onPress={() => void handleVerifyOtp()} disabled={!/^\d{6}$/.test(otpCode) || isVerifyingOtp} testID="esign-verify-otp">{isVerifyingOtp ? <ActivityIndicator color={colors.onBrand} /> : <Text style={[styles.primaryButtonText, { color: colors.onBrand }]}>{t("esign.verifyOtp")}</Text>}</Pressable>
                     {!!debugOtpCode && <Text style={[styles.debugText, { color: colors.warning }]}>{t("esign.debugOtp", { code: debugOtpCode })}</Text>}
                     {!!otpMessage && <Text style={[styles.statusText, { color: otpVerified ? colors.success : colors.onSurfaceTertiary }]}>{otpMessage}</Text>}
@@ -648,23 +799,22 @@ export default function SignContractModal({ visible, draft, contractId, signerId
               {step === 4 ? (
                 <>
                   <View style={styles.sectionHeading}><Ionicons name="create-outline" size={20} color={colors.brand} /><Text style={[styles.sectionTitle, { color: colors.onSurface }]}>{t("esign.signOnScreen")}</Text></View>
-                  <View style={[styles.signatureFrame, { borderColor: colors.border }]}><SignatureCanvas ref={signatureRef} style={styles.signatureCanvas} onOK={setSignatureData} onEmpty={() => setErrorText(t("esign.errors.emptySignature"))} descriptionText="" clearText="" confirmText="" webStyle={`.m-signature-pad--footer { display: none; } .m-signature-pad { box-shadow: none; border: 0; } body { background: transparent; }`} /></View>
+                  <View style={[styles.signatureFrame, { borderColor: colors.border }]}><SignatureCanvas ref={signatureRef} style={styles.signatureCanvas} dataURL={signatureData} onOK={setSignatureData} onEmpty={() => setErrorText(t("esign.errors.emptySignature"))} descriptionText="" clearText="" confirmText="" webStyle={`.m-signature-pad--footer { display: none; } .m-signature-pad { box-shadow: none; border: 0; } body { background: transparent; }`} /></View>
                   <View style={styles.signatureActions}><Pressable style={[styles.toolButton, { borderColor: colors.border }]} onPress={() => { signatureRef.current?.clearSignature(); setSignatureData(""); }} testID="esign-clear-signature"><Ionicons name="trash-outline" size={17} color={colors.brand} /><Text style={[styles.toolText, { color: colors.brand }]}>{t("esign.clearSignature")}</Text></Pressable><Pressable style={[styles.toolButton, { borderColor: colors.border }]} onPress={() => signatureRef.current?.undo()} testID="esign-undo-signature"><Ionicons name="arrow-undo-outline" size={17} color={colors.brand} /><Text style={[styles.toolText, { color: colors.brand }]}>{t("esign.undoSignature")}</Text></Pressable><Pressable style={[styles.toolButton, { borderColor: colors.border }]} onPress={() => signatureRef.current?.readSignature()} testID="esign-confirm-signature"><Ionicons name="checkmark-outline" size={17} color={colors.brand} /><Text style={[styles.toolText, { color: colors.brand }]}>{t("esign.confirmSignature")}</Text></Pressable></View>
                   <View style={[styles.locationRow, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}><Ionicons name={locationCoords ? "location" : "location-outline"} size={20} color={locationCoords ? colors.success : colors.brand} /><View style={styles.locationCopy}>{locationCoords ? <Text style={[styles.locationText, { color: colors.onSurface }]}>{t("esign.gpsCaptured", { lat: locationCoords.latitude.toFixed(6), lng: locationCoords.longitude.toFixed(6), acc: locationCoords.accuracyMeters.toFixed(1) })}</Text> : <Text style={[styles.locationText, { color: colors.onSurfaceTertiary }]}>{isCapturingLocation ? t("esign.capturingGps") : t("esign.gpsPending")}</Text>}</View>{!locationCoords ? <Pressable onPress={() => void captureLocation()} hitSlop={8}><Ionicons name="refresh-outline" size={19} color={colors.brand} /></Pressable> : null}</View>
                 </>
               ) : null}
 
               {!!errorText && <Text style={[styles.errorText, { color: colors.error }]}>{errorText}</Text>}
-            </ScrollView>
+              {actionFooter}
+            </KeyboardAwareScrollView>
           )}
 
-          {!isLoading && !successContract ? <View style={[styles.footer, { borderTopColor: colors.border }]}>
-            <Pressable style={[styles.footerButton, { borderColor: colors.border }]} onPress={step === 1 ? onClose : () => setStep((current) => (current - 1) as 1 | 2 | 3 | 4)} testID="esign-back"><Text style={[styles.footerButtonText, { color: colors.onSurface }]}>{step === 1 ? t("common.actions.cancel") : t("common.actions.back")}</Text></Pressable>
-            {step < 4 ? <Pressable style={[styles.footerButton, styles.footerPrimary, { backgroundColor: colors.brand }, (!canContinueFromStep || isSavingPayload) && styles.disabledButton]} onPress={() => void goNext()} disabled={!canContinueFromStep || isSavingPayload} testID="esign-next">{isSavingPayload ? <ActivityIndicator color={colors.onBrand} /> : <><Text style={[styles.footerButtonText, { color: colors.onBrand }]}>{t("common.actions.continue")}</Text><Ionicons name="arrow-forward" size={17} color={colors.onBrand} /></>}</Pressable> : <Pressable style={[styles.footerButton, styles.footerPrimary, { backgroundColor: colors.brand }, !canContinueFromStep && styles.disabledButton]} onPress={() => void handleFinalize()} disabled={!canContinueFromStep || isFinalizing} testID="esign-finalize">{isFinalizing ? <ActivityIndicator color={colors.onBrand} /> : <><Ionicons name="shield-checkmark-outline" size={17} color={colors.onBrand} /><Text style={[styles.footerButtonText, { color: colors.onBrand }]}>{t("esign.finalize")}</Text></>}</Pressable>}
-          </View> : null}
         </View>
-      {contract ? <IdCameraCapture visible={cameraVisible} contractId={contract.id} signerId={signerId} frontUrl={idFrontUrl} backUrl={idBackUrl} documentType={idDocumentType} onUploaded={(side, url, metadata) => { if (side === "front") setIdFrontUrl(url); else setIdBackUrl(url); setIdCaptureMetadata((current) => ({ ...current, [side]: metadata })); setIdCaptureTimestamp((current) => Math.max(current, metadata.idCaptureTimestamp)); setIdDocumentType(metadata.idDocumentType); }} onClose={() => setCameraVisible(false)} /> : null}
+      {contract ? <IdCameraCapture visible={cameraVisible} contractId={contract.id} signerId={signerId} frontUrl={idFrontUrl} backUrl={idBackUrl} documentType={idDocumentType} onBeforeUpload={ensureSigningUploadAuth} onUploaded={(side, url, metadata) => { if (side === "front") setIdFrontUrl(url); else setIdBackUrl(url); setIdCaptureMetadata((current) => ({ ...current, [side]: metadata })); setIdCaptureTimestamp((current) => Math.max(current, metadata.idCaptureTimestamp)); setIdDocumentType(metadata.idDocumentType); }} onClose={() => setCameraVisible(false)} /> : null}
     </BaseBottomSheet>
+      {previewVisible ? <ContractPreviewModal visible title={previewTitle} html={previewHtml} onClose={() => setPreviewVisible(false)} /> : null}
+    </>
   );
 }
 
@@ -680,15 +830,14 @@ const styles = StyleSheet.create({
   signerPickerText: { fontFamily: fonts.semibold, fontSize: fontSize.xs },
   body: { flexShrink: 1 },
   bodyContent: { padding: spacing.lg, gap: spacing.md, paddingBottom: spacing.xl },
+  keyboardBodyContent: { paddingBottom: spacing["3xl"] + spacing.lg },
   loadingState: { minHeight: 360, alignItems: "center", justifyContent: "center" },
   sectionHeading: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   sectionTitle: { fontFamily: fonts.display, fontSize: fontSize.lg, flex: 1 },
   sectionHint: { fontFamily: fonts.regular, fontSize: fontSize.sm, lineHeight: 19 },
-  previewFrame: { height: 300, borderWidth: 1, borderRadius: radius.md, overflow: "hidden", backgroundColor: "#FFFFFF" },
-  previewWebView: { flex: 1, backgroundColor: "#FFFFFF" },
+  previewFrame: { height: 300, borderWidth: 1, borderRadius: radius.lg, overflow: "hidden", backgroundColor: "#FFFFFF" },
+  previewFramePressed: { opacity: 0.88, transform: [{ scale: 0.99 }] },
   label: { fontFamily: fonts.semibold, fontSize: fontSize.sm },
-  input: { minHeight: 46, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: spacing.md, fontFamily: fonts.regular, fontSize: fontSize.base },
-  multilineInput: { minHeight: 110, paddingTop: spacing.sm },
   evidenceRow: { flexDirection: "row", gap: spacing.sm },
   evidenceItem: { flex: 1, minHeight: 52, borderWidth: 1, borderRadius: radius.md, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.xs },
   evidenceText: { fontFamily: fonts.semibold, fontSize: fontSize.sm },
@@ -709,7 +858,15 @@ const styles = StyleSheet.create({
   locationCopy: { flex: 1 },
   locationText: { fontFamily: fonts.semibold, fontSize: fontSize.sm, lineHeight: 18 },
   errorText: { fontFamily: fonts.semibold, fontSize: fontSize.sm, lineHeight: 19 },
-  footer: { borderTopWidth: 1, padding: spacing.lg, flexDirection: "row", gap: spacing.sm },
+  footerCard: { borderTopWidth: 1, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: spacing.sm, paddingTop: spacing.sm, paddingBottom: spacing.sm, shadowColor: "#000000", shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.14, shadowRadius: 10, elevation: 8 },
+  footerRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  footerActionSlot: { flex: 1, minWidth: 0 },
+  footerActionSlotEnd: { alignItems: "flex-end" },
+  footerActionPlaceholder: { minHeight: 48 },
+  footerIndicator: { flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.xs, minWidth: 0 },
+  footerIndicatorText: { fontFamily: fonts.semibold, fontSize: fontSize.xs },
+  footerDots: { flexDirection: "row", alignItems: "center", gap: 4 },
+  footerDot: { width: 7, height: 7, borderRadius: radius.pill },
   footerButton: { minHeight: 48, flex: 1, borderWidth: 1, borderRadius: radius.pill, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.xs, paddingHorizontal: spacing.sm },
   footerPrimary: { borderWidth: 0 },
   footerButtonText: { fontFamily: fonts.bold, fontSize: fontSize.base },

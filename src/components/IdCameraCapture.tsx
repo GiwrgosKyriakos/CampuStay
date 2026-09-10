@@ -22,11 +22,12 @@ export interface IdCameraCaptureProps {
   frontUrl?: string;
   backUrl?: string;
   documentType?: IdDocumentType;
+  onBeforeUpload?: () => Promise<void>;
   onUploaded: (side: IdSide, url: string, metadata: IdCaptureSideMetadata) => void;
   onClose: () => void;
 }
 
-export default function IdCameraCapture({ visible, contractId, signerId, frontUrl, backUrl, documentType = "national_id", onUploaded, onClose }: IdCameraCaptureProps) {
+export default function IdCameraCapture({ visible, contractId, signerId, frontUrl, backUrl, documentType = "national_id", onBeforeUpload, onUploaded, onClose }: IdCameraCaptureProps) {
   const { colors } = useTheme();
   const cameraRef = useRef<CameraView>(null);
   const [permission, requestPermission] = useCameraPermissions();
@@ -65,13 +66,15 @@ export default function IdCameraCapture({ visible, contractId, signerId, frontUr
       const path = side === "front"
         ? `contracts/${contractId}/id_verifications/${signerId}.jpg`
         : `contracts/${contractId}/id_verifications/${signerId}-back.jpg`;
+      await onBeforeUpload?.();
       const url = await uploadImageAsync(picture.uri, path);
       if (side === "front") setFrontPreview(url);
       else setBackPreview(url);
       onUploaded(side, url, metadata);
       if (side === "front") setSide("back");
     } catch (error) {
-      setErrorText(error instanceof Error ? error.message : t("esign.errors.cameraUpload"));
+      const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+      setErrorText(code === "storage/unauthorized" ? t("esign.errors.authRequired") : error instanceof Error ? error.message : t("esign.errors.cameraUpload"));
     } finally {
       setIsTakingPhoto(false);
     }

@@ -48,6 +48,9 @@ export async function createRoommateGroupChat(params: {
     memberIds,
     createdBy: params.creatorId,
   };
+  const memberStatuses = Object.fromEntries(
+    memberIds.map((memberId) => [memberId, memberId === params.creatorId ? "approved" : "pending"]),
+  );
   const chatRef = doc(collection(db, "chats"));
   await setDoc(chatRef, {
     users: memberIds,
@@ -57,7 +60,9 @@ export async function createRoommateGroupChat(params: {
     groupMetadata,
     ...(params.hostApartmentId ? { hostApartmentId: params.hostApartmentId, apartmentId: params.hostApartmentId } : {}),
     createdBy: params.creatorId,
+    initiatedBy: params.creatorId,
     status: "active",
+    memberStatuses,
     lastMessage: "Ομαδική συνομιλία δημιουργήθηκε",
     lastMessageText: "Ομαδική συνομιλία δημιουργήθηκε",
     lastMessageTimestamp: serverTimestamp(),

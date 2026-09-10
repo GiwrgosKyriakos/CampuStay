@@ -23,6 +23,7 @@ import FilterSetVersionModal, { type SharedFilterSetRecord } from "@/src/compone
 import InboxSkeleton from "@/src/components/skeletons/InboxSkeleton";
 import CreateRoommateGroupModal from "@/src/components/chat/CreateRoommateGroupModal";
 import { getUserProfile } from "@/src/api/userProfile";
+import type { GroupMemberStatus } from "@/src/types/chat";
 
 const TAB_BAR_SPACE = 84;
 const INBOX_PAGE_SIZE = 10;
@@ -44,6 +45,7 @@ interface ChatListItem extends RoommateProfile {
   brokerChatRole?: "client" | "owner";
   isGroup?: boolean;
   groupMemberIds?: string[];
+  isChatMuted?: boolean;
 }
 
 interface FirestoreUserDoc {
@@ -71,6 +73,8 @@ interface FirestoreChatDoc {
   type?: "roommate" | "host" | "roommate_group" | string;
   groupName?: string;
   groupMetadata?: { groupName?: string; memberIds?: string[] };
+  memberStatuses?: Record<string, GroupMemberStatus>;
+  mutedByUsers?: Record<string, boolean>;
   brokerChatRole?: "client" | "owner" | string;
   status?: "pending" | "active" | "rejected";
   initiatedBy?: string | null;
@@ -647,12 +651,15 @@ export default function MatchesScreen() {
               // Batch-warm the profile cache: every uncached counterpart is fetched
               // once, in parallel, instead of one getDoc per chat row (kills N+1 reads).
               const counterpartUids = Array.from(new Set(
-                visibleChatDocs
-                  .map((chatDoc) => {
+                visibleChatDocs.flatMap((chatDoc) => {
                     const chatData = chatDoc.data() as FirestoreChatDoc;
-                    if (chatData.type === "roommate_group") return null;
+                    if (chatData.type === "roommate_group") {
+                      const memberIds = chatData.groupMetadata?.memberIds ?? chatData.users ?? [];
+                      return memberIds.filter((memberId) => memberId !== uid);
+                    }
                     const users = Array.isArray(chatData.users) ? chatData.users : [];
-                    return users.find((u) => u !== uid) ?? null;
+                    const counterpartUid = users.find((u) => u !== uid);
+                    return counterpartUid ? [counterpartUid] : [];
                   })
                   .filter((id): id is string => typeof id === "string" && !!id),
               ));
@@ -669,14 +676,23 @@ export default function MatchesScreen() {
                   const users = Array.isArray(chatData.users) ? chatData.users : [];
                   if (chatData.type === "roommate_group") {
                     const memberIds = chatData.groupMetadata?.memberIds ?? users;
+                    const memberStatus = chatData.memberStatuses?.[uid] ?? "approved";
                     return {
                       sortKey,
                       item: {
-                        ...buildDeletedCandidate(chatDoc.id, chatDoc.id, "active", null, chatData.groupMetadata?.groupName || chatData.groupName || "Ομαδική"),
+                        ...buildDeletedCandidate(
+                          chatDoc.id,
+                          chatDoc.id,
+                          memberStatus === "pending" ? "pending" : memberStatus === "rejected" ? "rejected" : "active",
+                          chatData.initiatedBy || "creator",
+                          chatData.groupMetadata?.groupName || chatData.groupName || "Ομαδική",
+                        ),
                         chatRoomId: chatDoc.id,
                         chat_users: memberIds,
+                          deleted: false,
                         isGroup: true,
                         groupMemberIds: memberIds,
+                          isChatMuted: chatData.mutedByUsers?.[uid] === true,
                       },
                     };
                   }
@@ -719,6 +735,7 @@ export default function MatchesScreen() {
                       // Περνάμε τα flags στο αντικείμενο
                       isBlocker,
                       isBlocked,
+                      isChatMuted: chatData.mutedByUsers?.[uid] === true,
                       brokerChatRole: chatData.brokerChatRole === "client" || chatData.brokerChatRole === "owner" ? chatData.brokerChatRole : undefined,
                     },
                   };
@@ -804,14 +821,23 @@ export default function MatchesScreen() {
     if (!currentUserId || !profile.chatRoomId) return;
     setAcceptingChatId(profile.chatRoomId);
     try {
-      await updateDoc(doc(db, "chats", profile.chatRoomId), {
-        status: "active",
-      });
+      if (profile.isGroup) {
+        await updateDoc(doc(db, "chats", profile.chatRoomId), {
+          [`memberStatuses.${currentUserId}`]: "approved",
+        });
+      } else {
+        await updateDoc(doc(db, "chats", profile.chatRoomId), {
+          status: "active",
+        });
+      }
       console.log("[Matches] Accepted pending roommate chat", {
         chatRoomId: profile.chatRoomId,
         currentUserId,
       });
-      router.push({ pathname: "/chat/[id]", params: { id: profile.id, chatRoomId: profile.chatRoomId } });
+      router.push({
+        pathname: "/chat/[id]",
+        params: { id: profile.isGroup ? profile.chatRoomId : profile.id, chatRoomId: profile.chatRoomId },
+      });
     } catch (err) {
       console.error("Accept chat failed:", err);
     } finally {
@@ -823,9 +849,16 @@ export default function MatchesScreen() {
     if (!currentUserId || !profile.chatRoomId) return;
     setAcceptingChatId(profile.chatRoomId);
     try {
-      await updateDoc(doc(db, "chats", profile.chatRoomId), {
-        status: "rejected",
-      });
+      if (profile.isGroup) {
+        await updateDoc(doc(db, "chats", profile.chatRoomId), {
+          [`memberStatuses.${currentUserId}`]: "rejected",
+          [`deletedUsers.${currentUserId}`]: true,
+        });
+      } else {
+        await updateDoc(doc(db, "chats", profile.chatRoomId), {
+          status: "rejected",
+        });
+      }
       console.log("[Matches] Rejected pending roommate chat", {
         chatRoomId: profile.chatRoomId,
         currentUserId,
@@ -1001,6 +1034,15 @@ export default function MatchesScreen() {
             const isCurrentUserParticipant = !!currentUserId && participants.includes(currentUserId);
             const isInitiator = isPending && isCurrentUserParticipant && p.chat_initiated_by === currentUserId;
             const isReceiver = isPending && isCurrentUserParticipant && p.chat_initiated_by !== currentUserId;
+            const groupAvatarMemberIds = p.isGroup
+              ? Array.from(new Set((p.groupMemberIds ?? []).filter((memberId) => memberId !== currentUserId))).slice(0, 2)
+              : [];
+            const groupAvatarUris = groupAvatarMemberIds.map((memberId) => {
+              const member = userProfileCache.get(memberId);
+              return member?.photoUrl || member?.photos?.[0] || "";
+            });
+            const avatarUri1 = groupAvatarUris[0] || "";
+            const avatarUri2 = groupAvatarUris[1] || "";
 
             if (rejectedByCounterpart) {
               displayName = t("common.account.deleted");
@@ -1043,7 +1085,24 @@ export default function MatchesScreen() {
                   </View>
                 ) : null}
 
-                {hasAvatar ? (
+                {p.isGroup ? (
+                  <View style={styles.groupAvatarWrapper} testID={`group-avatar-wrap-${p.id}`}>
+                    <View style={[styles.diagonalAvatar, styles.diagonalAvatarTopLeft]}>
+                      {avatarUri1 ? (
+                        <Image source={{ uri: avatarUri1 }} style={styles.diagonalAvatarImg} contentFit="cover" />
+                      ) : (
+                        <DefaultProfileAvatar iconSize={18} size={38} />
+                      )}
+                    </View>
+                    <View style={[styles.diagonalAvatar, styles.diagonalAvatarBottomRight, { borderColor: colors.surface }]}>
+                      {avatarUri2 ? (
+                        <Image source={{ uri: avatarUri2 }} style={styles.diagonalAvatarImg} contentFit="cover" />
+                      ) : (
+                        <DefaultProfileAvatar iconSize={18} size={38} />
+                      )}
+                    </View>
+                  </View>
+                ) : hasAvatar ? (
                   <Image source={{ uri: p.photo }} style={styles.avatar} contentFit="cover" transition={150} />
                 ) : (
                   <DefaultProfileAvatar size={60} iconSize={28} testID={`chat-row-avatar-fallback-${p.id}`} />
@@ -1111,13 +1170,16 @@ export default function MatchesScreen() {
                     </>
                   )}
                 </View>
-                {isPending ? (
-                  <Ionicons name="time-outline" size={22} color={colors.onSurfaceTertiary} />
-                ) : unreadFromCounterparty ? (
-                  <View style={styles.unreadDot} testID={`chat-unread-dot-${p.id}`} />
-                ) : (
-                  <Ionicons name="paper-plane-outline" size={22} color={colors.onSurfaceTertiary} />
-                )}
+                <View style={styles.rowTrailing}>
+                  {p.isChatMuted ? <Ionicons name="notifications-off-outline" size={16} color={colors.onSurfaceTertiary} testID={`chat-muted-indicator-${p.id}`} /> : null}
+                  {isPending ? (
+                    <Ionicons name="time-outline" size={22} color={colors.onSurfaceTertiary} />
+                  ) : unreadFromCounterparty ? (
+                    <View style={styles.unreadDot} testID={`chat-unread-dot-${p.id}`} />
+                  ) : (
+                    <Ionicons name="paper-plane-outline" size={22} color={colors.onSurfaceTertiary} />
+                  )}
+                </View>
               </Pressable>
             );
           })}
@@ -1263,9 +1325,22 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderBottomColor: colors.divider,
   },
   avatar: { width: 60, height: 60, borderRadius: radius.pill, backgroundColor: colors.surfaceTertiary },
+  groupAvatarWrapper: { width: 60, height: 60, position: "relative" },
+  diagonalAvatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    overflow: "hidden",
+    position: "absolute",
+    backgroundColor: colors.surfaceTertiary,
+  },
+  diagonalAvatarImg: { width: "100%", height: "100%" },
+  diagonalAvatarTopLeft: { top: 0, left: 0, zIndex: 1 },
+  diagonalAvatarBottomRight: { bottom: 0, right: 0, borderWidth: 2, zIndex: 2 },
   rowText: { flex: 1, gap: 3 },
   rowName: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface },
   rowMsg: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary },
+  rowTrailing: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
   rowMsgFaded: { color: colors.onSurfaceTertiary, opacity: 0.55 },
   rowMsgUnread: { color: colors.onSurface, fontFamily: fonts.semibold },
   pendingActionRow: {

@@ -5216,6 +5216,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     shadowRadius: 6,
     elevation: 6,
     zIndex: 10,
+    overflow: "visible",
   },
   inputBarLocked: {
     opacity: 0.45,

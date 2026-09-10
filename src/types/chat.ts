@@ -19,6 +19,8 @@ export interface GroupChatMetadata {
   createdBy: string;
 }
 
+export type GroupMemberStatus = "pending" | "approved" | "rejected";
+
 export interface Conversation {
   id: string;
   type: "direct" | "roommate_group";
