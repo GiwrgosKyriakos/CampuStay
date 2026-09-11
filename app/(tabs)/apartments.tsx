@@ -59,6 +59,7 @@ function ObtuseChevron({ isExpanded, color }: { isExpanded: boolean; color: stri
 }
 
 const CURRENCY = "€";
+const campuStay = true;
 const TAB_BAR_SPACE = 84;
 const COLLAPSE_DISTANCE = 46;
 const darkMapStyle = [
@@ -418,6 +419,8 @@ interface Apartment {
   city: string;
   address?: string;
   exactAddress?: string;
+  neighborhood?: string;
+  district?: string;
   showExactAddress?: boolean;
   latitude?: number;
   longitude?: number;
@@ -456,6 +459,13 @@ interface Apartment {
   available: boolean;
   watermarkConfig?: WatermarkConfig;
   virtualTour?: VirtualTourData;
+}
+
+function getApartmentSearchText(apt: Apartment): string {
+  return [apt.city, apt.area, apt.neighborhood, apt.district, apt.title, apt.address, apt.exactAddress, apt.description]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .map(normalizeText)
+    .join(" ");
 }
 
 interface FirestoreApartmentDoc {
@@ -946,6 +956,7 @@ export default function ApartmentsScreen() {
   const [likedApartmentTimestampById, setLikedApartmentTimestampById] = useState<Record<string, number>>({});
   const [likeErrorModalVisible, setLikeErrorModalVisible] = useState(false);
   const [showNotesPanel, setShowNotesPanel] = useState(false);
+  const [underConstructionModalVisible, setUnderConstructionModalVisible] = useState(false);
   const [loadingNotes, setLoadingNotes] = useState(false);
   const [notesList, setNotesList] = useState<ApartmentNoteItem[]>([]);
   const [notesOrderSaving, setNotesOrderSaving] = useState(false);
@@ -2188,7 +2199,7 @@ export default function ApartmentsScreen() {
     const minimumRenovationYear = renovationYearMin ? Number(renovationYearMin) : null;
     const normalizedSelectedCity = normalizeText(selectedCity);
     const normalizedAreaQuery = normalizeText(areaQuery);
-    const normalizedSearch = normalizeText(searchQuery);
+    const normalizedSearchTokens = normalizeText(searchQuery).split(/\s+/).filter(Boolean);
     const currentUid = auth.userId;
 
     const baseFiltered = apartments.filter((apt) => {
@@ -2201,7 +2212,7 @@ export default function ApartmentsScreen() {
       })) return false;
       if (isViewingMyListings) {
         if (!isOwnListing) return false;
-        if (!normalizedSearch) return true;
+        if (normalizedSearchTokens.length === 0) return true;
       }
       const isPrivilegedClient = !!currentUid && Array.isArray(apt.offMarketAccessUserIds) && apt.offMarketAccessUserIds.includes(currentUid);
       if ((apt.isOffMarket || apt.status === "under_negotiation") && !isOwnListing && !isPrivilegedClient) return false;
@@ -2291,10 +2302,12 @@ export default function ApartmentsScreen() {
       return cityMatch && areaMatch && rentMatch && sizeMatch && petMatch && metroMatch && typeMatch && categoryMatch && floorMatch && bedroomsMatch && bathroomsMatch && furnishedMatch && heatingMatch && energyMatch && constructionMatch && renovationMatch && amenitiesMatch;
     });
 
-    if (!normalizedSearch) return baseFiltered;
+    if (normalizedSearchTokens.length === 0) return baseFiltered;
 
     return baseFiltered
       .map((apt, index) => {
+        const searchableText = getApartmentSearchText(apt);
+        if (!normalizedSearchTokens.every((token) => searchableText.includes(token))) return null;
         const titleNorm = normalizeText(apt.title);
         const areaNorm = normalizeText(apt.area);
         const descriptionNorm = normalizeText(apt.description || "");
@@ -2302,19 +2315,16 @@ export default function ApartmentsScreen() {
         const amenitiesNorm = apt.amenities.map((amenity) => normalizeText(amenity));
 
         let score = 0;
-        if (titleNorm.includes(normalizedSearch)) score += 4;
-        if (areaNorm.includes(normalizedSearch)) score += 3;
-        if (descriptionNorm.includes(normalizedSearch)) score += 2;
-        if (
-          tagsNorm.some((item) => item.includes(normalizedSearch)) ||
-          amenitiesNorm.some((item) => item.includes(normalizedSearch))
-        ) {
-          score += 1;
-        }
+        normalizedSearchTokens.forEach((token) => {
+          if (titleNorm.includes(token)) score += 4;
+          if (areaNorm.includes(token) || normalizeText(apt.city).includes(token) || normalizeText(apt.neighborhood || "").includes(token) || normalizeText(apt.district || "").includes(token)) score += 3;
+          if (descriptionNorm.includes(token) || normalizeText(apt.address || "").includes(token) || normalizeText(apt.exactAddress || "").includes(token)) score += 2;
+          if (tagsNorm.some((item) => item.includes(token)) || amenitiesNorm.some((item) => item.includes(token))) score += 1;
+        });
 
         return { apt, score, index };
       })
-      .filter((item) => item.score > 0)
+      .filter((item): item is { apt: Apartment; score: number; index: number } => item !== null && item.score > 0)
       .sort((a, b) => b.score - a.score || a.index - b.index)
       .map((item) => item.apt);
   }, [
@@ -2644,7 +2654,7 @@ export default function ApartmentsScreen() {
           pointerEvents={isHeaderCollapsed ? "auto" : "none"}
           onPress={handleExpandHeader}
           hitSlop={{ top: 4, bottom: 4, left: 24, right: 24 }}
-          accessibilityLabel="Ανάπτυξη κεφαλίδας"
+          accessibilityLabel={t("apartments.accessibility.expandHeader")}
           accessibilityRole="button"
           testID="apartments-header-expand-chevron"
         >
@@ -2756,8 +2766,12 @@ export default function ApartmentsScreen() {
               <Pressable
                 style={[styles.filterActionButton, showHistoryModal && styles.filterActionButtonActive]}
                 onPress={() => {
-                  setSelectedSetForPreview(null);
-                  setShowHistoryModal(true);
+                  if (campuStay) {
+                    setUnderConstructionModalVisible(true);
+                  } else {
+                    setSelectedSetForPreview(null);
+                    setShowHistoryModal(true);
+                  }
                 }}
                 testID="apartments-filter-history-btn"
               >
@@ -2804,6 +2818,8 @@ export default function ApartmentsScreen() {
               </View>
             ) : null}
 
+            {/*CSPT1 
+
             <View style={styles.polygonFilterSection}>
               <Text style={styles.filterLabel}>{t("apartments.mapArea")}</Text>
               <Pressable
@@ -2835,6 +2851,7 @@ export default function ApartmentsScreen() {
                 ) : null}
               </Pressable>
             </View>
+            */}
 
             <Text style={[styles.sortTitle, { marginTop: spacing.md }]}>{t("apartments.showOnly")}</Text>
             <View style={styles.showOnlyRow}>
@@ -3308,7 +3325,7 @@ export default function ApartmentsScreen() {
             <Pressable
               style={[styles.hostInboxFab, hostInboxHasUnread && styles.hostInboxFabUnread]}
               onPress={() => router.push("/host-inbox" as any)}
-              accessibilityLabel="Μηνύματα / Προτάσεις"
+              accessibilityLabel={t("apartments.accessibility.hostInbox")}
               testID="apartments-host-inbox-fab"
             >
               <Ionicons name="mail-outline" size={22} color={colors.onBrand} />
@@ -3341,11 +3358,11 @@ export default function ApartmentsScreen() {
 
       <CenteredActionModal
         visible={shareConfirmationVisible}
-        title="Το set φίλτρων κοινοποιήθηκε επιτυχώς στον μεσίτη!"
+        title={t("apartments.filterShareSuccess")}
         onDismiss={() => setShareConfirmationVisible(false)}
         actions={[
           {
-            label: "OK",
+            label: t("apartments.filterShareOk"),
             iconName: "checkmark-circle-outline",
             onPress: () => setShareConfirmationVisible(false),
             testID: "apartments-filter-share-confirmation-ok",
@@ -3364,7 +3381,7 @@ export default function ApartmentsScreen() {
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setCityPickerVisible(false)} />
           <View style={styles.filterHistoryCard} testID="apartments-city-picker-modal">
             <View style={styles.filterHistoryHeader}>
-              <Text style={styles.filterHistoryTitle}>Πόλη</Text>
+              <Text style={styles.filterHistoryTitle}>{t("apartments.city")}</Text>
               <Pressable
                 style={styles.filterHistoryCloseButton}
                 onPress={() => setCityPickerVisible(false)}
@@ -3383,7 +3400,7 @@ export default function ApartmentsScreen() {
                 }}
                 testID="apartments-city-option-all"
               >
-                <Text style={[styles.sortOptionText, !selectedCity && styles.sortOptionTextActive]}>Όλες οι πόλεις</Text>
+                <Text style={[styles.sortOptionText, !selectedCity && styles.sortOptionTextActive]}>{t("apartments.allCities")}</Text>
                 {!selectedCity ? <Ionicons name="checkmark" size={18} color={colors.brand} /> : null}
               </Pressable>
               {cities.map((city) => {
@@ -3420,7 +3437,7 @@ export default function ApartmentsScreen() {
           <View style={styles.filterHistoryCard} testID="apartments-show-only-modal">
             <View style={styles.filterHistoryHeader}>
               <Text style={styles.filterHistoryTitle}>
-                {showOnlyModalType === "agency" ? "Επιλογή Μεσιτικού Γραφείου" : showOnlyModalType === "list" ? "Προτεινόμενες Λίστες Ακινήτων" : "Επιλογή Μεσίτη"}
+                {showOnlyModalType === "agency" ? t("apartments.showOnlyAgencyTitle") : showOnlyModalType === "list" ? t("apartments.showOnlyListTitle") : t("apartments.showOnlyBrokerTitle")}
               </Text>
               <Pressable
                 style={styles.filterHistoryCloseButton}
@@ -3456,7 +3473,7 @@ export default function ApartmentsScreen() {
                 </View>
               ) : brokerDirectory.length === 0 ? (
                 <View style={styles.filterHistoryState}>
-                  <Text style={styles.filterHistoryMutedText}>Δεν βρέθηκαν διαθέσιμοι μεσίτες.</Text>
+                  <Text style={styles.filterHistoryMutedText}>{t("apartments.noBrokers")}</Text>
                 </View>
               ) : (
                 <ScrollView style={styles.filterHistoryList} contentContainerStyle={styles.filterHistoryListContent}>
@@ -3501,7 +3518,7 @@ export default function ApartmentsScreen() {
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setBrokerShareModalVisible(false)} />
           <View style={styles.filterHistoryCard} testID="apartments-broker-share-modal">
             <View style={styles.filterHistoryHeader}>
-              <Text style={styles.filterHistoryTitle}>Κοινοποίηση σε μεσίτη</Text>
+              <Text style={styles.filterHistoryTitle}>{t("apartments.shareWithBroker")}</Text>
               <Pressable
                 style={styles.filterHistoryCloseButton}
                 onPress={() => setBrokerShareModalVisible(false)}
@@ -3516,7 +3533,7 @@ export default function ApartmentsScreen() {
               </View>
             ) : availableBrokers.length === 0 ? (
               <View style={styles.filterHistoryState}>
-                <Text style={styles.filterHistoryMutedText}>Δεν βρέθηκαν διαθέσιμοι μεσίτες.</Text>
+                <Text style={styles.filterHistoryMutedText}>{t("apartments.noBrokers")}</Text>
               </View>
             ) : (
               <ScrollView style={styles.filterHistoryList} contentContainerStyle={styles.filterHistoryListContent}>
@@ -3571,7 +3588,7 @@ export default function ApartmentsScreen() {
             {selectedSetForPreview === null ? (
               <>
                 <View style={styles.filterHistoryHeader}>
-                  <Text style={styles.filterHistoryTitle}>Ιστορικό Set Φίλτρων</Text>
+                  <Text style={styles.filterHistoryTitle}>{t("apartments.filterHistory")}</Text>
                   <Pressable
                     style={styles.filterHistoryCloseButton}
                     onPress={() => setShowHistoryModal(false)}
@@ -3586,7 +3603,7 @@ export default function ApartmentsScreen() {
                   </View>
                 ) : savedFilterSets.length === 0 ? (
                   <View style={styles.filterHistoryState}>
-                    <Text style={styles.filterHistoryMutedText}>Δεν υπάρχουν αποθηκευμένα set φίλτρων.</Text>
+                    <Text style={styles.filterHistoryMutedText}>{t("apartments.noSavedSets")}</Text>
                   </View>
                 ) : (
                   <ScrollView style={styles.filterHistoryList} contentContainerStyle={styles.filterHistoryListContent}>
@@ -3623,26 +3640,26 @@ export default function ApartmentsScreen() {
                   >
                     <Ionicons name="chevron-back" size={22} color={colors.onSurface} />
                   </Pressable>
-                  <Text style={styles.filterHistoryTitle}>Προεπισκόπηση Φίλτρων</Text>
+                  <Text style={styles.filterHistoryTitle}>{t("apartments.previewFilters")}</Text>
                   <View style={styles.filterHistoryHeaderSpacer} />
                 </View>
                 <ScrollView style={styles.filterHistoryList} contentContainerStyle={styles.filterPreviewContent}>
                   {selectedSetForPreview.title ? (
                     <View style={styles.filterPreviewPill}>
-                      <Text style={styles.filterPreviewLabel}>Τίτλος</Text>
+                      <Text style={styles.filterPreviewLabel}>{t("apartments.titleLabel")}</Text>
                       <Text style={styles.filterPreviewValue}>{selectedSetForPreview.title}</Text>
                     </View>
                   ) : null}
                   <View style={styles.filterPreviewPill}>
-                    <Text style={styles.filterPreviewLabel}>Ενοίκιο</Text>
+                    <Text style={styles.filterPreviewLabel}>{t("apartments.rentLabel")}</Text>
                     <Text style={styles.filterPreviewValue}>{`${selectedSetForPreview.rentMin || "0"} - ${selectedSetForPreview.rentMax || "∞"} €`}</Text>
                   </View>
                   <View style={styles.filterPreviewPill}>
-                    <Text style={styles.filterPreviewLabel}>Τιμή / τ.μ.</Text>
+                    <Text style={styles.filterPreviewLabel}>{t("apartments.priceSqmLabel")}</Text>
                     <Text style={styles.filterPreviewValue}>{`${selectedSetForPreview.minSqmPrice || "0"} - ${selectedSetForPreview.maxSqmPrice || "∞"} €/m²`}</Text>
                   </View>
                   <View style={styles.filterPreviewPill}>
-                    <Text style={styles.filterPreviewLabel}>Πόλη / Περιοχή</Text>
+                    <Text style={styles.filterPreviewLabel}>{t("apartments.cityAreaLabel")}</Text>
                     <Text style={styles.filterPreviewValue}>
                       {[
                         selectedSetForPreview.selectedCity?.trim() || selectedSetForPreview.cityQuery?.trim(),
@@ -3651,15 +3668,15 @@ export default function ApartmentsScreen() {
                     </Text>
                   </View>
                   <View style={styles.filterPreviewPill}>
-                    <Text style={styles.filterPreviewLabel}>Εμβαδόν</Text>
+                    <Text style={styles.filterPreviewLabel}>{t("apartments.sizeLabel")}</Text>
                     <Text style={styles.filterPreviewValue}>{`${selectedSetForPreview.sizeMin || "0"} - ${selectedSetForPreview.sizeMax || "∞"} m²`}</Text>
                   </View>
                   <View style={styles.filterPreviewPill}>
-                    <Text style={styles.filterPreviewLabel}>Κατοικίδια</Text>
+                    <Text style={styles.filterPreviewLabel}>{t("apartments.petsLabel")}</Text>
                     <Text style={styles.filterPreviewValue}>{selectedSetForPreview.petFriendly ? "Ναι" : "Όχι"}</Text>
                   </View>
                   <View style={styles.filterPreviewPill}>
-                    <Text style={styles.filterPreviewLabel}>Μετρό</Text>
+                    <Text style={styles.filterPreviewLabel}>{t("apartments.metroLabel")}</Text>
                     <Text style={styles.filterPreviewValue}>{selectedSetForPreview.nearMetro ? "Ναι" : "Όχι"}</Text>
                   </View>
                   <View style={styles.filterPreviewPill}>
@@ -3673,7 +3690,7 @@ export default function ApartmentsScreen() {
                   testID="apartments-confirm-restore-btn"
                 >
                   <Ionicons name="checkmark-circle-outline" size={19} color={colors.onBrand} />
-                  <Text style={styles.filterConfirmRestoreText}>Επαναφορά & Εφαρμογή</Text>
+                  <Text style={styles.filterConfirmRestoreText}>{t("apartments.restoreApply")}</Text>
                 </Pressable>
               </>
             )}
@@ -3696,7 +3713,7 @@ export default function ApartmentsScreen() {
 
           <View style={styles.notesPanel}>
             <View style={styles.notesHeaderRow}>
-              <Text style={styles.notesPanelTitle}>Σημειώσεις Διαμερισμάτων</Text>
+              <Text style={styles.notesPanelTitle}>{t("apartments.notesTitle")}</Text>
               <Pressable
                 style={styles.notesCloseBtn}
                 onPress={() => setShowNotesPanel(false)}
@@ -3722,6 +3739,7 @@ export default function ApartmentsScreen() {
                 showsVerticalScrollIndicator={false}
                 activationDistance={12}
                 onDragEnd={({ data }) => {
+                  if (campuStay) return;
                   setNotesList(data);
                   if (!auth.userId) return;
                   const orderedIds = data.map((item) => item.id);
@@ -3742,7 +3760,7 @@ export default function ApartmentsScreen() {
                     <ScaleDecorator>
                       <TouchableOpacity
                         activeOpacity={0.9}
-                        onPress={() =>
+                        onPress={campuStay ? undefined : () =>
                           router.push({
                             pathname: "/apartment-note",
                             params: {
@@ -3751,8 +3769,9 @@ export default function ApartmentsScreen() {
                             },
                           } as any)
                         }
-                        onLongPress={drag}
+                        onLongPress={campuStay ? undefined : drag}
                         delayLongPress={140}
+                        disabled={campuStay}
                         style={[styles.noteRow, isActive && styles.noteRowActive]}
                         testID={`apartments-note-row-${item.id}`}
                       >
@@ -3779,7 +3798,7 @@ export default function ApartmentsScreen() {
                           </View>
                         </View>
 
-                        <Ionicons name="reorder-two-outline" size={20} color={colors.onSurfaceTertiary} />
+                        {!campuStay ? <Ionicons name="reorder-two-outline" size={20} color={colors.onSurfaceTertiary} /> : null}
                       </TouchableOpacity>
                     </ScaleDecorator>
                   );
@@ -3791,6 +3810,17 @@ export default function ApartmentsScreen() {
           </View>
         </View>
       </Modal>
+
+      <CenteredActionModal
+        visible={underConstructionModalVisible}
+        title={t("common.underConstruction.title")}
+        description={t("common.underConstruction.description")}
+        onDismiss={() => setUnderConstructionModalVisible(false)}
+        actions={[{ label: t("common.underConstruction.action"), iconName: "checkmark-circle-outline", onPress: () => setUnderConstructionModalVisible(false) }]}
+        testID="apartments-filter-history-under-construction-modal"
+      >
+        <Ionicons name="construct-outline" size={46} color={colors.brand} style={{ alignSelf: "center" }} />
+      </CenteredActionModal>
 
       <MapPolygonDrawModal
         visible={isPolygonModalVisible}

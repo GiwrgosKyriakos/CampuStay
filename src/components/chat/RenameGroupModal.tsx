@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/context/ThemeContext";
 import { radius, spacing, fonts, fontSize } from "@/src/theme";
 import KeyboardAwareModal from "@/src/components/common/KeyboardAwareModal";
+import { t } from "@/src/locales";
 
 export default function RenameGroupModal({ visible, initialName, onClose, onSubmit }: { visible: boolean; initialName: string; onClose: () => void; onSubmit: (name: string) => void }) {
   const { colors } = useTheme();
@@ -11,9 +12,9 @@ export default function RenameGroupModal({ visible, initialName, onClose, onSubm
   React.useEffect(() => { if (visible) setName(initialName); }, [initialName, visible]);
   return <KeyboardAwareModal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
     <View style={styles.backdrop}><View style={[styles.card, { backgroundColor: colors.surface }]}>
-      <View style={styles.header}><Text style={[styles.title, { color: colors.onSurface }]}>Όνομα ομαδικής</Text><Pressable onPress={onClose}><Ionicons name="close-outline" size={22} color={colors.onSurface} /></Pressable></View>
-      <TextInput value={name} onChangeText={setName} autoFocus style={[styles.input, { color: colors.onSurface, borderColor: colors.border }]} placeholder="Ομαδική" placeholderTextColor={colors.onSurfaceTertiary} />
-      <Pressable style={[styles.button, { backgroundColor: colors.brand }]} disabled={!name.trim()} onPress={() => onSubmit(name)}><Text style={[styles.buttonText, { color: colors.onBrand }]}>Αποθήκευση</Text></Pressable>
+      <View style={styles.header}><Text style={[styles.title, { color: colors.onSurface }]}>{t("chat.renameGroupTitle")}</Text><Pressable onPress={onClose}><Ionicons name="close-outline" size={22} color={colors.onSurface} /></Pressable></View>
+      <TextInput value={name} onChangeText={setName} autoFocus style={[styles.input, { color: colors.onSurface, borderColor: colors.border }]} placeholder={t("chat.renameGroupPlaceholder")} placeholderTextColor={colors.onSurfaceTertiary} />
+      <Pressable style={[styles.button, { backgroundColor: colors.brand }]} disabled={!name.trim()} onPress={() => onSubmit(name)}><Text style={[styles.buttonText, { color: colors.onBrand }]}>{t("common.actions.save")}</Text></Pressable>
     </View></View>
   </KeyboardAwareModal>;
 }

@@ -166,10 +166,10 @@ export default function MapPolygonDrawModal({
               </Text>
               <Text style={styles.subtitle} numberOfLines={1}>
                 {isDrawMode
-                  ? "Σχεδιάστε σύροντας στον χάρτη"
+                  ? t("mapPolygon.subtitleDraw")
                   : hasPolygon
-                  ? "Περιοχή επιλεγμένη"
-                  : "Ενεργοποιήστε το μολύβι για σχεδίαση"}
+                  ? t("mapPolygon.subtitleSelected")
+                  : t("mapPolygon.subtitleStart")}
               </Text>
             </View>
 
@@ -195,7 +195,7 @@ export default function MapPolygonDrawModal({
         {isDrawMode ? (
           <View style={[styles.drawHintBadge, { top: insets.top + 76 }]}>
             <Ionicons name="pencil" size={14} color={colors.onBrand} />
-            <Text style={styles.drawHintText}>Σχεδιάστε ελεύθερα με το δάχτυλο</Text>
+            <Text style={styles.drawHintText}>{t("mapPolygon.drawHint")}</Text>
           </View>
         ) : null}
 

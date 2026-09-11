@@ -24,6 +24,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { fonts, fontSize, radius, spacing } from "@/src/theme";
 import { useTheme } from "@/src/context/ThemeContext";
+import { t } from "@/src/locales";
 
 export interface BaseBottomSheetProps {
   visible: boolean;
@@ -258,7 +259,7 @@ export default function BaseBottomSheet({
               onPress={preventDismissOnTouchOutside ? undefined : requestClose}
               accessible={!preventDismissOnTouchOutside}
               accessibilityRole="button"
-              accessibilityLabel="Close"
+              accessibilityLabel={t("common.accessibility.close")}
             />
           </Animated.View>
           {scrollable ? sheetContent : <GestureDetector gesture={universalPanGesture}>{sheetContent}</GestureDetector>}

@@ -5,6 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/context/ThemeContext";
 import { fonts, fontSize, radius, spacing } from "@/src/theme";
 import type { StandardLeadSource } from "@/src/types/analytics";
+import { t } from "@/src/locales";
 
 export const STANDARD_LEAD_SOURCES: StandardLeadSource[] = [
   "spitogatos",
@@ -42,7 +43,7 @@ export default function StandardLeadSourcePicker({ value, onChange, testID }: { 
     <Modal visible={visible} transparent animationType="fade" onRequestClose={() => setVisible(false)}>
       <View style={styles.backdrop}>
         <View style={styles.modal} testID={testID ? `${testID}-options` : undefined}>
-          <View style={styles.modalHeader}><Text style={styles.modalTitle}>Πηγή lead</Text><Pressable onPress={() => setVisible(false)} hitSlop={8}><Ionicons name="close-outline" size={23} color={colors.onSurface} /></Pressable></View>
+          <View style={styles.modalHeader}><Text style={styles.modalTitle}>{t("agency.leadSource")}</Text><Pressable onPress={() => setVisible(false)} hitSlop={8}><Ionicons name="close-outline" size={23} color={colors.onSurface} /></Pressable></View>
           {STANDARD_LEAD_SOURCES.map((source) => <Pressable key={source} style={[styles.option, source === value && styles.optionActive]} onPress={() => { onChange(source); setVisible(false); }} testID={testID ? `${testID}-${source}` : undefined}><Text style={[styles.optionText, source === value && styles.optionTextActive]}>{STANDARD_LEAD_SOURCE_LABELS[source]}</Text>{source === value ? <Ionicons name="checkmark-outline" size={19} color={colors.brand} /> : null}</Pressable>)}
         </View>
       </View>

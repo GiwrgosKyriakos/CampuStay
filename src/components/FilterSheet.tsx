@@ -316,6 +316,8 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
               maxTestID="filter-budget-max-input"
             />
 
+            {/*CSPT1
+
             <View style={styles.hardCriteriaSection}>
               <View style={styles.hardCriteriaHeaderRow}>
                 <Text style={styles.hardCriteriaTitle}>{t("filters.hardCriteria.title")}</Text>
@@ -339,6 +341,8 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
                 })}
               </View>
             </View>
+
+            */}
 
             <View style={[styles.actions, { marginBottom: actionsBottomOffset }, { marginTop: actionsTopOffset }]}>
               <Pressable

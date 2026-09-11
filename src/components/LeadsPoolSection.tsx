@@ -5,6 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { claimAgencyLead, subscribeAgencyLeads, type AgencyLead } from "@/src/api/agencyCollaboration";
 import { useTheme } from "@/src/context/ThemeContext";
 import { fonts, fontSize, radius, spacing } from "@/src/theme";
+import { t } from "@/src/locales";
 
 export default function LeadsPoolSection({ agencyId, brokerId, onChanged }: { agencyId: string; brokerId: string; onChanged?: () => void }) {
   const { colors } = useTheme();
@@ -28,11 +29,11 @@ export default function LeadsPoolSection({ agencyId, brokerId, onChanged }: { ag
     if (claiming) return;
     setClaiming(lead.id);
     setLeads((previous) => previous.filter((item) => item.id !== lead.id));
-    try { await claimAgencyLead({ leadId: lead.id, brokerId }); onChanged?.(); } catch (error) { setLeads((previous) => [...previous, lead]); Alert.alert("Η ανάληψη απέτυχε", error instanceof Error ? error.message : "Δοκιμάστε ξανά."); } finally { setClaiming(null); }
+    try { await claimAgencyLead({ leadId: lead.id, brokerId }); onChanged?.(); } catch (error) { setLeads((previous) => [...previous, lead]); Alert.alert(t("brokerHub.claimLeadFailed"), error instanceof Error ? error.message : t("common.messages.tryAgain")); } finally { setClaiming(null); }
   };
   if (loading) return <View style={styles.state}><ActivityIndicator color={colors.brand} /></View>;
-  if (leads.length === 0) return <View style={styles.state}><Ionicons name="people-outline" size={32} color={colors.onSurfaceTertiary} /><Text style={styles.empty}>Δεν υπάρχουν αδιάθετα leads.</Text></View>;
-  return <View style={styles.list}>{leads.map((lead) => <View key={lead.id} style={styles.row} testID={`lead-pool-${lead.id}`}><View style={styles.copy}><Text style={styles.name}>{lead.clientName}</Text><Text style={styles.meta}>{[lead.phone, lead.email, lead.budget ? `€${lead.budget}` : ""].filter(Boolean).join(" · ") || "Χωρίς στοιχεία επικοινωνίας"}</Text>{lead.apartmentId ? <Text style={styles.meta}>Ακίνητο: {lead.apartmentId}</Text> : null}</View><Pressable style={styles.claim} disabled={claiming === lead.id} onPress={() => void claim(lead)} testID={`lead-pool-claim-${lead.id}`}>{claiming === lead.id ? <ActivityIndicator color={colors.onBrand} /> : <><Ionicons name="person-add-outline" size={16} color={colors.onBrand} /><Text style={styles.claimText}>Ανάληψη Πελάτη</Text></>}</Pressable></View>)}</View>;
+  if (leads.length === 0) return <View style={styles.state}><Ionicons name="people-outline" size={32} color={colors.onSurfaceTertiary} /><Text style={styles.empty}>{t("brokerHub.leadPoolEmpty")}</Text></View>;
+  return <View style={styles.list}>{leads.map((lead) => <View key={lead.id} style={styles.row} testID={`lead-pool-${lead.id}`}><View style={styles.copy}><Text style={styles.name}>{lead.clientName}</Text><Text style={styles.meta}>{[lead.phone, lead.email, lead.budget ? `€${lead.budget}` : ""].filter(Boolean).join(" · ") || t("brokerHub.leadContactFallback")}</Text>{lead.apartmentId ? <Text style={styles.meta}>{`${t("common.labels.apartments")}: ${lead.apartmentId}`}</Text> : null}</View><Pressable style={styles.claim} disabled={claiming === lead.id} onPress={() => void claim(lead)} testID={`lead-pool-claim-${lead.id}`}>{claiming === lead.id ? <ActivityIndicator color={colors.onBrand} /> : <><Ionicons name="person-add-outline" size={16} color={colors.onBrand} /><Text style={styles.claimText}>{t("brokerHub.claimLead")}</Text></>}</Pressable></View>)}</View>;
 }
 
 const createStyles = (colors: ReturnType<typeof useTheme>["colors"]) => StyleSheet.create({

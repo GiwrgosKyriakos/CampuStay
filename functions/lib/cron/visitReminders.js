@@ -5,6 +5,7 @@ const app_1 = require("firebase-admin/app");
 const firestore_1 = require("firebase-admin/firestore");
 const scheduler_1 = require("firebase-functions/v2/scheduler");
 const push_1 = require("../lib/push");
+const viewingFeedbackEligibility_1 = require("../lib/viewingFeedbackEligibility");
 if ((0, app_1.getApps)().length === 0)
     (0, app_1.initializeApp)();
 const db = (0, firestore_1.getFirestore)();
@@ -41,6 +42,12 @@ async function claimPhase(appointmentId, phase, now) {
         return true;
     });
 }
+function reminderDispatchOptions(appointmentId, recipientId, phase) {
+    return {
+        dedupeKey: `appointment:${appointmentId}:${phase}:${recipientId}`,
+        recurringKey: `appointment:${appointmentId}:${recipientId}`,
+    };
+}
 async function processAppointment(appointmentId, data, now) {
     if (data.status === "cancelled")
         return;
@@ -54,6 +61,9 @@ async function processAppointment(appointmentId, data, now) {
     const listingId = typeof data.apartmentId === "string" ? data.apartmentId : "";
     const listingSnapshot = listingId ? await db.doc(`apartments/${listingId}`).get() : null;
     const listing = listingSnapshot?.exists ? listingSnapshot.data() ?? {} : {};
+    const hostId = (0, viewingFeedbackEligibility_1.listingHostId)(data, listing);
+    const hostSnapshot = hostId ? await db.doc(`users/${hostId}`).get() : null;
+    const suppressViewingFeedback = (0, viewingFeedbackEligibility_1.shouldSuppressViewingFeedback)(data, hostSnapshot?.exists ? hostSnapshot.data() ?? {} : {}, listing);
     const address = typeof listing.exactAddress === "string" && listing.showExactAddress === true
         ? listing.exactAddress
         : [listing.area, listing.city].filter((value) => typeof value === "string" && value.trim()).join(", ");
@@ -61,18 +71,18 @@ async function processAppointment(appointmentId, data, now) {
     const time = date.toLocaleTimeString("el-GR", { hour: "2-digit", minute: "2-digit" });
     if (isInWindow(date, now, 24 * 60 * 60 * 1000) && await claimPhase(appointmentId, "24h", now)) {
         await Promise.all([
-            (0, push_1.sendPushToUser)(brokerId, { type: "visit_reminder", title: "Υπόδειξη αύριο", body: `Υπόδειξη αύριο στις ${time} με τον πελάτη. Αποστείλατε την ακριβή διεύθυνση;`, screen: "chat/[id]", params: { appointmentId, apartmentId: listingId, clientId, chatId: data.chatRoomId }, entityId: appointmentId, action: "send_exact_address" }, "visit_reminders"),
-            (0, push_1.sendPushToUser)(clientId, { type: "visit_reminder", title: "Υπενθύμιση υπόδειξης", body: `Υπενθύμιση υπόδειξης αύριο στις ${time} στην περιοχή ${address}.`, screen: "chat/[id]", params: { appointmentId, chatId: data.chatRoomId }, entityId: appointmentId }, "visit_reminders"),
+            (0, push_1.sendPushToUser)(brokerId, { type: "visit_reminder", title: "Υπόδειξη αύριο", body: `Υπόδειξη αύριο στις ${time} με τον πελάτη. Αποστείλατε την ακριβή διεύθυνση;`, screen: "chat/[id]", params: { appointmentId, apartmentId: listingId, clientId, chatId: data.chatRoomId }, entityId: appointmentId, action: "send_exact_address" }, "visit_reminders", reminderDispatchOptions(appointmentId, brokerId, "24h")),
+            (0, push_1.sendPushToUser)(clientId, { type: "visit_reminder", title: "Υπενθύμιση υπόδειξης", body: `Υπενθύμιση υπόδειξης αύριο στις ${time} στην περιοχή ${address}.`, screen: "chat/[id]", params: { appointmentId, chatId: data.chatRoomId }, entityId: appointmentId }, "visit_reminders", reminderDispatchOptions(appointmentId, clientId, "24h")),
         ]);
     }
     if (isInWindow(date, now, 2 * 60 * 60 * 1000) && await claimPhase(appointmentId, "2h", now)) {
         const encodedAddress = encodeURIComponent(address);
-        await (0, push_1.sendPushToUser)(clientId, { type: "visit_navigation", title: "Η υπόδειξή σας είναι σε 2 ώρες", body: `Η επίσκεψη στο ${title} είναι στις ${time}.`, screen: "calendar", params: { appointmentId, googleMapsUrl: `https://www.google.com/maps/search/?api=1&query=${encodedAddress}`, appleMapsUrl: `maps://?q=${encodedAddress}` }, entityId: appointmentId }, "visit_reminders");
+        await (0, push_1.sendPushToUser)(clientId, { type: "visit_navigation", title: "Η υπόδειξή σας είναι σε 2 ώρες", body: `Η επίσκεψη στο ${title} είναι στις ${time}.`, screen: "calendar", params: { appointmentId, googleMapsUrl: `https://www.google.com/maps/search/?api=1&query=${encodedAddress}`, appleMapsUrl: `maps://?q=${encodedAddress}` }, entityId: appointmentId }, "visit_reminders", reminderDispatchOptions(appointmentId, clientId, "2h"));
     }
-    if (data.status === "completed" && isInWindow(date, now, -2 * 60 * 60 * 1000) && await claimPhase(appointmentId, "postVisit", now)) {
+    if (!suppressViewingFeedback && data.status === "completed" && isInWindow(date, now, -2 * 60 * 60 * 1000) && await claimPhase(appointmentId, "postVisit", now)) {
         await Promise.all([
-            (0, push_1.sendPushToUser)(clientId, { type: "post_visit_rating", title: "Αξιολόγηση επίσκεψης", body: "Πώς ήταν η επίσκεψη στο ακίνητο; Βαθμολόγησε την εμπειρία σου", screen: "calendar", params: { appointmentId }, entityId: appointmentId, action: "open_modal" }, "visit_reminders"),
-            (0, push_1.sendPushToUser)(brokerId, { type: "post_visit_rating", title: "Feedback υπόδειξης", body: "Ολοκληρώθηκε η υπόδειξη; Κατάγραψε feedback και τυχόν προφορική προσφορά", screen: "broker-client-detail", params: { appointmentId }, entityId: appointmentId, action: "open_modal" }, "visit_reminders"),
+            (0, push_1.sendPushToUser)(clientId, { type: "post_visit_rating", title: "Αξιολόγηση επίσκεψης", body: "Πώς ήταν η επίσκεψη στο ακίνητο; Βαθμολόγησε την εμπειρία σου", screen: "calendar", params: { appointmentId }, entityId: appointmentId, action: "open_modal" }, "visit_reminders", reminderDispatchOptions(appointmentId, clientId, "postVisit")),
+            (0, push_1.sendPushToUser)(brokerId, { type: "post_visit_rating", title: "Feedback υπόδειξης", body: "Ολοκληρώθηκε η υπόδειξη; Κατάγραψε feedback και τυχόν προφορική προσφορά", screen: "broker-client-detail", params: { appointmentId }, entityId: appointmentId, action: "open_modal" }, "visit_reminders", reminderDispatchOptions(appointmentId, brokerId, "postVisit")),
         ]);
     }
 }

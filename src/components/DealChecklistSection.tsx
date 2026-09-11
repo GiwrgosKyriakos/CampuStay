@@ -3,6 +3,7 @@ import { ActivityIndicator, Animated, Pressable, StyleSheet, Text, View } from "
 import { Ionicons } from "@expo/vector-icons";
 
 import { useTheme } from "@/src/context/ThemeContext";
+import { t } from "@/src/locales";
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
 import type { ChecklistCategory, ChecklistStatus, DealChecklistItem } from "@/src/types/checklist";
 
@@ -129,18 +130,18 @@ export default function DealChecklistSection({ items, canReview, uploadingItemId
                     ) : null}
                   </View>
                   <View style={styles.itemActions}>
-                    <Pressable onPress={() => onUpload(item)} disabled={isUploading || item.status === "verified"} style={[styles.iconAction, item.status === "verified" && styles.disabledAction]} accessibilityLabel={item.fileUrl ? "Αντικατάσταση αρχείου" : "Μεταφόρτωση αρχείου"} testID={`checklist-upload-${item.id}`}>
+                    <Pressable onPress={() => onUpload(item)} disabled={isUploading || item.status === "verified"} style={[styles.iconAction, item.status === "verified" && styles.disabledAction]} accessibilityLabel={item.fileUrl ? t("common.accessibility.replaceFile") : t("common.accessibility.uploadFile")} testID={`checklist-upload-${item.id}`}>
                       {isUploading ? <ActivityIndicator size="small" color={colors.brand} /> : <Ionicons name={item.fileUrl ? "refresh-outline" : "cloud-upload-outline"} size={18} color={item.status === "verified" ? colors.onSurfaceTertiary : colors.brand} />}
                     </Pressable>
-                    <Pressable onPress={() => onPreview(item)} disabled={!item.fileUrl} style={[styles.iconAction, !item.fileUrl && styles.disabledAction]} accessibilityLabel="Προεπισκόπηση εγγράφου" testID={`checklist-preview-${item.id}`}>
+                    <Pressable onPress={() => onPreview(item)} disabled={!item.fileUrl} style={[styles.iconAction, !item.fileUrl && styles.disabledAction]} accessibilityLabel={t("common.accessibility.previewDocument")} testID={`checklist-preview-${item.id}`}>
                       <Ionicons name="eye-outline" size={18} color={item.fileUrl ? colors.brand : colors.onSurfaceTertiary} />
                     </Pressable>
                     {canReview && item.status === "uploaded" ? (
                       <>
-                        <Pressable onPress={() => onReview(item, "verify")} style={[styles.iconAction, styles.approveAction]} accessibilityLabel="Έγκριση εγγράφου" testID={`checklist-approve-${item.id}`}>
+                        <Pressable onPress={() => onReview(item, "verify")} style={[styles.iconAction, styles.approveAction]} accessibilityLabel={t("common.accessibility.approveDocument")} testID={`checklist-approve-${item.id}`}>
                           <Ionicons name="checkmark" size={18} color="#15803D" />
                         </Pressable>
-                        <Pressable onPress={() => onReview(item, "reject")} style={[styles.iconAction, styles.rejectAction]} accessibilityLabel="Απόρριψη εγγράφου" testID={`checklist-reject-${item.id}`}>
+                        <Pressable onPress={() => onReview(item, "reject")} style={[styles.iconAction, styles.rejectAction]} accessibilityLabel={t("common.accessibility.rejectDocument")} testID={`checklist-reject-${item.id}`}>
                           <Ionicons name="close" size={18} color="#B91C1C" />
                         </Pressable>
                       </>

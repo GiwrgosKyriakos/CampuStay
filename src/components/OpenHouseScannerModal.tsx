@@ -8,6 +8,7 @@ import { useTheme } from "@/src/context/ThemeContext";
 import { fonts, fontSize, radius, spacing } from "@/src/theme";
 import type { StandardLeadSource } from "@/src/types/analytics";
 import BaseBottomSheet from "@/src/components/common/BaseBottomSheet";
+import { t } from "@/src/locales";
 
 export default function OpenHouseScannerModal({ visible, agencyId, apartmentId, apartmentTitle, brokerId, onClose, onRegistered }: { visible: boolean; agencyId: string; apartmentId: string; apartmentTitle: string; brokerId: string; onClose: () => void; onRegistered?: () => void }) {
   const { colors } = useTheme();
@@ -28,16 +29,16 @@ export default function OpenHouseScannerModal({ visible, agencyId, apartmentId, 
       onRegistered?.();
       onClose();
     } catch (error) {
-      Alert.alert("Η καταχώριση απέτυχε", error instanceof Error ? error.message : "Δοκιμάστε ξανά.");
+      Alert.alert(t("agency.registrationFailed"), error instanceof Error ? error.message : t("common.messages.tryAgain"));
     } finally {
       setSaving(false);
     }
   };
   return <BaseBottomSheet visible={visible} onClose={onClose} scrollable>
     <View style={styles.content}>
-      <View style={styles.header}><View style={styles.headerCopy}><Text style={styles.title}>Εγγραφή επισκέπτη Open House</Text><Text style={styles.subtitle} numberOfLines={1}>{apartmentTitle}</Text></View><Pressable onPress={onClose} hitSlop={8}><Ionicons name="close-outline" size={24} color={colors.onSurface} /></Pressable></View>
-      <View style={styles.scannerHint}><Ionicons name="qr-code-outline" size={22} color={colors.brand} /><Text style={styles.scannerHintText}>Γρήγορη καταχώριση επισκέπτη</Text></View>
-      <TextInput value={name} onChangeText={setName} placeholder="Ονοματεπώνυμο *" placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} autoCapitalize="words" testID="open-house-lead-name" /><TextInput value={phone} onChangeText={setPhone} placeholder="Τηλέφωνο" placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} keyboardType="phone-pad" testID="open-house-lead-phone" /><TextInput value={email} onChangeText={setEmail} placeholder="Email" placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} keyboardType="email-address" autoCapitalize="none" testID="open-house-lead-email" /><TextInput value={budget} onChangeText={(value) => setBudget(value.replace(/[^0-9.]/g, ""))} placeholder="Budget" placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} keyboardType="decimal-pad" testID="open-house-lead-budget" /><Text style={styles.sourceLabel}>Πηγή lead</Text><StandardLeadSourcePicker value={source} onChange={setSource} testID="open-house-lead-source-picker" /><Pressable style={[styles.submit, (!name.trim() || saving) && styles.disabled]} disabled={!name.trim() || saving} onPress={() => void submit()} testID="open-house-lead-submit">{saving ? <ActivityIndicator color={colors.onBrand} /> : <><Ionicons name="person-add-outline" size={19} color={colors.onBrand} /><Text style={styles.submitText}>Καταχώριση επισκέπτη</Text></>}</Pressable>
+      <View style={styles.header}><View style={styles.headerCopy}><Text style={styles.title}>{t("agency.openHouseTitle")}</Text><Text style={styles.subtitle} numberOfLines={1}>{apartmentTitle}</Text></View><Pressable onPress={onClose} hitSlop={8}><Ionicons name="close-outline" size={24} color={colors.onSurface} /></Pressable></View>
+      <View style={styles.scannerHint}><Ionicons name="qr-code-outline" size={22} color={colors.brand} /><Text style={styles.scannerHintText}>{t("agency.openHouseHint")}</Text></View>
+      <TextInput value={name} onChangeText={setName} placeholder={t("agency.fullNamePlaceholder")} placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} autoCapitalize="words" testID="open-house-lead-name" /><TextInput value={phone} onChangeText={setPhone} placeholder={t("agency.phonePlaceholder")} placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} keyboardType="phone-pad" testID="open-house-lead-phone" /><TextInput value={email} onChangeText={setEmail} placeholder={t("agency.emailPlaceholder")} placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} keyboardType="email-address" autoCapitalize="none" testID="open-house-lead-email" /><TextInput value={budget} onChangeText={(value) => setBudget(value.replace(/[^0-9.]/g, ""))} placeholder={t("agency.budgetPlaceholder")} placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} keyboardType="decimal-pad" testID="open-house-lead-budget" /><Text style={styles.sourceLabel}>{t("agency.leadSource")}</Text><StandardLeadSourcePicker value={source} onChange={setSource} testID="open-house-lead-source-picker" /><Pressable style={[styles.submit, (!name.trim() || saving) && styles.disabled]} disabled={!name.trim() || saving} onPress={() => void submit()} testID="open-house-lead-submit">{saving ? <ActivityIndicator color={colors.onBrand} /> : <><Ionicons name="person-add-outline" size={19} color={colors.onBrand} /><Text style={styles.submitText}>{t("agency.registerVisitor")}</Text></>}</Pressable>
     </View>
   </BaseBottomSheet>;
 }

@@ -17,7 +17,7 @@ import type { ThemeColors } from "@/src/theme";
 import { AuthProvider, useAuth } from "@/src/context/auth";
 import { LocaleProvider, useLocale } from "@/src/context/locale";
 import { ThemeProvider, useTheme } from "@/src/context/ThemeContext";
-import { AppLocale } from "@/src/locales";
+import { AppLocale, t } from "@/src/locales";
 import { storage } from "@/src/utils/storage";
 import { getRoleHomeTab } from "@/src/utils/roles";
 import { configureNotificationChannels, handleNotificationResponse, registerFcmTokenForUser, registerNotificationCategories } from "@/src/services/notifications";
@@ -282,13 +282,13 @@ function AppContent() {
                     },
                   ]}
                 >
-                  <Text style={styles.languageModalTitle}>Welcome to CampuStay</Text>
-                  <Text style={styles.languageModalTitleGreek}>Καλωσορίσατε στο CampuStay</Text>
+                  <Text style={styles.languageModalTitle}>{t("common.languagePrompt.welcome")}</Text>
+                  <Text style={styles.languageModalTitleGreek}>{t("common.languagePrompt.welcomeGreek")}</Text>
                   <Text style={styles.languageModalSubtitle}>
-                    Select your preferred language to personalize your app experience.
+                    {t("common.languagePrompt.subtitle")}
                   </Text>
                   <Text style={styles.languageModalSubtitleGreek}>
-                    Επιλέξτε τη γλώσσα σας για μια εξατομικευμένη εμπειρία εφαρμογής.
+                    {t("common.languagePrompt.subtitleGreek")}
                   </Text>
 
                   <View style={styles.languageButtonRow}>
@@ -300,7 +300,7 @@ function AppContent() {
                       disabled={isPersistingLanguage}
                       testID="first-launch-language-english"
                     >
-                      <Text style={styles.languageButtonPrimaryText}>English</Text>
+                      <Text style={styles.languageButtonPrimaryText}>{t("common.languages.english")}</Text>
                     </Pressable>
 
                     <Pressable
@@ -311,7 +311,7 @@ function AppContent() {
                       disabled={isPersistingLanguage}
                       testID="first-launch-language-greek"
                     >
-                      <Text style={styles.languageButtonSecondaryText}>Ελληνικά</Text>
+                      <Text style={styles.languageButtonSecondaryText}>{t("common.languages.greek")}</Text>
                     </Pressable>
                   </View>
                 </Animated.View>

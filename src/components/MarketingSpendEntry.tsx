@@ -10,6 +10,7 @@ import { useTheme } from "@/src/context/ThemeContext";
 import { fonts, fontSize, radius, spacing } from "@/src/theme";
 import type { StandardLeadSource } from "@/src/types/analytics";
 import BaseBottomSheet from "@/src/components/common/BaseBottomSheet";
+import { t } from "@/src/locales";
 
 function currentMonth(): string {
   const date = new Date();
@@ -36,13 +37,13 @@ export default function MarketingSpendEntry({ agencyId, recordedBy }: { agencyId
       reset();
       setVisible(false);
     } catch (error) {
-      Alert.alert("Η καταχώριση απέτυχε", error instanceof Error ? error.message : "Δοκιμάστε ξανά.");
+      Alert.alert(t("analytics.saveFailed"), error instanceof Error ? error.message : t("common.messages.tryAgain"));
     } finally { setSaving(false); }
   };
   return <>
-    <Pressable style={styles.trigger} onPress={() => setVisible(true)} testID="marketing-spend-open"><Ionicons name="receipt-outline" size={18} color={colors.brand} /><Text style={styles.triggerText}>Καταχώριση marketing spend</Text></Pressable>
+    <Pressable style={styles.trigger} onPress={() => setVisible(true)} testID="marketing-spend-open"><Ionicons name="receipt-outline" size={18} color={colors.brand} /><Text style={styles.triggerText}>{t("analytics.marketingSpendEntry")}</Text></Pressable>
     <BaseBottomSheet visible={visible} onClose={() => setVisible(false)}>
-      <View style={styles.content} testID="marketing-spend-form"><View style={styles.header}><View><Text style={styles.title}>Marketing spend</Text><Text style={styles.subtitle}>Μηνιαία καταχώριση τιμολογίου</Text></View><Pressable onPress={() => setVisible(false)} hitSlop={8}><Ionicons name="close-outline" size={24} color={colors.onSurface} /></Pressable></View><Text style={styles.label}>Κανάλι</Text><StandardLeadSourcePicker value={source} onChange={setSource} testID="marketing-spend-source-picker" /><Text style={styles.label}>Μήνας</Text><TextInput value={month} onChangeText={setMonth} placeholder="YYYY-MM" placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} keyboardType="numbers-and-punctuation" testID="marketing-spend-month" /><Text style={styles.label}>Ποσό (€)</Text><TextInput value={amount} onChangeText={(value) => setAmount(value.replace(/[^0-9.,]/g, ""))} placeholder="0,00" placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} keyboardType="decimal-pad" testID="marketing-spend-amount" /><Pressable style={[styles.submit, (saving || !amount.trim()) && styles.disabled]} disabled={saving || !amount.trim()} onPress={() => void submit()} testID="marketing-spend-submit">{saving ? <ActivityIndicator color={colors.onBrand} /> : <><Ionicons name="save-outline" size={18} color={colors.onBrand} /><Text style={styles.submitText}>Αποθήκευση</Text></>}</Pressable></View>
+      <View style={styles.content} testID="marketing-spend-form"><View style={styles.header}><View><Text style={styles.title}>{t("analytics.marketingSpendTitle")}</Text><Text style={styles.subtitle}>{t("analytics.marketingSpendSubtitle")}</Text></View><Pressable onPress={() => setVisible(false)} hitSlop={8}><Ionicons name="close-outline" size={24} color={colors.onSurface} /></Pressable></View><Text style={styles.label}>{t("agency.leadSource")}</Text><StandardLeadSourcePicker value={source} onChange={setSource} testID="marketing-spend-source-picker" /><Text style={styles.label}>{t("analytics.month")}</Text><TextInput value={month} onChangeText={setMonth} placeholder="YYYY-MM" placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} keyboardType="numbers-and-punctuation" testID="marketing-spend-month" /><Text style={styles.label}>{t("analytics.spendAmount")}</Text><TextInput value={amount} onChangeText={(value) => setAmount(value.replace(/[^0-9.,]/g, ""))} placeholder="0,00" placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} keyboardType="decimal-pad" testID="marketing-spend-amount" /><Pressable style={[styles.submit, (saving || !amount.trim()) && styles.disabled]} disabled={saving || !amount.trim()} onPress={() => void submit()} testID="marketing-spend-submit">{saving ? <ActivityIndicator color={colors.onBrand} /> : <><Ionicons name="save-outline" size={18} color={colors.onBrand} /><Text style={styles.submitText}>{t("common.actions.save")}</Text></>}</Pressable></View>
     </BaseBottomSheet>
   </>;
 }

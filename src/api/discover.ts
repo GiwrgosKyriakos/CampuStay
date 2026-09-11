@@ -1,6 +1,5 @@
 import type { RoommateProfile } from "@/src/data/profiles";
 import {
-  addDoc,
   collection,
   deleteDoc,
   doc,
@@ -15,6 +14,7 @@ import {
 import { db } from "@/src/config/firebase";
 import { normalizeCity } from "@/src/utils/cityNormalization";
 import { isBrokerOrAgencyUser } from "@/src/utils/roles";
+import { calculateMatchScore, type UserProfile as MatchUserProfile } from "@/src/utils/matchAlgorithm";
 
 interface FirestoreUserDoc {
   name?: string | null;
@@ -42,6 +42,37 @@ interface FirestoreUserDoc {
 
 interface FirestoreQuizDoc {
   answers?: Record<string, string>;
+}
+
+function normalizeMatchGender(gender: string | null | undefined): MatchUserProfile["gender"] {
+  if (gender === "Male" || gender === "Female" || gender === "Prefer Not To Say") return gender;
+  return "Prefer Not To Say";
+}
+
+function toMatchProfile(uid: string, data: FirestoreUserDoc, quizAnswers: Record<string, string>): MatchUserProfile {
+  return {
+    uid,
+    city: data.city?.trim() || "",
+    gender: normalizeMatchGender(data.gender),
+    monthlyBudget: typeof data.maxBudget === "number" ? data.maxBudget : typeof data.budget === "number" ? data.budget : 0,
+    quiz: quizAnswers,
+  };
+}
+
+async function calculateRoommateCompatibilityScore(userId: string, targetId: string): Promise<number | null> {
+  const [userSnapshot, targetSnapshot, userQuizSnapshot, targetQuizSnapshot] = await Promise.all([
+    getDoc(doc(db, "users", userId)),
+    getDoc(doc(db, "users", targetId)),
+    getDoc(doc(db, "quiz_answers", userId)),
+    getDoc(doc(db, "quiz_answers", targetId)),
+  ]);
+  if (!userSnapshot.exists() || !targetSnapshot.exists()) return null;
+
+  const userData = userSnapshot.data() as FirestoreUserDoc;
+  const targetData = targetSnapshot.data() as FirestoreUserDoc;
+  const userQuiz = userQuizSnapshot.exists() ? (userQuizSnapshot.data() as FirestoreQuizDoc).answers ?? {} : {};
+  const targetQuiz = targetQuizSnapshot.exists() ? (targetQuizSnapshot.data() as FirestoreQuizDoc).answers ?? {} : {};
+  return calculateMatchScore(toMatchProfile(userId, userData, userQuiz), toMatchProfile(targetId, targetData, targetQuiz));
 }
 
 interface CandidateMatchRecord {
@@ -216,7 +247,18 @@ export async function postSwipe(
     );
 
     try {
-      await addDoc(collection(db, "matches"), { recipientId: targetId, candidateId: userId, userId, score: 100, chatRoomId, source: "roommate_swipe", createdAt: Date.now() });
+      const score = await calculateRoommateCompatibilityScore(userId, targetId);
+      const matchId = `roommate_${userId}_${targetId}`;
+      await setDoc(doc(db, "matches", matchId), {
+        recipientId: targetId,
+        candidateId: userId,
+        userId,
+        score: typeof score === "number" && Number.isFinite(score) ? score : 0,
+        chatRoomId,
+        source: "roommate_swipe",
+        updatedAt: Date.now(),
+        createdAt: Date.now(),
+      }, { merge: true });
     } catch (notifErr) {
       console.error("[postSwipe] Σφάλμα αποστολής notification match:", notifErr);
     }

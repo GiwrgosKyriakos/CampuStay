@@ -7,6 +7,7 @@ import { getAgencyCoAssignedStaff, type AgencyStaffMember } from "@/src/api/agen
 import { useTheme } from "@/src/context/ThemeContext";
 import { fonts, fontSize, radius, spacing } from "@/src/theme";
 import BaseBottomSheet from "@/src/components/common/BaseBottomSheet";
+import { t } from "@/src/locales";
 
 export default function AgencyColleaguesModal({ visible, agencyId, currentUserId, apartmentIds, onClose, onSelect }: { visible: boolean; agencyId: string; currentUserId: string; apartmentIds: string[]; onClose: () => void; onSelect: (colleague: AgencyStaffMember) => void }) {
   const { colors } = useTheme();
@@ -28,9 +29,9 @@ export default function AgencyColleaguesModal({ visible, agencyId, currentUserId
   }, [agencyId, apartmentIds, currentUserId, visible]);
 
   return <BaseBottomSheet visible={visible} onClose={onClose} maxHeight="78%"><View style={styles.content}>
-      <View style={styles.header}><Text style={[styles.title, { color: colors.onSurface }]}>Συνεργάτες</Text><Pressable onPress={onClose} hitSlop={8}><Ionicons name="close-outline" size={24} color={colors.onSurface} /></Pressable></View>
-      {loading ? <ActivityIndicator color={colors.brand} /> : <View style={styles.list}>{colleagues.map((colleague) => <Pressable key={colleague.id} style={[styles.row, { backgroundColor: colors.surfaceSecondary }]} onPress={() => onSelect(colleague)} testID={`agency-colleague-${colleague.id}`}>{colleague.avatar ? <Image source={{ uri: colleague.avatar }} style={styles.avatar} /> : <View style={[styles.avatar, styles.avatarFallback]}><Ionicons name="person-outline" size={20} color={colors.onSurfaceTertiary} /></View>}<View style={styles.copy}><Text style={[styles.name, { color: colors.onSurface }]} numberOfLines={1}>{colleague.name}</Text><Text style={[styles.role, { color: colors.onSurfaceTertiary }]}>{colleague.agencyRole || "Μεσίτης"}</Text></View><Ionicons name="chatbubble-ellipses-outline" size={21} color={colors.brand} /></Pressable>)}</View>}
-      {!loading && colleagues.length === 0 ? <Text style={[styles.empty, { color: colors.onSurfaceTertiary }]}>Δεν βρέθηκαν ενεργοί συνεργάτες.</Text> : null}
+      <View style={styles.header}><Text style={[styles.title, { color: colors.onSurface }]}>{t("agency.colleagues")}</Text><Pressable onPress={onClose} hitSlop={8}><Ionicons name="close-outline" size={24} color={colors.onSurface} /></Pressable></View>
+      {loading ? <ActivityIndicator color={colors.brand} /> : <View style={styles.list}>{colleagues.map((colleague) => <Pressable key={colleague.id} style={[styles.row, { backgroundColor: colors.surfaceSecondary }]} onPress={() => onSelect(colleague)} testID={`agency-colleague-${colleague.id}`}>{colleague.avatar ? <Image source={{ uri: colleague.avatar }} style={styles.avatar} /> : <View style={[styles.avatar, styles.avatarFallback]}><Ionicons name="person-outline" size={20} color={colors.onSurfaceTertiary} /></View>}<View style={styles.copy}><Text style={[styles.name, { color: colors.onSurface }]} numberOfLines={1}>{colleague.name}</Text><Text style={[styles.role, { color: colors.onSurfaceTertiary }]}>{colleague.agencyRole || t("brokerHub.brokerFallback")}</Text></View><Ionicons name="chatbubble-ellipses-outline" size={21} color={colors.brand} /></Pressable>)}</View>}
+      {!loading && colleagues.length === 0 ? <Text style={[styles.empty, { color: colors.onSurfaceTertiary }]}>{t("brokerHub.noActiveColleagues")}</Text> : null}
     </View></BaseBottomSheet>;
 }
 

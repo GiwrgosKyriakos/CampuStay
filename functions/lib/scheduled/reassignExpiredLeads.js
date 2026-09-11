@@ -103,14 +103,19 @@ exports.reassignExpiredLeadsCron = (0, scheduler_1.onSchedule)({ schedule: "ever
             return ["ceo", "secretary", "secretariat"].includes(role);
         });
         const agencyLeads = expiredLeads.filter((lead) => lead.agencyId === agencyId);
+        const leadIds = agencyLeads.map((lead) => lead.snapshot.id).sort();
         await Promise.all(recipients.map((recipient) => (0, push_1.sendPushToUser)(recipient.id, {
             type: "deal_stage_update",
             title: "Lead επέστρεψε στο Pool",
             body: `${agencyLeads.length} lead${agencyLeads.length === 1 ? "" : "s"} επέστρεψαν στο αδιάθετο pool μετά από 24 ώρες χωρίς επικοινωνία.`,
             screen: "broker",
-            params: { agencyId },
+            params: { agencyId, leadIds },
+            entityId: `lead-auto-reassigned:${agencyId}:${leadIds.join(",")}`,
             action: "lead_auto_reassigned",
-        }, "deals_pipeline")));
+        }, "deals_pipeline", {
+            dedupeKey: `lead-auto-reassigned:${agencyId}:${leadIds.join(",")}`,
+            recurringKey: `lead-auto-reassigned:${agencyId}:${leadIds.join(",")}:${recipient.id}`,
+        })));
     }));
     firebase_functions_1.logger.info(`Successfully recycled ${expiredLeads.length} expired leads back to pool.`);
 });

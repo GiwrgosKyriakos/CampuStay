@@ -120,15 +120,15 @@ export default function ProfileScreen() {
   const notLookingForRoommate = auth.notLookingForRoommate === true;
   const subInfoParts = [age != null ? t("common.format.ageLabel", { age }) : "", program, university].filter(Boolean);
   const effectiveMode = themeMode === "system" ? (isDark ? "dark" : "light") : themeMode;
-  const themeTitle = locale === "el" ? "Εμφάνιση" : "Theme";
+  const themeTitle = t("profile.themeTitle");
   const visibleNavSettings = auth.isBroker
     ? NAV_SETTINGS.filter((setting) => setting.route !== "/roomie-profile")
     : NAV_SETTINGS;
   const canManageAgency = (profile?.agencyRole === "ceo" || profile?.agencyRole === "secretary") && !!profile.agencyId;
   const modeLabels = {
-    system: locale === "el" ? "Σύστημα" : "System",
-    light: locale === "el" ? "Φωτεινό" : "Light",
-    dark: locale === "el" ? "Σκούρο" : "Dark",
+    system: t("profile.themeOptions.system"),
+    light: t("profile.themeOptions.light"),
+    dark: t("profile.themeOptions.dark"),
   } as const;
 
   const updatePhoto = useCallback(async () => {
@@ -189,7 +189,7 @@ export default function ProfileScreen() {
             onPress={() => router.back()}
             testID="broker-settings-back-btn"
             accessibilityRole="button"
-            accessibilityLabel="Επιστροφή"
+            accessibilityLabel={t("profile.backAccessibility")}
             hitSlop={8}
           >
             <Ionicons name="chevron-back" size={24} color={colors.onSurface} />

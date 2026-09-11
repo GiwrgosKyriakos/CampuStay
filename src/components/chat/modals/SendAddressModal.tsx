@@ -3,6 +3,7 @@ import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from "rea
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/context/ThemeContext";
 import { fonts, fontSize, radius, spacing } from "@/src/theme";
+import { t } from "@/src/locales";
 
 export default function SendAddressModal({
   visible,
@@ -26,10 +27,10 @@ export default function SendAddressModal({
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <View style={styles.header}><View style={styles.titleWrap}><Ionicons name="location-outline" size={22} color={colors.brand} /><Text style={[styles.title, { color: colors.onSurface }]}>Κοινοποίηση ακριβούς διεύθυνσης</Text></View><Pressable onPress={onClose} disabled={isSending} hitSlop={8}><Ionicons name="close" size={22} color={colors.onSurface} /></Pressable></View>
-          <Text style={[styles.description, { color: colors.onSurfaceTertiary }]}>Η διεύθυνση θα σταλεί στον πελάτη για την αυριανή υπόδειξη.</Text>
-          <View style={[styles.addressBox, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}><Text style={[styles.address, { color: colors.onSurface }]}>{exactAddress || "Δεν βρέθηκε ακριβής διεύθυνση"}</Text>{Number.isFinite(latitude) && Number.isFinite(longitude) ? <Text style={[styles.coordinates, { color: colors.onSurfaceTertiary }]}>{`${latitude}, ${longitude}`}</Text> : null}</View>
-          <View style={styles.actions}><Pressable onPress={onClose} disabled={isSending} style={styles.cancel}><Text style={[styles.cancelText, { color: colors.onSurfaceTertiary }]}>Ακύρωση</Text></Pressable><Pressable onPress={onShare} disabled={isSending || !exactAddress.trim()} style={[styles.share, { backgroundColor: colors.brand }, (isSending || !exactAddress.trim()) && styles.disabled]}>{isSending ? <ActivityIndicator color={colors.onBrand} size="small" /> : <Ionicons name="send-outline" size={17} color={colors.onBrand} />}<Text style={[styles.shareText, { color: colors.onBrand }]}>Κοινοποίηση Διεύθυνσης</Text></Pressable></View>
+          <View style={styles.header}><View style={styles.titleWrap}><Ionicons name="location-outline" size={22} color={colors.brand} /><Text style={[styles.title, { color: colors.onSurface }]}>{t("chat.shareExactAddressTitle")}</Text></View><Pressable onPress={onClose} disabled={isSending} hitSlop={8}><Ionicons name="close" size={22} color={colors.onSurface} /></Pressable></View>
+          <Text style={[styles.description, { color: colors.onSurfaceTertiary }]}>{t("chat.shareExactAddressDescription")}</Text>
+          <View style={[styles.addressBox, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}><Text style={[styles.address, { color: colors.onSurface }]}>{exactAddress || t("chat.exactAddressUnavailable")}</Text>{Number.isFinite(latitude) && Number.isFinite(longitude) ? <Text style={[styles.coordinates, { color: colors.onSurfaceTertiary }]}>{`${latitude}, ${longitude}`}</Text> : null}</View>
+          <View style={styles.actions}><Pressable onPress={onClose} disabled={isSending} style={styles.cancel}><Text style={[styles.cancelText, { color: colors.onSurfaceTertiary }]}>{t("common.actions.cancel")}</Text></Pressable><Pressable onPress={onShare} disabled={isSending || !exactAddress.trim()} style={[styles.share, { backgroundColor: colors.brand }, (isSending || !exactAddress.trim()) && styles.disabled]}>{isSending ? <ActivityIndicator color={colors.onBrand} size="small" /> : <Ionicons name="send-outline" size={17} color={colors.onBrand} />}<Text style={[styles.shareText, { color: colors.onBrand }]}>{t("chat.shareAddress")}</Text></Pressable></View>
         </View>
       </View>
     </Modal>

@@ -7,6 +7,7 @@ import { AiServiceError, fetchComparativeMarketAnalysis, type CmaAnalysisInput, 
 import { db } from "@/src/config/firebase";
 import Dropdown from "@/src/components/Dropdown";
 import { useTheme } from "@/src/context/ThemeContext";
+import { t } from "@/src/locales";
 import { fonts, fontSize, radius, spacing } from "@/src/theme";
 import BaseBottomSheet from "@/src/components/common/BaseBottomSheet";
 
@@ -105,10 +106,10 @@ export default function CmaValuationModal({ visible, onClose, apartmentId, trans
         <View style={styles.contentWrap}>
           <View style={styles.headerRow}>
             <View style={styles.headerCopy}>
-              <Text style={[styles.title, { color: colors.onSurface }]}>AI Εκτίμηση Αξίας (CMA)</Text>
-              <Text style={[styles.subtitle, { color: colors.onSurfaceTertiary }]}>{area || "Τοπική αγορά"}</Text>
+              <Text style={[styles.title, { color: colors.onSurface }]}>{t("ai.cma.title")}</Text>
+              <Text style={[styles.subtitle, { color: colors.onSurfaceTertiary }]}>{area || t("ai.cma.localMarket")}</Text>
             </View>
-            <Pressable onPress={onClose} hitSlop={8} disabled={isLoading} accessibilityLabel="Κλείσιμο εκτίμησης">
+            <Pressable onPress={onClose} hitSlop={8} disabled={isLoading} accessibilityLabel={t("common.accessibility.closeValuation")}>
               <Ionicons name="close-outline" size={26} color={colors.onSurfaceTertiary} />
             </Pressable>
           </View>
@@ -118,24 +119,24 @@ export default function CmaValuationModal({ visible, onClose, apartmentId, trans
               <ActivityIndicator color={colors.brand} size="large" />
               <View style={[styles.skeletonLine, { backgroundColor: colors.surfaceTertiary }]} />
               <View style={[styles.skeletonLineShort, { backgroundColor: colors.surfaceTertiary }]} />
-              <Text style={[styles.loadingText, { color: colors.onSurfaceTertiary }]}>Ανάλυση συγκρίσιμων ακινήτων...</Text>
+              <Text style={[styles.loadingText, { color: colors.onSurfaceTertiary }]}>{t("ai.cma.loading")}</Text>
             </View>
           ) : errorText ? (
             <View style={[styles.errorBlock, { borderColor: colors.error, backgroundColor: colors.surfaceSecondary }]} testID="cma-error">
               <Ionicons name="alert-circle-outline" size={22} color={colors.error} />
               <Text style={[styles.errorText, { color: colors.error }]}>{errorText}</Text>
               <Pressable style={[styles.retryButton, { borderColor: colors.error }]} onPress={() => void runAnalysis()} disabled={isLoading}>
-                <Text style={[styles.retryText, { color: colors.error }]}>Επανάληψη</Text>
+                <Text style={[styles.retryText, { color: colors.error }]}>{t("ai.cma.retry")}</Text>
               </Pressable>
             </View>
           ) : result ? (
             <View style={styles.content}>
               <View style={[styles.priceCard, { backgroundColor: colors.brandTertiary, borderColor: colors.border }]}>
-                <Text style={[styles.cardLabel, { color: colors.onSurfaceTertiary }]}>Προτεινόμενο εύρος τιμής</Text>
+                <Text style={[styles.cardLabel, { color: colors.onSurfaceTertiary }]}>{t("ai.cma.suggestedRange")}</Text>
                 <View style={styles.priceRow}>
-                    <View style={styles.priceCell}><Text style={[styles.priceCaption, { color: colors.onSurfaceTertiary }]}>Min</Text><Text style={[styles.priceValue, { color: colors.onSurface }]}>€{result.suggestedPriceRange.min.toLocaleString("el-GR")}</Text></View>
-                    <View style={[styles.optimalCell, { borderColor: colors.brand }]}><Text style={[styles.priceCaption, { color: colors.brand }]}>Optimal</Text><Text style={[styles.optimalValue, { color: colors.onSurface }]}>€{result.suggestedPriceRange.optimal.toLocaleString("el-GR")}</Text></View>
-                    <View style={styles.priceCell}><Text style={[styles.priceCaption, { color: colors.onSurfaceTertiary }]}>Max</Text><Text style={[styles.priceValue, { color: colors.onSurface }]}>€{result.suggestedPriceRange.max.toLocaleString("el-GR")}</Text></View>
+                    <View style={styles.priceCell}><Text style={[styles.priceCaption, { color: colors.onSurfaceTertiary }]}>{t("ai.cma.min")}</Text><Text style={[styles.priceValue, { color: colors.onSurface }]}>€{result.suggestedPriceRange.min.toLocaleString("el-GR")}</Text></View>
+                    <View style={[styles.optimalCell, { borderColor: colors.brand }]}><Text style={[styles.priceCaption, { color: colors.brand }]}>{t("ai.cma.optimal")}</Text><Text style={[styles.optimalValue, { color: colors.onSurface }]}>€{result.suggestedPriceRange.optimal.toLocaleString("el-GR")}</Text></View>
+                    <View style={styles.priceCell}><Text style={[styles.priceCaption, { color: colors.onSurfaceTertiary }]}>{t("ai.cma.max")}</Text><Text style={[styles.priceValue, { color: colors.onSurface }]}>€{result.suggestedPriceRange.max.toLocaleString("el-GR")}</Text></View>
                 </View>
                   <Text style={[styles.sqmValue, { color: colors.onSurfaceTertiary }]}>Εκτίμηση: €{result.pricePerSqmEstimate.toLocaleString("el-GR")} / τ.μ.{transactionType === "rent" ? " / μήνα" : ""}</Text>
               </View>
@@ -143,21 +144,21 @@ export default function CmaValuationModal({ visible, onClose, apartmentId, trans
               <View style={[styles.badge, { backgroundColor: badgeColor }]}><Ionicons name="analytics-outline" size={16} color={colors.onBrand} /><Text style={[styles.badgeText, { color: colors.onBrand }]}>{competitivenessLabels[result.marketCompetitiveness]}</Text></View>
 
               <View style={[styles.section, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-                <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>Διαφοροποιητικά στοιχεία</Text>
-                {result.keyDifferentiators.length > 0 ? result.keyDifferentiators.map((item) => <Text key={item} style={[styles.listItem, { color: colors.onSurfaceTertiary }]}>• {item}</Text>) : <Text style={[styles.emptyText, { color: colors.onSurfaceTertiary }]}>Δεν εντοπίστηκαν επιπλέον διαφοροποιητικά στοιχεία.</Text>}
+                <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>{t("ai.cma.differentiators")}</Text>
+                {result.keyDifferentiators.length > 0 ? result.keyDifferentiators.map((item) => <Text key={item} style={[styles.listItem, { color: colors.onSurfaceTertiary }]}>• {item}</Text>) : <Text style={[styles.emptyText, { color: colors.onSurfaceTertiary }]}>{t("ai.cma.noDifferentiators")}</Text>}
               </View>
 
               <View style={[styles.insightBox, { borderColor: colors.brand, backgroundColor: colors.brandTertiary }]}>
-                <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>Εικόνα αγοράς</Text>
+                <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>{t("ai.cma.marketOverview")}</Text>
                 <Text style={[styles.insightText, { color: colors.onSurface }]}>{result.marketInsightsSummary}</Text>
               </View>
 
               {history.length > 0 ? <View style={[styles.historySection, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}>
-                <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>Ιστορικό εκτιμήσεων</Text>
+                <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>{t("ai.cma.history")}</Text>
                 <Dropdown
                   value={selectedHistoryId ? historyLabel(history.find((entry) => entry.id === selectedHistoryId) ?? history[0]) : null}
                   options={history.map(historyLabel)}
-                  placeholder="Επιλέξτε παλαιότερη έκδοση"
+                  placeholder={t("ai.cma.selectVersion")}
                   onSelect={(label) => setSelectedHistoryId(history.find((entry) => historyLabel(entry) === label)?.id ?? null)}
                   testID="cma-history-dropdown"
                 />

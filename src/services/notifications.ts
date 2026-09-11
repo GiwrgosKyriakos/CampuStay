@@ -2,7 +2,7 @@ import { Linking, Platform } from "react-native";
 import * as Notifications from "expo-notifications";
 import * as Device from "expo-device";
 import Constants from "expo-constants";
-import { arrayUnion, doc, getDoc, setDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 
 import { db, firebaseAuth } from "@/src/config/firebase";
 
@@ -96,8 +96,7 @@ export async function registerFcmTokenForUser(userId: string): Promise<string | 
   const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
   if (!projectId) return null;
   const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
-  const fcmToken = await Notifications.getDevicePushTokenAsync().then((result) => typeof result.data === "string" ? result.data : null).catch(() => null);
-  await setDoc(doc(db, "users", userId), { fcmTokens: arrayUnion(...[fcmToken].filter((value): value is string => Boolean(value))), expoPushToken: token }, { merge: true });
+  await setDoc(doc(db, "users", userId), { expoPushToken: token }, { merge: true });
   return token;
 }
 

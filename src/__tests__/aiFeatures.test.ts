@@ -65,7 +65,7 @@ jest.mock("firebase-functions/v2/https", () => ({
   onCall: (_options: unknown, handler: unknown) => handler,
   HttpsError: class HttpsError extends Error { code: string; constructor(codeValue: string, message: string) { super(message); this.code = codeValue; } },
 }), { virtual: true });
-jest.mock("firebase-functions/v2/firestore", () => ({ onDocumentCreated: (_path: string, handler: unknown) => handler, onDocumentUpdated: (_path: string, handler: unknown) => handler }), { virtual: true });
+jest.mock("firebase-functions/v2/firestore", () => ({ onDocumentCreated: (_path: string, handler: unknown) => handler, onDocumentUpdated: (_path: string, handler: unknown) => handler, onDocumentWritten: (_path: string, handler: unknown) => handler }), { virtual: true });
 jest.mock("firebase-functions", () => ({ logger: { info: jest.fn(), error: jest.fn() } }), { virtual: true });
 
 jest.mock("../../functions/src/cron/visitReminders", () => ({ processScheduledVisitReminders: jest.fn() }));

@@ -21,7 +21,7 @@ import { db, firebaseAuth } from "@/src/config/firebase";
 import { t } from "@/src/locales";
 import { registerForPushNotificationsAsync } from "@/src/utils/notificationService";
 import { calculateMatchScore } from "@/src/utils/matchAlgorithm";
-import type { CompatibilityQuiz, CompatibilityQuizAnswers, UserProfile as MatchUserProfile } from "@/src/utils/matchAlgorithm";
+import type { CompatibilityQuizAnswers, UserProfile as MatchUserProfile } from "@/src/utils/matchAlgorithm";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 84;
@@ -38,18 +38,11 @@ function normalizeMatchGender(gender: string | null | undefined): MatchUserProfi
 }
 
 function buildCompatibilityQuiz(answers: Record<string, string>): CompatibilityQuizAnswers {
-  const quiz: CompatibilityQuizAnswers = {};
-  const knownKeys: (keyof CompatibilityQuiz)[] = [
-    "q1_bills", "q2_sharing", "q3_food", "q4_cleanliness", "q5_cleaning_freq", "q6_dishes", "q7_smoke", "q8_pets",
-    "q9_sleep", "q10_quiet", "q11_guests", "q12_parties", "q13_cook", "q14_drinking", "q15_roommate_type",
-  ];
-  knownKeys.forEach((key) => {
-    const value = answers[key];
-    if (value?.trim()) {
-      Object.assign(quiz, { [key]: value as CompatibilityQuiz[typeof key] });
-    }
+  const quiz: Record<string, string> = {};
+  Object.entries(answers).forEach(([key, value]) => {
+    if (typeof value === "string" && value.trim()) quiz[key] = value;
   });
-  return quiz;
+  return quiz as CompatibilityQuizAnswers;
 }
 
 //function buildCompatibilityQuiz(answers: Record<string, string>): CompatibilityQuizAnswers {
@@ -348,18 +341,21 @@ useEffect(() => {
               {t("common.brandPrefix")}<Text style={styles.brandAccent}>{t("common.brandSuffix")}</Text>
             </Text>
           </View>
+
           <View style={styles.headerActionsRow}>
+            {/*CSPT1
             {canUseCalendar ? (
               <Pressable
                 style={[styles.iconBtn, activeView === "calendar" && styles.iconBtnActive]}
                 onPress={() => setActiveView((previous) => previous === "calendar" ? "deck" : "calendar")}
                 hitSlop={8}
                 testID="roommates-calendar-toggle-btn"
-                accessibilityLabel="Εναλλαγή Ημερολογίου"
+                accessibilityLabel={t("roommates.calendarToggle")}
               >
                 <Ionicons name={activeView === "calendar" ? "calendar" : "calendar-outline"} size={22} color={activeView === "calendar" ? colors.onBrand : colors.onSurface} />
               </Pressable>
             ) : null}
+            */}
             {quizAnsweredCount === 0 ? (
               <Pressable style={styles.quizPill} onPress={() => router.push("/roomie-profile")} testID="roommates-quiz-pill">
                 <Text style={styles.quizPillText}>{t("roommates.quiz")}</Text>

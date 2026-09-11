@@ -6,14 +6,15 @@ import type { LostDealReason } from "@/src/types/analytics";
 import { useTheme } from "@/src/context/ThemeContext";
 import { fonts, fontSize, radius, spacing } from "@/src/theme";
 import KeyboardAwareModal from "@/src/components/common/KeyboardAwareModal";
+import { t } from "@/src/locales";
 
 const LOSS_OPTIONS: { value: LostDealReason; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
-  { value: "price_dispute", label: "Διαφωνία τιμής", icon: "pricetag-outline" },
-  { value: "legal_defect", label: "Νομικό ελάττωμα", icon: "document-text-outline" },
-  { value: "competitor_won", label: "Επιλογή Άλλου Ακινήτου", icon: "home-outline" },
-  { value: "financial_issue", label: "Οικονομικό ζήτημα", icon: "cash-outline" },
-  { value: "buyer_withdrew", label: "Υπαναχώρηση Πελάτη", icon: "person-remove-outline" },
-  { value: "owner_cancelled", label: "Ακύρωση Ιδιοκτήτη", icon: "close-circle-outline" },
+  { value: "price_dispute", label: "brokerClient.lossReasons.priceDispute", icon: "pricetag-outline" },
+  { value: "legal_defect", label: "brokerClient.lossReasons.legalDefect", icon: "document-text-outline" },
+  { value: "competitor_won", label: "brokerClient.lossReasons.competitorWon", icon: "home-outline" },
+  { value: "financial_issue", label: "brokerClient.lossReasons.financialIssue", icon: "cash-outline" },
+  { value: "buyer_withdrew", label: "brokerClient.lossReasons.buyerWithdrew", icon: "person-remove-outline" },
+  { value: "owner_cancelled", label: "brokerClient.lossReasons.ownerCancelled", icon: "close-circle-outline" },
 ];
 
 export default function CloseLostDealModal({ visible, apartmentTitle, onClose, onConfirm }: { visible: boolean; apartmentTitle: string; onClose: () => void; onConfirm: (reason: LostDealReason, notes?: string) => void }) {
@@ -28,13 +29,13 @@ export default function CloseLostDealModal({ visible, apartmentTitle, onClose, o
   }, [visible]);
   return <KeyboardAwareModal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
     <View style={styles.backdrop}><View style={[styles.card, { backgroundColor: colors.surface }]}>
-      <View style={styles.header}><View style={styles.headerCopy}><Text style={[styles.title, { color: colors.onSurface }]}>Αιτιολογία Απώλειας Συμφωνίας</Text><Text style={[styles.subtitle, { color: colors.onSurfaceTertiary }]} numberOfLines={1}>{apartmentTitle}</Text></View><Pressable onPress={onClose} hitSlop={8}><Ionicons name="close-outline" size={24} color={colors.onSurface} /></Pressable></View>
+      <View style={styles.header}><View style={styles.headerCopy}><Text style={[styles.title, { color: colors.onSurface }]}>{t("brokerClient.lostDealTitle")}</Text><Text style={[styles.subtitle, { color: colors.onSurfaceTertiary }]} numberOfLines={1}>{apartmentTitle}</Text></View><Pressable onPress={onClose} hitSlop={8}><Ionicons name="close-outline" size={24} color={colors.onSurface} /></Pressable></View>
       <ScrollView contentContainerStyle={styles.options} bounces={false}>{LOSS_OPTIONS.map((option, index) => {
         const selected = selectedOptionIndex === index;
-        return <Pressable key={option.label} style={[styles.option, { borderColor: selected ? colors.brand : colors.border, backgroundColor: selected ? colors.brandTertiary : colors.surfaceSecondary }]} onPress={() => setSelectedOptionIndex(index)} testID={`close-lost-deal-reason-${index}`}><Ionicons name={option.icon} size={20} color={selected ? colors.brand : colors.onSurfaceTertiary} /><Text style={[styles.optionText, { color: colors.onSurface }]}>{option.label}</Text><Ionicons name={selected ? "checkmark-circle" : "ellipse-outline"} size={21} color={selected ? colors.brand : colors.onSurfaceTertiary} /></Pressable>;
+        return <Pressable key={option.label} style={[styles.option, { borderColor: selected ? colors.brand : colors.border, backgroundColor: selected ? colors.brandTertiary : colors.surfaceSecondary }]} onPress={() => setSelectedOptionIndex(index)} testID={`close-lost-deal-reason-${index}`}><Ionicons name={option.icon} size={20} color={selected ? colors.brand : colors.onSurfaceTertiary} /><Text style={[styles.optionText, { color: colors.onSurface }]}>{t(option.label)}</Text><Ionicons name={selected ? "checkmark-circle" : "ellipse-outline"} size={21} color={selected ? colors.brand : colors.onSurfaceTertiary} /></Pressable>;
       })}</ScrollView>
-      <TextInput value={notes} onChangeText={setNotes} placeholder="Προαιρετικές σημειώσεις" placeholderTextColor={colors.onSurfaceTertiary} multiline style={[styles.notesInput, { borderColor: colors.border, color: colors.onSurface, backgroundColor: colors.surfaceSecondary }]} />
-      <View style={styles.actions}><Pressable style={[styles.cancelButton, { borderColor: colors.border }]} onPress={onClose}><Text style={[styles.cancelText, { color: colors.onSurface }]}>Ακύρωση</Text></Pressable><Pressable style={[styles.confirmButton, { backgroundColor: colors.error }, selectedOptionIndex === null && styles.disabled]} disabled={selectedOptionIndex === null} onPress={() => selectedOptionIndex !== null && onConfirm(LOSS_OPTIONS[selectedOptionIndex].value, notes.trim() || undefined)} testID="close-lost-deal-confirm"><Ionicons name="archive-outline" size={18} color={colors.onBrand} /><Text style={[styles.confirmText, { color: colors.onBrand }]}>Καταχώριση</Text></Pressable></View>
+      <TextInput value={notes} onChangeText={setNotes} placeholder={t("brokerClient.optionalNotes")} placeholderTextColor={colors.onSurfaceTertiary} multiline style={[styles.notesInput, { borderColor: colors.border, color: colors.onSurface, backgroundColor: colors.surfaceSecondary }]} />
+      <View style={styles.actions}><Pressable style={[styles.cancelButton, { borderColor: colors.border }]} onPress={onClose}><Text style={[styles.cancelText, { color: colors.onSurface }]}>{t("common.actions.cancel")}</Text></Pressable><Pressable style={[styles.confirmButton, { backgroundColor: colors.error }, selectedOptionIndex === null && styles.disabled]} disabled={selectedOptionIndex === null} onPress={() => selectedOptionIndex !== null && onConfirm(LOSS_OPTIONS[selectedOptionIndex].value, notes.trim() || undefined)} testID="close-lost-deal-confirm"><Ionicons name="archive-outline" size={18} color={colors.onBrand} /><Text style={[styles.confirmText, { color: colors.onBrand }]}>{t("brokerClient.recordLoss")}</Text></Pressable></View>
     </View></View>
   </KeyboardAwareModal>;
 }

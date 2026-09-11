@@ -226,6 +226,28 @@ exports.onMatchCreated = (0, firestore_2.onDocumentCreated)({ document: "matches
     const data = event.data?.data();
     if (!data)
         return;
+    if (data.source === "roommate_swipe") {
+        const recipientId = typeof data.recipientId === "string" ? data.recipientId.trim() : "";
+        const candidateId = typeof data.candidateId === "string" ? data.candidateId.trim() : typeof data.userId === "string" ? data.userId.trim() : "";
+        const recordedUserId = typeof data.userId === "string" ? data.userId.trim() : "";
+        const calculatedCompatibilityScore = Number(data.score ?? data.compatibilityScore ?? data.matchScore);
+        const isValidPair = Boolean(recipientId && candidateId && recipientId !== candidateId && (!recordedUserId || recordedUserId === candidateId));
+        const isHighCompatibilityMatch = Number.isFinite(calculatedCompatibilityScore) && calculatedCompatibilityScore > 90;
+        if (!isValidPair || !isHighCompatibilityMatch)
+            return;
+        await (0, push_1.sendPushToUser)(recipientId, {
+            type: "high_match",
+            title: `🔥 Match ${calculatedCompatibilityScore}%`,
+            body: "Βρέθηκε συγκάτοικος με εξαιρετική συμβατότητα.",
+            screen: "roomie-profile",
+            params: { matchId: event.params.matchId, candidateId, score: calculatedCompatibilityScore },
+            entityId: event.params.matchId,
+            action: "view_roommate_match",
+        }, "high_matches", {
+            dedupeKey: `roommate-high-match:${recipientId}:${candidateId}`,
+        });
+        return;
+    }
     const score = Number(data.score ?? data.compatibilityScore ?? data.matchScore);
     const listingId = typeof data.apartmentId === "string" ? data.apartmentId : typeof data.listingId === "string" ? data.listingId : "";
     const clientId = typeof data.clientId === "string" ? data.clientId : typeof data.userId === "string" ? data.userId : "";
@@ -235,16 +257,11 @@ exports.onMatchCreated = (0, firestore_2.onDocumentCreated)({ document: "matches
         if (brokerId)
             await (0, push_1.sendPushToUser)(brokerId, { type: "high_match", title: `🔥 Match ${score}%`, body: "Ένας πελάτης ταιριάζει πολύ με το ακίνητό σου.", screen: "broker-client-detail", params: { apartmentId: listingId, clientId }, entityId: listingId }, "high_matches");
     }
-    if (Number(data.roommateScore ?? data.score) === 100) {
-        const recipientId = typeof data.recipientId === "string" ? data.recipientId : typeof data.targetUserId === "string" ? data.targetUserId : "";
-        const candidateId = typeof data.candidateId === "string" ? data.candidateId : typeof data.userId === "string" && data.userId !== recipientId ? data.userId : "";
-        if (recipientId)
-            await (0, push_1.sendPushToUser)(recipientId, { type: "high_match", title: "100% Roommate Match", body: "Βρέθηκε τέλειο ταίριασμα συγκατοίκησης.", screen: "roomie-profile", params: { matchId: event.params.matchId, candidateId }, entityId: event.params.matchId, action: "add_roommate", categoryId: "ROOMMATE_MATCH_100" }, "high_matches");
-    }
 });
-exports.onBrokerRegistration = (0, firestore_2.onDocumentCreated)({ document: "users/{userId}", region: "europe-west1" }, async (event) => {
-    const data = event.data?.data();
-    if (!data || data.is_broker !== true || data.agencyStatus !== "pending" || typeof data.agencyId !== "string")
+exports.onBrokerRegistration = (0, firestore_2.onDocumentWritten)({ document: "users/{userId}", region: "europe-west1" }, async (event) => {
+    const before = event.data?.before.data();
+    const data = event.data?.after.data();
+    if (!data || before?.agencyStatus === "pending" || data.is_broker !== true || data.agencyStatus !== "pending" || typeof data.agencyId !== "string")
         return;
     const recipients = await db.collection("users").where("agencyId", "==", data.agencyId).get();
     const name = typeof data.name === "string" ? data.name : "Νέος μεσίτης";

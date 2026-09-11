@@ -7,6 +7,7 @@ import { StatusBar } from "expo-status-bar";
 
 import { useTheme } from "@/src/context/ThemeContext";
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
+import { t } from "@/src/locales";
 
 type ContractPreviewModalProps = {
   visible: boolean;
@@ -55,7 +56,7 @@ export default function ContractPreviewModal({ visible, title, html, onClose }: 
               style={({ pressed }) => [styles.closeButton, { backgroundColor: colors.surface }, pressed && styles.pressed]}
               onPress={onClose}
               accessibilityRole="button"
-              accessibilityLabel="Κλείσιμο προεπισκόπησης συμβολαίου"
+              accessibilityLabel={t("common.accessibility.closePreview")}
               testID="contract-preview-close"
             >
               <Ionicons name="chevron-back" size={21} color={colors.onSurface} />

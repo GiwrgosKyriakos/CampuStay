@@ -4,6 +4,7 @@ import MapView, { Marker } from "react-native-maps";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/context/ThemeContext";
 import { fonts, fontSize, radius, spacing } from "@/src/theme";
+import { t } from "@/src/locales";
 
 export default function AddressCardMessage({
   exactAddress,
@@ -27,9 +28,9 @@ export default function AddressCardMessage({
     <View style={[styles.wrap, isMine ? styles.mine : styles.theirs]} testID="address-card-message">
       {hasCoordinates ? <MapView style={styles.map} scrollEnabled={false} zoomEnabled={false} initialRegion={{ latitude: latitude as number, longitude: longitude as number, latitudeDelta: 0.012, longitudeDelta: 0.012 }}><Marker coordinate={{ latitude: latitude as number, longitude: longitude as number }} /></MapView> : null}
       <View style={styles.content}>
-        <View style={styles.titleRow}><Ionicons name="location-sharp" size={19} color={colors.brand} /><Text style={[styles.title, { color: colors.onSurface }]}>Ακριβής τοποθεσία</Text></View>
+        <View style={styles.titleRow}><Ionicons name="location-sharp" size={19} color={colors.brand} /><Text style={[styles.title, { color: colors.onSurface }]}>{t("chat.exactLocation")}</Text></View>
         <Text style={[styles.address, { color: colors.onSurface }]}>{exactAddress}</Text>
-        <Pressable style={[styles.navigationButton, { backgroundColor: colors.brand }]} onPress={openNavigation} testID="address-card-navigation"><Ionicons name="navigate-outline" size={17} color={colors.onBrand} /><Text style={[styles.navigationText, { color: colors.onBrand }]}>Οδήγηση / Πλοήγηση</Text></Pressable>
+        <Pressable style={[styles.navigationButton, { backgroundColor: colors.brand }]} onPress={openNavigation} testID="address-card-navigation"><Ionicons name="navigate-outline" size={17} color={colors.onBrand} /><Text style={[styles.navigationText, { color: colors.onBrand }]}>{t("chat.openNavigation")}</Text></Pressable>
       </View>
     </View>
   );

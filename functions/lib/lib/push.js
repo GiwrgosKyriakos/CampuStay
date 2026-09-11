@@ -1,6 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.MAX_RECURRING_DISPATCHES = void 0;
 exports.sendPushToUser = sendPushToUser;
+const node_crypto_1 = require("node:crypto");
 const app_1 = require("firebase-admin/app");
 const messaging_1 = require("firebase-admin/messaging");
 const firestore_1 = require("firebase-admin/firestore");
@@ -8,8 +10,68 @@ const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 if ((0, app_1.getApps)().length === 0)
     (0, app_1.initializeApp)();
 const db = (0, firestore_1.getFirestore)();
+exports.MAX_RECURRING_DISPATCHES = 4;
 function isExpoToken(token) {
     return token.startsWith("ExponentPushToken[") || token.startsWith("ExpoPushToken[");
+}
+function canonicalize(value) {
+    if (Array.isArray(value))
+        return value.map(canonicalize);
+    if (!value || typeof value !== "object")
+        return value;
+    return Object.fromEntries(Object.entries(value)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, canonicalize(entry)]));
+}
+function defaultDedupeKey(payload) {
+    return JSON.stringify(canonicalize({
+        type: payload.type,
+        title: payload.title,
+        body: payload.body,
+        entityId: payload.entityId ?? "",
+        action: payload.action ?? "",
+        screen: payload.screen,
+        params: payload.params,
+    }));
+}
+function hashKey(value) {
+    return (0, node_crypto_1.createHash)("sha256").update(value).digest("hex");
+}
+async function claimDispatch(userId, payload, channelId, options) {
+    const dedupeKey = options?.dedupeKey ?? defaultDedupeKey(payload);
+    const notificationRef = db.doc(`users/${userId}/notifications/${hashKey(dedupeKey)}`);
+    const sequenceRef = options?.recurringKey
+        ? db.doc(`users/${userId}/notificationSequences/${hashKey(options.recurringKey)}`)
+        : null;
+    const maxDispatches = Math.min(exports.MAX_RECURRING_DISPATCHES, Math.max(1, Math.floor(options?.maxDispatches ?? exports.MAX_RECURRING_DISPATCHES)));
+    return db.runTransaction(async (transaction) => {
+        const notificationSnapshot = await transaction.get(notificationRef);
+        const sequenceSnapshot = sequenceRef ? await transaction.get(sequenceRef) : null;
+        if (notificationSnapshot.exists)
+            return null;
+        const previousDispatchCount = Number(sequenceSnapshot?.data()?.dispatchCount ?? 0);
+        if (sequenceRef && previousDispatchCount >= maxDispatches)
+            return null;
+        const dispatchCount = sequenceRef ? previousDispatchCount + 1 : 1;
+        transaction.create(notificationRef, {
+            ...payload,
+            ...(channelId ? { channelId } : {}),
+            read: false,
+            createdAt: Date.now(),
+            dedupeKey,
+            ...(sequenceRef ? { recurringKey: options?.recurringKey, dispatchCount, maxDispatches } : {}),
+        });
+        if (sequenceRef) {
+            transaction.set(sequenceRef, {
+                recurringKey: options?.recurringKey,
+                dispatchCount,
+                maxDispatches,
+                exhausted: dispatchCount >= maxDispatches,
+                updatedAt: Date.now(),
+            }, { merge: true });
+        }
+        return dispatchCount;
+    });
 }
 async function pruneToken(userId, token) {
     const userRef = db.doc(`users/${userId}`);
@@ -39,20 +101,20 @@ async function sendExpoToken(userId, token, payload, data) {
     if (error === "DeviceNotRegistered" || error === "InvalidCredentials")
         await pruneToken(userId, token);
 }
-async function sendPushToUser(userId, payload, channelId) {
+async function sendPushToUser(userId, payload, channelId, options) {
     const snapshot = await db.doc(`users/${userId}`).get();
     if (!snapshot.exists)
         return;
     const userData = snapshot.data();
-    await db.collection(`users/${userId}/notifications`).add({
-        ...payload,
-        ...(channelId ? { channelId } : {}),
-        read: false,
-        createdAt: Date.now(),
-    }).catch((error) => console.error("[Push] Notification feed write failed", error));
+    const dispatchCount = await claimDispatch(userId, payload, channelId, options);
+    if (dispatchCount === null)
+        return;
     const tokens = Array.from(new Set([
-        ...(Array.isArray(userData.fcmTokens) ? userData.fcmTokens.filter((token) => typeof token === "string" && Boolean(token.trim())) : []),
-        ...(typeof userData.expoPushToken === "string" && userData.expoPushToken.trim() ? [userData.expoPushToken] : []),
+        ...(typeof userData.expoPushToken === "string" && userData.expoPushToken.trim()
+            ? [userData.expoPushToken]
+            : Array.isArray(userData.fcmTokens)
+                ? userData.fcmTokens.filter((token) => typeof token === "string" && Boolean(token.trim()))
+                : []),
     ]));
     const expoTokens = tokens.filter(isExpoToken);
     const fcmTokens = tokens.filter((token) => !isExpoToken(token));

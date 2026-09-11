@@ -3,6 +3,7 @@ import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/context/ThemeContext";
 import { fonts, fontSize, radius, spacing } from "@/src/theme";
+import { t } from "@/src/locales";
 
 export default function AddressCardMessage({ exactAddress, isMine }: { exactAddress: string; latitude?: number; longitude?: number; isMine: boolean }) {
   const { colors } = useTheme();
@@ -11,9 +12,9 @@ export default function AddressCardMessage({ exactAddress, isMine }: { exactAddr
     <View style={[styles.wrap, isMine ? styles.mine : styles.theirs, { borderColor: colors.border }]}>
       <View style={[styles.mapPlaceholder, { backgroundColor: colors.surfaceSecondary }]}><Ionicons name="map-outline" size={34} color={colors.brand} /></View>
       <View style={[styles.content, { backgroundColor: colors.surface }]}>
-        <View style={styles.titleRow}><Ionicons name="location-sharp" size={19} color={colors.brand} /><Text style={[styles.title, { color: colors.onSurface }]}>Exact location</Text></View>
+        <View style={styles.titleRow}><Ionicons name="location-sharp" size={19} color={colors.brand} /><Text style={[styles.title, { color: colors.onSurface }]}>{t("chat.exactLocation")}</Text></View>
         <Text style={[styles.address, { color: colors.onSurface }]}>{exactAddress}</Text>
-        <Pressable style={[styles.navigationButton, { backgroundColor: colors.brand }]} onPress={openNavigation}><Ionicons name="navigate-outline" size={17} color={colors.onBrand} /><Text style={[styles.navigationText, { color: colors.onBrand }]}>Open navigation</Text></Pressable>
+        <Pressable style={[styles.navigationButton, { backgroundColor: colors.brand }]} onPress={openNavigation}><Ionicons name="navigate-outline" size={17} color={colors.onBrand} /><Text style={[styles.navigationText, { color: colors.onBrand }]}>{t("chat.openNavigation")}</Text></Pressable>
       </View>
     </View>
   );

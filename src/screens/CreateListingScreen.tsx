@@ -402,6 +402,7 @@ const PHOTO_SLOTS = 6;
 const BROKER_PRIVATE_PHOTO_SLOTS = 12;
 const IMAGE_QUALITY = 0.7;
 const CURRENT_BUILD_YEAR = 2026;
+const campuStay = true;
 const HEATING_SYSTEM_OPTIONS = ["Αυτόνομη", "Κεντρική", "Ρεύμα", "Φυσικό Αέριο", "Αντλία Θερμότητας", "Πετρέλαιο", "Χωρίς Θέρμανση", "Άλλο"];
 const ENERGY_CLASS_OPTIONS = ["A+", "A", "B+", "B", "C", "D", "E", "F", "G"];
 
@@ -658,6 +659,7 @@ export default function CreateListingScreen() {
     description: string;
     onAcknowledge?: () => void;
   } | null>(null);
+  const [underConstructionModalVisible, setUnderConstructionModalVisible] = useState(false);
   const [loadingEditData, setLoadingEditData] = useState(false);
   const [brokerShareModalVisible, setBrokerShareModalVisible] = useState(false);
   const [availableBrokers, setAvailableBrokers] = useState<{ id: string; avatar: string; name: string }[]>([]);
@@ -1366,12 +1368,12 @@ export default function CreateListingScreen() {
         );
         setBuildYear(
           typeof mappedExtraInformation?.buildYear === "number" && Number.isFinite(mappedExtraInformation.buildYear)
-            ? clampOptionalIntegerInput(String(mappedExtraInformation.buildYear), 1000, CURRENT_BUILD_YEAR)
+            ? digitsOnlyInput(String(mappedExtraInformation.buildYear)).slice(0, 4)
             : "",
         );
         setRenovationYear(
           typeof mappedExtraInformation?.renovationYear === "number" && Number.isFinite(mappedExtraInformation.renovationYear)
-            ? clampOptionalIntegerInput(String(mappedExtraInformation.renovationYear), 1900, CURRENT_BUILD_YEAR)
+            ? digitsOnlyInput(String(mappedExtraInformation.renovationYear)).slice(0, 4)
             : "",
         );
         setCommonExpenses(
@@ -3145,7 +3147,7 @@ export default function CreateListingScreen() {
                     <Text style={styles.fieldLabel}>Έτος κατασκευής</Text>
                     <TextInput
                       value={buildYear}
-                      onChangeText={(value) => setBuildYear(clampOptionalIntegerInput(value, 1000, CURRENT_BUILD_YEAR))}
+                      onChangeText={(value) => setBuildYear(digitsOnlyInput(value))}
                       keyboardType="number-pad"
                       maxLength={4}
                       placeholder="π.χ. 2008"
@@ -3158,7 +3160,7 @@ export default function CreateListingScreen() {
                     <Text style={styles.fieldLabel}>Έτος ανακαίνισης</Text>
                     <TextInput
                       value={renovationYear}
-                      onChangeText={(value) => setRenovationYear(clampOptionalIntegerInput(value, 1900, CURRENT_BUILD_YEAR))}
+                      onChangeText={(value) => setRenovationYear(digitsOnlyInput(value))}
                       keyboardType="number-pad"
                       maxLength={4}
                       placeholder="π.χ. 2021"
@@ -3701,11 +3703,15 @@ export default function CreateListingScreen() {
             <Pressable
               style={styles.assignBrokerButton}
               onPress={() => {
-                if (!listingId) {
-                  showFeedbackModal("Αποθηκεύστε πρώτα την αγγελία", "Η ανάθεση σε μεσίτη είναι διαθέσιμη αφού αποθηκεύσετε την αγγελία.");
-                  return;
+                if (campuStay) {
+                  setUnderConstructionModalVisible(true);
+                } else {
+                  if (!listingId) {
+                    showFeedbackModal("Αποθηκεύστε πρώτα την αγγελία", "Η ανάθεση σε μεσίτη είναι διαθέσιμη αφού αποθηκεύσετε την αγγελία.");
+                    return;
+                  }
+                  setBrokerShareModalVisible(true);
                 }
-                setBrokerShareModalVisible(true);
               }}
               testID="create-listing-assign-broker-btn"
             >
@@ -3767,6 +3773,17 @@ export default function CreateListingScreen() {
         testID="create-listing-feedback-modal"
       />
 
+      <CenteredActionModal
+        visible={underConstructionModalVisible}
+        title={t("common.underConstruction.title")}
+        description={t("common.underConstruction.description")}
+        onDismiss={() => setUnderConstructionModalVisible(false)}
+        actions={[{ label: t("common.underConstruction.action"), iconName: "checkmark-circle-outline", onPress: () => setUnderConstructionModalVisible(false) }]}
+        testID="create-listing-broker-assignment-under-construction-modal"
+      >
+        <Ionicons name="construct-outline" size={46} color={colors.brand} style={{ alignSelf: "center" }} />
+      </CenteredActionModal>
+
       <Modal visible={publishModeModalVisible} transparent animationType="fade" onRequestClose={() => setPublishModeModalVisible(false)}>
         <Pressable style={styles.publishModeBackdrop} onPress={() => setPublishModeModalVisible(false)}>
           <Pressable style={styles.publishModeCard} onPress={(event) => event.stopPropagation()} testID="create-listing-publish-mode-modal">
@@ -3806,7 +3823,13 @@ export default function CreateListingScreen() {
                     <Text style={styles.brokerName} numberOfLines={1}>{broker.name}</Text>
                     <Pressable
                       style={styles.brokerSendButton}
-                      onPress={() => void assignListingToBroker(broker.id)}
+                      onPress={() => {
+                        if (campuStay) {
+                          setUnderConstructionModalVisible(true);
+                        } else {
+                          void assignListingToBroker(broker.id);
+                        }
+                      }}
                       disabled={assigningBrokerId !== null}
                       testID={`create-listing-send-to-broker-${broker.id}`}
                     >

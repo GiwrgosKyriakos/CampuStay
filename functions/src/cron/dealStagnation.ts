@@ -65,6 +65,9 @@ export const processDealStagnation = onSchedule({ schedule: "every 15 minutes", 
       params: { profileId: profileSnapshot.id, clientId, ...(apartmentId ? { apartmentId } : {}) },
       entityId: profileSnapshot.id,
       action: "deal_stagnation",
-    }, "deals_pipeline");
+    }, "deals_pipeline", {
+      dedupeKey: `deal-stagnation:${profileSnapshot.id}:${stageUpdatedAt}:${lastSentAt}`,
+      recurringKey: `deal-stagnation:${profileSnapshot.id}:${brokerId}:${stageUpdatedAt}`,
+    });
   }));
 });

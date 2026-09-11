@@ -7,7 +7,6 @@ import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
 import { arrayUnion, collection, doc, getDocs, query, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 
 import { db, firebaseAuth } from "@/src/config/firebase";
-import { notifyCeoOfNewApplicant } from "@/src/api/agency";
 import { useAuth } from "@/src/context/auth";
 import { useTheme } from "@/src/context/ThemeContext";
 import { t } from "@/src/locales";
@@ -106,13 +105,11 @@ export default function AgencyOnboardingScreen() {
           pendingSecretaryIds: arrayUnion(credential.user.uid),
           updatedAt: serverTimestamp(),
         });
-        await notifyCeoOfNewApplicant(joinedAgency.id, secretariatName, email.trim());
       } else {
         await setDoc(doc(db, "users", credential.user.uid), {
           name: displayName.trim(), email: email.trim(), is_broker: true, agencyId: selectedAgency!.id, agencyRole: "member", agencyStatus: "pending", agencyRequestedAt: serverTimestamp(), needsProfileSetup: true, updatedAt: serverTimestamp(),
         }, { merge: true });
         await updateDoc(doc(db, "agencies", selectedAgency!.id), { pendingBrokerIds: arrayUnion(credential.user.uid), updatedAt: serverTimestamp() });
-        await notifyCeoOfNewApplicant(selectedAgency!.id, displayName.trim(), email.trim());
       }
       auth.updateRoleStates(true, true);
       router.replace("/edit-profile");

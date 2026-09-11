@@ -6,6 +6,7 @@ import { createCrossBrokerShowing } from "@/src/api/agencyCollaboration";
 import { useTheme } from "@/src/context/ThemeContext";
 import { fonts, fontSize, radius, spacing } from "@/src/theme";
 import BaseBottomSheet from "@/src/components/common/BaseBottomSheet";
+import { t } from "@/src/locales";
 
 export default function CrossBrokerVisitModal({ visible, agencyId, brokerId, listingBrokerId, apartmentId, apartmentTitle, apartmentAddress, apartmentPrice, onClose, onCreated }: { visible: boolean; agencyId: string; brokerId: string; listingBrokerId: string; apartmentId: string; apartmentTitle: string; apartmentAddress: string; apartmentPrice?: number; onClose: () => void; onCreated: () => void }) {
   const { colors } = useTheme();
@@ -37,19 +38,19 @@ export default function CrossBrokerVisitModal({ visible, agencyId, brokerId, lis
       await createCrossBrokerShowing({ agencyId, apartmentId, apartmentTitle, apartmentAddress, listingBrokerId, buyerBrokerId: brokerId, clientId: client.clientId, clientName: client.clientName || "Πελάτης", apartmentPrice, appointmentDate: `${date}T${time}:00` });
       onCreated();
     } catch (error) {
-      Alert.alert("Η επίσκεψη απέτυχε", error instanceof Error ? error.message : "Δοκιμάστε ξανά.");
+      Alert.alert(t("agency.visitFailed"), error instanceof Error ? error.message : t("common.messages.tryAgain"));
     } finally {
       setSaving(false);
     }
   };
   return <BaseBottomSheet visible={visible} onClose={onClose} scrollable>
     <View style={styles.content}>
-      <View style={styles.header}><View style={styles.headerCopy}><Text style={styles.title}>Κλείσε επίσκεψη</Text><Text style={styles.subtitle}>{apartmentTitle}</Text></View><Pressable onPress={onClose}><Ionicons name="close-outline" size={24} color={colors.onSurface} /></Pressable></View>
-      <Text style={styles.label}>Πελάτης</Text>
-      {loading ? <ActivityIndicator color={colors.brand} /> : <View style={styles.clientList}>{clients.map((client) => <Pressable key={client.clientId} style={[styles.clientRow, selectedClientId === client.clientId && styles.clientRowSelected]} onPress={() => setSelectedClientId(client.clientId)}><View style={styles.clientCopy}><Text style={styles.clientName}>{client.clientName || "Πελάτης"}</Text><Text style={styles.clientMeta}>{client.role === "owner" ? "Ιδιοκτήτης" : "Πελάτης"}</Text></View><Ionicons name={selectedClientId === client.clientId ? "checkmark-circle" : "ellipse-outline"} size={21} color={selectedClientId === client.clientId ? colors.brand : colors.onSurfaceTertiary} /></Pressable>)}</View>}
-      <Text style={styles.label}>Ημερομηνία</Text><TextInput value={date} onChangeText={setDate} placeholder="YYYY-MM-DD" placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} keyboardType="numbers-and-punctuation" testID="cross-broker-visit-date" />
-      <Text style={styles.label}>Ώρα</Text><TextInput value={time} onChangeText={setTime} placeholder="HH:MM" placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} keyboardType="numbers-and-punctuation" testID="cross-broker-visit-time" />
-      <Pressable style={[styles.submit, (!selectedClientId || saving) && styles.submitDisabled]} disabled={!selectedClientId || saving} onPress={() => void submit()} testID="cross-broker-visit-submit">{saving ? <ActivityIndicator color={colors.onBrand} /> : <><Ionicons name="calendar-outline" size={18} color={colors.onBrand} /><Text style={styles.submitText}>Προγραμματισμός</Text></>}</Pressable>
+      <View style={styles.header}><View style={styles.headerCopy}><Text style={styles.title}>{t("agency.scheduleVisit")}</Text><Text style={styles.subtitle}>{apartmentTitle}</Text></View><Pressable onPress={onClose}><Ionicons name="close-outline" size={24} color={colors.onSurface} /></Pressable></View>
+      <Text style={styles.label}>{t("agency.client")}</Text>
+      {loading ? <ActivityIndicator color={colors.brand} /> : <View style={styles.clientList}>{clients.map((client) => <Pressable key={client.clientId} style={[styles.clientRow, selectedClientId === client.clientId && styles.clientRowSelected]} onPress={() => setSelectedClientId(client.clientId)}><View style={styles.clientCopy}><Text style={styles.clientName}>{client.clientName || t("agency.client")}</Text><Text style={styles.clientMeta}>{client.role === "owner" ? t("agency.owner") : t("agency.client")}</Text></View><Ionicons name={selectedClientId === client.clientId ? "checkmark-circle" : "ellipse-outline"} size={21} color={selectedClientId === client.clientId ? colors.brand : colors.onSurfaceTertiary} /></Pressable>)}</View>}
+      <Text style={styles.label}>{t("agency.date")}</Text><TextInput value={date} onChangeText={setDate} placeholder="YYYY-MM-DD" placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} keyboardType="numbers-and-punctuation" testID="cross-broker-visit-date" />
+      <Text style={styles.label}>{t("agency.time")}</Text><TextInput value={time} onChangeText={setTime} placeholder="HH:MM" placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} keyboardType="numbers-and-punctuation" testID="cross-broker-visit-time" />
+      <Pressable style={[styles.submit, (!selectedClientId || saving) && styles.submitDisabled]} disabled={!selectedClientId || saving} onPress={() => void submit()} testID="cross-broker-visit-submit">{saving ? <ActivityIndicator color={colors.onBrand} /> : <><Ionicons name="calendar-outline" size={18} color={colors.onBrand} /><Text style={styles.submitText}>{t("agency.schedule")}</Text></>}</Pressable>
     </View>
   </BaseBottomSheet>;
 }

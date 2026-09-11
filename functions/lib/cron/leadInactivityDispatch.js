@@ -74,11 +74,18 @@ exports.processLeadInactivityDispatch = (0, scheduler_1.onSchedule)({ schedule: 
         params: { agencyId: agencyId.agencyId, leadId: agencyId.leadId },
         entityId: agencyId.leadId,
         action: "lead_inactivity_reallocated",
-    }, "deals_pipeline")));
+    }, "deals_pipeline", {
+        dedupeKey: `lead-inactivity-reallocated:${agencyId.leadId}`,
+        recurringKey: `lead-inactivity-reallocated:${agencyId.leadId}:${agencyId.agencyId}`,
+    })));
     const agencyIds = new Set(reallocated.filter((item) => item.agencyId).map((item) => item.agencyId.agencyId));
     await Promise.all([...agencyIds].map(async (agencyId) => {
         const staff = await db.collection("users").where("agencyId", "==", agencyId).get();
-        await Promise.all(staff.docs.filter((user) => ["ceo", "secretary", "secretariat"].includes(user.data().agencyRole) || user.data().role === "secretariat").map((user) => (0, push_1.sendPushToUser)(user.id, { type: "deal_stage_update", title: "Lead επιστράφηκε στο Pool", body: "Ένα lead επέστρεψε στο αδιάθετο pool μετά από 24 ώρες χωρίς επικοινωνία.", screen: "broker", params: { agencyId }, action: "lead_inactivity_reallocated" })));
+        const leadIds = reallocated.filter((item) => item.agencyId?.agencyId === agencyId).map((item) => item.lead.id).sort();
+        await Promise.all(staff.docs.filter((user) => ["ceo", "secretary", "secretariat"].includes(user.data().agencyRole) || user.data().role === "secretariat").map((user) => (0, push_1.sendPushToUser)(user.id, { type: "deal_stage_update", title: "Lead επιστράφηκε στο Pool", body: "Ένα lead επέστρεψε στο αδιάθετο pool μετά από 24 ώρες χωρίς επικοινωνία.", screen: "broker", params: { agencyId, leadIds }, entityId: `lead-inactivity-reallocated:${agencyId}:${leadIds.join(",")}`, action: "lead_inactivity_reallocated" }, undefined, {
+            dedupeKey: `lead-inactivity-reallocated:${agencyId}:${leadIds.join(",")}`,
+            recurringKey: `lead-inactivity-reallocated:${agencyId}:${leadIds.join(",")}:${user.id}`,
+        })));
     }));
 });
 //# sourceMappingURL=leadInactivityDispatch.js.map

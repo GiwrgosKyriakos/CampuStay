@@ -5,7 +5,7 @@ import { Alert, BackHandler, Linking, Text, View, StyleSheet, Pressable, Modal, 
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { collection, getDocs, onSnapshot, query, where } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, onSnapshot, query, where } from "firebase/firestore";
 import { runOnJS } from "react-native-reanimated";
 
 import {
@@ -31,6 +31,7 @@ import type { ContractDraftContext } from "@/src/types/esignature";
 import { getCalendarNoteDate } from "@/src/utils/calendarNoteReminders";
 import { cancelScheduledNotification, schedulePostVisitFeedbackReminder } from "@/src/utils/notificationService";
 import { getRoleHomeTab } from "@/src/utils/roles";
+import { shouldSuppressViewingFeedback } from "@/src/utils/viewingFeedbackEligibility";
 import MonthYearPickerModal from "@/src/components/calendar/MonthYearPickerModal";
 
 type CalendarViewMode = "month" | "week" | "day";
@@ -343,18 +344,52 @@ export function CalendarView({
 
   const selectedDayNotes = useMemo(() => notesByDate.get(selectedDayKey) ?? [], [notesByDate, selectedDayKey]);
   const [feedbackNote, setFeedbackNote] = useState<BrokerNote | null>(null);
+  const [feedbackEligibility, setFeedbackEligibility] = useState<Record<string, boolean>>({});
   const pendingFeedbackNotes = useMemo(
     () => visibleNotes.filter((note) => {
       if (note.category !== "showing" || !note.apartmentId || note.feedbackSubmittedBy?.[userId]) return false;
+      if (feedbackEligibility[note.id] !== true) return false;
       if (note.done || note.isCompleted) return true;
       const visitDate = getCalendarNoteDate(note.scheduledDate ?? note.date, note.scheduledTime ?? note.time, note.timestamp);
       return !!visitDate && currentTime.getTime() >= visitDate.getTime() + 2 * 60 * 60 * 1000;
     }),
-    [currentTime, userId, visibleNotes],
+    [currentTime, feedbackEligibility, userId, visibleNotes],
   );
+  useEffect(() => {
+    const candidates = visibleNotes.filter((note) => note.category === "showing" && note.apartmentId && feedbackEligibility[note.id] === undefined);
+    if (candidates.length === 0) return;
+    let active = true;
+
+    void Promise.all(candidates.map(async (note) => {
+      if (!note.apartmentId) return [note.id, false] as const;
+      const listingSnapshot = await getDoc(doc(db, "apartments", note.apartmentId)).catch(() => null);
+      const listing = listingSnapshot?.exists() ? listingSnapshot.data() as Record<string, unknown> : {};
+      const hostId = [listing.hostId, listing.ownerId, listing.creatorId, note.listingBrokerId, note.brokerId]
+        .find((value): value is string => typeof value === "string" && value.trim().length > 0)?.trim() ?? "";
+      if (!hostId) return [note.id, false] as const;
+      const hostSnapshot = await getDoc(doc(db, "users", hostId)).catch(() => null);
+      if (!hostSnapshot?.exists()) return [note.id, false] as const;
+      return [note.id, !shouldSuppressViewingFeedback(hostSnapshot.data(), listing)] as const;
+    })).then((entries) => {
+      if (!active) return;
+      setFeedbackEligibility((previous) => ({ ...previous, ...Object.fromEntries(entries) }));
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [feedbackEligibility, visibleNotes]);
+
   useEffect(() => {
     visibleNotes.forEach((note) => {
       if (note.category !== "showing" || !note.apartmentId || note.feedbackSubmittedBy?.[userId]) return;
+      if (feedbackEligibility[note.id] !== true) {
+        void Promise.all([
+          cancelScheduledNotification(note.reminderNotificationId),
+          ...(note.reminderNotificationIds ?? []).map((notificationId) => cancelScheduledNotification(notificationId)),
+        ]);
+        return;
+      }
       if (note.done || note.isCompleted) {
         void cancelScheduledNotification(note.reminderNotificationId);
         return;
@@ -362,7 +397,7 @@ export function CalendarView({
       const visitDate = getCalendarNoteDate(note.scheduledDate ?? note.date, note.scheduledTime ?? note.time, note.timestamp);
       if (visitDate) void schedulePostVisitFeedbackReminder({ noteId: note.id, apartmentTitle: note.apartmentTitle ?? "το διαμέρισμα", scheduledAt: visitDate });
     });
-  }, [userId, visibleNotes]);
+  }, [feedbackEligibility, userId, visibleNotes]);
   const nextUpNote = useMemo(() => {
     const currentMinutes = getTimeInMinutes(currentTime);
     const upcomingNotes = visibleNotes
@@ -417,7 +452,7 @@ export function CalendarView({
 
   const renderDoneButton = (note: BrokerNote, isPast: boolean) => (
     <Pressable
-      accessibilityLabel={note.done ? "Επισήμανση ως εκκρεμές" : "Επισήμανση ως ολοκληρωμένο"}
+      accessibilityLabel={note.done ? t("calendar.donePendingAccessibility") : t("calendar.doneCompleteAccessibility")}
       disabled={isPast}
       hitSlop={8}
       onPress={(event) => {
@@ -458,15 +493,15 @@ export function CalendarView({
       >
         <View style={styles.noteDetails}>
           <Text style={[styles.notePrimaryText, { color: textColor, textDecorationLine: note.done ? "line-through" : "none" }]}>
-            Ώρα: {note.time || "--:--"}
+            {t("calendar.noteModal.timeLabel")}: {note.time || "--:--"}
           </Text>
           <Text style={[styles.noteSecondaryText, { color: textColor, textDecorationLine: note.done ? "line-through" : "none" }]}>
-            Όνομα ακινήτου: {note.apartmentTitle || "-"}
+            {t("calendar.noteModal.apartmentLabel")}: {note.apartmentTitle || "-"}
           </Text>
           <Text style={[styles.noteSecondaryText, { color: textColor, textDecorationLine: note.done ? "line-through" : "none" }]}>
-            Όνομα πελάτη: {note.clientName || "-"}
+            {t("calendar.noteModal.clientLabel")}: {note.clientName || "-"}
           </Text>
-          {note.coveringBrokerId ? <Text style={[styles.coveringNoteBadge, { color: colors.brand }]} numberOfLines={1}>Κάλυψη Ραντεβού για {note.primaryBrokerName || "τον αρχικό μεσίτη"}</Text> : null}
+          {note.coveringBrokerId ? <Text style={[styles.coveringNoteBadge, { color: colors.brand }]} numberOfLines={1}>{t("calendar.coveringVisitFor", { name: note.primaryBrokerName || t("agency.coveringBroker") })}</Text> : null}
         </View>
         <View style={styles.noteCardActions}>
           {note.apartmentId && note.clientId && (note.category === "showing" || note.category === "visit") ? (
@@ -515,7 +550,7 @@ export function CalendarView({
           {visibleFields.includes("client") ? <Text style={[styles.noteSecondaryText, compactTextStyle]} numberOfLines={1}>{note.clientName || "-"}</Text> : null}
           {visibleFields.includes("apartmentOrClient") ? <Text style={[styles.noteSecondaryText, compactTextStyle]} numberOfLines={1}>{note.apartmentTitle || note.clientName || "-"}</Text> : null}
           {visibleFields.includes("timeOrTitle") ? <Text style={[styles.notePrimaryText, compactTextStyle]} numberOfLines={1}>{note.time || note.apartmentTitle || "--:--"}</Text> : null}
-          {note.coveringBrokerId && visibleFields.includes("timeOrTitle") ? <Text style={[styles.coveringNoteBadge, { color: colors.brand }]} numberOfLines={1}>Κάλυψη Ραντεβού</Text> : null}
+          {note.coveringBrokerId && visibleFields.includes("timeOrTitle") ? <Text style={[styles.coveringNoteBadge, { color: colors.brand }]} numberOfLines={1}>{t("calendar.coveringVisit")}</Text> : null}
         </View>
         <View style={styles.noteCardActions}>
           {note.apartmentId && note.clientId && (note.category === "showing" || note.category === "visit") ? (
@@ -552,7 +587,7 @@ export function CalendarView({
         <View style={styles.dayViewHeaderRow}>
           <Text numberOfLines={1} style={[styles.dayViewTitle, styles.singleDateTitle, { color: colors.onSurface }]}>{dateHeader}</Text>
           <Pressable
-            accessibilityLabel={showFullTitle ? "Σμίκρυνση σε εβδομάδα" : "Μεγέθυνση σε ημέρα"}
+            accessibilityLabel={showFullTitle ? t("calendar.zoomOutAccessibility") : t("calendar.zoomInAccessibility")}
             hitSlop={8}
             onPress={(event) => {
               event.stopPropagation();
@@ -570,7 +605,7 @@ export function CalendarView({
           </Pressable>
         </View>
         {notes.length === 0 ? (
-          <Text style={[styles.emptyStateText, { color: colors.onSurfaceTertiary, textAlign: "left" }]}>Δεν υπάρχουν σημειώσεις για αυτήν την ημέρα.</Text>
+          <Text style={[styles.emptyStateText, { color: colors.onSurfaceTertiary, textAlign: "left" }]}>{t("calendar.emptyDay")}</Text>
         ) : showFullTitle ? (
           <View style={styles.noteList}>{[...notes].sort((a, b) => (a.time ?? "99:99").localeCompare(b.time ?? "99:99")).map(renderExpandedNoteCard)}</View>
         ) : (
@@ -601,7 +636,7 @@ export function CalendarView({
     const archiveBanner = showArchiveBanner ? (
       <View style={[styles.archiveBanner, { backgroundColor: colors.surfaceTertiary, borderColor: colors.muted }]}>
         <Ionicons name="lock-closed-outline" size={18} color={colors.onBrandTertiary} />
-        <Text style={[styles.archiveBannerText, { color: colors.onBrandTertiary }]}>Προβολή ιστορικού: Οι σημειώσεις παρελθόντων ημερών είναι αρχειοθετημένες και μη επεξεργάσιμες</Text>
+        <Text style={[styles.archiveBannerText, { color: colors.onBrandTertiary }]}>{t("calendar.archiveBanner")}</Text>
       </View>
     ) : null;
 
@@ -616,7 +651,7 @@ export function CalendarView({
       >
         {archiveBanner}
         {calendarViewMode === "day" ? renderDayAgenda(currentDate, selectedDayNotes, true) : calendarViewMode === "week" ? <View style={[styles.weekNotesContainer, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>{weekAgendaDays.map((cell) => renderDayAgenda(cell.date, notesByDate.get(cell.dateKey) ?? [], false))}</View> : weekAgendaDays.map((cell) => renderDayAgenda(cell.date, notesByDate.get(cell.dateKey) ?? [], false))}
-        {calendarViewMode === "week" && weekAgendaDays.length === 0 ? <View style={styles.emptyStateWrap}><Text style={[styles.emptyStateText, { color: colors.onSurfaceTertiary }]}>Δεν υπάρχουν σημειώσεις αυτήν την εβδομάδα.</Text></View> : null}
+        {calendarViewMode === "week" && weekAgendaDays.length === 0 ? <View style={styles.emptyStateWrap}><Text style={[styles.emptyStateText, { color: colors.onSurfaceTertiary }]}>{t("calendar.emptyWeek")}</Text></View> : null}
       </ScrollView>
     );
   };
@@ -802,7 +837,7 @@ function ClientCalendarScreen() {
 
   const openAddress = (address: string) => {
     if (!address.trim()) {
-      Alert.alert("Η διεύθυνση δεν είναι διαθέσιμη", "Η ακριβής διεύθυνση θα εμφανιστεί όταν επιβεβαιωθεί η επίσκεψη.");
+      Alert.alert(t("calendar.addressUnavailableTitle"), t("calendar.addressUnavailableMessage"));
       return;
     }
     void Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`);
@@ -856,31 +891,31 @@ function ClientCalendarScreen() {
       <View style={clientCalendarStyles.header}>
         <Ionicons name="calendar-outline" size={26} color={colors.brand} />
         <View style={clientCalendarStyles.headerCopy}>
-          <Text style={[clientCalendarStyles.title, { color: colors.onSurface }]}>Το ημερολόγιό μου</Text>
-          <Text style={[clientCalendarStyles.subtitle, { color: colors.onSurfaceTertiary }]}>Προγραμματισμένες επισκέψεις και υπενθυμίσεις</Text>
+          <Text style={[clientCalendarStyles.title, { color: colors.onSurface }]}>{t("calendar.myCalendar")}</Text>
+          <Text style={[clientCalendarStyles.subtitle, { color: colors.onSurfaceTertiary }]}>{t("calendar.scheduledVisits")}</Text>
         </View>
       </View>
       <View style={clientCalendarStyles.monthSelector}>
-        <Pressable style={clientCalendarStyles.monthArrow} onPress={() => shiftMonth(-1)} accessibilityLabel="Previous month">
+        <Pressable style={clientCalendarStyles.monthArrow} onPress={() => shiftMonth(-1)} accessibilityLabel={t("calendar.previousMonth")}>
           <Ionicons name="chevron-back" size={20} color={colors.onSurface} />
         </Pressable>
-        <Pressable style={[clientCalendarStyles.monthPill, { backgroundColor: colors.surface, borderColor: colors.border, shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 3 }]} onPress={() => setIsPickerVisible(true)} accessibilityLabel="Select month and year">
+        <Pressable style={[clientCalendarStyles.monthPill, { backgroundColor: colors.surface, borderColor: colors.border, shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 3 }]} onPress={() => setIsPickerVisible(true)} accessibilityLabel={t("calendar.selectMonthYear")}>
           <Ionicons name="calendar-number-outline" size={17} color={colors.brand} />
           <Text style={[clientCalendarStyles.monthPillText, { color: colors.onSurface }]}>{GREEK_MONTHS[selectedMonth.getMonth()]} {selectedMonth.getFullYear()}</Text>
         </Pressable>
-        <Pressable style={clientCalendarStyles.monthArrow} onPress={() => shiftMonth(1)} accessibilityLabel="Next month">
+        <Pressable style={clientCalendarStyles.monthArrow} onPress={() => shiftMonth(1)} accessibilityLabel={t("calendar.nextMonth")}>
           <Ionicons name="chevron-forward" size={20} color={colors.onSurface} />
         </Pressable>
       </View>
       {loading ? <ActivityIndicator color={colors.brand} /> : appointments.length === 0 ? (
         <View style={clientCalendarStyles.emptyState}>
           <Ionicons name="time-outline" size={32} color={colors.onSurfaceTertiary} />
-          <Text style={[clientCalendarStyles.emptyText, { color: colors.onSurfaceTertiary }]}>Δεν υπάρχουν προγραμματισμένες επισκέψεις.</Text>
+          <Text style={[clientCalendarStyles.emptyText, { color: colors.onSurfaceTertiary }]}>{t("calendar.noAppointments")}</Text>
         </View>
       ) : visibleAppointments.length === 0 ? (
         <View style={clientCalendarStyles.emptyState}>
           <Ionicons name="calendar-clear-outline" size={32} color={colors.onSurfaceTertiary} />
-          <Text style={[clientCalendarStyles.emptyText, { color: colors.onSurfaceTertiary }]}>Δεν υπάρχουν επισκέψεις για αυτόν τον μήνα.</Text>
+          <Text style={[clientCalendarStyles.emptyText, { color: colors.onSurfaceTertiary }]}>{t("calendar.noAppointmentsThisMonth")}</Text>
         </View>
       ) : (
         <ScrollView contentContainerStyle={clientCalendarStyles.list} showsVerticalScrollIndicator={false}>
@@ -899,14 +934,14 @@ function ClientCalendarScreen() {
                   <View style={clientCalendarStyles.actions}>
                     <Pressable style={[clientCalendarStyles.actionButton, { borderColor: colors.border }]} onPress={() => openAddress(appointment.apartmentAddress)}>
                       <Ionicons name="navigate-outline" size={16} color={colors.brand} />
-                      <Text style={[clientCalendarStyles.actionText, { color: colors.brand }]}>Χάρτης</Text>
+                      <Text style={[clientCalendarStyles.actionText, { color: colors.brand }]}>{t("calendar.map")}</Text>
                     </Pressable>
                     {appointment.status !== "completed" ? <Pressable style={[clientCalendarStyles.actionButton, { borderColor: colors.border }]} onPress={() => openAppointmentChat(appointment, "reschedule")}>
                       <Ionicons name="calendar-outline" size={16} color={colors.onSurface} />
-                      <Text style={[clientCalendarStyles.actionText, { color: colors.onSurface }]}>Αλλαγή</Text>
+                      <Text style={[clientCalendarStyles.actionText, { color: colors.onSurface }]}>{t("calendar.reschedule")}</Text>
                     </Pressable> : <Pressable style={[clientCalendarStyles.actionButton, { borderColor: colors.border }]} onPress={() => openAppointmentChat(appointment, "feedback")}>
                       <Ionicons name="star-outline" size={16} color={colors.onSurface} />
-                      <Text style={[clientCalendarStyles.actionText, { color: colors.onSurface }]}>Feedback</Text>
+                      <Text style={[clientCalendarStyles.actionText, { color: colors.onSurface }]}>{t("calendar.feedback")}</Text>
                     </Pressable>}
                   </View>
                 </View>

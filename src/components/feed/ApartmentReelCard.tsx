@@ -226,25 +226,25 @@ export default function ApartmentReelCard({
       ) : null}
 
       <View style={[styles.rightRail, { bottom: BOTTOM_CLEARANCE }]}>
-        <Pressable style={styles.avatarCircle} onPress={onOpenChat} accessibilityLabel={hostProfile.name ?? "Open host chat"}>
+        <Pressable style={styles.avatarCircle} onPress={onOpenChat} accessibilityLabel={hostProfile.name ?? t("feed.openHostChat")}>
           {hostProfile.avatar ? <Image source={hostProfile.avatar} style={styles.avatarImage} contentFit="cover" /> : <DefaultProfileAvatar size={42} iconSize={20} />}
         </Pressable>
-        <Pressable style={styles.actionButton} onPress={animateLike} accessibilityLabel={isLiked ? "Remove favorite" : "Add favorite"}>
+        <Pressable style={styles.actionButton} onPress={animateLike} accessibilityLabel={isLiked ? t("feed.removeFavorite") : t("feed.addFavorite")}>
           <Animated.View style={{ transform: [{ scale: heartScale }] }}>
             <Ionicons name={isLiked ? "heart" : "heart-outline"} size={28} color={isLiked ? "#ff5d7a" : "#fff"} />
           </Animated.View>
           <Text style={styles.actionCount}>{likeCount}</Text>
         </Pressable>
         {tourData?.enabled && tourData.scenes.length > 0 ? (
-          <Pressable style={styles.actionButton} onPress={onOpenVirtualTour} accessibilityLabel="Open 360 virtual tour">
+          <Pressable style={styles.actionButton} onPress={onOpenVirtualTour} accessibilityLabel={t("feed.openVirtualTour")}>
             <Ionicons name="scan-circle-outline" size={28} color="#fff" />
             <Text style={styles.actionLabel}>360°</Text>
           </Pressable>
         ) : null}
-        <Pressable style={styles.actionButton} onPress={() => setShareVisible(true)} accessibilityLabel="Share property">
+        <Pressable style={styles.actionButton} onPress={() => setShareVisible(true)} accessibilityLabel={t("feed.shareProperty")}>
           <Ionicons name="share-social-outline" size={26} color="#fff" />
         </Pressable>
-        {videoUrl ? <Pressable style={styles.actionButton} onPress={() => setMuted((current) => !current)} accessibilityLabel={muted ? "Unmute video" : "Mute video"}><Ionicons name={muted ? "volume-mute-outline" : "volume-high-outline"} size={25} color="#fff" /></Pressable> : null}
+        {videoUrl ? <Pressable style={styles.actionButton} onPress={() => setMuted((current) => !current)} accessibilityLabel={muted ? t("feed.unmuteVideo") : t("feed.muteVideo")}><Ionicons name={muted ? "volume-mute-outline" : "volume-high-outline"} size={25} color="#fff" /></Pressable> : null}
       </View>
 
       <View style={[styles.bottomMeta, { bottom: BOTTOM_CLEARANCE }]}>
@@ -265,8 +265,8 @@ export default function ApartmentReelCard({
 
       <BaseBottomSheet visible={shareVisible} onClose={() => setShareVisible(false)} scrollable={false} maxHeight="45%">
           <View style={styles.shareSheet}>
-            <Text style={styles.shareTitle}>Share property</Text>
-            <Pressable style={styles.shareRow} onPress={() => void handleNativeShare()}><Ionicons name="share-outline" size={21} color="#18343c" /><Text style={styles.shareRowText}>More sharing options</Text></Pressable>
+            <Text style={styles.shareTitle}>{t("feed.shareProperty")}</Text>
+            <Pressable style={styles.shareRow} onPress={() => void handleNativeShare()}><Ionicons name="share-outline" size={21} color="#18343c" /><Text style={styles.shareRowText}>{t("feed.moreSharingOptions")}</Text></Pressable>
             <Pressable style={styles.shareRow} onPress={() => void handleMessagingShare("whatsapp")}><Ionicons name="logo-whatsapp" size={21} color="#25D366" /><Text style={styles.shareRowText}>WhatsApp</Text></Pressable>
             <Pressable style={styles.shareRow} onPress={() => void handleMessagingShare("viber")}><Ionicons name="chatbubble-ellipses-outline" size={21} color="#665CAC" /><Text style={styles.shareRowText}>Viber</Text></Pressable>
             <Pressable style={styles.shareRow} onPress={() => void handleMessagingShare("sms")}><Ionicons name="chatbox-outline" size={21} color="#168AAD" /><Text style={styles.shareRowText}>SMS</Text></Pressable>

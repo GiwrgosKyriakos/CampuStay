@@ -75,6 +75,7 @@ import RoommateContractPickerModal from "@/src/components/RoommateContractPicker
 import type { ContractDraftContext, ContractType } from "@/src/types/esignature";
 
 const CURRENCY = "€";
+const campuStay = true;
 
 function ObtuseChevron({ isExpanded, color }: { isExpanded: boolean; color: string }) {
   return (
@@ -915,6 +916,7 @@ function DirectChatScreen() {
   const [showBlockModal, setShowBlockModal] = useState(false);
   const [showGlobalUnmuteModal, setShowGlobalUnmuteModal] = useState(false);
   const [roommateContractPickerVisible, setRoommateContractPickerVisible] = useState(false);
+  const [underConstructionModalVisible, setUnderConstructionModalVisible] = useState(false);
   const [messageActionTarget, setMessageActionTarget] = useState<Message | null>(null);
   const [selectedFilterSetMessage, setSelectedFilterSetMessage] = useState<Message | null>(null);
   const [selectedFilterSetRecord, setSelectedFilterSetRecord] = useState<SharedFilterSetRecord | null>(null);
@@ -3752,7 +3754,11 @@ function DirectChatScreen() {
                       }}
                       onContractPress={() => {
                         if (!m.contractId) return;
-                        router.push({ pathname: "/contract/[id]", params: { id: m.contractId, contractId: m.contractId, signerId: currentUserId ?? "" } } as never);
+                        if (campuStay) {
+                          setUnderConstructionModalVisible(true);
+                        } else {
+                          router.push({ pathname: "/contract/[id]", params: { id: m.contractId, contractId: m.contractId, signerId: currentUserId ?? "" } } as never);
+                        }
                       }}
                     />
                   </View>
@@ -3848,6 +3854,17 @@ function DirectChatScreen() {
         onClose={() => setRoommateContractPickerVisible(false)}
         onSelect={startRoommateContract}
       />
+
+      <CenteredActionModal
+        visible={underConstructionModalVisible}
+        title={t("common.underConstruction.title")}
+        description={t("common.underConstruction.description")}
+        onDismiss={() => setUnderConstructionModalVisible(false)}
+        actions={[{ label: t("common.underConstruction.action"), iconName: "checkmark-circle-outline", onPress: () => setUnderConstructionModalVisible(false) }]}
+        testID="chat-contract-under-construction-modal"
+      >
+        <Ionicons name="construct-outline" size={46} color={colors.brand} style={{ alignSelf: "center" }} />
+      </CenteredActionModal>
 
       <VisitRequestModal
         visible={showVisitRequestModal}
@@ -4110,13 +4127,13 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     minWidth: 180,
-    zIndex: 35,
+    zIndex: 40,
     overflow: "hidden",
     shadowColor: "#000",
     shadowOpacity: 0.12,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
+    elevation: 12,
   },
   hostActionMenuItem: {
     paddingHorizontal: spacing.md,
@@ -4427,7 +4444,8 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   detailText: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
   contextMenuBackdrop: {
     ...StyleSheet.absoluteFillObject,
-    zIndex: 10,
+    zIndex: 5,
+    elevation: 5,
   },
   contextMenu: {
     position: "absolute",

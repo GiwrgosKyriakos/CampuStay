@@ -7,6 +7,7 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { useTheme } from "@/src/context/ThemeContext";
 import { fonts, fontSize, spacing, type ThemeColors } from "@/src/theme";
+import { t } from "@/src/locales";
 
 type DocumentPreviewModalProps = {
   visible: boolean;
@@ -42,11 +43,11 @@ export default function DocumentPreviewModal({ visible, fileUrl, fileName, conte
     <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
       <View style={styles.container}>
         <View style={styles.header}>
-          <Pressable onPress={onClose} style={styles.headerButton} accessibilityLabel="Κλείσιμο προεπισκόπησης" testID="document-preview-close">
+          <Pressable onPress={onClose} style={styles.headerButton} accessibilityLabel={t("common.accessibility.closePreview")} testID="document-preview-close">
             <Ionicons name="close" size={24} color={colors.onSurface} />
           </Pressable>
           <Text numberOfLines={1} style={styles.title}>{fileName || "Έγγραφο"}</Text>
-          <Pressable onPress={() => void handleShare()} style={styles.headerButton} accessibilityLabel="Κοινή χρήση εγγράφου" testID="document-preview-share">
+          <Pressable onPress={() => void handleShare()} style={styles.headerButton} accessibilityLabel={t("common.accessibility.shareDocument")} testID="document-preview-share">
             <Ionicons name="share-outline" size={22} color={colors.brand} />
           </Pressable>
         </View>
@@ -68,7 +69,7 @@ export default function DocumentPreviewModal({ visible, fileUrl, fileName, conte
         ) : (
           <View style={styles.emptyState}>
             <Ionicons name="document-outline" size={42} color={colors.onSurfaceTertiary} />
-            <Text style={styles.emptyText}>Το έγγραφο δεν είναι διαθέσιμο.</Text>
+            <Text style={styles.emptyText}>{t("common.values.notAvailable")}</Text>
           </View>
         )}
       </View>

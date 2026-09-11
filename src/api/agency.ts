@@ -11,26 +11,6 @@ import {
 
 import { db } from "@/src/config/firebase";
 
-export async function notifyCeoOfNewApplicant(
-  agencyId: string,
-  applicantName: string,
-  applicantEmail: string,
-): Promise<void> {
-  const agencySnap = await getDoc(doc(db, "agencies", agencyId));
-  if (!agencySnap.exists()) return;
-  const { ceoId } = agencySnap.data() as { ceoId?: string };
-  if (!ceoId) return;
-
-  await addDoc(collection(db, "users", ceoId, "notifications"), {
-    type: "agency_join_request",
-    title: "Νέα Αίτηση Μεσίτη",
-    body: `Ο μεσίτης ${applicantName} (${applicantEmail}) ζήτησε να ενταχθεί στο γραφείο σας.`,
-    createdAt: serverTimestamp(),
-    isRead: false,
-    data: { agencyId },
-  });
-}
-
 export async function approveAgencyBroker(agencyId: string, brokerId: string): Promise<void> {
   const applicantSnapshot = await getDoc(doc(db, "users", brokerId));
   const isSecretary = applicantSnapshot.exists() && applicantSnapshot.data().agencyRole === "secretary";

@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/context/ThemeContext";
 import { fonts, fontSize, radius, spacing } from "@/src/theme";
 import KeyboardAwareModal from "@/src/components/common/KeyboardAwareModal";
+import { t } from "@/src/locales";
 
 export default function EditVisitModal({
   visible,
@@ -28,14 +29,14 @@ export default function EditVisitModal({
       <View style={styles.backdrop}>
         <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <View style={styles.header}>
-            <Text style={[styles.title, { color: colors.onSurface }]}>Επεξεργασία ραντεβού</Text>
+            <Text style={[styles.title, { color: colors.onSurface }]}>{t("chat.editVisitTitle")}</Text>
             <Pressable onPress={onClose} disabled={isSaving} hitSlop={8}><Ionicons name="close" size={22} color={colors.onSurface} /></Pressable>
           </View>
-          <Text style={[styles.label, { color: colors.onSurfaceTertiary }]}>Ημερομηνία και ώρα</Text>
-          <TextInput value={date} onChangeText={setDate} placeholder="2026-09-01T17:30" placeholderTextColor={colors.onSurfaceTertiary} style={[styles.input, { color: colors.onSurface, borderColor: colors.border }]} autoCapitalize="none" testID="edit-visit-date-input" />
+          <Text style={[styles.label, { color: colors.onSurfaceTertiary }]}>{t("chat.editVisitDateLabel")}</Text>
+          <TextInput value={date} onChangeText={setDate} placeholder={t("chat.editVisitDatePlaceholder")} placeholderTextColor={colors.onSurfaceTertiary} style={[styles.input, { color: colors.onSurface, borderColor: colors.border }]} autoCapitalize="none" testID="edit-visit-date-input" />
           <View style={styles.actions}>
-            <Pressable onPress={onCancelAppointment} disabled={isSaving} style={[styles.cancelAction, { borderColor: colors.error }]} testID="cancel-visit-action"><Text style={[styles.cancelText, { color: colors.error }]}>Ακύρωση ραντεβού</Text></Pressable>
-            <Pressable onPress={() => onSave(date.trim())} disabled={isSaving || !date.trim()} style={[styles.saveAction, { backgroundColor: colors.brand }, (isSaving || !date.trim()) && styles.disabled]} testID="save-visit-action">{isSaving ? <ActivityIndicator color={colors.onBrand} size="small" /> : <Ionicons name="checkmark" size={18} color={colors.onBrand} />}<Text style={[styles.saveText, { color: colors.onBrand }]}>Αποθήκευση</Text></Pressable>
+            <Pressable onPress={onCancelAppointment} disabled={isSaving} style={[styles.cancelAction, { borderColor: colors.error }]} testID="cancel-visit-action"><Text style={[styles.cancelText, { color: colors.error }]}>{t("chat.cancelVisit")}</Text></Pressable>
+            <Pressable onPress={() => onSave(date.trim())} disabled={isSaving || !date.trim()} style={[styles.saveAction, { backgroundColor: colors.brand }, (isSaving || !date.trim()) && styles.disabled]} testID="save-visit-action">{isSaving ? <ActivityIndicator color={colors.onBrand} size="small" /> : <Ionicons name="checkmark" size={18} color={colors.onBrand} />}<Text style={[styles.saveText, { color: colors.onBrand }]}>{t("common.actions.save")}</Text></Pressable>
           </View>
         </View>
       </View>

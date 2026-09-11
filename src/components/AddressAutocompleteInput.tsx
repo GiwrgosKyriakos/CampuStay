@@ -125,7 +125,7 @@ export default function AddressAutocompleteInput({
   value,
   city,
   area,
-  placeholder = "Γράψε διεύθυνση (προαιρετικό)",
+  placeholder = t("addressSearch.placeholder"),
   testID,
   disabled,
   onChangeAddressText,

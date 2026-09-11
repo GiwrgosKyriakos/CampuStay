@@ -909,11 +909,15 @@ export default function MatchesScreen() {
           <Text style={styles.title}>{t("matches.title")}</Text>
           <View style={styles.brokersHeaderActions}>
             {isBrokersView ? <Pressable style={styles.circularHistoryBtn} onPress={() => setShowGlobalFilterHistoryModal(true)} testID="matches-global-filter-history-btn" hitSlop={8}><Ionicons name="time-outline" size={20} color={colors.onSurface} /></Pressable> : null}
+
+            {/*CSPT1
             {!auth.isGuest && isLookingForRoommate && !isBrokersView && selectedChatType === "roommate" ? (
               <Pressable style={styles.groupAction} onPress={() => setShowGroupModal(true)} testID="matches-create-group-button">
                 <Ionicons name="people-circle-outline" size={20} color={colors.onBrand} />
               </Pressable>
             ) : null}
+            */}
+            
             <Pressable
               style={[styles.brokersToggleBtn, isBrokersView && styles.brokersToggleBtnActive]}
               onPress={() => setIsBrokersView((previous) => !previous)}

@@ -124,9 +124,9 @@ export default function NotificationFeedScreen() {
       <ScreenHeader title={t("notifications.title")} onBackPress={() => router.back()} backButtonTestID="notification-feed-back-button" style={styles.screenHeader} />
       <View style={styles.footer}>
         <View style={styles.toolbar}>
-          <Text style={styles.heading}>{isAdmin ? "Σημαντικές Ενημερώσεις" : "Ιστορικό Ειδοποιήσεων"}</Text>
+          <Text style={styles.heading}>{isAdmin ? t("notifications.feedHeadingAdmin") : t("notifications.feedHeadingHistory")}</Text>
           <Pressable onPress={() => void markAllRead()} disabled={saving || items.every((item) => item.read)} testID="notification-feed-mark-all">
-            <Text style={[styles.markAll, (saving || items.every((item) => item.read)) && styles.disabledText]}>Σήμανση όλων ως αναγνωσμένων</Text>
+            <Text style={[styles.markAll, (saving || items.every((item) => item.read)) && styles.disabledText]}>{t("notifications.markAllRead")}</Text>
           </Pressable>
         </View>
         {loading ? (
@@ -134,8 +134,8 @@ export default function NotificationFeedScreen() {
         ) : items.length === 0 ? (
           <View style={styles.empty} testID="notification-feed-empty">
             <Ionicons name="notifications-off-outline" size={42} color={colors.onSurfaceTertiary} />
-            <Text style={styles.emptyTitle}>Δεν υπάρχουν ειδοποιήσεις</Text>
-            <Text style={styles.emptyBody}>Οι νέες ενημερώσεις θα εμφανιστούν εδώ.</Text>
+            <Text style={styles.emptyTitle}>{t("notifications.emptyTitle")}</Text>
+            <Text style={styles.emptyBody}>{t("notifications.emptyBody")}</Text>
           </View>
         ) : (
           <FlatList

@@ -259,20 +259,18 @@ export default function EditProfileScreen() {
       return;
     }
 
-    let monthlyBudget: number | null = null;
-    if (!isBrokerUser) {
+    let monthlyBudget: number | null = 500;
+    if (rawBudget) {
       const hasOnlyDigits = /^\d+$/.test(rawBudget);
       const parsedBudget = Number(rawBudget);
       const isBudgetValid = hasOnlyDigits && !Number.isNaN(parsedBudget) && parsedBudget > 0;
-      if (!isBudgetValid) {
+      if (!isBudgetValid && !isBrokerUser) {
         setBudgetError("Παρακαλώ εισάγετε ένα έγκυρο budget μεγαλύτερο από 0");
         setCityError(false);
         setError(null);
         return;
       }
-      monthlyBudget = Math.trunc(parsedBudget);
-    } else if (rawBudget && /^\d+$/.test(rawBudget)) {
-      monthlyBudget = Math.trunc(Number(rawBudget));
+      monthlyBudget = isBudgetValid ? Math.trunc(parsedBudget) : null;
     }
 
     setCityError(false);
@@ -604,6 +602,7 @@ export default function EditProfileScreen() {
             pointerEvents={hasPlace ? "auto" : "none"}
             testID="housing-listing-prompt"
           >
+            {/*CSPT1 
             <Pressable
               style={({ pressed }) => [styles.housingPromptCard, pressed && styles.housingPromptCardPressed]}
               onPress={() => router.push("/create-listing" as any)}
@@ -613,6 +612,7 @@ export default function EditProfileScreen() {
                 {t("editProfile.housingPrompt")}
               </Text>
             </Pressable>
+            */}
               </Animated.View>
 
               <Pressable
@@ -635,13 +635,12 @@ export default function EditProfileScreen() {
         </View>
 
         {/* SECTION 3: User Experience */}
+        {/*CSPT1
         {!isAgencyAffiliated && <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Ionicons name="settings-outline" size={22} color={colors.onSurface} />
             <Text style={styles.cardTitle}>Εμπειρία Χρήστη</Text>
           </View>
-
-          {/*
 
           <Pressable
             style={[styles.checkboxRow, isBroker && styles.checkboxRowActive, guestLocked && styles.guestReadOnlyControl]}
@@ -654,8 +653,6 @@ export default function EditProfileScreen() {
             </View>
             <Text style={styles.checkboxText}>Είμαι επαγγελματίας / μεσίτης ακινήτων</Text>
           </Pressable>
-
-          */}
 
           <Pressable
             style={[
@@ -673,6 +670,8 @@ export default function EditProfileScreen() {
             <Text style={styles.checkboxText}>Δεν ενδιαφέρομαι για συγκάτοικο</Text>
           </Pressable>
         </View>}
+
+        */}
 
         {/* SECTION 4: Education & Living */}
         {!isBroker && (
