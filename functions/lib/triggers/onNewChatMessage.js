@@ -20,7 +20,7 @@ function messagePreview(data) {
         default: return typeof data.text === "string" ? data.text : "Νέο μήνυμα";
     }
 }
-exports.onNewChatMessage = (0, firestore_2.onDocumentCreated)("chats/{conversationId}/messages/{messageId}", async (event) => {
+exports.onNewChatMessage = (0, firestore_2.onDocumentCreated)({ document: "chats/{conversationId}/messages/{messageId}", region: "europe-west1" }, async (event) => {
     const message = event.data?.data();
     if (!message)
         return;

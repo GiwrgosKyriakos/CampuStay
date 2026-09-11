@@ -77,7 +77,7 @@ async function addOwnerToBrokerClients(brokerId, apartmentId, apartment) {
         updatedAt: firestore_1.FieldValue.serverTimestamp(),
     }, { merge: true });
 }
-exports.claimPropertyCallable = (0, https_1.onCall)(async (request) => {
+exports.claimPropertyCallable = (0, https_1.onCall)({ region: "europe-west1" }, async (request) => {
     const uid = requireAuth(request);
     const data = dataOf(request);
     const apartmentId = requiredString(data.apartmentId, "apartmentId");
@@ -129,7 +129,7 @@ exports.claimPropertyCallable = (0, https_1.onCall)(async (request) => {
         .map((item) => notifyUser(item.id, "Νέο αίτημα ανάθεσης", `${brokerName} ζήτησε ένα ακίνητο από το pool.`, "claim_pending", { claimId: claimRef.id, apartmentId })));
     return { claimId: claimRef.id, status: "claim_pending" };
 });
-exports.publishListingAssignmentCallable = (0, https_1.onCall)(async (request) => {
+exports.publishListingAssignmentCallable = (0, https_1.onCall)({ region: "europe-west1" }, async (request) => {
     const uid = requireAuth(request);
     const data = dataOf(request);
     const apartmentId = requiredString(data.apartmentId, "apartmentId");
@@ -161,7 +161,7 @@ exports.publishListingAssignmentCallable = (0, https_1.onCall)(async (request) =
         await addOwnerToBrokerClients(uid, apartmentId, apartment);
     return { apartmentId, mode };
 });
-exports.reviewClaimCallable = (0, https_1.onCall)(async (request) => {
+exports.reviewClaimCallable = (0, https_1.onCall)({ region: "europe-west1" }, async (request) => {
     const uid = requireAuth(request);
     const data = dataOf(request);
     const claimId = requiredString(data.claimId, "claimId");
@@ -216,7 +216,7 @@ exports.reviewClaimCallable = (0, https_1.onCall)(async (request) => {
     await notifyUser(brokerId, data.approved ? `Το αίτημα διαχείρισης για το ακίνητο «${title}» εγκρίθηκε!` : "Το αίτημα ανάθεσης απορρίφθηκε", data.approved ? `Μπορείτε πλέον να διαχειρίζεστε το ακίνητο «${title}».` : `Η ανάθεση για το «${title}» απορρίφθηκε από τη Γραμματεία.`, data.approved ? "claim_approved" : "claim_rejected", { apartmentId });
     return { status: data.approved ? "assigned" : "unassigned_pool" };
 });
-exports.reassignLeadCallable = (0, https_1.onCall)(async (request) => {
+exports.reassignLeadCallable = (0, https_1.onCall)({ region: "europe-west1" }, async (request) => {
     const uid = requireAuth(request);
     const data = dataOf(request);
     const leadId = requiredString(data.leadId, "leadId");
@@ -249,7 +249,7 @@ exports.reassignLeadCallable = (0, https_1.onCall)(async (request) => {
     }
     return { leadId, targetBrokerId };
 });
-exports.claimLeadCallable = (0, https_1.onCall)(async (request) => {
+exports.claimLeadCallable = (0, https_1.onCall)({ region: "europe-west1" }, async (request) => {
     const uid = requireAuth(request);
     const data = dataOf(request);
     const leadId = requiredString(data.leadId, "leadId");
@@ -280,7 +280,7 @@ exports.claimLeadCallable = (0, https_1.onCall)(async (request) => {
     }
     return { leadId, assignedBrokerId: uid };
 });
-exports.recordKeySafeActionCallable = (0, https_1.onCall)(async (request) => {
+exports.recordKeySafeActionCallable = (0, https_1.onCall)({ region: "europe-west1" }, async (request) => {
     const uid = requireAuth(request);
     const data = dataOf(request);
     const apartmentId = requiredString(data.apartmentId, "apartmentId");
@@ -322,7 +322,7 @@ exports.recordKeySafeActionCallable = (0, https_1.onCall)(async (request) => {
     });
     return { entry };
 });
-exports.delegateShowingCallable = (0, https_1.onCall)(async (request) => {
+exports.delegateShowingCallable = (0, https_1.onCall)({ region: "europe-west1" }, async (request) => {
     const uid = requireAuth(request);
     const data = dataOf(request);
     const appointmentId = requiredString(data.appointmentId, "appointmentId");
@@ -345,7 +345,7 @@ exports.delegateShowingCallable = (0, https_1.onCall)(async (request) => {
     await notifyUser(coveringBrokerId, "Νέα κάλυψη υπόδειξης", "Σας ανατέθηκε κάλυψη για ένα ραντεβού υπόδειξης.", "showing_delegated", { appointmentId });
     return { appointmentId, coveringBrokerId, coveringBrokerName };
 });
-exports.recordShowingFeedbackCallable = (0, https_1.onCall)(async (request) => {
+exports.recordShowingFeedbackCallable = (0, https_1.onCall)({ region: "europe-west1" }, async (request) => {
     const uid = requireAuth(request);
     const data = dataOf(request);
     const appointmentId = requiredString(data.appointmentId, "appointmentId");
@@ -377,7 +377,7 @@ exports.recordShowingFeedbackCallable = (0, https_1.onCall)(async (request) => {
     }
     return { appointmentId, submittedBy: uid };
 });
-exports.createCrossBrokerShowingCallable = (0, https_1.onCall)(async (request) => {
+exports.createCrossBrokerShowingCallable = (0, https_1.onCall)({ region: "europe-west1" }, async (request) => {
     const uid = requireAuth(request);
     const data = dataOf(request);
     const agencyId = requiredString(data.agencyId, "agencyId");
@@ -481,7 +481,7 @@ function calculateSettlement(data, deal) {
         brokerSplits.push({ brokerId: coveringBrokerId, brokerName: typeof deal.coveringBrokerName === "string" ? deal.coveringBrokerName : "Covering broker", role: "covering_agent", percentage: coveringPercentage, amount: round(commissionTotal * coveringPercentage / 100) });
     return { agencyAmount: round(commissionTotal * officePercentage / 100), brokerSplits, officePercentage };
 }
-exports.finalizeCommissionSettlementCallable = (0, https_1.onCall)(async (request) => {
+exports.finalizeCommissionSettlementCallable = (0, https_1.onCall)({ region: "europe-west1" }, async (request) => {
     const uid = requireAuth(request);
     const data = dataOf(request);
     const action = data.action;

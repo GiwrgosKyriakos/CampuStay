@@ -22,7 +22,7 @@ function getContractTimestamp(value) {
     }
     return Date.now();
 }
-exports.onContractCompleted = (0, firestore_2.onDocumentUpdated)("contracts/{contractId}", async (event) => {
+exports.onContractCompleted = (0, firestore_2.onDocumentUpdated)({ document: "contracts/{contractId}", region: "europe-west1" }, async (event) => {
     const before = event.data?.before.data();
     const after = event.data?.after.data();
     if (!before || !after || after.status !== "signed" || before.status === "signed")

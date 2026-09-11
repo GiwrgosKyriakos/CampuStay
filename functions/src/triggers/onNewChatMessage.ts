@@ -20,7 +20,7 @@ function messagePreview(data: Record<string, unknown>): string {
   }
 }
 
-export const onNewChatMessage = onDocumentCreated("chats/{conversationId}/messages/{messageId}", async (event) => {
+export const onNewChatMessage = onDocumentCreated({ document: "chats/{conversationId}/messages/{messageId}", region: "europe-west1" }, async (event) => {
   const message = event.data?.data() as Record<string, unknown> | undefined;
   if (!message) return;
   const conversationId = event.params.conversationId;

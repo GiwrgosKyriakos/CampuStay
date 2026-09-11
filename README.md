@@ -38,7 +38,9 @@ RESEND_FROM_EMAIL
 SIGNING_OTP_SECRET
 ```
 
-`SIGNING_OTP_ALLOW_DEBUG=true` is intended only for local development. It returns the generated OTP in the callable response instead of sending an SMS. The production Functions must be deployed after building `functions/src`; the client cannot finalize a contract by writing `status: "signed"` directly.
+The production Functions must be deployed after building `functions/src`; the client cannot finalize a contract by writing `status: "signed"` directly.
+
+The client uses the provider selected by `EXPO_PUBLIC_OTP_PROVIDER` and does not silently fall back to another provider. Firebase Phone Auth uses an invisible reCAPTCHA verifier on web and the native WebView adapter. Firebase Phone provider must be enabled in the Firebase Console and the web app domain must be listed under Authentication authorized domains.
 
 ## Get a fresh project
 

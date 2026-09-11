@@ -5,7 +5,7 @@ const firestore_1 = require("firebase-admin/firestore");
 const scheduler_1 = require("firebase-functions/v2/scheduler");
 const mailOutbox_1 = require("../lib/mailOutbox");
 const db = (0, firestore_1.getFirestore)();
-exports.processMailOutbox = (0, scheduler_1.onSchedule)("every 5 minutes", async () => {
+exports.processMailOutbox = (0, scheduler_1.onSchedule)({ schedule: "every 5 minutes", region: "europe-west1" }, async () => {
     const now = Date.now();
     const [pending, failed] = await Promise.all([
         db.collection("mail_outbox").where("status", "==", "pending").where("nextAttemptAt", "<=", now).limit(25).get(),

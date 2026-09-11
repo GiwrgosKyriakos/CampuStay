@@ -40,13 +40,13 @@ function appointmentUsers(data: DocumentData): string[] {
   return [stringValue(data.brokerId), stringValue(data.clientId), stringValue(data.listingBrokerId), stringValue(data.buyerBrokerId), stringValue(data.coveringBrokerId)].filter(Boolean);
 }
 
-export const onAppointmentCreated = onDocumentCreated("appointments/{appointmentId}", async (event) => {
+export const onAppointmentCreated = onDocumentCreated({ document: "appointments/{appointmentId}", region: "europe-west1" }, async (event) => {
   const data = event.data?.data();
   if (!data || data.status !== "confirmed") return;
   await notifyUsers(appointmentUsers(data), appointmentPayload("visit_confirmed", data, event.params.appointmentId), "visit_reminders");
 });
 
-export const onAppointmentUpdated = onDocumentUpdated("appointments/{appointmentId}", async (event) => {
+export const onAppointmentUpdated = onDocumentUpdated({ document: "appointments/{appointmentId}", region: "europe-west1" }, async (event) => {
   const before = event.data?.before.data();
   const after = event.data?.after.data();
   if (!before || !after) return;
@@ -84,7 +84,7 @@ function offerRecipients(data: DocumentData, response: boolean): string[] {
   return [brokerId || stringValue(data.recipientId) || (senderId === clientId ? "" : clientId)];
 }
 
-export const onOfferCreated = onDocumentCreated("offers/{offerId}", async (event) => {
+export const onOfferCreated = onDocumentCreated({ document: "offers/{offerId}", region: "europe-west1" }, async (event) => {
   const data = event.data?.data();
   if (!data) return;
   await notifyUsers(offerRecipients(data, false), offerPayload(data, event.params.offerId, "open"));
@@ -105,7 +105,7 @@ export const onOfferCreated = onDocumentCreated("offers/{offerId}", async (event
   });
 });
 
-export const onOfferUpdated = onDocumentUpdated("offers/{offerId}", async (event) => {
+export const onOfferUpdated = onDocumentUpdated({ document: "offers/{offerId}", region: "europe-west1" }, async (event) => {
   const before = event.data?.before.data();
   const after = event.data?.after.data();
   if (!before || !after || before.status === after.status) return;
@@ -121,11 +121,11 @@ async function notifyApprovedOffer(eventData: DocumentData | undefined, conversa
   await notifyUsers(recipients, offerPayload({ ...eventData, chatRoomId: conversationId, clientId }, offerId, "open"));
 }
 
-export const onApprovedOfferCreated = onDocumentCreated("chats/{conversationId}/approvedOffers/{offerId}", async (event) => {
+export const onApprovedOfferCreated = onDocumentCreated({ document: "chats/{conversationId}/approvedOffers/{offerId}", region: "europe-west1" }, async (event) => {
   await notifyApprovedOffer(event.data?.data(), event.params.conversationId, event.params.offerId);
 });
 
-export const onApprovedOfferUpdated = onDocumentUpdated("chats/{conversationId}/approvedOffers/{offerId}", async (event) => {
+export const onApprovedOfferUpdated = onDocumentUpdated({ document: "chats/{conversationId}/approvedOffers/{offerId}", region: "europe-west1" }, async (event) => {
   const before = event.data?.before.data();
   const after = event.data?.after.data();
   if (!before || !after || before.status === after.status) return;
@@ -139,7 +139,7 @@ function documentKeys(value: unknown): string[] {
     .map(([key]) => key);
 }
 
-export const onListingDocumentsUpdated = onDocumentUpdated("apartments/{apartmentId}", async (event) => {
+export const onListingDocumentsUpdated = onDocumentUpdated({ document: "apartments/{apartmentId}", region: "europe-west1" }, async (event) => {
   const before = event.data?.before.data();
   const after = event.data?.after.data();
   if (!before || !after) return;
@@ -184,7 +184,7 @@ function contractPayload(data: DocumentData, contractId: string, action: string)
   };
 }
 
-export const onContractStatusUpdatedForNotification = onDocumentUpdated("contracts/{contractId}", async (event) => {
+export const onContractStatusUpdatedForNotification = onDocumentUpdated({ document: "contracts/{contractId}", region: "europe-west1" }, async (event) => {
   const before = event.data?.before.data();
   const after = event.data?.after.data();
   if (!before || !after) return;
@@ -198,7 +198,7 @@ export const onContractStatusUpdatedForNotification = onDocumentUpdated("contrac
   }
 });
 
-export const onBrokerApprovalUpdated = onDocumentUpdated("users/{brokerId}", async (event) => {
+export const onBrokerApprovalUpdated = onDocumentUpdated({ document: "users/{brokerId}", region: "europe-west1" }, async (event) => {
   const before = event.data?.before.data();
   const after = event.data?.after.data();
   if (!before || !after || before.agencyStatus === after.agencyStatus || (after.agencyStatus !== "approved" && after.agencyStatus !== "none")) return;
@@ -249,7 +249,7 @@ function checklistPayload(type: "document_required" | "document_rejected" | "doc
   };
 }
 
-export const onChecklistItemUpdated = onDocumentUpdated("deals/{dealId}/checklist/{itemId}", async (event) => {
+export const onChecklistItemUpdated = onDocumentUpdated({ document: "deals/{dealId}/checklist/{itemId}", region: "europe-west1" }, async (event) => {
   const before = event.data?.before.data();
   const after = event.data?.after.data();
   if (!before || !after || before.status === after.status) return;
@@ -285,7 +285,7 @@ export const onChecklistItemUpdated = onDocumentUpdated("deals/{dealId}/checklis
   }
 });
 
-export const onCanonicalDealStageUpdated = onDocumentUpdated("deals/{dealId}", async (event) => {
+export const onCanonicalDealStageUpdated = onDocumentUpdated({ document: "deals/{dealId}", region: "europe-west1" }, async (event) => {
   const before = event.data?.before.data();
   const after = event.data?.after.data();
   if (!before || !after || before.stage === after.stage) return;
@@ -302,7 +302,7 @@ export const onCanonicalDealStageUpdated = onDocumentUpdated("deals/{dealId}", a
   });
 });
 
-export const onDealRecordCreated = onDocumentWritten("deals/{dealId}", async (event) => {
+export const onDealRecordCreated = onDocumentWritten({ document: "deals/{dealId}", region: "europe-west1" }, async (event) => {
   const before = event.data?.before.data();
   const data = event.data?.after.data();
   if (!data || data.status !== "closed" || before?.status === "closed") return;

@@ -5,7 +5,7 @@ import { dispatchMailOutboxMessage } from "../lib/mailOutbox";
 
 const db = getFirestore();
 
-export const processMailOutbox = onSchedule("every 5 minutes", async () => {
+export const processMailOutbox = onSchedule({ schedule: "every 5 minutes", region: "europe-west1" }, async () => {
   const now = Date.now();
   const [pending, failed] = await Promise.all([
     db.collection("mail_outbox").where("status", "==", "pending").where("nextAttemptAt", "<=", now).limit(25).get(),

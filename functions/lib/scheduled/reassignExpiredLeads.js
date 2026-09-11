@@ -49,7 +49,7 @@ function chunks(items, size) {
     }
     return result;
 }
-exports.reassignExpiredLeadsCron = (0, scheduler_1.onSchedule)({ schedule: "every 1 hours", timeZone: "Europe/Athens" }, async () => {
+exports.reassignExpiredLeadsCron = (0, scheduler_1.onSchedule)({ schedule: "every 1 hours", timeZone: "Europe/Athens", region: "europe-west1" }, async () => {
     const cutoffMillis = Date.now() - INACTIVITY_WINDOW_MS;
     const cutoffTimestamp = firestore_1.Timestamp.fromMillis(cutoffMillis);
     const leadsSnapshot = await db

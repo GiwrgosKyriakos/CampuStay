@@ -179,6 +179,7 @@ export default function RoomieProfileScreen() {
               onPress={() => router.push("/auth-landing")}
               bottomInset={insets.bottom}
               buttonTestID="roomie-signin-button"
+              style={styles.footer}
             />
           )}
         </>
@@ -193,6 +194,15 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   stickyHeader: {
     paddingBottom: spacing.md,
     backgroundColor: colors.surfaceSecondary,
+    borderBottomLeftRadius: radius.lg,
+    borderBottomRightRadius: radius.lg,
+    overflow: "hidden",
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 4,
+    zIndex: 2,
   },
   headerRow: {
     flexDirection: "row",
@@ -263,5 +273,20 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   optionTextSelected: { fontFamily: fonts.semibold, color: colors.onBrandTertiary },
   guestTopBannerSpacing: {
     marginBottom: spacing.sm,
+  },
+  footer: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: colors.border,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 6,
+    zIndex: 10,
   },
 });

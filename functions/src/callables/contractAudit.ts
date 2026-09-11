@@ -11,7 +11,7 @@ function isExecutiveRole(value: unknown): boolean {
   return value === "ceo" || value === "secretary" || value === "secretariat";
 }
 
-export const verifyContractSignatureAuditTrailCallable = onCall(async (request) => {
+export const verifyContractSignatureAuditTrailCallable = onCall({ region: "europe-west1" }, async (request) => {
   const uid = request.auth?.uid;
   if (!uid) throw new HttpsError("unauthenticated", "Authentication is required.");
   const contractId = typeof request.data?.contractId === "string" ? request.data.contractId.trim() : "";

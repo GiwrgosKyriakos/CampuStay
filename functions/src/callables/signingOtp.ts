@@ -1,5 +1,6 @@
 import { createHash, randomInt, randomUUID } from "node:crypto";
 import { getApps, initializeApp } from "firebase-admin/app";
+import { getAuth } from "firebase-admin/auth";
 import { getFirestore, Timestamp, type DocumentData } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { HttpsError, onCall, type CallableRequest } from "firebase-functions/v2/https";
@@ -230,12 +231,28 @@ async function dispatchSms(phone: string, code: string): Promise<boolean> {
   return true;
 }
 
-export const sendSigningOtp = onCall(async (request) => {
+export function normalizeE164PhoneNumber(value: string): string | null {
+  const trimmed = value.trim();
+  const digits = trimmed.replace(/\D/g, "");
+  if (!digits) return null;
+
+  let normalizedDigits = digits;
+  if (trimmed.startsWith("00")) normalizedDigits = digits.slice(2);
+  else if (trimmed.startsWith("+")) normalizedDigits = digits;
+  else if (!trimmed.startsWith("+") && digits.length === 10) normalizedDigits = `30${digits}`;
+  else if (!digits.startsWith("30")) return null;
+
+  if (!/^[1-9]\d{7,14}$/.test(normalizedDigits)) return null;
+  return `+${normalizedDigits}`;
+}
+
+export const sendSigningOtp = onCall({ region: "europe-west1" }, async (request) => {
   const { contractRef, contract, signerId } = await loadAuthorizedContract(request);
   const signers = Array.isArray(contract.signers) ? contract.signers : [];
   const signer = signers.find((entry) => entry && typeof entry === "object" && (entry as { signerId?: unknown }).signerId === signerId) as { signerPhone?: unknown } | undefined;
-  const phone = typeof signer?.signerPhone === "string" ? signer.signerPhone.trim() : "";
-  if (!phone) throw new HttpsError("failed-precondition", "The signer has no phone number.");
+  const rawPhone = typeof signer?.signerPhone === "string" ? signer.signerPhone : "";
+  const phone = normalizeE164PhoneNumber(rawPhone);
+  if (!phone) throw new HttpsError("failed-precondition", "The signer must have a valid E.164 phone number.");
 
   const contractId = contractRef.id;
   const otpRef = db.doc(`signingOtps/${contractId}_${signerId}`);
@@ -248,21 +265,61 @@ export const sendSigningOtp = onCall(async (request) => {
   await otpRef.set({ contractId, signerId, codeHash: hashCode(contractId, signerId, code), sentAt: Date.now(), expiresAt, attempts: 0, verifiedAt: null }, { merge: true });
 
   const delivered = await dispatchSms(phone, code);
-  const isDevelopment = process.env.FUNCTIONS_EMULATOR === "true" || (process.env.NODE_ENV !== "production" && process.env.SIGNING_OTP_ALLOW_DEBUG === "true");
-  if (!delivered && !isDevelopment) {
+  if (!delivered) {
     logger.error("Signing OTP provider is not configured", { contractId, signerId });
     throw new HttpsError("failed-precondition", "SMS delivery is not configured.");
   }
-  if (!delivered) logger.warn("Signing OTP is available only through the development response", { contractId, signerId });
-  return { delivered, expiresInSeconds: OTP_TTL_MS / 1000, ...(isDevelopment ? { debugCode: code } : {}) };
+  return { delivered: true, expiresInSeconds: OTP_TTL_MS / 1000 };
 });
 
-export const verifySigningOtp = onCall(async (request) => {
+export const verifySigningOtp = onCall({ region: "europe-west1" }, async (request) => {
   const { uid, contractRef, contract, signerId } = await loadAuthorizedContract(request);
   if (isExternalSigner(signerFor(contract, signerId)) && uid !== signerId) throw new HttpsError("permission-denied", "Only the signer can verify an external signing OTP.");
+  const provider = request.data?.provider === "firebase" ? "firebase" : "twilio";
   const code = typeof request.data?.code === "string" ? request.data.code.trim() : "";
   if (!/^\d{6}$/.test(code)) throw new HttpsError("invalid-argument", "A six-digit code is required.");
   const otpRef = db.doc(`signingOtps/${contractRef.id}_${signerId}`);
+
+  if (provider === "firebase") {
+    const firebaseIdToken = typeof request.data?.firebaseIdToken === "string" ? request.data.firebaseIdToken.trim() : "";
+    if (!firebaseIdToken) throw new HttpsError("invalid-argument", "Firebase phone verification evidence is required.");
+    let decodedToken: { uid: string; phone_number?: string };
+    try {
+      decodedToken = await getAuth().verifyIdToken(firebaseIdToken);
+    } catch {
+      throw new HttpsError("unauthenticated", "Firebase phone verification could not be validated.");
+    }
+    if (!decodedToken.phone_number) throw new HttpsError("permission-denied", "The Firebase phone identity does not match the signer.");
+    const expectedPhone = normalizeE164PhoneNumber(signerFor(contract, signerId)?.signerPhone as string ?? "");
+    const verifiedPhone = normalizeE164PhoneNumber(decodedToken.phone_number);
+    if (!expectedPhone || expectedPhone !== verifiedPhone) throw new HttpsError("failed-precondition", "The verified phone does not match the signer.");
+
+    return db.runTransaction(async (transaction) => {
+      const [latestOtpSnapshot, contractSnapshot] = await Promise.all([transaction.get(otpRef), transaction.get(contractRef)]);
+      if (!contractSnapshot.exists) throw new HttpsError("failed-precondition", "The contract is no longer available.");
+      const otp = latestOtpSnapshot.data() ?? {};
+      if (Number(otp.verifiedAt ?? 0) > 0) return { verified: true, verifiedAt: Number(otp.verifiedAt), verificationId: typeof otp.verificationId === "string" ? otp.verificationId : undefined };
+      const verifiedAt = Date.now();
+      const verificationToken = randomUUID();
+      const verificationId = randomUUID();
+      transaction.set(otpRef, {
+        contractId: contractRef.id,
+        signerId,
+        sentAt: Number(otp.sentAt ?? verifiedAt),
+        expiresAt: verifiedAt + OTP_TTL_MS,
+        attempts: 0,
+        codeHash: null,
+        verifiedAt,
+        verifiedByUid: uid,
+        verificationId,
+        verificationTokenHash: hashVerificationToken(contractRef.id, signerId, verificationToken),
+        provider: "firebase",
+      }, { merge: true });
+      transaction.update(contractRef, { updatedAt: verifiedAt });
+      return { verified: true, verifiedAt, verificationId, verificationToken };
+    });
+  }
+
   return db.runTransaction(async (transaction) => {
     const [latestOtpSnapshot, contractSnapshot] = await Promise.all([transaction.get(otpRef), transaction.get(contractRef)]);
     if (!latestOtpSnapshot.exists || !contractSnapshot.exists) throw new HttpsError("failed-precondition", "No active verification request exists.");
@@ -286,7 +343,35 @@ export const verifySigningOtp = onCall(async (request) => {
   });
 });
 
-export const recordSigningEvidence = onCall(async (request) => {
+export const updateContractSignerIdentity = onCall({ region: "europe-west1" }, async (request) => {
+  const { contractRef, contract, signerId } = await loadAuthorizedContract(request);
+  if (contract.status !== "pending_signatures") throw new HttpsError("failed-precondition", "Only pending contracts can be edited.");
+  const currentSigners = Array.isArray(contract.signers) ? contract.signers : [];
+  const currentSigner = signerFor(contract, signerId);
+  if (!currentSigner) throw new HttpsError("not-found", "Signer not found.");
+
+  const signerAfm = typeof request.data?.signerAfm === "string" ? request.data.signerAfm.trim() : undefined;
+  const signerIdCardNumber = typeof request.data?.signerIdCardNumber === "string" ? request.data.signerIdCardNumber.trim() : undefined;
+  const signerPhoneInput = typeof request.data?.signerPhone === "string" ? request.data.signerPhone.trim() : undefined;
+  const signerPhone = signerPhoneInput === undefined ? undefined : normalizeE164PhoneNumber(signerPhoneInput);
+  if (signerPhoneInput !== undefined && !signerPhone) throw new HttpsError("invalid-argument", "A valid E.164 phone number is required.");
+  if (signerAfm === undefined && signerIdCardNumber === undefined && signerPhone === undefined) throw new HttpsError("invalid-argument", "At least one signer identity value is required.");
+
+  const signers = currentSigners.map((entry) => {
+    if (!entry || typeof entry !== "object" || (entry as { signerId?: unknown }).signerId !== signerId) return entry;
+    const signer = entry as Record<string, unknown>;
+    return {
+      ...signer,
+      ...(signerAfm ? { signerAfm } : {}),
+      ...(signerIdCardNumber ? { signerIdCardNumber } : {}),
+      ...(signerPhone ? { signerPhone } : {}),
+    };
+  });
+  await contractRef.update({ signers, updatedAt: Date.now() });
+  return { updated: true };
+});
+
+export const recordSigningEvidence = onCall({ region: "europe-west1" }, async (request) => {
   const { uid, contractRef, contract, signerId } = await loadAuthorizedContract(request);
   const originalSigner = signerFor(contract, signerId);
   if (!originalSigner) throw new HttpsError("permission-denied", "Signer is not part of this contract.");
@@ -322,7 +407,7 @@ export const recordSigningEvidence = onCall(async (request) => {
     signerId,
     signerName: sanitizeText(originalSigner.signerName, 200) ?? "Signer",
     signerRole: sanitizeText(originalSigner.signerRole, 32) ?? "unknown",
-    signerPhone: sanitizeText(originalSigner.signerPhone, 64) ?? "",
+    signerPhone: normalizeE164PhoneNumber(typeof originalSigner.signerPhone === "string" ? originalSigner.signerPhone : "") ?? sanitizeText(originalSigner.signerPhone, 64) ?? "",
     signerEmail: sanitizeText(originalSigner.signerEmail, 320) ?? "",
     ...(sanitizeText(evidence.signerAfm, 32) ? { signerAfm: sanitizeText(evidence.signerAfm, 32) } : {}),
     ...(sanitizeText(evidence.signerIdCardNumber, 64) ? { signerIdCardNumber: sanitizeText(evidence.signerIdCardNumber, 64) } : {}),
@@ -397,7 +482,7 @@ export const recordSigningEvidence = onCall(async (request) => {
   return updated;
 });
 
-export const getContractDownloadUrl = onCall(async (request) => {
+export const getContractDownloadUrl = onCall({ region: "europe-west1" }, async (request) => {
   const uid = requireAuth(request);
   const contractId = typeof request.data?.contractId === "string" ? request.data.contractId.trim() : "";
   if (!contractId) throw new HttpsError("invalid-argument", "Contract is required.");
@@ -419,7 +504,7 @@ export const getContractDownloadUrl = onCall(async (request) => {
   return { url, expiresAt: Date.now() + 60 * 60 * 1000 };
 });
 
-export const updateContractPayload = onCall(async (request) => {
+export const updateContractPayload = onCall({ region: "europe-west1" }, async (request) => {
   const { uid, contractRef, contract } = await loadAuthorizedContract(request);
   if (uid !== contract.brokerId && uid !== contract.createdByUserId) throw new HttpsError("permission-denied", "Only the contract creator can edit contract details.");
   if (contract.status !== "pending_signatures") throw new HttpsError("failed-precondition", "Only pending contracts can be edited.");

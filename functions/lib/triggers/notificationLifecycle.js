@@ -34,13 +34,13 @@ function appointmentPayload(type, data, appointmentId, action) {
 function appointmentUsers(data) {
     return [stringValue(data.brokerId), stringValue(data.clientId), stringValue(data.listingBrokerId), stringValue(data.buyerBrokerId), stringValue(data.coveringBrokerId)].filter(Boolean);
 }
-exports.onAppointmentCreated = (0, firestore_2.onDocumentCreated)("appointments/{appointmentId}", async (event) => {
+exports.onAppointmentCreated = (0, firestore_2.onDocumentCreated)({ document: "appointments/{appointmentId}", region: "europe-west1" }, async (event) => {
     const data = event.data?.data();
     if (!data || data.status !== "confirmed")
         return;
     await notifyUsers(appointmentUsers(data), appointmentPayload("visit_confirmed", data, event.params.appointmentId), "visit_reminders");
 });
-exports.onAppointmentUpdated = (0, firestore_2.onDocumentUpdated)("appointments/{appointmentId}", async (event) => {
+exports.onAppointmentUpdated = (0, firestore_2.onDocumentUpdated)({ document: "appointments/{appointmentId}", region: "europe-west1" }, async (event) => {
     const before = event.data?.before.data();
     const after = event.data?.after.data();
     if (!before || !after)
@@ -77,7 +77,7 @@ function offerRecipients(data, response) {
         return [clientId || (senderId === brokerId ? "" : brokerId)];
     return [brokerId || stringValue(data.recipientId) || (senderId === clientId ? "" : clientId)];
 }
-exports.onOfferCreated = (0, firestore_2.onDocumentCreated)("offers/{offerId}", async (event) => {
+exports.onOfferCreated = (0, firestore_2.onDocumentCreated)({ document: "offers/{offerId}", region: "europe-west1" }, async (event) => {
     const data = event.data?.data();
     if (!data)
         return;
@@ -99,7 +99,7 @@ exports.onOfferCreated = (0, firestore_2.onDocumentCreated)("offers/{offerId}", 
         metadata: { offerId: event.params.offerId },
     });
 });
-exports.onOfferUpdated = (0, firestore_2.onDocumentUpdated)("offers/{offerId}", async (event) => {
+exports.onOfferUpdated = (0, firestore_2.onDocumentUpdated)({ document: "offers/{offerId}", region: "europe-west1" }, async (event) => {
     const before = event.data?.before.data();
     const after = event.data?.after.data();
     if (!before || !after || before.status === after.status)
@@ -115,10 +115,10 @@ async function notifyApprovedOffer(eventData, conversationId, offerId) {
     const recipients = users.filter((userId) => userId !== clientId);
     await notifyUsers(recipients, offerPayload({ ...eventData, chatRoomId: conversationId, clientId }, offerId, "open"));
 }
-exports.onApprovedOfferCreated = (0, firestore_2.onDocumentCreated)("chats/{conversationId}/approvedOffers/{offerId}", async (event) => {
+exports.onApprovedOfferCreated = (0, firestore_2.onDocumentCreated)({ document: "chats/{conversationId}/approvedOffers/{offerId}", region: "europe-west1" }, async (event) => {
     await notifyApprovedOffer(event.data?.data(), event.params.conversationId, event.params.offerId);
 });
-exports.onApprovedOfferUpdated = (0, firestore_2.onDocumentUpdated)("chats/{conversationId}/approvedOffers/{offerId}", async (event) => {
+exports.onApprovedOfferUpdated = (0, firestore_2.onDocumentUpdated)({ document: "chats/{conversationId}/approvedOffers/{offerId}", region: "europe-west1" }, async (event) => {
     const before = event.data?.before.data();
     const after = event.data?.after.data();
     if (!before || !after || before.status === after.status)
@@ -132,7 +132,7 @@ function documentKeys(value) {
         .filter(([, entries]) => Array.isArray(entries) && entries.length > 0)
         .map(([key]) => key);
 }
-exports.onListingDocumentsUpdated = (0, firestore_2.onDocumentUpdated)("apartments/{apartmentId}", async (event) => {
+exports.onListingDocumentsUpdated = (0, firestore_2.onDocumentUpdated)({ document: "apartments/{apartmentId}", region: "europe-west1" }, async (event) => {
     const before = event.data?.before.data();
     const after = event.data?.after.data();
     if (!before || !after)
@@ -177,7 +177,7 @@ function contractPayload(data, contractId, action) {
         action,
     };
 }
-exports.onContractStatusUpdatedForNotification = (0, firestore_2.onDocumentUpdated)("contracts/{contractId}", async (event) => {
+exports.onContractStatusUpdatedForNotification = (0, firestore_2.onDocumentUpdated)({ document: "contracts/{contractId}", region: "europe-west1" }, async (event) => {
     const before = event.data?.before.data();
     const after = event.data?.after.data();
     if (!before || !after)
@@ -191,7 +191,7 @@ exports.onContractStatusUpdatedForNotification = (0, firestore_2.onDocumentUpdat
         await notifyUsers(contractUsers(after), contractPayload(after, event.params.contractId, "signed"));
     }
 });
-exports.onBrokerApprovalUpdated = (0, firestore_2.onDocumentUpdated)("users/{brokerId}", async (event) => {
+exports.onBrokerApprovalUpdated = (0, firestore_2.onDocumentUpdated)({ document: "users/{brokerId}", region: "europe-west1" }, async (event) => {
     const before = event.data?.before.data();
     const after = event.data?.after.data();
     if (!before || !after || before.agencyStatus === after.agencyStatus || (after.agencyStatus !== "approved" && after.agencyStatus !== "none"))
@@ -241,7 +241,7 @@ function checklistPayload(type, title, body, dealId, clientId, itemId, action) {
         action,
     };
 }
-exports.onChecklistItemUpdated = (0, firestore_2.onDocumentUpdated)("deals/{dealId}/checklist/{itemId}", async (event) => {
+exports.onChecklistItemUpdated = (0, firestore_2.onDocumentUpdated)({ document: "deals/{dealId}/checklist/{itemId}", region: "europe-west1" }, async (event) => {
     const before = event.data?.before.data();
     const after = event.data?.after.data();
     if (!before || !after || before.status === after.status)
@@ -275,7 +275,7 @@ exports.onChecklistItemUpdated = (0, firestore_2.onDocumentUpdated)("deals/{deal
         await notifyUsers(reviewers, checklistPayload("notary_ready", "Έτοιμο για Οριστικό Συμβόλαιο", "Όλα τα έγγραφα του deal επαληθεύτηκαν. Συντονίστε το οριστικό συμβόλαιο και την εκκαθάριση.", event.params.dealId, stringValue(deal.clientId), itemId, "settle_deal"));
     }
 });
-exports.onCanonicalDealStageUpdated = (0, firestore_2.onDocumentUpdated)("deals/{dealId}", async (event) => {
+exports.onCanonicalDealStageUpdated = (0, firestore_2.onDocumentUpdated)({ document: "deals/{dealId}", region: "europe-west1" }, async (event) => {
     const before = event.data?.before.data();
     const after = event.data?.after.data();
     if (!before || !after || before.stage === after.stage)
@@ -293,7 +293,7 @@ exports.onCanonicalDealStageUpdated = (0, firestore_2.onDocumentUpdated)("deals/
         action: stage === 90 ? "schedule_notarial_appointment" : "settle_deal",
     });
 });
-exports.onDealRecordCreated = (0, firestore_2.onDocumentWritten)("deals/{dealId}", async (event) => {
+exports.onDealRecordCreated = (0, firestore_2.onDocumentWritten)({ document: "deals/{dealId}", region: "europe-west1" }, async (event) => {
     const before = event.data?.before.data();
     const data = event.data?.after.data();
     if (!data || data.status !== "closed" || before?.status === "closed")

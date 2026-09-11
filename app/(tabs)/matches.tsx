@@ -1298,7 +1298,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   brokersToggleBtn: { width: 40, height: 40, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceSecondary },
   brokersToggleBtnActive: { borderColor: colors.brand, backgroundColor: colors.brand },
   brokersHeaderActions: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
-  circularHistoryBtn: { width: 36, height: 36, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceSecondary },
+  circularHistoryBtn: { width: 40, height: 40, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceSecondary },
   filterHistoryBackdrop: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.lg, backgroundColor: "rgba(0,0,0,0.48)" },
   filterHistoryCard: { width: "100%", maxHeight: "82%", borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, padding: spacing.lg, gap: spacing.md },
   filterHistoryHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },

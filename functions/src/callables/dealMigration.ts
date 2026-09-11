@@ -94,7 +94,7 @@ async function migrateProfileDeals(profileId: string, actorId: string, clientIdO
   return { migrated, skipped };
 }
 
-export const migrateLegacyDealsCallable = onCall(async (request) => {
+export const migrateLegacyDealsCallable = onCall({ region: "europe-west1" }, async (request) => {
   const actorId = request.auth?.uid;
   if (!actorId) throw new HttpsError("unauthenticated", "Authentication is required.");
   const data = dataOf(request);

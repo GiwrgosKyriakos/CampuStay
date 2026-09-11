@@ -19,7 +19,7 @@ async function dispatchListingWithdrawal(apartmentId, title, brokerIds = []) {
         ...brokerIds.map((brokerId) => (0, push_1.sendPushToUser)(brokerId, { type: "price_drop", title: "Απόσυρση Αγγελίας", body: `Η αγγελία «${title}» αποσύρθηκε από άλλον μεσίτη που διαχειριζόταν το ακίνητο.`, screen: "apartment-detail", params: { apartmentId }, entityId: apartmentId, action: "listing_withdrawn" }, "deals_pipeline")),
     ]);
 }
-exports.onListingWithdrawal = (0, firestore_2.onDocumentUpdated)("apartments/{apartmentId}", async (event) => {
+exports.onListingWithdrawal = (0, firestore_2.onDocumentUpdated)({ document: "apartments/{apartmentId}", region: "europe-west1" }, async (event) => {
     const before = event.data?.before.data();
     const after = event.data?.after.data();
     if (!before || !after)
@@ -35,7 +35,7 @@ exports.onListingWithdrawal = (0, firestore_2.onDocumentUpdated)("apartments/{ap
     const title = typeof after.title === "string" ? after.title : "Ακίνητο";
     await dispatchListingWithdrawal(event.params.apartmentId, title, affectedBrokerIds);
 });
-exports.onListingWithdrawalEventCreated = (0, firestore_2.onDocumentCreated)("listingWithdrawalEvents/{apartmentId}", async (event) => {
+exports.onListingWithdrawalEventCreated = (0, firestore_2.onDocumentCreated)({ document: "listingWithdrawalEvents/{apartmentId}", region: "europe-west1" }, async (event) => {
     const data = event.data?.data();
     if (!data)
         return;

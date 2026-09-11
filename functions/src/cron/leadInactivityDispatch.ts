@@ -63,7 +63,7 @@ async function resetLead(snapshot: QueryDocumentSnapshot<DocumentData>, cutoff: 
   return result;
 }
 
-export const processLeadInactivityDispatch = onSchedule("every 1 hours", async () => {
+export const processLeadInactivityDispatch = onSchedule({ schedule: "every 1 hours", region: "europe-west1" }, async () => {
   const cutoff = Date.now() - INACTIVITY_WINDOW_MS;
   const snapshot = await db.collection("leads").where("status", "==", "assigned").where("lastContactTimestamp", "==", null).get();
   const reallocated = await Promise.all(snapshot.docs.filter((lead) => isStale(lead.data(), cutoff)).map(async (lead) => ({ lead, agencyId: await resetLead(lead, cutoff) })));

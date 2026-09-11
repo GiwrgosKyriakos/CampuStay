@@ -94,7 +94,7 @@ async function addOwnerToBrokerClients(brokerId: string, apartmentId: string, ap
   }, { merge: true });
 }
 
-export const claimPropertyCallable = onCall(async (request) => {
+export const claimPropertyCallable = onCall({ region: "europe-west1" }, async (request) => {
   const uid = requireAuth(request);
   const data = dataOf(request);
   const apartmentId = requiredString(data.apartmentId, "apartmentId");
@@ -144,7 +144,7 @@ export const claimPropertyCallable = onCall(async (request) => {
   return { claimId: claimRef.id, status: "claim_pending" };
 });
 
-export const publishListingAssignmentCallable = onCall(async (request) => {
+export const publishListingAssignmentCallable = onCall({ region: "europe-west1" }, async (request) => {
   const uid = requireAuth(request);
   const data = dataOf(request);
   const apartmentId = requiredString(data.apartmentId, "apartmentId");
@@ -173,7 +173,7 @@ export const publishListingAssignmentCallable = onCall(async (request) => {
   return { apartmentId, mode };
 });
 
-export const reviewClaimCallable = onCall(async (request) => {
+export const reviewClaimCallable = onCall({ region: "europe-west1" }, async (request) => {
   const uid = requireAuth(request);
   const data = dataOf(request);
   const claimId = requiredString(data.claimId, "claimId");
@@ -232,7 +232,7 @@ export const reviewClaimCallable = onCall(async (request) => {
   return { status: data.approved ? "assigned" : "unassigned_pool" };
 });
 
-export const reassignLeadCallable = onCall(async (request) => {
+export const reassignLeadCallable = onCall({ region: "europe-west1" }, async (request) => {
   const uid = requireAuth(request);
   const data = dataOf(request);
   const leadId = requiredString(data.leadId, "leadId");
@@ -264,7 +264,7 @@ export const reassignLeadCallable = onCall(async (request) => {
   return { leadId, targetBrokerId };
 });
 
-export const claimLeadCallable = onCall(async (request) => {
+export const claimLeadCallable = onCall({ region: "europe-west1" }, async (request) => {
   const uid = requireAuth(request);
   const data = dataOf(request);
   const leadId = requiredString(data.leadId, "leadId");
@@ -294,7 +294,7 @@ export const claimLeadCallable = onCall(async (request) => {
   return { leadId, assignedBrokerId: uid };
 });
 
-export const recordKeySafeActionCallable = onCall(async (request) => {
+export const recordKeySafeActionCallable = onCall({ region: "europe-west1" }, async (request) => {
   const uid = requireAuth(request);
   const data = dataOf(request);
   const apartmentId = requiredString(data.apartmentId, "apartmentId");
@@ -333,7 +333,7 @@ export const recordKeySafeActionCallable = onCall(async (request) => {
   return { entry };
 });
 
-export const delegateShowingCallable = onCall(async (request) => {
+export const delegateShowingCallable = onCall({ region: "europe-west1" }, async (request) => {
   const uid = requireAuth(request);
   const data = dataOf(request);
   const appointmentId = requiredString(data.appointmentId, "appointmentId");
@@ -356,7 +356,7 @@ export const delegateShowingCallable = onCall(async (request) => {
   return { appointmentId, coveringBrokerId, coveringBrokerName };
 });
 
-export const recordShowingFeedbackCallable = onCall(async (request) => {
+export const recordShowingFeedbackCallable = onCall({ region: "europe-west1" }, async (request) => {
   const uid = requireAuth(request);
   const data = dataOf(request);
   const appointmentId = requiredString(data.appointmentId, "appointmentId");
@@ -387,7 +387,7 @@ export const recordShowingFeedbackCallable = onCall(async (request) => {
   return { appointmentId, submittedBy: uid };
 });
 
-export const createCrossBrokerShowingCallable = onCall(async (request) => {
+export const createCrossBrokerShowingCallable = onCall({ region: "europe-west1" }, async (request) => {
   const uid = requireAuth(request);
   const data = dataOf(request);
   const agencyId = requiredString(data.agencyId, "agencyId");
@@ -487,7 +487,7 @@ function calculateSettlement(data: Record<string, unknown>, deal: DocumentData):
   return { agencyAmount: round(commissionTotal * officePercentage / 100), brokerSplits, officePercentage };
 }
 
-export const finalizeCommissionSettlementCallable = onCall(async (request) => {
+export const finalizeCommissionSettlementCallable = onCall({ region: "europe-west1" }, async (request) => {
   const uid = requireAuth(request);
   const data = dataOf(request);
   const action = data.action as SettlementAction;

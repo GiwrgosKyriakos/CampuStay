@@ -24,7 +24,7 @@ function reminderIntervalMinutes(data) {
     const configured = Number(settings.stagnationAlertIntervalMinutes ?? data.dealStagnationReminderMinutes);
     return configured === 15 ? 15 : 60;
 }
-exports.processDealStagnation = (0, scheduler_1.onSchedule)("every 15 minutes", async () => {
+exports.processDealStagnation = (0, scheduler_1.onSchedule)({ schedule: "every 15 minutes", region: "europe-west1" }, async () => {
     const now = Date.now();
     const profiles = await db.collection("brokerClientProfiles").where("role", "==", "client").get();
     await Promise.all(profiles.docs.map(async (profileSnapshot) => {

@@ -43,12 +43,13 @@ export default function AboutUsScreen() {
         <View style={styles.headerSpacer} />
       </View>
 
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xl }]}
-        showsVerticalScrollIndicator={false}
-        testID="about-us-screen"
-      >
+      <View style={styles.footer}>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xl }]}
+          showsVerticalScrollIndicator={false}
+          testID="about-us-screen"
+        >
         <View style={styles.heroCard}>
           <Text style={styles.kicker}>CampuStay</Text>
           <Text style={styles.heroTitle}>{t("aboutUs.heroTitle")}</Text>
@@ -83,7 +84,8 @@ export default function AboutUsScreen() {
             </View>
           ))}
         </View>
-      </ScrollView>
+        </ScrollView>
+      </View>
     </View>
   );
 }
@@ -101,8 +103,17 @@ function createStyles(colors: ThemeColors) {
       paddingHorizontal: spacing.lg,
       paddingBottom: spacing.md,
       backgroundColor: colors.surfaceSecondary,
-      borderBottomWidth: 1,
       borderBottomColor: colors.border,
+      borderBottomLeftRadius: radius.lg,
+      borderBottomRightRadius: radius.lg,
+      borderBottomWidth: 0,
+      overflow: "hidden",
+      shadowColor: "#000000",
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.12,
+      shadowRadius: 6,
+      elevation: 4,
+      zIndex: 2,
     },
     closeButton: {
       width: 40,
@@ -122,6 +133,23 @@ function createStyles(colors: ThemeColors) {
     },
     scroll: {
       flex: 1,
+    },
+    footer: {
+      flex: 1,
+      backgroundColor: colors.surface,
+      borderTopLeftRadius: radius.lg,
+      borderTopRightRadius: radius.lg,
+      borderTopWidth: 1,
+      borderLeftWidth: 1,
+      borderRightWidth: 1,
+      borderColor: colors.border,
+      overflow: "hidden",
+      shadowColor: "#000000",
+      shadowOffset: { width: 0, height: -3 },
+      shadowOpacity: 0.1,
+      shadowRadius: 6,
+      elevation: 6,
+      zIndex: 10,
     },
     content: {
       paddingHorizontal: 20,

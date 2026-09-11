@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.generatePropertyListingCopy = exports.getComparativeMarketAnalysis = exports.getPropertyFeedbackSentiment = exports.buildOwnerActivityPdfReport = exports.analyzeShowingFeedbackSentiment = exports.generateListingCopywriting = exports.generateCmaReport = exports.reviewClaimCallable = exports.reviewChecklistDocumentCallable = exports.reassignLeadCallable = exports.recordShowingFeedbackCallable = exports.recordKeySafeActionCallable = exports.publishListingAssignmentCallable = exports.migrateLegacyDealsCallable = exports.initializeDealCallable = exports.finalizeCommissionSettlementCallable = exports.finalizeChecklistDocumentUploadCallable = exports.delegateShowingCallable = exports.createCrossBrokerShowingCallable = exports.claimPropertyCallable = exports.claimLeadCallable = exports.advanceDealStageCallable = exports.issueFiscalInvoice = exports.verifyContractSignatureAuditTrailCallable = exports.verifySigningOtp = exports.updateContractPayload = exports.sendSigningOtp = exports.recordSigningEvidence = exports.getContractDownloadUrl = exports.onContractCompleted = exports.onCanonicalDealStageUpdated = exports.onChecklistItemUpdated = exports.onDealRecordCreated = exports.onBrokerApprovalUpdated = exports.onContractStatusUpdatedForNotification = exports.onListingDocumentsUpdated = exports.onApprovedOfferUpdated = exports.onApprovedOfferCreated = exports.onOfferUpdated = exports.onOfferCreated = exports.onAppointmentUpdated = exports.onAppointmentCreated = exports.onListingWithdrawalEventCreated = exports.onListingWithdrawal = exports.onNewChatMessage = exports.reassignExpiredLeadsCron = exports.scheduledMailOutbox = exports.scheduledAnalyticsAggregation = exports.scheduledDealStagnation = exports.scheduledVisitReminders = void 0;
-exports.onBrokerRegistration = exports.onMatchCreated = exports.onApartmentUpdate = exports.generateOwnerPerformanceReport = void 0;
+exports.getComparativeMarketAnalysis = exports.getPropertyFeedbackSentiment = exports.buildOwnerActivityPdfReport = exports.analyzeShowingFeedbackSentiment = exports.generateListingCopywriting = exports.generateCmaReport = exports.reviewClaimCallable = exports.reviewChecklistDocumentCallable = exports.reassignLeadCallable = exports.recordShowingFeedbackCallable = exports.recordKeySafeActionCallable = exports.publishListingAssignmentCallable = exports.migrateLegacyDealsCallable = exports.initializeDealCallable = exports.finalizeCommissionSettlementCallable = exports.finalizeChecklistDocumentUploadCallable = exports.delegateShowingCallable = exports.createCrossBrokerShowingCallable = exports.claimPropertyCallable = exports.claimLeadCallable = exports.advanceDealStageCallable = exports.issueFiscalInvoice = exports.verifyContractSignatureAuditTrailCallable = exports.verifySigningOtp = exports.updateContractSignerIdentity = exports.updateContractPayload = exports.sendSigningOtp = exports.recordSigningEvidence = exports.getContractDownloadUrl = exports.onContractCompleted = exports.onCanonicalDealStageUpdated = exports.onChecklistItemUpdated = exports.onDealRecordCreated = exports.onBrokerApprovalUpdated = exports.onContractStatusUpdatedForNotification = exports.onListingDocumentsUpdated = exports.onApprovedOfferUpdated = exports.onApprovedOfferCreated = exports.onOfferUpdated = exports.onOfferCreated = exports.onAppointmentUpdated = exports.onAppointmentCreated = exports.onListingWithdrawalEventCreated = exports.onListingWithdrawal = exports.onNewChatMessage = exports.reassignExpiredLeadsCron = exports.scheduledMailOutbox = exports.scheduledAnalyticsAggregation = exports.scheduledDealStagnation = exports.scheduledVisitReminders = void 0;
+exports.onBrokerRegistration = exports.onMatchCreated = exports.onApartmentUpdate = exports.generateOwnerPerformanceReport = exports.generatePropertyListingCopy = void 0;
 exports.assertCanAccessApartment = assertCanAccessApartment;
 const app_1 = require("firebase-admin/app");
 const firestore_1 = require("firebase-admin/firestore");
@@ -29,6 +29,7 @@ Object.defineProperty(exports, "getContractDownloadUrl", { enumerable: true, get
 Object.defineProperty(exports, "recordSigningEvidence", { enumerable: true, get: function () { return signingOtp_1.recordSigningEvidence; } });
 Object.defineProperty(exports, "sendSigningOtp", { enumerable: true, get: function () { return signingOtp_1.sendSigningOtp; } });
 Object.defineProperty(exports, "updateContractPayload", { enumerable: true, get: function () { return signingOtp_1.updateContractPayload; } });
+Object.defineProperty(exports, "updateContractSignerIdentity", { enumerable: true, get: function () { return signingOtp_1.updateContractSignerIdentity; } });
 Object.defineProperty(exports, "verifySigningOtp", { enumerable: true, get: function () { return signingOtp_1.verifySigningOtp; } });
 const contractAudit_1 = require("./callables/contractAudit");
 Object.defineProperty(exports, "verifyContractSignatureAuditTrailCallable", { enumerable: true, get: function () { return contractAudit_1.verifyContractSignatureAuditTrailCallable; } });
@@ -135,14 +136,14 @@ exports.scheduledVisitReminders = visitReminders_1.processScheduledVisitReminder
 exports.scheduledDealStagnation = dealStagnation_1.processDealStagnation;
 exports.scheduledAnalyticsAggregation = aggregateAnalytics_1.aggregateAnalytics;
 exports.scheduledMailOutbox = mailOutbox_1.processMailOutbox;
-exports.getPropertyFeedbackSentiment = (0, https_1.onCall)({ secrets: ["GEMINI_API_KEY"], cors: true }, async (request) => {
+exports.getPropertyFeedbackSentiment = (0, https_1.onCall)({ secrets: ["GEMINI_API_KEY"], cors: true, region: "europe-west1" }, async (request) => {
     const apartmentId = request.data?.apartmentId;
     if (typeof apartmentId !== "string" || apartmentId.trim().length === 0) {
         throw new https_1.HttpsError("invalid-argument", "Η παράμετρος apartmentId είναι υποχρεωτική.");
     }
     return runAuthorizedAiInvocation({ request, apartmentId: apartmentId.trim(), feature: "sentiment", execute: (usage) => (0, sentimentService_1.analyzeShowingFeedbackSentiment)(apartmentId.trim(), usage) });
 });
-exports.getComparativeMarketAnalysis = (0, https_1.onCall)({ secrets: ["GEMINI_API_KEY"], cors: true }, async (request) => {
+exports.getComparativeMarketAnalysis = (0, https_1.onCall)({ secrets: ["GEMINI_API_KEY"], cors: true, region: "europe-west1" }, async (request) => {
     const data = request.data;
     const apartmentId = typeof data?.apartmentId === "string" ? data.apartmentId.trim() : "";
     if (!apartmentId)
@@ -171,7 +172,7 @@ exports.getComparativeMarketAnalysis = (0, https_1.onCall)({ secrets: ["GEMINI_A
             return { ...result, ...history };
         } });
 });
-exports.generatePropertyListingCopy = (0, https_1.onCall)({ secrets: ["GEMINI_API_KEY"], cors: true }, async (request) => {
+exports.generatePropertyListingCopy = (0, https_1.onCall)({ secrets: ["GEMINI_API_KEY"], cors: true, region: "europe-west1" }, async (request) => {
     const data = request.data;
     const apartmentId = typeof data?.apartmentId === "string" ? data.apartmentId.trim() : "";
     const title = typeof data?.title === "string" ? data.title.trim() : "";
@@ -188,7 +189,7 @@ exports.generatePropertyListingCopy = (0, https_1.onCall)({ secrets: ["GEMINI_AP
     }
     return runAuthorizedAiInvocation({ request, apartmentId, feature: "copywriter", execute: (usage) => (0, copywriterService_1.generatePropertyListingCopy)({ apartmentId, title, area, sqm, bedrooms, price, features, tone: data?.tone }, usage) });
 });
-exports.generateOwnerPerformanceReport = (0, https_1.onCall)({ secrets: ["GEMINI_API_KEY"], cors: true }, async (request) => {
+exports.generateOwnerPerformanceReport = (0, https_1.onCall)({ secrets: ["GEMINI_API_KEY"], cors: true, region: "europe-west1" }, async (request) => {
     const data = request.data;
     const apartmentId = typeof data?.apartmentId === "string" ? data.apartmentId.trim() : "";
     const timeRangeDays = data?.timeRangeDays;
@@ -209,7 +210,7 @@ async function notifyFavoriteUsers(apartmentId, payload, channelId) {
         return typeof userId === "string" ? (0, push_1.sendPushToUser)(userId, payload, channelId) : Promise.resolve();
     }));
 }
-exports.onApartmentUpdate = (0, firestore_2.onDocumentUpdated)("apartments/{apartmentId}", async (event) => {
+exports.onApartmentUpdate = (0, firestore_2.onDocumentUpdated)({ document: "apartments/{apartmentId}", region: "europe-west1" }, async (event) => {
     const before = event.data?.before.data();
     const after = event.data?.after.data();
     if (!before || !after)
@@ -221,7 +222,7 @@ exports.onApartmentUpdate = (0, firestore_2.onDocumentUpdated)("apartments/{apar
     const title = typeof after.title === "string" ? after.title : "Ακίνητο";
     await notifyFavoriteUsers(event.params.apartmentId, { type: "price_drop", title: "Μείωση τιμής", body: `Μείωση τιμής σε αποθηκευμένο ακίνητο: ${title} τώρα στα €${newPrice}`, screen: "apartment-detail", params: { apartmentId: event.params.apartmentId }, entityId: event.params.apartmentId });
 });
-exports.onMatchCreated = (0, firestore_2.onDocumentCreated)("matches/{matchId}", async (event) => {
+exports.onMatchCreated = (0, firestore_2.onDocumentCreated)({ document: "matches/{matchId}", region: "europe-west1" }, async (event) => {
     const data = event.data?.data();
     if (!data)
         return;
@@ -241,7 +242,7 @@ exports.onMatchCreated = (0, firestore_2.onDocumentCreated)("matches/{matchId}",
             await (0, push_1.sendPushToUser)(recipientId, { type: "high_match", title: "100% Roommate Match", body: "Βρέθηκε τέλειο ταίριασμα συγκατοίκησης.", screen: "roomie-profile", params: { matchId: event.params.matchId, candidateId }, entityId: event.params.matchId, action: "add_roommate", categoryId: "ROOMMATE_MATCH_100" }, "high_matches");
     }
 });
-exports.onBrokerRegistration = (0, firestore_2.onDocumentCreated)("users/{userId}", async (event) => {
+exports.onBrokerRegistration = (0, firestore_2.onDocumentCreated)({ document: "users/{userId}", region: "europe-west1" }, async (event) => {
     const data = event.data?.data();
     if (!data || data.is_broker !== true || data.agencyStatus !== "pending" || typeof data.agencyId !== "string")
         return;

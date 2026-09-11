@@ -6,7 +6,6 @@ import {
   getDocs,
   serverTimestamp,
   setDoc,
-  updateDoc,
 } from "firebase/firestore";
 import { ref, uploadString } from "firebase/storage";
 import { httpsCallable } from "firebase/functions";
@@ -175,19 +174,19 @@ export async function recordContractSignature(params: {
   return (await getContractDocument(params.contractId)) ?? mapContract(params.contractId, result.data);
 }
 
-export async function updateContractSignerIdentity(contractId: string, signerId: string, values: { signerAfm?: string; signerIdCardNumber?: string }): Promise<void> {
-  const contract = await getContractDocument(contractId);
-  if (!contract) throw new Error("Το έγγραφο δεν βρέθηκε.");
-  const signers = contract.signers.map((signer) => signer.signerId === signerId ? {
-    ...signer,
-    ...(values.signerAfm?.trim() ? { signerAfm: values.signerAfm.trim() } : {}),
-    ...(values.signerIdCardNumber?.trim() ? { signerIdCardNumber: values.signerIdCardNumber.trim() } : {}),
-  } : signer);
-  await updateDoc(doc(db, "contracts", contractId), { signers, updatedAt: serverTimestamp() });
+export async function updateContractSignerIdentity(contractId: string, signerId: string, values: { signerAfm?: string; signerIdCardNumber?: string; signerPhone?: string }): Promise<void> {
+  const callable = httpsCallable<{
+    contractId: string;
+    signerId: string;
+    signerAfm?: string;
+    signerIdCardNumber?: string;
+    signerPhone?: string;
+  }, void>(firebaseFunctions, "updateContractSignerIdentity");
+  await callable({ contractId, signerId, ...values });
 }
 
-export async function sendSigningOtp(contractId: string, signerId: string): Promise<{ delivered: boolean; expiresInSeconds: number; debugCode?: string }> {
-  const callable = httpsCallable<{ contractId: string; signerId: string }, { delivered: boolean; expiresInSeconds: number; debugCode?: string }>(firebaseFunctions, "sendSigningOtp");
+export async function sendSigningOtp(contractId: string, signerId: string): Promise<{ delivered: boolean; expiresInSeconds: number }> {
+  const callable = httpsCallable<{ contractId: string; signerId: string }, { delivered: boolean; expiresInSeconds: number }>(firebaseFunctions, "sendSigningOtp");
   const result = await callable({ contractId, signerId });
   return result.data;
 }
@@ -198,9 +197,15 @@ export async function getContractDownloadUrl(contractId: string): Promise<{ url:
   return result.data;
 }
 
-export async function verifySigningOtp(contractId: string, signerId: string, code: string): Promise<{ verified: boolean; verifiedAt: number; verificationId?: string; verificationToken?: string }> {
-  const callable = httpsCallable<{ contractId: string; signerId: string; code: string }, { verified: boolean; verifiedAt: number; verificationId?: string; verificationToken?: string }>(firebaseFunctions, "verifySigningOtp");
-  const result = await callable({ contractId, signerId, code });
+export async function verifySigningOtp(contractId: string, signerId: string, code: string, options?: { provider?: "twilio" | "firebase"; firebaseIdToken?: string }): Promise<{ verified: boolean; verifiedAt: number; verificationId?: string; verificationToken?: string }> {
+  const callable = httpsCallable<{
+    contractId: string;
+    signerId: string;
+    code: string;
+    provider?: "twilio" | "firebase";
+    firebaseIdToken?: string;
+  }, { verified: boolean; verifiedAt: number; verificationId?: string; verificationToken?: string }>(firebaseFunctions, "verifySigningOtp");
+  const result = await callable({ contractId, signerId, code, ...options });
   return result.data;
 }
 

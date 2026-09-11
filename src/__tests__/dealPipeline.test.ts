@@ -63,7 +63,7 @@ jest.mock("firebase-admin/storage", () => ({
   getStorage: () => ({ bucket: () => ({ file: () => ({ delete: jest.fn(async () => undefined) }) }) }),
 }), { virtual: true });
 jest.mock("firebase-functions/v2/https", () => ({
-  onCall: (handler: unknown) => handler,
+  onCall: (...args: unknown[]) => args[args.length - 1],
   HttpsError: class HttpsError extends Error {
     code: string;
     constructor(code: string, message: string) {

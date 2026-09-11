@@ -121,57 +121,88 @@ export default function NotificationFeedScreen() {
 
   return (
     <View style={styles.root}>
-      <ScreenHeader title={t("notifications.title")} onBackPress={() => router.back()} backButtonTestID="notification-feed-back-button" />
-      <View style={styles.toolbar}>
-        <Text style={styles.heading}>{isAdmin ? "Σημαντικές Ενημερώσεις" : "Ιστορικό Ειδοποιήσεων"}</Text>
-        <Pressable onPress={() => void markAllRead()} disabled={saving || items.every((item) => item.read)} testID="notification-feed-mark-all">
-          <Text style={[styles.markAll, (saving || items.every((item) => item.read)) && styles.disabledText]}>Σήμανση όλων ως αναγνωσμένων</Text>
-        </Pressable>
-      </View>
-      {loading ? (
-        <View style={styles.center}><ActivityIndicator size="large" color={colors.brand} /></View>
-      ) : items.length === 0 ? (
-        <View style={styles.empty} testID="notification-feed-empty">
-          <Ionicons name="notifications-off-outline" size={42} color={colors.onSurfaceTertiary} />
-          <Text style={styles.emptyTitle}>Δεν υπάρχουν ειδοποιήσεις</Text>
-          <Text style={styles.emptyBody}>Οι νέες ενημερώσεις θα εμφανιστούν εδώ.</Text>
+      <ScreenHeader title={t("notifications.title")} onBackPress={() => router.back()} backButtonTestID="notification-feed-back-button" style={styles.screenHeader} />
+      <View style={styles.footer}>
+        <View style={styles.toolbar}>
+          <Text style={styles.heading}>{isAdmin ? "Σημαντικές Ενημερώσεις" : "Ιστορικό Ειδοποιήσεων"}</Text>
+          <Pressable onPress={() => void markAllRead()} disabled={saving || items.every((item) => item.read)} testID="notification-feed-mark-all">
+            <Text style={[styles.markAll, (saving || items.every((item) => item.read)) && styles.disabledText]}>Σήμανση όλων ως αναγνωσμένων</Text>
+          </Pressable>
         </View>
-      ) : (
-        <FlatList
-          data={items}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.list}
-          renderItem={({ item }) => {
-            const highPriority = isAdmin && (item.type === "broker_registration" || item.type === "closed_deal");
-            return (
-              <Pressable
-                onPress={() => void openItem(item)}
-                style={({ pressed }) => [styles.item, !item.read && styles.unread, highPriority && styles.highPriority, pressed && styles.pressed]}
-                testID={`notification-feed-item-${item.id}`}
-              >
-                <View style={[styles.iconWrap, highPriority && styles.highPriorityIcon]}>
-                  <Ionicons name={iconForType(item.type)} size={22} color={highPriority ? colors.error : colors.brand} />
-                </View>
-                <View style={styles.copy}>
-                  <View style={styles.titleRow}>
-                    <Text style={styles.title} numberOfLines={2}>{item.title || "Ειδοποίηση"}</Text>
-                    {!item.read ? <View style={styles.unreadDot} /> : null}
+        {loading ? (
+          <View style={styles.center}><ActivityIndicator size="large" color={colors.brand} /></View>
+        ) : items.length === 0 ? (
+          <View style={styles.empty} testID="notification-feed-empty">
+            <Ionicons name="notifications-off-outline" size={42} color={colors.onSurfaceTertiary} />
+            <Text style={styles.emptyTitle}>Δεν υπάρχουν ειδοποιήσεις</Text>
+            <Text style={styles.emptyBody}>Οι νέες ενημερώσεις θα εμφανιστούν εδώ.</Text>
+          </View>
+        ) : (
+          <FlatList
+            data={items}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.list}
+            renderItem={({ item }) => {
+              const highPriority = isAdmin && (item.type === "broker_registration" || item.type === "closed_deal");
+              return (
+                <Pressable
+                  onPress={() => void openItem(item)}
+                  style={({ pressed }) => [styles.item, !item.read && styles.unread, highPriority && styles.highPriority, pressed && styles.pressed]}
+                  testID={`notification-feed-item-${item.id}`}
+                >
+                  <View style={[styles.iconWrap, highPriority && styles.highPriorityIcon]}>
+                    <Ionicons name={iconForType(item.type)} size={22} color={highPriority ? colors.error : colors.brand} />
                   </View>
-                  <Text style={styles.body} numberOfLines={3}>{item.body || ""}</Text>
-                  <Text style={styles.timestamp}>{formatTimestamp(item.createdAt)}</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-              </Pressable>
-            );
-          }}
-        />
-      )}
+                  <View style={styles.copy}>
+                    <View style={styles.titleRow}>
+                      <Text style={styles.title} numberOfLines={2}>{item.title || "Ειδοποίηση"}</Text>
+                      {!item.read ? <View style={styles.unreadDot} /> : null}
+                    </View>
+                    <Text style={styles.body} numberOfLines={3}>{item.body || ""}</Text>
+                    <Text style={styles.timestamp}>{formatTimestamp(item.createdAt)}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+                </Pressable>
+              );
+            }}
+          />
+        )}
+      </View>
     </View>
   );
 }
 
 const createStyles = (colors: ThemeColors) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.surface },
+  screenHeader: {
+    borderBottomLeftRadius: radius.lg,
+    borderBottomRightRadius: radius.lg,
+    borderBottomWidth: 0,
+    overflow: "hidden",
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 4,
+    zIndex: 2,
+  },
+  footer: {
+    flex: 1,
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: colors.border,
+    overflow: "hidden",
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 6,
+    zIndex: 10,
+  },
   toolbar: { paddingHorizontal: spacing.lg, paddingVertical: spacing.md, gap: spacing.xs },
   heading: { color: colors.onSurface, fontFamily: fonts.bold, fontSize: fontSize.lg },
   markAll: { color: colors.brand, fontFamily: fonts.semibold, fontSize: fontSize.sm },

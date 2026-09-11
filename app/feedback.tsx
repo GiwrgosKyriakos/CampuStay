@@ -68,14 +68,15 @@ export default function FeedbackScreen() {
         <View style={styles.headerSpacer} />
       </View>
 
-      <KeyboardAwareScrollView
-        style={styles.scroll}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
-        contentContainerStyle={[styles.content, { flexGrow: 1, paddingBottom: insets.bottom + spacing.xl }]}
-        showsVerticalScrollIndicator={false}
-        testID="feedback-screen"
-      >
+      <View style={styles.footer}>
+        <KeyboardAwareScrollView
+          style={styles.scroll}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          contentContainerStyle={[styles.content, { flexGrow: 1, paddingBottom: insets.bottom + spacing.xl }]}
+          showsVerticalScrollIndicator={false}
+          testID="feedback-screen"
+        >
         <Text style={styles.description}>{t("feedback.description")}</Text>
 
         <TextInput
@@ -112,7 +113,8 @@ export default function FeedbackScreen() {
             <Text style={styles.sendButtonText}>{t("feedback.send")}</Text>
           )}
         </Pressable>
-      </KeyboardAwareScrollView>
+        </KeyboardAwareScrollView>
+      </View>
 
       <CenteredActionModal
         visible={successModalVisible}
@@ -163,8 +165,17 @@ function createStyles(colors: ThemeColors) {
       paddingHorizontal: spacing.lg,
       paddingBottom: spacing.md,
       backgroundColor: colors.surfaceSecondary,
-      borderBottomWidth: 1,
       borderBottomColor: colors.border,
+      borderBottomLeftRadius: radius.lg,
+      borderBottomRightRadius: radius.lg,
+      borderBottomWidth: 0,
+      overflow: "hidden",
+      shadowColor: "#000000",
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.12,
+      shadowRadius: 6,
+      elevation: 4,
+      zIndex: 2,
       gap: spacing.sm,
     },
     headerButton: {
@@ -187,6 +198,23 @@ function createStyles(colors: ThemeColors) {
     },
     scroll: {
       flex: 1,
+    },
+    footer: {
+      flex: 1,
+      backgroundColor: colors.surface,
+      borderTopLeftRadius: radius.lg,
+      borderTopRightRadius: radius.lg,
+      borderTopWidth: 1,
+      borderLeftWidth: 1,
+      borderRightWidth: 1,
+      borderColor: colors.border,
+      overflow: "hidden",
+      shadowColor: "#000000",
+      shadowOffset: { width: 0, height: -3 },
+      shadowOpacity: 0.1,
+      shadowRadius: 6,
+      elevation: 6,
+      zIndex: 10,
     },
     content: {
       paddingHorizontal: spacing.lg,

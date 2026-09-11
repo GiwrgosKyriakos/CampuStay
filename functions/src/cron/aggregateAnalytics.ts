@@ -284,7 +284,7 @@ async function aggregateAgency(agencyId: string, now: Date): Promise<void> {
   }));
 }
 
-export const aggregateAnalytics = onSchedule("every 1 hours", async () => {
+export const aggregateAnalytics = onSchedule({ schedule: "every 1 hours", region: "europe-west1" }, async () => {
   const snapshot = await getFirestore().collection("users").get();
   const agencyIds = new Set(snapshot.docs.map((document) => stringValue(document.data().agencyId)).filter(Boolean));
   const now = new Date();

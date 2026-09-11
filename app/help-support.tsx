@@ -69,6 +69,7 @@ export default function HelpSupportScreen() {
         title={t("helpSupport.title")}
         onBackPress={() => router.back()}
         backButtonTestID="help-support-back-button"
+        style={styles.screenHeader}
       />
 
       <ScrollView
@@ -187,9 +188,6 @@ export default function HelpSupportScreen() {
           </View>
         ) : null}
 
-        <Pressable style={styles.backButton} onPress={() => router.replace(navigationSource)}>
-          <Text style={styles.backText}>{t("common.cta.backHome")}</Text>
-        </Pressable>
       </ScrollView>
 
       {auth.isGuest && (
@@ -197,6 +195,7 @@ export default function HelpSupportScreen() {
           onPress={() => router.push("/auth-landing")}
           bottomInset={insets.bottom}
           buttonTestID="help-guest-footer-signin-button"
+          style={styles.footer}
         />
       )}
     </View>
@@ -205,6 +204,18 @@ export default function HelpSupportScreen() {
 
 const createStyles = (colors: ThemeColors) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.surface },
+  screenHeader: {
+    borderBottomLeftRadius: radius.lg,
+    borderBottomRightRadius: radius.lg,
+    borderBottomWidth: 0,
+    overflow: "hidden",
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 4,
+    zIndex: 2,
+  },
   scroll: { flex: 1 },
   contentContainer: { minHeight: "100%", paddingHorizontal: spacing.lg },
   header: { marginTop: spacing.lg, marginBottom: spacing.xl },
@@ -224,6 +235,21 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   answer: { marginTop: spacing.sm, fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary, lineHeight: 20 },
   guestBannerSpacing: {
     marginBottom: spacing.md,
+  },
+  footer: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: colors.border,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 6,
+    zIndex: 10,
   },
   contactButton: {
     marginTop: spacing.xl,

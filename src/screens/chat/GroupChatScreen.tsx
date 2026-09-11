@@ -40,17 +40,15 @@ import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme"
 import { subscribeUserLikedApartmentIds } from "@/src/api/apartmentLikes";
 import { renameRoommateGroupChat, setBlockStateBetweenUsers } from "@/src/api/chat";
 import { getUserSettings, saveUserPrivacy } from "@/src/api/accountSettings";
-import { sendContractChatRequest } from "@/src/api/contracts";
 import { updateLinkedCalendarNotes, updateVisitAppointment } from "@/src/api/visitAppointments";
 import type { GroupChatMetadata } from "@/src/types/chat";
 import RenameGroupModal from "@/src/components/chat/RenameGroupModal";
 import CommonLikedListingsModal, { type CommonLikedListing } from "@/src/components/chat/CommonLikedListingsModal";
 import RoommateContractPickerModal from "@/src/components/RoommateContractPickerModal";
-import SignContractModal from "@/src/components/SignContractModal";
 import VoiceInputButton from "@/src/components/common/VoiceInputButton";
 import { useVoiceInputPreview } from "@/src/hooks/useVoiceInputPreview";
 import { t } from "@/src/locales";
-import type { ContractDraftContext, ContractType, DigitalContractDocument } from "@/src/types/esignature";
+import type { ContractDraftContext, ContractType } from "@/src/types/esignature";
 import EditVisitModal from "@/src/components/chat/modals/EditVisitModal";
 import CenteredActionModal from "@/src/components/CenteredActionModal";
 
@@ -135,8 +133,6 @@ export default function GroupChatScreen({
   const [hostApartment, setHostApartment] = useState<Apartment | null>(null);
   const [agencyId, setAgencyId] = useState("independent");
   const [contractPickerVisible, setContractPickerVisible] = useState(false);
-  const [contractDraft, setContractDraft] = useState<ContractDraftContext | null>(null);
-  const [existingContractId, setExistingContractId] = useState<string | null>(null);
   const [visitToEdit, setVisitToEdit] = useState<GroupMessage | null>(null);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const [contextMenuVisible, setContextMenuVisible] = useState(false);
@@ -519,8 +515,7 @@ export default function GroupChatScreen({
       id,
       role: id === metadata.hostUserId ? ("owner" as const) : ("roommate" as const),
     }));
-    setExistingContractId(null);
-    setContractDraft({
+    const draft: ContractDraftContext = {
       agencyId,
       createdByUserId: currentUserId,
       contractType,
@@ -531,13 +526,8 @@ export default function GroupChatScreen({
       participantIds,
       contractPayload:
         contractType === "holding_deposit_viewing" ? { holdingDepositAmount: 0 } : { houseRulesConfig: {} },
-    });
-  };
-
-  const handleContractCreated = (createdContract: DigitalContractDocument) => {
-    void sendContractChatRequest({ chatRoomId, senderId: currentUserId, contract: createdContract }).catch(
-      () => undefined,
-    );
+    };
+    router.push({ pathname: "/contract/[id]", params: { id: "new", draft: JSON.stringify(draft), signerId: currentUserId } } as never);
   };
 
   return (
@@ -708,8 +698,7 @@ export default function GroupChatScreen({
                 <Pressable
                   style={[styles.contractMessage, isMine ? styles.mineContract : styles.theirsContract, itemMarginStyle]}
                   onPress={() => {
-                    setContractDraft(null);
-                    setExistingContractId(item.contractId ?? null);
+                    router.push({ pathname: "/contract/[id]", params: { id: item.contractId, contractId: item.contractId, signerId: currentUserId } } as never);
                   }}
                   testID={`group-contract-message-${item.id}`}
                 >
@@ -818,17 +807,6 @@ export default function GroupChatScreen({
         visible={contractPickerVisible}
         onClose={() => setContractPickerVisible(false)}
         onSelect={startContract}
-      />
-      <SignContractModal
-        visible={contractDraft !== null || existingContractId !== null}
-        draft={contractDraft ?? undefined}
-        contractId={existingContractId ?? undefined}
-        signerId={currentUserId}
-        onCreated={handleContractCreated}
-        onClose={() => {
-          setContractDraft(null);
-          setExistingContractId(null);
-        }}
       />
       <EditVisitModal
         visible={visitToEdit !== null}

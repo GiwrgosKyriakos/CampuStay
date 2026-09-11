@@ -72,7 +72,7 @@ function initialStage(value: unknown): number {
   return value;
 }
 
-export const initializeDealCallable = onCall(async (request) => {
+export const initializeDealCallable = onCall({ region: "europe-west1" }, async (request) => {
   const uid = requireAuth(request);
   const data = dataOf(request);
   const apartmentId = requiredString(data.apartmentId, "apartmentId");
@@ -124,7 +124,7 @@ export const initializeDealCallable = onCall(async (request) => {
   return { dealId };
 });
 
-export const reviewChecklistDocumentCallable = onCall(async (request) => {
+export const reviewChecklistDocumentCallable = onCall({ region: "europe-west1" }, async (request) => {
   const uid = requireAuth(request);
   const data = dataOf(request);
   const dealId = requiredString(data.dealId, "dealId");
@@ -147,7 +147,7 @@ export const reviewChecklistDocumentCallable = onCall(async (request) => {
   return { dealId, itemId, status: action === "verify" ? "verified" : "rejected" };
 });
 
-export const advanceDealStageCallable = onCall(async (request) => {
+export const advanceDealStageCallable = onCall({ region: "europe-west1" }, async (request) => {
   const uid = requireAuth(request);
   const data = dataOf(request);
   const dealId = requiredString(data.dealId, "dealId");
@@ -202,7 +202,7 @@ export const advanceDealStageCallable = onCall(async (request) => {
   return { dealId, stage: targetStage };
 });
 
-export const finalizeChecklistDocumentUploadCallable = onCall(async (request) => {
+export const finalizeChecklistDocumentUploadCallable = onCall({ region: "europe-west1" }, async (request) => {
   const uid = requireAuth(request);
   const data = dataOf(request);
   const dealId = requiredString(data.dealId, "dealId");

@@ -67,7 +67,7 @@ function initialStage(value) {
     }
     return value;
 }
-exports.initializeDealCallable = (0, https_1.onCall)(async (request) => {
+exports.initializeDealCallable = (0, https_1.onCall)({ region: "europe-west1" }, async (request) => {
     const uid = requireAuth(request);
     const data = dataOf(request);
     const apartmentId = requiredString(data.apartmentId, "apartmentId");
@@ -121,7 +121,7 @@ exports.initializeDealCallable = (0, https_1.onCall)(async (request) => {
     await (0, dealChecklist_1.seedDealChecklist)(dealId);
     return { dealId };
 });
-exports.reviewChecklistDocumentCallable = (0, https_1.onCall)(async (request) => {
+exports.reviewChecklistDocumentCallable = (0, https_1.onCall)({ region: "europe-west1" }, async (request) => {
     const uid = requireAuth(request);
     const data = dataOf(request);
     const dealId = requiredString(data.dealId, "dealId");
@@ -147,7 +147,7 @@ exports.reviewChecklistDocumentCallable = (0, https_1.onCall)(async (request) =>
     });
     return { dealId, itemId, status: action === "verify" ? "verified" : "rejected" };
 });
-exports.advanceDealStageCallable = (0, https_1.onCall)(async (request) => {
+exports.advanceDealStageCallable = (0, https_1.onCall)({ region: "europe-west1" }, async (request) => {
     const uid = requireAuth(request);
     const data = dataOf(request);
     const dealId = requiredString(data.dealId, "dealId");
@@ -208,7 +208,7 @@ exports.advanceDealStageCallable = (0, https_1.onCall)(async (request) => {
     });
     return { dealId, stage: targetStage };
 });
-exports.finalizeChecklistDocumentUploadCallable = (0, https_1.onCall)(async (request) => {
+exports.finalizeChecklistDocumentUploadCallable = (0, https_1.onCall)({ region: "europe-west1" }, async (request) => {
     const uid = requireAuth(request);
     const data = dataOf(request);
     const dealId = requiredString(data.dealId, "dealId");

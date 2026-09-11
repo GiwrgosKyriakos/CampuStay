@@ -47,7 +47,7 @@ function getContractTimestamp(value: unknown): number {
   return Date.now();
 }
 
-export const onContractCompleted = onDocumentUpdated("contracts/{contractId}", async (event) => {
+export const onContractCompleted = onDocumentUpdated({ document: "contracts/{contractId}", region: "europe-west1" }, async (event) => {
   const before = event.data?.before.data() as ContractRecord | undefined;
   const after = event.data?.after.data() as ContractRecord | undefined;
   if (!before || !after || after.status !== "signed" || before.status === "signed") return;

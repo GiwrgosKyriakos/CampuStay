@@ -86,10 +86,8 @@ import OpenHouseScannerModal from "@/src/components/OpenHouseScannerModal";
 import CmaValuationModal from "@/src/components/CmaValuationModal";
 import { AiServiceError, fetchShowingFeedbackSentiment, type FeedbackSentimentAnalysis } from "@/src/services/aiFeatureService";
 import PriceHistoryChart, { type PriceHistoryEntry } from "@/src/components/PriceHistoryChart";
-import SignContractModal from "@/src/components/SignContractModal";
 import PropertyAssignmentSetupModal from "@/src/components/PropertyAssignmentSetupModal";
-import { sendContractChatRequest } from "@/src/api/contracts";
-import type { ContractDraftContext, DigitalContractDocument } from "@/src/types/esignature";
+import type { ContractDraftContext } from "@/src/types/esignature";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const CURRENCY = "€";
@@ -405,8 +403,8 @@ function filterMatchesApartment(filters: FilterSetPayload, apartment: Apartment)
   const filterCity = normalizeGreek(filters.cityQuery || "");
   if (filterCity && (normCity || normArea)) {
     const matchesLocation = Boolean(
-      (normCity && (normCity.includes(filterCity) || filterCity.includes(normCity))) ||
-      (normArea && (normArea.includes(filterCity) || filterCity.includes(normArea))),
+      (normCity && ((normCity || "").includes(filterCity || "") || (filterCity || "").includes(normCity || ""))) ||
+      (normArea && ((normArea || "").includes(filterCity || "") || (filterCity || "").includes(normArea || ""))),
     );
     if (matchesLocation) matchedCount++;
     else hasConflict = true;
@@ -436,8 +434,8 @@ function filterMatchesApartment(filters: FilterSetPayload, apartment: Apartment)
     if (!sqmConflict) matchedCount++;
   }
 
-  const petFriendly = apartment.tags.includes("pet_friendly");
-  const nearMetro = apartment.tags.includes("near_metro");
+  const petFriendly = (apartment.tags ?? []).includes("pet_friendly");
+  const nearMetro = (apartment.tags ?? []).includes("near_metro");
   if (filters.petFriendly === true && petFriendly) matchedCount++;
   if (filters.nearMetro === true && nearMetro) matchedCount++;
 
@@ -830,15 +828,13 @@ export default function ApartmentDetailScreen() {
   const [checkoutNotes, setCheckoutNotes] = useState("");
   const [checkoutNotesVisible, setCheckoutNotesVisible] = useState(false);
   const [assignmentSetupVisible, setAssignmentSetupVisible] = useState(false);
-  const [contractDraft, setContractDraft] = useState<ContractDraftContext | null>(null);
-
   const currentUserId = auth.userId || auth.user?.user_id;
   const isManagingBroker = Boolean(
     auth.isBroker &&
     currentUserId &&
     (resolvedBrokerId === currentUserId ||
       resolvedCreatorId === currentUserId ||
-      resolvedAssignedBrokerIds.includes(currentUserId)),
+      (resolvedAssignedBrokerIds ?? []).includes(currentUserId)),
   );
 
   useEffect(() => {
@@ -848,7 +844,7 @@ export default function ApartmentDetailScreen() {
   const isListingOwner = useMemo(() => {
     if (!apt || !auth.userId) return false;
     const isDirectOwner = (!!apt.ownerId && apt.ownerId === auth.userId) || (!!apt.hostId && apt.hostId === auth.userId);
-    const isAssigned = resolvedAssignedBrokerIds.includes(auth.userId);
+    const isAssigned = (resolvedAssignedBrokerIds ?? []).includes(auth.userId);
     return isDirectOwner || (auth.isBroker && isAssigned);
   }, [apt, auth.isBroker, auth.userId, resolvedAssignedBrokerIds]);
   const [viewMode, setViewMode] = useState<"client" | "broker">("client");
@@ -878,7 +874,7 @@ export default function ApartmentDetailScreen() {
   const crossBrokerListingBrokerId = resolvedAssignedBrokerIds.find((brokerId) => brokerId !== auth.userId)
     || (hostUserData?.is_broker === true && resolvedHostId !== auth.userId ? resolvedHostId : null);
   const canScheduleCrossBrokerVisit = Boolean(auth.isBroker && auth.userId && auth.agencyId && resolvedAgencyId === auth.agencyId && crossBrokerListingBrokerId && crossBrokerListingBrokerId !== auth.userId && auth.userId !== (apt?.hostId || apt?.ownerId));
-  const canScanOpenHouse = Boolean(auth.isBroker && auth.userId && resolvedOpenHouseConfig?.isOpenHouseActive && resolvedOpenHouseConfig.attendingBrokerIds.includes(auth.userId));
+  const canScanOpenHouse = Boolean(auth.isBroker && auth.userId && resolvedOpenHouseConfig?.isOpenHouseActive && (resolvedOpenHouseConfig.attendingBrokerIds ?? []).includes(auth.userId));
   const canManageOpenHouse = Boolean(auth.isBroker && auth.userId && auth.agencyId && resolvedAgencyId === auth.agencyId && isListingOwner);
   const canCreateAssignmentOrder = Boolean(auth.isBroker && auth.userId && apt?.id && isListingOwner && auth.agencyId && resolvedAgencyId === auth.agencyId && resolvedHostId && resolvedHostId !== auth.userId);
   const [crossBrokerVisitVisible, setCrossBrokerVisitVisible] = useState(false);
@@ -942,7 +938,7 @@ export default function ApartmentDetailScreen() {
   const isReadOnlyWithdrawnCoBroker = Boolean(
     auth.isBroker &&
     auth.userId &&
-    resolvedAssignedBrokerIds.includes(auth.userId) &&
+    (resolvedAssignedBrokerIds ?? []).includes(auth.userId) &&
     !isOwnerView &&
     ["withdrawn", "rented", "sold", "closed_deal"].includes(apartmentStatus) &&
     withdrawalMetadata?.withdrawnByUserId !== auth.userId,
@@ -954,48 +950,44 @@ export default function ApartmentDetailScreen() {
   }, [canCreateAssignmentOrder]);
 
   const startAssignmentContract = useCallback((values: { mode: "simple" | "exclusive"; commissionRatePercentage: number }) => {
-    if (!apt?.id || !auth.userId || !resolvedHostId || !resolvedAgencyId) return;
+    const userId = auth.userId;
+    if (!apt?.id || !userId || !resolvedHostId || !resolvedAgencyId) return;
     setAssignmentSetupVisible(false);
-    const apartmentAddress = apt.exactAddress || apt.address || [apt.area, apt.city].filter(Boolean).join(", ");
-    setContractDraft({
-      agencyId: resolvedAgencyId,
-      createdByUserId: auth.userId,
-      contractType: "property_assignment",
-      title: t("esign.assignmentOrder"),
-      brokerId: auth.userId,
-      ownerId: resolvedHostId,
+    void getOrCreateHostChat({
+      currentUserId: userId,
+      hostId: resolvedHostId,
       apartmentId: apt.id,
-      apartmentAddress,
-      participantIds: [
-        { id: auth.userId, role: "broker" },
-        { id: resolvedHostId, role: "owner" },
-      ],
-      contractPayload: {
-        assignmentMode: values.mode,
-        durationMonths: 6,
-        agreedListingPrice: apt.rent,
-        commissionRatePercentage: values.commissionRatePercentage,
-        monthlyRentOrPrice: apt.rent,
-        commissionAmountCalculated: apt.rent * values.commissionRatePercentage / 100,
-      },
-    });
-  }, [apt, auth.userId, resolvedAgencyId, resolvedHostId]);
-
-  const handleAssignmentCreated = useCallback(async (createdContract: DigitalContractDocument) => {
-    if (!auth.userId || !resolvedHostId || !apt?.id) return;
-    try {
-      const chatRoomId = await getOrCreateHostChat({
-        currentUserId: auth.userId,
-        hostId: resolvedHostId,
+      apartmentTitle: apt.title,
+    }).then((chatRoomId) => {
+      const apartmentAddress = apt.exactAddress || apt.address || [apt.area, apt.city].filter(Boolean).join(", ");
+      const draft: ContractDraftContext = {
+        agencyId: resolvedAgencyId,
+        createdByUserId: userId,
+        contractType: "property_assignment",
+        title: t("esign.assignmentOrder"),
+        brokerId: userId,
+        ownerId: resolvedHostId,
         apartmentId: apt.id,
-        apartmentTitle: apt.title,
-      });
-      await sendContractChatRequest({ chatRoomId, senderId: auth.userId, contract: createdContract });
-      setActionModal({ title: t("esign.remoteRequestSentTitle"), description: t("esign.remoteRequestSentDescription") });
-    } catch (error) {
-      console.warn("[ApartmentDetail] Failed to dispatch assignment signature request", error);
-    }
-  }, [apt?.id, apt?.title, auth.userId, resolvedHostId]);
+        apartmentAddress,
+        participantIds: [
+          { id: userId, role: "broker" },
+          { id: resolvedHostId, role: "owner" },
+        ],
+        contractPayload: {
+          assignmentMode: values.mode,
+          durationMonths: 6,
+          agreedListingPrice: apt.rent,
+          commissionRatePercentage: values.commissionRatePercentage,
+          monthlyRentOrPrice: apt.rent,
+          commissionAmountCalculated: apt.rent * values.commissionRatePercentage / 100,
+        },
+        chatRoomId,
+      };
+      router.push({ pathname: "/contract/[id]", params: { id: "new", draft: JSON.stringify(draft), signerId: userId } } as never);
+    }).catch((error) => {
+      console.warn("[ApartmentDetail] Failed to prepare assignment chat", error);
+    });
+  }, [apt, auth.userId, resolvedAgencyId, resolvedHostId, router]);
 
   const loadBrokerSelectorItems = useCallback(async () => {
     if (resolvedAssignedBrokerIds.length < 2) return;
@@ -1093,7 +1085,7 @@ export default function ApartmentDetailScreen() {
       )).catch(() => null);
       const relationship = relationshipSnapshot?.docs.find((snapshot) => {
         const apartmentIds = snapshot.data().apartmentIds;
-        return Array.isArray(apartmentIds) && apartmentIds.includes(currentApartmentId);
+        return (Array.isArray(apartmentIds) ? apartmentIds : []).includes(currentApartmentId);
       });
       if (relationship) {
         await setDoc(doc(db, "brokerClientProfiles", relationship.id, "propertyRatings", currentApartmentId), {
@@ -1556,8 +1548,8 @@ export default function ApartmentDetailScreen() {
       rent: apt.rent,
       size: apt.size,
       floor: apt.floor,
-      petFriendly: apt.tags.includes("pet_friendly"),
-      nearMetro: apt.tags.includes("near_metro"),
+      petFriendly: (apt.tags ?? []).includes("pet_friendly"),
+      nearMetro: (apt.tags ?? []).includes("near_metro"),
       tags: apt.tags,
       amenities: apt.amenities,
       propertyType: apt.propertyType,
@@ -1581,9 +1573,9 @@ export default function ApartmentDetailScreen() {
     const isBrokerOwner = !!currentUid && (
       apt.hostId === currentUid ||
       apt.ownerId === currentUid ||
-      (Array.isArray(apt.assignedBrokerIds) && apt.assignedBrokerIds.includes(currentUid))
+      (Array.isArray(apt.assignedBrokerIds) ? apt.assignedBrokerIds : []).includes(currentUid)
     );
-    const isPrivilegedClient = !!currentUid && offMarketAccessUserIds.includes(currentUid);
+    const isPrivilegedClient = !!currentUid && (offMarketAccessUserIds ?? []).includes(currentUid);
     if (isBrokerOwner || isPrivilegedClient) return;
 
     offMarketGuardShown.current = true;
@@ -3509,7 +3501,7 @@ export default function ApartmentDetailScreen() {
           <Text style={styles.sectionTitle}>{t("apartmentDetail.amenitiesTitle")}</Text>
           <View style={styles.amenitiesGrid}>
             {AMENITIES.map((amenity) => {
-              const active = amenity.tagMatch ? amenity.tagMatch.some((entry) => activeTags.includes(entry.toLowerCase())) : false;
+              const active = amenity.tagMatch ? amenity.tagMatch.some((entry) => (activeTags ?? []).includes(entry.toLowerCase())) : false;
 
               return (
                 <View key={amenity.key} style={[styles.amenityCell, active && styles.amenityCellActive]} testID={`amenity-${amenity.key}`}>
@@ -3540,7 +3532,7 @@ export default function ApartmentDetailScreen() {
                 </Text>
                 <Text style={styles.descText}>
                   {t("apartmentDetail.descriptionRules", {
-                    utilitiesText: apt.tags.includes("bills_included")
+                    utilitiesText: (apt.tags ?? []).includes("bills_included")
                       ? t("apartmentDetail.utilitiesIncluded")
                       : t("apartmentDetail.utilitiesSeparate"),
                   })}
@@ -3969,14 +3961,6 @@ export default function ApartmentDetailScreen() {
         defaultCommissionRate={apt.commissionRate}
         onClose={() => setAssignmentSetupVisible(false)}
         onContinue={startAssignmentContract}
-      />
-
-      <SignContractModal
-        visible={contractDraft !== null}
-        draft={contractDraft ?? undefined}
-        signerId={auth.userId ?? ""}
-        onCreated={handleAssignmentCreated}
-        onClose={() => setContractDraft(null)}
       />
 
       <CenteredActionModal

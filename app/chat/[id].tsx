@@ -69,12 +69,10 @@ import GroupChatScreen from "@/src/screens/chat/GroupChatScreen";
 import type { GroupChatMetadata, SharedProfileMessageMetadata } from "@/src/types/chat";
 import { isBrokerOrAgencyUser } from "@/src/utils/roles";
 import { getSharedCoManagedListings } from "@/src/api/agencyCollaboration";
-import { sendContractChatRequest } from "@/src/api/contracts";
 import SelectShareTargetModal from "@/src/components/chat/SelectShareTargetModal";
 import RoommateDeckDetailModal from "@/src/components/chat/RoommateDeckDetailModal";
 import RoommateContractPickerModal from "@/src/components/RoommateContractPickerModal";
-import SignContractModal from "@/src/components/SignContractModal";
-import type { ContractDraftContext, ContractType, DigitalContractDocument } from "@/src/types/esignature";
+import type { ContractDraftContext, ContractType } from "@/src/types/esignature";
 
 const CURRENCY = "€";
 
@@ -917,8 +915,6 @@ function DirectChatScreen() {
   const [showBlockModal, setShowBlockModal] = useState(false);
   const [showGlobalUnmuteModal, setShowGlobalUnmuteModal] = useState(false);
   const [roommateContractPickerVisible, setRoommateContractPickerVisible] = useState(false);
-  const [roommateContractDraft, setRoommateContractDraft] = useState<ContractDraftContext | null>(null);
-  const [roommateExistingContractId, setRoommateExistingContractId] = useState<string | null>(null);
   const [messageActionTarget, setMessageActionTarget] = useState<Message | null>(null);
   const [selectedFilterSetMessage, setSelectedFilterSetMessage] = useState<Message | null>(null);
   const [selectedFilterSetRecord, setSelectedFilterSetRecord] = useState<SharedFilterSetRecord | null>(null);
@@ -999,8 +995,7 @@ function DirectChatScreen() {
   const startRoommateContract = useCallback((contractType: Extract<ContractType, "roommate_agreement" | "holding_deposit_viewing">) => {
     if (!currentUserId || !counterpartId || !chatRoomId || !isRoommateChat) return;
     setRoommateContractPickerVisible(false);
-    setRoommateExistingContractId(null);
-    setRoommateContractDraft({
+    const draft: ContractDraftContext = {
       agencyId: auth.agencyId || counterpartDetails?.agencyId || "independent",
       createdByUserId: currentUserId,
       contractType,
@@ -1011,13 +1006,9 @@ function DirectChatScreen() {
         { id: counterpartId, role: "roommate" },
       ],
       contractPayload: contractType === "holding_deposit_viewing" ? { holdingDepositAmount: 0 } : { houseRulesConfig: {} },
-    });
-  }, [auth.agencyId, chatRoomId, counterpartDetails?.agencyId, counterpartId, currentUserId, isRoommateChat]);
-
-  const handleRoommateContractCreated = useCallback((createdContract: DigitalContractDocument) => {
-    if (!chatRoomId || !currentUserId) return;
-    void sendContractChatRequest({ chatRoomId, senderId: currentUserId, contract: createdContract }).catch(() => undefined);
-  }, [chatRoomId, currentUserId]);
+    };
+    router.push({ pathname: "/contract/[id]", params: { id: "new", draft: JSON.stringify(draft), signerId: currentUserId } } as never);
+  }, [auth.agencyId, chatRoomId, counterpartDetails?.agencyId, counterpartId, currentUserId, isRoommateChat, router]);
 
   useEffect(() => {
     if (!currentUserId || !chatRoomId) return;
@@ -3761,8 +3752,7 @@ function DirectChatScreen() {
                       }}
                       onContractPress={() => {
                         if (!m.contractId) return;
-                        setRoommateContractDraft(null);
-                        setRoommateExistingContractId(m.contractId);
+                        router.push({ pathname: "/contract/[id]", params: { id: m.contractId, contractId: m.contractId, signerId: currentUserId ?? "" } } as never);
                       }}
                     />
                   </View>
@@ -3857,18 +3847,6 @@ function DirectChatScreen() {
         visible={roommateContractPickerVisible}
         onClose={() => setRoommateContractPickerVisible(false)}
         onSelect={startRoommateContract}
-      />
-
-      <SignContractModal
-        visible={roommateContractDraft !== null || roommateExistingContractId !== null}
-        draft={roommateContractDraft ?? undefined}
-        contractId={roommateExistingContractId ?? undefined}
-        signerId={currentUserId ?? ""}
-        onCreated={handleRoommateContractCreated}
-        onClose={() => {
-          setRoommateContractDraft(null);
-          setRoommateExistingContractId(null);
-        }}
       />
 
       <VisitRequestModal

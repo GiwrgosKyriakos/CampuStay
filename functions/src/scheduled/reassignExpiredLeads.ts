@@ -64,7 +64,7 @@ function chunks<T>(items: T[], size: number): T[][] {
 }
 
 export const reassignExpiredLeadsCron = onSchedule(
-  { schedule: "every 1 hours", timeZone: "Europe/Athens" },
+  { schedule: "every 1 hours", timeZone: "Europe/Athens", region: "europe-west1" },
   async () => {
     const cutoffMillis = Date.now() - INACTIVITY_WINDOW_MS;
     const cutoffTimestamp = Timestamp.fromMillis(cutoffMillis);

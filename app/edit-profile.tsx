@@ -395,6 +395,7 @@ export default function EditProfileScreen() {
         }}
         backDisabled={auth.needsProfileSetup}
         backButtonTestID="edit-back-button"
+        style={styles.screenHeader}
       />
 
       <KeyboardAwareScrollView
@@ -640,6 +641,8 @@ export default function EditProfileScreen() {
             <Text style={styles.cardTitle}>Εμπειρία Χρήστη</Text>
           </View>
 
+          {/*
+
           <Pressable
             style={[styles.checkboxRow, isBroker && styles.checkboxRowActive, guestLocked && styles.guestReadOnlyControl]}
             onPress={() => setIsBroker((prev) => !prev)}
@@ -651,6 +654,8 @@ export default function EditProfileScreen() {
             </View>
             <Text style={styles.checkboxText}>Είμαι επαγγελματίας / μεσίτης ακινήτων</Text>
           </Pressable>
+
+          */}
 
           <Pressable
             style={[
@@ -728,8 +733,7 @@ export default function EditProfileScreen() {
             <Ionicons name="link-outline" size={22} color={colors.onSurface} />
             <Text style={styles.cardTitle}>{t("editProfile.socialTitle")}</Text>
           </View>
-          <Text style={styles.subtitle}>{t("editProfile.socialSubtitle")}</Text>
-
+          
           <Text style={styles.label}>{t("editProfile.instagram")}</Text>
           <TextInput
             style={[styles.input, guestLocked && styles.guestReadOnlyControl]}
@@ -742,6 +746,9 @@ export default function EditProfileScreen() {
             testID="instagram-input"
           />
 
+          {/* 
+          
+          
           <Text style={styles.label}>{t("editProfile.facebook")}</Text>
           <TextInput
             style={[styles.input, guestLocked && styles.guestReadOnlyControl]}
@@ -779,6 +786,9 @@ export default function EditProfileScreen() {
             editable={!guestLocked}
             testID="twitter-input"
           />
+
+          */}
+
 
           <View style={styles.infoBox}>
             <Ionicons name="information-circle-outline" size={18} color={colors.onSurfaceTertiary} />
@@ -818,6 +828,7 @@ export default function EditProfileScreen() {
           onPress={() => router.push("/auth-landing")}
           bottomInset={insets.bottom}
           buttonTestID="guest-edit-footer-button"
+          style={styles.footer}
         />
       ) : (
         <View style={[styles.footer, { paddingBottom: insets.bottom + spacing.md }]}> 
@@ -849,6 +860,18 @@ export default function EditProfileScreen() {
 
 const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
+  screenHeader: {
+    borderBottomLeftRadius: radius.lg,
+    borderBottomRightRadius: radius.lg,
+    borderBottomWidth: 0,
+    overflow: "hidden",
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 4,
+    zIndex: 2,
+  },
   center: { alignItems: "center", justifyContent: "center" },
   scroll: { padding: spacing.lg, gap: spacing.lg },
   card: {
@@ -1050,9 +1073,20 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     bottom: 0,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
-    backgroundColor: colors.surfaceSecondary,
+    backgroundColor: colors.surface,
     borderTopWidth: 1,
     borderTopColor: colors.border,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: colors.border,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 6,
+    zIndex: 10,
     gap: spacing.sm,
   },
   errorBanner: {

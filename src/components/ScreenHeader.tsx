@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { View, Text, StyleSheet, Pressable } from "react-native";
+import { View, Text, StyleSheet, Pressable, StyleProp, ViewStyle } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -11,6 +11,7 @@ type ScreenHeaderProps = {
   onBackPress: () => void;
   backDisabled?: boolean;
   backButtonTestID?: string;
+  style?: StyleProp<ViewStyle>;
 };
 
 export default function ScreenHeader({
@@ -18,13 +19,14 @@ export default function ScreenHeader({
   onBackPress,
   backDisabled = false,
   backButtonTestID,
+  style,
 }: ScreenHeaderProps) {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   return (
-    <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
+    <View style={[styles.header, { paddingTop: insets.top + spacing.sm }, style]}>
       <Pressable
         style={[styles.iconBtn, backDisabled && styles.iconBtnDisabled]}
         onPress={onBackPress}

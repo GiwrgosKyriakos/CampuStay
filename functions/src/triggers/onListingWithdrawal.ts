@@ -28,7 +28,7 @@ async function dispatchListingWithdrawal(apartmentId: string, title: string, bro
   ]);
 }
 
-export const onListingWithdrawal = onDocumentUpdated("apartments/{apartmentId}", async (event) => {
+export const onListingWithdrawal = onDocumentUpdated({ document: "apartments/{apartmentId}", region: "europe-west1" }, async (event) => {
   const before = event.data?.before.data();
   const after = event.data?.after.data();
   if (!before || !after) return;
@@ -45,7 +45,7 @@ export const onListingWithdrawal = onDocumentUpdated("apartments/{apartmentId}",
   await dispatchListingWithdrawal(event.params.apartmentId, title, affectedBrokerIds);
 });
 
-export const onListingWithdrawalEventCreated = onDocumentCreated("listingWithdrawalEvents/{apartmentId}", async (event) => {
+export const onListingWithdrawalEventCreated = onDocumentCreated({ document: "listingWithdrawalEvents/{apartmentId}", region: "europe-west1" }, async (event) => {
   const data = event.data?.data();
   if (!data) return;
   const title = typeof data.apartmentTitle === "string" && data.apartmentTitle.trim() ? data.apartmentTitle : "Ακίνητο";

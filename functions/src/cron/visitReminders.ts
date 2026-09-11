@@ -79,7 +79,7 @@ async function processAppointment(appointmentId: string, data: DocumentData, now
   }
 }
 
-export const processScheduledVisitReminders = onSchedule("every 15 minutes", async () => {
+export const processScheduledVisitReminders = onSchedule({ schedule: "every 15 minutes", region: "europe-west1" }, async () => {
   const now = Date.now();
   const [confirmed, completed] = await Promise.all([
     db.collection("appointments").where("status", "==", "confirmed").get(),

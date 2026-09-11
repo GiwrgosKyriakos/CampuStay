@@ -158,6 +158,7 @@ export default function NotificationsScreen() {
         title={t("notifications.title")}
         onBackPress={() => router.back()}
         backButtonTestID="notifications-back-button"
+        style={styles.screenHeader}
       />
 
       <ScrollView
@@ -252,6 +253,7 @@ export default function NotificationsScreen() {
           onPress={() => router.push("/auth-landing")}
           bottomInset={insets.bottom}
           buttonTestID="notifications-guest-footer-signin-button"
+          style={styles.footer}
         />
       )}
     </View>
@@ -260,6 +262,33 @@ export default function NotificationsScreen() {
 
 const createStyles = (colors: ThemeColors) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.surface },
+  screenHeader: {
+    borderBottomLeftRadius: radius.lg,
+    borderBottomRightRadius: radius.lg,
+    borderBottomWidth: 0,
+    overflow: "hidden",
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 4,
+    zIndex: 2,
+  },
+  footer: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: colors.border,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 6,
+    zIndex: 10,
+  },
   contentContainer: { flex: 1, paddingHorizontal: spacing.lg },
   header: { marginTop: spacing.lg, marginBottom: spacing.xl, alignItems: "center" },
   centerBlock: { flex: 1, justifyContent: "center", gap: spacing.sm },

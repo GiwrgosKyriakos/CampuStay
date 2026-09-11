@@ -263,6 +263,7 @@ export default function PrivacySafetyScreen() {
         title={t("privacySafety.title")}
         onBackPress={handleBack}
         backButtonTestID="privacy-safety-back-button"
+        style={styles.screenHeader}
       />
 
       <ScrollView
@@ -299,7 +300,7 @@ export default function PrivacySafetyScreen() {
                 onValueChange={toggleVisibility}
                 disabled={isGuest}
                 trackColor={{ false: isGuest ? colors.border : colors.muted, true: isGuest ? colors.onSurfaceTertiary : colors.brand }}
-                thumbColor={isGuest ? colors.surface : privacy.is_visible ? colors.surface : colors.surface}
+                thumbColor={colors.surface}
               />
             </View>
           </View>
@@ -308,10 +309,10 @@ export default function PrivacySafetyScreen() {
         {!auth.isBroker && !notLookingForRoommate ? (
           <View style={styles.card} testID="privacy-deck-visibility-card">
             <View style={styles.cardHeader}>
-              <View style={styles.iconWrap}><Ionicons name="layers-outline" size={20} color={colors.onSurface} /></View>
+              <View style={styles.iconWrap}><Ionicons name="share-social-outline" size={20} color={colors.onSurface} /></View>
               <View style={styles.cardHeaderTextWrap}>
-                <Text style={styles.cardTitle}>Απόκρυψη από το Deck</Text>
-                <Text style={styles.subtitle}>Το προφίλ σου δεν θα μπορεί να κοινοποιηθεί σε άλλους χρήστες.</Text>
+                <Text style={styles.cardTitle}>Απόκρυψη κοινοποίησης προφίλ</Text>
+                <Text style={styles.subtitle}>Αν το ενεργοποιήσεις, το προφίλ σου δεν θα μπορεί να κοινοποιηθεί σε άλλους χρήστες.</Text>
               </View>
             </View>
             <View style={isGuest ? styles.disabledControl : undefined}>
@@ -319,8 +320,8 @@ export default function PrivacySafetyScreen() {
                 value={privacy.hideNameInDeck === true || privacy.hideInStack === true}
                 onValueChange={toggleDeckVisibility}
                 disabled={isGuest}
-                trackColor={{ false: colors.surfaceTertiary, true: colors.brandTertiary }}
-                thumbColor={privacy.hideNameInDeck === true || privacy.hideInStack === true ? colors.brand : colors.onSurfaceTertiary}
+                trackColor={{ false: isGuest ? colors.border : colors.muted, true: isGuest ? colors.onSurfaceTertiary : colors.brand }}
+                thumbColor={colors.surface}
                 testID="privacy-hide-from-deck-toggle"
               />
             </View>
@@ -446,6 +447,7 @@ export default function PrivacySafetyScreen() {
           onPress={() => router.push("/auth-landing")}
           bottomInset={insets.bottom}
           buttonTestID="privacy-guest-footer-signin-button"
+          style={styles.footer}
         />
       )}
 
@@ -463,6 +465,18 @@ export default function PrivacySafetyScreen() {
 
 const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
+  screenHeader: {
+    borderBottomLeftRadius: radius.lg,
+    borderBottomRightRadius: radius.lg,
+    borderBottomWidth: 0,
+    overflow: "hidden",
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 4,
+    zIndex: 2,
+  },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   scroll: { padding: spacing.lg, gap: spacing.lg },
   card: {
@@ -472,6 +486,21 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderColor: colors.border,
     padding: spacing.lg,
     gap: spacing.sm,
+  },
+  footer: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: colors.border,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 6,
+    zIndex: 10,
   },
   cardHeader: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginBottom: spacing.xs },
   cardHeaderTextWrap: { flex: 1 },
@@ -512,7 +541,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     fontSize: fontSize.lg,
     color: colors.onSurface,
   },
-  blockedEmpty: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary },
+  blockedEmpty: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary, textAlign: "center" },
   blockedRow: {
     flexDirection: "row",
     alignItems: "center",

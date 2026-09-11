@@ -92,7 +92,7 @@ async function migrateProfileDeals(profileId, actorId, clientIdOverride, actorEm
     }
     return { migrated, skipped };
 }
-exports.migrateLegacyDealsCallable = (0, https_1.onCall)(async (request) => {
+exports.migrateLegacyDealsCallable = (0, https_1.onCall)({ region: "europe-west1" }, async (request) => {
     const actorId = request.auth?.uid;
     if (!actorId)
         throw new https_1.HttpsError("unauthenticated", "Authentication is required.");

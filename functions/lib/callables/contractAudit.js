@@ -11,7 +11,7 @@ const db = (0, firestore_1.getFirestore)();
 function isExecutiveRole(value) {
     return value === "ceo" || value === "secretary" || value === "secretariat";
 }
-exports.verifyContractSignatureAuditTrailCallable = (0, https_1.onCall)(async (request) => {
+exports.verifyContractSignatureAuditTrailCallable = (0, https_1.onCall)({ region: "europe-west1" }, async (request) => {
     const uid = request.auth?.uid;
     if (!uid)
         throw new https_1.HttpsError("unauthenticated", "Authentication is required.");

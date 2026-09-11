@@ -278,7 +278,7 @@ async function aggregateAgency(agencyId, now) {
         await db.doc(`agencies/${agencyId}/analytics_summaries/${period.id}`).set(summary, { merge: true });
     }));
 }
-exports.aggregateAnalytics = (0, scheduler_1.onSchedule)("every 1 hours", async () => {
+exports.aggregateAnalytics = (0, scheduler_1.onSchedule)({ schedule: "every 1 hours", region: "europe-west1" }, async () => {
     const snapshot = await (0, firestore_1.getFirestore)().collection("users").get();
     const agencyIds = new Set(snapshot.docs.map((document) => stringValue(document.data().agencyId)).filter(Boolean));
     const now = new Date();

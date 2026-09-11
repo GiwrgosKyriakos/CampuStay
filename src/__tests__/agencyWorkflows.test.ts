@@ -131,7 +131,7 @@ jest.mock("firebase-admin/firestore", () => ({
 }), { virtual: true });
 
 jest.mock("firebase-functions/v2/https", () => ({
-  onCall: (handler: unknown) => handler,
+  onCall: (...args: unknown[]) => args[args.length - 1],
   HttpsError: class HttpsError extends Error {
     code: string;
 
@@ -143,7 +143,7 @@ jest.mock("firebase-functions/v2/https", () => ({
 }), { virtual: true });
 
 jest.mock("firebase-functions/v2/scheduler", () => ({
-  onSchedule: (_schedule: string, handler: unknown) => handler,
+  onSchedule: (...args: unknown[]) => args[args.length - 1],
 }), { virtual: true });
 
 jest.mock("../../functions/src/lib/push", () => ({
@@ -167,6 +167,7 @@ jest.mock("firebase/firestore", () => ({
 }));
 
 jest.mock("firebase/functions", () => ({
+  getFunctions: jest.fn(() => ({})),
   httpsCallable: jest.fn(() => mockCallable),
 }));
 
@@ -291,7 +292,13 @@ describe("commission settlement", () => {
     const statuses: string[] = [];
     mockCallable.mockImplementation(async (payload: Record<string, any>) => {
       statuses.push(payload.action);
-      return { data: { status: payload.action === "approve" ? "approved" : payload.action === "issue" ? "issued" : "settled", dealId: "deal-1" } };
+      return {
+        data: {
+          status: payload.action === "approve" ? "approved" : payload.action === "issue" ? "issued" : "settled",
+          dealId: "deal-1",
+          fiscalRecord: { invoiceNumber: "INV-1", issuedAt: Date.now() },
+        },
+      };
     });
 
     await issueCommissionSettlement({

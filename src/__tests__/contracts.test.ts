@@ -8,7 +8,7 @@ import {
   validateIdCaptureMetadata,
 } from "@/src/services/idCaptureValidation";
 import { verifyContractSignatureAuditTrail } from "../../functions/src/lib/contractAudit";
-import { recordSigningEvidence, sendSigningOtp, verifySigningOtp } from "../../functions/src/callables/signingOtp";
+import { normalizeE164PhoneNumber, recordSigningEvidence, sendSigningOtp, updateContractSignerIdentity, verifySigningOtp } from "../../functions/src/callables/signingOtp";
 import { verifyContractSignatureAuditTrailCallable } from "../../functions/src/callables/contractAudit";
 import { onContractCompleted } from "../../functions/src/triggers/onContractCompleted";
 import type { IdCaptureMetadata, SignatureSignerEvidence } from "@/src/types/esignature";
@@ -18,6 +18,8 @@ const mockDocuments = new Map<string, Record<string, any>>();
 const mockFiles = new Map<string, Buffer>();
 const mockTimestamp = { toMillis: () => 1_700_000_000_000 };
 const mockDispatchMailOutboxMessage = jest.fn(async (_outboxId?: string) => undefined);
+const mockVerifyFirebaseIdToken = jest.fn();
+const mockFetch = jest.fn(async () => ({ ok: true }));
 let assertFails: typeof import("@firebase/rules-unit-testing").assertFails;
 let assertSucceeds: typeof import("@firebase/rules-unit-testing").assertSucceeds;
 let initializeTestEnvironment: typeof import("@firebase/rules-unit-testing").initializeTestEnvironment;
@@ -107,8 +109,12 @@ jest.mock("firebase-admin/firestore", () => ({
 jest.mock("firebase-admin/storage", () => ({
   getStorage: () => ({ bucket: () => ({ file: (path: string) => ({ ...mockFile(path), name: path, path }) }) }),
 }), { virtual: true });
+jest.mock("firebase-admin/auth", () => ({
+  getAuth: () => ({ verifyIdToken: mockVerifyFirebaseIdToken }),
+}), { virtual: true });
+jest.mock("firebase-functions/v2", () => ({ setGlobalOptions: jest.fn() }), { virtual: true });
 jest.mock("firebase-functions/v2/https", () => ({
-  onCall: (handler: unknown) => handler,
+  onCall: (...args: unknown[]) => args[args.length - 1],
   HttpsError: class HttpsError extends Error {
     code: string;
     constructor(code: string, message: string) {
@@ -186,7 +192,13 @@ beforeEach(() => {
   mockDocuments.clear();
   mockFiles.clear();
   mockDispatchMailOutboxMessage.mockClear();
-  process.env.FUNCTIONS_EMULATOR = "true";
+  mockVerifyFirebaseIdToken.mockReset();
+  process.env.TWILIO_ACCOUNT_SID = "test-account";
+  process.env.TWILIO_AUTH_TOKEN = "test-token";
+  process.env.TWILIO_FROM_NUMBER = "+306900000001";
+  global.fetch = mockFetch as unknown as typeof fetch;
+  mockFetch.mockClear();
+  mockFetch.mockResolvedValue({ ok: true });
 });
 
 describe("ID capture standards", () => {
@@ -217,18 +229,52 @@ describe("signing callable security and OTP", () => {
   it("locks OTP verification after the maximum attempts", async () => {
     seedContract("otp-lock-1", { signers: [evidence("client-1", "client")], requiredSignerIds: ["client-1"] });
     const sent = await (sendSigningOtp as any)(request("client-1", { contractId: "otp-lock-1", signerId: "client-1" }));
-    expect(sent.debugCode).toHaveLength(6);
+    expect(sent).toEqual({ delivered: true, expiresInSeconds: 600 });
     for (let attempt = 0; attempt < 2; attempt += 1) {
       await expect((verifySigningOtp as any)(request("client-1", { contractId: "otp-lock-1", signerId: "client-1", code: "000000" }))).rejects.toMatchObject({ code: "invalid-argument" });
     }
     await expect((verifySigningOtp as any)(request("client-1", { contractId: "otp-lock-1", signerId: "client-1", code: "000000" }))).rejects.toMatchObject({ code: "resource-exhausted" });
-    await expect((verifySigningOtp as any)(request("client-1", { contractId: "otp-lock-1", signerId: "client-1", code: sent.debugCode }))).rejects.toMatchObject({ code: "resource-exhausted" });
+    await expect((verifySigningOtp as any)(request("client-1", { contractId: "otp-lock-1", signerId: "client-1", code: "000000" }))).rejects.toMatchObject({ code: "resource-exhausted" });
   });
 
   it("rejects expired OTP tokens", async () => {
     seedContract("otp-expired-1", { signers: [evidence("client-1", "client")], requiredSignerIds: ["client-1"] });
     mockDocuments.set("signingOtps/otp-expired-1_client-1", { expiresAt: Date.now() - 1, attempts: 0, codeHash: "expired" });
     await expect((verifySigningOtp as any)(request("client-1", { contractId: "otp-expired-1", signerId: "client-1", code: "000000" }))).rejects.toMatchObject({ code: "deadline-exceeded" });
+  });
+});
+
+describe("signing OTP phone normalization", () => {
+  it("normalizes Greek local and international formats to E.164", () => {
+    expect(normalizeE164PhoneNumber("690 000 0000")).toBe("+306900000000");
+    expect(normalizeE164PhoneNumber("0030 690 000 0000")).toBe("+306900000000");
+    expect(normalizeE164PhoneNumber("+306900000000")).toBe("+306900000000");
+  });
+
+  it("rejects values that cannot be treated as E.164", () => {
+    expect(normalizeE164PhoneNumber("12345678")).toBeNull();
+    expect(normalizeE164PhoneNumber("not-a-phone")).toBeNull();
+  });
+});
+
+describe("signing OTP provider bridge", () => {
+  it("persists a normalized phone supplied during signing", async () => {
+    seedContract("phone-save-1", { signers: [evidence("client-1", "client")] });
+    await (updateContractSignerIdentity as any)(request("client-1", { contractId: "phone-save-1", signerId: "client-1", signerPhone: "690 000 0000" }));
+    expect(mockDocuments.get("contracts/phone-save-1")?.signers[0].signerPhone).toBe("+306900000000");
+  });
+
+  it("turns a verified Firebase phone identity into an audit token", async () => {
+    seedContract("firebase-otp-1", { signers: [evidence("client-1", "client")] });
+    mockVerifyFirebaseIdToken.mockResolvedValue({ uid: "client-1", phone_number: "+306900000000" });
+    const result = await (verifySigningOtp as any)(request("client-1", {
+      contractId: "firebase-otp-1",
+      signerId: "client-1",
+      code: "123456",
+      provider: "firebase",
+      firebaseIdToken: "firebase-id-token",
+    }));
+    expect(result).toMatchObject({ verified: true, verificationId: expect.any(String), verificationToken: expect.any(String) });
   });
 });
 

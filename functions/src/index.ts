@@ -13,7 +13,7 @@ import { reassignExpiredLeadsCron } from "./scheduled/reassignExpiredLeads";
 import { processMailOutbox } from "./cron/mailOutbox";
 import { issueFiscalInvoice } from "./invoicing/issueFiscalInvoice";
 import { onContractCompleted } from "./triggers/onContractCompleted";
-import { getContractDownloadUrl, recordSigningEvidence, sendSigningOtp, updateContractPayload, verifySigningOtp } from "./callables/signingOtp";
+import { getContractDownloadUrl, recordSigningEvidence, sendSigningOtp, updateContractPayload, updateContractSignerIdentity, verifySigningOtp } from "./callables/signingOtp";
 import { verifyContractSignatureAuditTrailCallable } from "./callables/contractAudit";
 import { claimLeadCallable, claimPropertyCallable, createCrossBrokerShowingCallable, delegateShowingCallable, finalizeCommissionSettlementCallable, publishListingAssignmentCallable, recordKeySafeActionCallable, recordShowingFeedbackCallable, reassignLeadCallable, reviewClaimCallable } from "./callables/agencyCollaboration";
 import { advanceDealStageCallable, finalizeChecklistDocumentUploadCallable, initializeDealCallable, reviewChecklistDocumentCallable } from "./callables/dealPipeline";
@@ -124,13 +124,13 @@ export {
   onChecklistItemUpdated,
   onCanonicalDealStageUpdated,
 };
-export { onContractCompleted, getContractDownloadUrl, recordSigningEvidence, sendSigningOtp, updateContractPayload, verifySigningOtp, verifyContractSignatureAuditTrailCallable };
+export { onContractCompleted, getContractDownloadUrl, recordSigningEvidence, sendSigningOtp, updateContractPayload, updateContractSignerIdentity, verifySigningOtp, verifyContractSignatureAuditTrailCallable };
 export { issueFiscalInvoice };
 export { advanceDealStageCallable, claimLeadCallable, claimPropertyCallable, createCrossBrokerShowingCallable, delegateShowingCallable, finalizeChecklistDocumentUploadCallable, finalizeCommissionSettlementCallable, initializeDealCallable, migrateLegacyDealsCallable, publishListingAssignmentCallable, recordKeySafeActionCallable, recordShowingFeedbackCallable, reassignLeadCallable, reviewChecklistDocumentCallable, reviewClaimCallable };
 export { generateCmaReport, generateListingCopywriting, analyzeShowingFeedbackSentiment, buildOwnerActivityPdfReport };
 
 export const getPropertyFeedbackSentiment = onCall(
-  { secrets: ["GEMINI_API_KEY"], cors: true },
+  { secrets: ["GEMINI_API_KEY"], cors: true, region: "europe-west1" },
   async (request) => {
     const apartmentId = request.data?.apartmentId;
     if (typeof apartmentId !== "string" || apartmentId.trim().length === 0) {
@@ -141,7 +141,7 @@ export const getPropertyFeedbackSentiment = onCall(
 );
 
 export const getComparativeMarketAnalysis = onCall(
-  { secrets: ["GEMINI_API_KEY"], cors: true },
+  { secrets: ["GEMINI_API_KEY"], cors: true, region: "europe-west1" },
   async (request) => {
     const data = request.data as Record<string, unknown> | undefined;
     const apartmentId = typeof data?.apartmentId === "string" ? data.apartmentId.trim() : "";
@@ -171,7 +171,7 @@ export const getComparativeMarketAnalysis = onCall(
 );
 
 export const generatePropertyListingCopy = onCall(
-  { secrets: ["GEMINI_API_KEY"], cors: true },
+  { secrets: ["GEMINI_API_KEY"], cors: true, region: "europe-west1" },
   async (request) => {
     const data = request.data as Record<string, unknown> | undefined;
     const apartmentId = typeof data?.apartmentId === "string" ? data.apartmentId.trim() : "";
@@ -192,7 +192,7 @@ export const generatePropertyListingCopy = onCall(
 );
 
 export const generateOwnerPerformanceReport = onCall(
-  { secrets: ["GEMINI_API_KEY"], cors: true },
+  { secrets: ["GEMINI_API_KEY"], cors: true, region: "europe-west1" },
   async (request) => {
     const data = request.data as Record<string, unknown> | undefined;
     const apartmentId = typeof data?.apartmentId === "string" ? data.apartmentId.trim() : "";
@@ -217,7 +217,7 @@ async function notifyFavoriteUsers(apartmentId: string, payload: Parameters<type
   }));
 }
 
-export const onApartmentUpdate = onDocumentUpdated("apartments/{apartmentId}", async (event) => {
+export const onApartmentUpdate = onDocumentUpdated({ document: "apartments/{apartmentId}", region: "europe-west1" }, async (event) => {
   const before = event.data?.before.data();
   const after = event.data?.after.data();
   if (!before || !after) return;
@@ -228,7 +228,7 @@ export const onApartmentUpdate = onDocumentUpdated("apartments/{apartmentId}", a
   await notifyFavoriteUsers(event.params.apartmentId, { type: "price_drop", title: "Μείωση τιμής", body: `Μείωση τιμής σε αποθηκευμένο ακίνητο: ${title} τώρα στα €${newPrice}`, screen: "apartment-detail", params: { apartmentId: event.params.apartmentId }, entityId: event.params.apartmentId });
 });
 
-export const onMatchCreated = onDocumentCreated("matches/{matchId}", async (event) => {
+export const onMatchCreated = onDocumentCreated({ document: "matches/{matchId}", region: "europe-west1" }, async (event) => {
   const data = event.data?.data();
   if (!data) return;
   const score = Number(data.score ?? data.compatibilityScore ?? data.matchScore);
@@ -246,7 +246,7 @@ export const onMatchCreated = onDocumentCreated("matches/{matchId}", async (even
   }
 });
 
-export const onBrokerRegistration = onDocumentCreated("users/{userId}", async (event) => {
+export const onBrokerRegistration = onDocumentCreated({ document: "users/{userId}", region: "europe-west1" }, async (event) => {
   const data = event.data?.data();
   if (!data || data.is_broker !== true || data.agencyStatus !== "pending" || typeof data.agencyId !== "string") return;
   const recipients = await db.collection("users").where("agencyId", "==", data.agencyId).get();

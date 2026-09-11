@@ -18,7 +18,6 @@ import {
   type BrokerNote,
 } from "@/src/api/brokerCalendar";
 import BrokerNoteModal, { type BrokerClientItem, type BrokerListingItem } from "@/src/components/BrokerNoteModal";
-import SignContractModal from "@/src/components/SignContractModal";
 import PostVisitFeedbackModal from "@/src/components/calendar/PostVisitFeedbackModal";
 import CenteredActionModal from "@/src/components/CenteredActionModal";
 import { getBrokerClientProfiles } from "@/src/api/brokerClientProfiles";
@@ -957,7 +956,6 @@ function BrokerCalendarScreen() {
   );
   const [realListings, setRealListings] = useState<BrokerListingItem[]>([]);
   const [realClients, setRealClients] = useState<BrokerClientItem[]>([]);
-  const [contractDraft, setContractDraft] = useState<ContractDraftContext | null>(null);
   const appointmentId = typeof routeParams.appointmentId === "string" ? routeParams.appointmentId : undefined;
   const noteId = typeof routeParams.noteId === "string" ? routeParams.noteId : undefined;
   const deepLinkKey = appointmentId || noteId ? `${appointmentId ?? ""}:${noteId ?? ""}` : "";
@@ -1152,7 +1150,7 @@ function BrokerCalendarScreen() {
     if (!brokerId || !context.apartmentId || !context.clientId) return;
     setIsNoteModalVisible(false);
     setSelectedNoteToEdit(null);
-    setContractDraft({
+    const draft: ContractDraftContext = {
       agencyId: auth.agencyId ?? "",
       createdByUserId: brokerId,
       contractType: "viewing_order",
@@ -1168,8 +1166,9 @@ function BrokerCalendarScreen() {
       contractPayload: {
         ...(typeof context.apartmentPrice === "number" ? { monthlyRentOrPrice: context.apartmentPrice } : {}),
       },
-    });
-  }, [auth.agencyId, brokerId]);
+    };
+    router.push({ pathname: "/contract/[id]", params: { id: "new", draft: JSON.stringify(draft), signerId: brokerId } } as never);
+  }, [auth.agencyId, brokerId, router]);
 
   const openViewingOrderFromNote = useCallback((note: BrokerNote) => {
     if (!note.apartmentId || !note.clientId) return;
@@ -1334,12 +1333,6 @@ function BrokerCalendarScreen() {
         onUpdated={handleNoteMutation}
         onDeleted={handleNoteMutation}
         onSignViewingOrder={openViewingOrder}
-      />
-      <SignContractModal
-        visible={contractDraft !== null}
-        draft={contractDraft ?? undefined}
-        signerId={brokerId}
-        onClose={() => setContractDraft(null)}
       />
     </View>
   );

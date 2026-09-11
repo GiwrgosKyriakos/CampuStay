@@ -6,7 +6,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getAuth, getReactNativePersistence, initializeAuth } from "firebase/auth";
 import { getStorage } from "firebase/storage";
 
-const firebaseConfig = {
+export const firebaseConfig = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
   authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
   projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
@@ -17,6 +17,7 @@ const firebaseConfig = {
 };
 
 export const app = initializeApp(firebaseConfig);
+const phoneAuthApp = initializeApp(firebaseConfig, "phone-auth");
 
 // Use AsyncStorage-backed persistence on native to keep sessions after app restarts.
 export const firebaseAuth = (() => {
@@ -28,6 +29,9 @@ export const firebaseAuth = (() => {
     return getAuth(app);
   }
 })();
+
+// Keep phone-auth sign-in isolated so the app's authenticated contract identity is not replaced.
+export const firebasePhoneAuth = getAuth(phoneAuthApp);
 
 export const db = initializeFirestore(app, {
   localCache: memoryLocalCache(),
