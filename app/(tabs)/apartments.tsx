@@ -157,34 +157,37 @@ interface ActiveFilterChipDescriptor {
 export function formatFilterSetSummary(filters: FilterSetPayload): string {
   const parts: string[] = [];
   if (filters.rentMin || filters.rentMax) {
-    parts.push(`${filters.rentMin || "0"}€ - ${filters.rentMax || "∞"}€`);
+    parts.push(t("apartments.tab.filterSummary.rentRange", { min: filters.rentMin || "0", max: filters.rentMax || "∞" }));
   }
   if (filters.minSqmPrice || filters.maxSqmPrice) {
-    parts.push(`${filters.minSqmPrice || "0"} - ${filters.maxSqmPrice || "∞"} €/m²`);
+    parts.push(t("apartments.tab.filterSummary.sqmPriceRange", { min: filters.minSqmPrice || "0", max: filters.maxSqmPrice || "∞" }));
   }
   if (filters.sizeMin || filters.sizeMax) {
-    parts.push(`${filters.sizeMin || "0"} - ${filters.sizeMax || "∞"} m²`);
+    parts.push(t("apartments.tab.filterSummary.sizeRange", { min: filters.sizeMin || "0", max: filters.sizeMax || "∞" }));
   }
   if (filters.selectedCity?.trim()) parts.push(filters.selectedCity.trim());
   if (filters.areaQuery?.trim()) parts.push(filters.areaQuery.trim());
-  if (filters.petFriendly) parts.push("Pets");
-  if (filters.nearMetro) parts.push("Metro");
+  if (filters.petFriendly) parts.push(t("apartments.tab.filterSummary.pets"));
+  if (filters.nearMetro) parts.push(t("apartments.tab.filterSummary.metro"));
   if (filters.propertyTypes?.length) parts.push(filters.propertyTypes.join(", "));
   if (filters.propertyCategories?.length) parts.push(filters.propertyCategories.join(", "));
   if (filters.floors?.length) parts.push(filters.floors.join(", "));
   if (filters.bedroomsMin) parts.push(`${filters.bedroomsMin}+ υπνοδωμ.`);
   if (filters.bathroomsMin) parts.push(`${filters.bathroomsMin}+ μπάνια`);
-  if (filters.furnishedStatus === "furnished") parts.push("Επιπλωμένο");
-  if (filters.furnishedStatus === "unfurnished") parts.push("Μη επιπλωμένο");
+  if (filters.furnishedStatus === "furnished") parts.push(t("apartments.tab.filterSummary.furnished"));
+  if (filters.furnishedStatus === "unfurnished") parts.push(t("apartments.tab.filterSummary.unfurnished"));
   if (filters.heatingTypes?.length) parts.push(filters.heatingTypes.join(", "));
   if (filters.energyClasses?.length) parts.push(filters.energyClasses.join(", "));
-  if (filters.constructionYearMin) parts.push(`Κατασκευή ${filters.constructionYearMin}+`);
-  if (filters.renovationYearMin) parts.push(`Ανακαίνιση ${filters.renovationYearMin}+`);
+  if (filters.constructionYearMin) parts.push(t("apartments.tab.filterSummary.constructionYear", { year: filters.constructionYearMin }));
+  if (filters.renovationYearMin) parts.push(t("apartments.tab.filterSummary.renovationYear", { year: filters.renovationYearMin }));
   if (filters.selectedAmenities?.length) {
-    parts.push(filters.selectedAmenities.map((value) => AMENITY_FILTER_OPTIONS.find((option) => option.value === value)?.label ?? value).join(", "));
+    parts.push(filters.selectedAmenities.map((value) => {
+      const option = AMENITY_FILTER_OPTIONS.find((item) => item.value === value);
+      return option ? getFilterChipLabel(option) : value;
+    }).join(", "));
   }
 
-  return parts.length > 0 ? parts.join(" · ") : "Όλα τα διαμερίσματα";
+  return parts.length > 0 ? parts.join(" · ") : t("apartments.tab.filterSummary.allApartments");
 }
 
 function sanitizeFirestorePayload<T extends Record<string, unknown>>(payload: T): T {
@@ -214,68 +217,72 @@ export function filterApartmentsByAgency(apartments: Apartment[], selectedAgency
 
 type ShowOnlyModalType = "agency" | "broker" | "list" | null;
 
-const SORT_OPTION_LABELS: Record<SortOption, string> = {
-  newest: "Πιο πρόσφατα",
-  oldest: "Πιο παλιά",
-  price_asc: "Αύξουσα τιμή (€ -> €€€)",
-  price_desc: "Φθίνουσα τιμή (€€€ -> €)",
-  size_asc: "Αύξον εμβαδόν (m² -> m³)",
-  size_desc: "Φθίνουσα εμβαδόν (m³ -> m²)",
-  price_sqm_asc: "Αύξουσα τιμή/τ.μ. (€/m² -> €€€/m²)",
-  price_sqm_desc: "Φθίνουσα τιμή/τ.μ. (€€€/m² -> €/m²)",
+const SORT_OPTION_LABEL_KEYS: Record<SortOption, string> = {
+  newest: "apartments.tab.sortOptions.newest",
+  oldest: "apartments.tab.sortOptions.oldest",
+  price_asc: "apartments.tab.sortOptions.priceAsc",
+  price_desc: "apartments.tab.sortOptions.priceDesc",
+  size_asc: "apartments.tab.sortOptions.sizeAsc",
+  size_desc: "apartments.tab.sortOptions.sizeDesc",
+  price_sqm_asc: "apartments.tab.sortOptions.priceSqmAsc",
+  price_sqm_desc: "apartments.tab.sortOptions.priceSqmDesc",
 };
 
 const SORT_OPTIONS: SortOption[] = ["newest", "oldest", "price_asc", "price_desc", "size_asc", "size_desc", "price_sqm_asc", "price_sqm_desc"];
 
-type FilterChipOption = { value: string; label: string; icon?: keyof typeof Ionicons.glyphMap };
+type FilterChipOption = { value: string; labelKey?: string; icon?: keyof typeof Ionicons.glyphMap };
+
+function getFilterChipLabel(option: FilterChipOption): string {
+  return option.labelKey ? t(option.labelKey) : option.value;
+}
 
 const PROPERTY_TYPE_FILTER_OPTIONS: FilterChipOption[] = [
-  { value: "Διαμέρισμα", label: "Διαμέρισμα", icon: "business-outline" },
-  { value: "Studio", label: "Studio / Γκαρσονιέρα", icon: "bed-outline" },
-  { value: "Μεζονέτα", label: "Μεζονέτα", icon: "home-outline" },
-  { value: "Loft", label: "Loft", icon: "layers-outline" },
-  { value: "Δωμάτιο", label: "Δωμάτιο", icon: "person-outline" },
+  { value: "Διαμέρισμα", labelKey: "apartments.tab.propertyTypes.apartment", icon: "business-outline" },
+  { value: "Studio", labelKey: "apartments.tab.propertyTypes.studio", icon: "bed-outline" },
+  { value: "Μεζονέτα", labelKey: "apartments.tab.propertyTypes.maisonette", icon: "home-outline" },
+  { value: "Loft", labelKey: "apartments.tab.propertyTypes.loft", icon: "layers-outline" },
+  { value: "Δωμάτιο", labelKey: "apartments.tab.propertyTypes.room", icon: "person-outline" },
 ];
 const PROPERTY_CATEGORY_FILTER_OPTIONS: FilterChipOption[] = [
-  { value: "Κατοικία", label: "Κατοικία" },
-  { value: "Επαγγελματική στέγη", label: "Επαγγελματική" },
-  { value: "Γη", label: "Γη" },
-  { value: "Λοιπά ακίνητα", label: "Λοιπά" },
+  { value: "Κατοικία", labelKey: "apartments.tab.propertyCategories.residential" },
+  { value: "Επαγγελματική στέγη", labelKey: "apartments.tab.propertyCategories.commercial" },
+  { value: "Γη", labelKey: "apartments.tab.propertyCategories.land" },
+  { value: "Λοιπά ακίνητα", labelKey: "apartments.tab.propertyCategories.other" },
 ];
 const FLOOR_FILTER_OPTIONS: FilterChipOption[] = [
-  { value: "Υπόγειο", label: "Υπόγειο" },
-  { value: "Ημιώροφος", label: "Ημιώροφος" },
-  { value: "Ισόγειο", label: "Ισόγειο" },
-  { value: "1ος", label: "1ος" },
-  { value: "2ος", label: "2ος" },
-  { value: "3ος", label: "3ος" },
-  { value: "4ος", label: "4ος" },
-  { value: "5ος+", label: "5ος+" },
+  { value: "Υπόγειο", labelKey: "apartments.tab.floors.basement" },
+  { value: "Ημιώροφος", labelKey: "apartments.tab.floors.mezzanine" },
+  { value: "Ισόγειο", labelKey: "apartments.tab.floors.ground" },
+  { value: "1ος", labelKey: "apartments.tab.floors.first" },
+  { value: "2ος", labelKey: "apartments.tab.floors.second" },
+  { value: "3ος", labelKey: "apartments.tab.floors.third" },
+  { value: "4ος", labelKey: "apartments.tab.floors.fourth" },
+  { value: "5ος+", labelKey: "apartments.tab.floors.fifthPlus" },
 ];
 const HEATING_FILTER_OPTIONS: FilterChipOption[] = [
-  { value: "Αυτόνομη", label: "Αυτόνομο" },
-  { value: "Κεντρική", label: "Κεντρική" },
-  { value: "Κλιματισμός", label: "Κλιματισμός" },
-  { value: "Αντλία Θερμότητας", label: "Αντλία Θερμότητας" },
+  { value: "Αυτόνομη", labelKey: "apartments.tab.heating.autonomous" },
+  { value: "Κεντρική", labelKey: "apartments.tab.heating.central" },
+  { value: "Κλιματισμός", labelKey: "apartments.tab.heating.airConditioning" },
+  { value: "Αντλία Θερμότητας", labelKey: "apartments.tab.heating.heatPump" },
 ];
-const ENERGY_CLASS_FILTER_OPTIONS: FilterChipOption[] = ["A+", "A", "B+", "B", "C", "D", "E"].map((value) => ({ value, label: value }));
+const ENERGY_CLASS_FILTER_OPTIONS: FilterChipOption[] = ["A+", "A", "B+", "B", "C", "D", "E"].map((value) => ({ value, labelKey: "" }));
 const AMENITY_FILTER_OPTIONS: FilterChipOption[] = [
-  { value: "elevator", label: "Ασανσέρ", icon: "business-outline" },
-  { value: "balcony", label: "Μπαλκόνι", icon: "sunny-outline" },
-  { value: "parking", label: "Parking", icon: "car-sport-outline" },
-  { value: "air_conditioner", label: "Κλιματισμός", icon: "snow-outline" },
-  { value: "security_door", label: "Πόρτα ασφαλείας", icon: "lock-closed-outline" },
-  { value: "solar_water_heater", label: "Ηλιακός θερμοσίφωνας", icon: "sunny-outline" },
-  { value: "alarm", label: "Συναγερμός", icon: "notifications-outline" },
-  { value: "storage_room", label: "Αποθήκη", icon: "file-tray-stacked-outline" },
-  { value: "garden", label: "Κήπος", icon: "leaf-outline" },
-  { value: "fireplace", label: "Τζάκι", icon: "flame-outline" },
-  { value: "wifi", label: "WiFi", icon: "wifi-outline" },
-  { value: "bills_included", label: "Λογαριασμοί", icon: "receipt-outline" },
-  { value: "shared_kitchen", label: "Κοινόχρηστη κουζίνα", icon: "restaurant-outline" },
-  { value: "furnished", label: "Επιπλωμένο", icon: "bed-outline" },
-  { value: "pet_friendly", label: "Κατοικίδια", icon: "paw-outline" },
-  { value: "near_metro", label: "Κοντά σε μετρό", icon: "train-outline" },
+  { value: "elevator", labelKey: "apartments.tab.amenities.elevator", icon: "business-outline" },
+  { value: "balcony", labelKey: "apartments.tab.amenities.balcony", icon: "sunny-outline" },
+  { value: "parking", labelKey: "apartments.tab.amenities.parking", icon: "car-sport-outline" },
+  { value: "air_conditioner", labelKey: "apartments.tab.amenities.airConditioner", icon: "snow-outline" },
+  { value: "security_door", labelKey: "apartments.tab.amenities.securityDoor", icon: "lock-closed-outline" },
+  { value: "solar_water_heater", labelKey: "apartments.tab.amenities.solarWaterHeater", icon: "sunny-outline" },
+  { value: "alarm", labelKey: "apartments.tab.amenities.alarm", icon: "notifications-outline" },
+  { value: "storage_room", labelKey: "apartments.tab.amenities.storageRoom", icon: "file-tray-stacked-outline" },
+  { value: "garden", labelKey: "apartments.tab.amenities.garden", icon: "leaf-outline" },
+  { value: "fireplace", labelKey: "apartments.tab.amenities.fireplace", icon: "flame-outline" },
+  { value: "wifi", labelKey: "apartments.tab.amenities.wifi", icon: "wifi-outline" },
+  { value: "bills_included", labelKey: "apartments.tab.amenities.billsIncluded", icon: "receipt-outline" },
+  { value: "shared_kitchen", labelKey: "apartments.tab.amenities.sharedKitchen", icon: "restaurant-outline" },
+  { value: "furnished", labelKey: "apartments.tab.amenities.furnished", icon: "bed-outline" },
+  { value: "pet_friendly", labelKey: "apartments.tab.amenities.petFriendly", icon: "paw-outline" },
+  { value: "near_metro", labelKey: "apartments.tab.amenities.nearMetro", icon: "train-outline" },
 ];
 const AMENITY_MATCH_TERMS: Record<string, string[]> = {
   elevator: ["elevator", "ασανσερ"], balcony: ["balcony", "μπαλκονι", "βεραντα"], parking: ["parking", "θεση σταθμευση"],
@@ -580,38 +587,41 @@ function translateApartmentTag(tag: string): string {
 
 export function getActiveFilterChipDescriptors(state: ActiveFilterChipState): ActiveFilterChipDescriptor[] {
   const descriptors: ActiveFilterChipDescriptor[] = [];
-  const addRange = (key: string, min: string, max: string, suffix = "", prefix = "") => {
-    if (min || max) descriptors.push({ key, label: `${prefix}${min || "0"} - ${prefix}${max || "∞"}${suffix}` });
+  const addRange = (key: string, min: string, max: string, translationKey: string) => {
+    if (min || max) descriptors.push({ key, label: t(translationKey, { min: min || "0", max: max || "∞" }) });
   };
-  const getOptionLabel = (options: readonly FilterChipOption[], value: string): string => options.find((option) => option.value === value)?.label ?? value;
+  const getOptionLabel = (options: readonly FilterChipOption[], value: string): string => {
+    const option = options.find((item) => item.value === value);
+    return option?.labelKey ? t(option.labelKey) : value;
+  };
 
-  addRange("rent", state.rentMin, state.rentMax, "", "€");
-  addRange("size", state.sizeMin, state.sizeMax, " m²");
+  addRange("rent", state.rentMin, state.rentMax, "apartments.tab.filterSummary.rentRange");
+  addRange("size", state.sizeMin, state.sizeMax, "apartments.tab.filterSummary.sizeRange");
+  addRange("sqm-price", state.minSqmPrice, state.maxSqmPrice, "apartments.tab.filterSummary.sqmPriceRange");
 
-  state.floors.forEach((value) => descriptors.push({ key: `floor:${value}`, label: `Όροφος: ${getOptionLabel(FLOOR_FILTER_OPTIONS, value)}` }));
-  if (state.selectedCity.trim()) descriptors.push({ key: "city", label: `Πόλη: ${state.selectedCity.trim()}` });
-  if (state.areaQuery.trim()) descriptors.push({ key: "area", label: `Περιοχή: ${state.areaQuery.trim()}` });
+  state.floors.forEach((value) => descriptors.push({ key: `floor:${value}`, label: t("apartments.tab.filterSummary.floor", { value: getOptionLabel(FLOOR_FILTER_OPTIONS, value) }) }));
+  if (state.selectedCity.trim()) descriptors.push({ key: "city", label: t("apartments.tab.filterSummary.city", { value: state.selectedCity.trim() }) });
+  if (state.areaQuery.trim()) descriptors.push({ key: "area", label: t("apartments.tab.filterSummary.area", { value: state.areaQuery.trim() }) });
   state.propertyTypes.forEach((value) => descriptors.push({ key: `property-type:${value}`, label: getOptionLabel(PROPERTY_TYPE_FILTER_OPTIONS, value) }));
   state.propertyCategories.forEach((value) => descriptors.push({ key: `property-category:${value}`, label: getOptionLabel(PROPERTY_CATEGORY_FILTER_OPTIONS, value) }));
-  addRange("sqm-price", state.minSqmPrice, state.maxSqmPrice, " €/m²");
-  if (state.bedroomsMin) descriptors.push({ key: "bedrooms", label: `${state.bedroomsMin}+ υπνοδωμ.` });
-  if (state.bathroomsMin) descriptors.push({ key: "bathrooms", label: `${state.bathroomsMin}+ μπάνια` });
+  if (state.bedroomsMin) descriptors.push({ key: "bedrooms", label: t("apartments.tab.filterSummary.bedrooms", { count: state.bedroomsMin }) });
+  if (state.bathroomsMin) descriptors.push({ key: "bathrooms", label: t("apartments.tab.filterSummary.bathrooms", { count: state.bathroomsMin }) });
   if (state.furnishedStatus !== "all" || state.selectedAmenities.includes("furnished")) {
-    descriptors.push({ key: "furnished", label: state.furnishedStatus === "unfurnished" ? "Μη επιπλωμένο" : "Επιπλωμένο" });
+    descriptors.push({ key: "furnished", label: state.furnishedStatus === "unfurnished" ? t("apartments.tab.filterSummary.unfurnished") : t("apartments.tab.filterSummary.furnished") });
   }
   state.heatingTypes.forEach((value) => descriptors.push({ key: `heating:${value}`, label: getOptionLabel(HEATING_FILTER_OPTIONS, value) }));
   state.energyClasses.forEach((value) => descriptors.push({ key: `energy:${value}`, label: getOptionLabel(ENERGY_CLASS_FILTER_OPTIONS, value) }));
-  if (state.constructionYearMin) descriptors.push({ key: "construction-year", label: `Κατασκευή ${state.constructionYearMin}+` });
-  if (state.renovationYearMin) descriptors.push({ key: "renovation-year", label: `Ανακαίνιση ${state.renovationYearMin}+` });
+  if (state.constructionYearMin) descriptors.push({ key: "construction-year", label: t("apartments.tab.filterSummary.constructionYear", { year: state.constructionYearMin }) });
+  if (state.renovationYearMin) descriptors.push({ key: "renovation-year", label: t("apartments.tab.filterSummary.renovationYear", { year: state.renovationYearMin }) });
 
   const combinedAmenities = new Set(state.selectedAmenities);
   if (state.petFriendly) combinedAmenities.add("pet_friendly");
   if (state.nearMetro) combinedAmenities.add("near_metro");
   combinedAmenities.forEach((value) => {
     const option = AMENITY_FILTER_OPTIONS.find((item) => item.value === value);
-    if (option && value !== "furnished") descriptors.push({ key: `amenity:${value}`, label: option.label });
+    if (option && value !== "furnished") descriptors.push({ key: `amenity:${value}`, label: option.labelKey ? t(option.labelKey) : value });
   });
-  if (state.hasPolygon) descriptors.push({ key: "polygon", label: "Περιοχή χάρτη" });
+  if (state.hasPolygon) descriptors.push({ key: "polygon", label: t("apartments.tab.filterSummary.polygon") });
   state.userHardCriteria.forEach((value) => descriptors.push({
     key: `hard-criteria:${value}`,
     label: HARD_CRITERIA_OPTIONS.find((option) => option.key === value)?.label ?? value,
@@ -715,7 +725,7 @@ function ApartmentGridCard({
         ) : (
           <View style={[styles.photo, styles.cardPlaceholder]}>
             <Ionicons name="home" size={44} color={colors.brand} />
-            <Text style={styles.cardPlaceholderText}>CampuStay</Text>
+            <Text style={styles.cardPlaceholderText}>{t("common.brandName")}</Text>
           </View>
         )}
         <WatermarkBadge config={apt.watermarkConfig} position="top-left" />
@@ -723,7 +733,7 @@ function ApartmentGridCard({
         {apt.isOffMarket ? (
           <View style={styles.clientOnlyBadge}>
             <Ionicons name="lock-closed-outline" size={12} color={colors.onBrand} />
-            <Text style={styles.clientOnlyBadgeText}>client-only view</Text>
+            <Text style={styles.clientOnlyBadgeText}>{t("apartments.tab.clientOnlyView")}</Text>
           </View>
         ) : null}
 
@@ -1222,7 +1232,7 @@ export default function ApartmentsScreen() {
           if (isVisible) {
             brokers.push({
               id: brokerDoc.id,
-              name: data.name?.trim() || "Μεσίτης",
+              name: data.name?.trim() || t("apartments.broker"),
               avatar: data.photoUrl || data.avatar || data.photos?.[0] || "",
             });
           }
@@ -1269,7 +1279,7 @@ export default function ApartmentsScreen() {
           if (isVisible) {
             brokers.push({
               id: brokerDoc.id,
-              name: data.name?.trim() || "Μεσίτης",
+              name: data.name?.trim() || t("apartments.broker"),
               avatar: data.photoUrl || data.avatar || data.photos?.[0] || "",
             });
           }
@@ -1319,7 +1329,7 @@ export default function ApartmentsScreen() {
 
     const title = filterSetTitle.trim();
     const summary = formatFilterSetSummary(currentFilterSet);
-    const messageText = `[Κριτήρια Αναζήτησης: ${title || summary}]`;
+    const messageText = t("apartments.tab.filterShareMessage", { criteria: title || summary });
     setSendingBrokerId(brokerId);
     try {
       const chatRoomId = [auth.userId, brokerId].sort().join("_");
@@ -1406,7 +1416,7 @@ export default function ApartmentsScreen() {
         summary,
         updatedAt: Date.now(),
       };
-      const sharedBroker = { brokerId, brokerName: broker?.name || "Μεσίτης", ...(broker?.avatar ? { brokerAvatar: broker.avatar } : {}), sharedAt: version.updatedAt };
+      const sharedBroker = { brokerId, brokerName: broker?.name || t("apartments.broker"), ...(broker?.avatar ? { brokerAvatar: broker.avatar } : {}), sharedAt: version.updatedAt };
       const sharedFilterSet: Omit<SharedFilterSetRecord, "id"> = {
         userId: auth.userId,
         title: title || "",
@@ -1515,7 +1525,7 @@ export default function ApartmentsScreen() {
       if (params.activeProposalListId && ids.length > 0) {
         setSelectedProposalList({
           id: params.activeProposalListId,
-          title: params.activeProposalListTitle || "Προτεινόμενη Λίστα",
+          title: params.activeProposalListTitle || t("apartments.tab.proposedListTitle"),
           apartmentIds: ids,
           brokerId: "",
           brokerName: "",
@@ -2488,7 +2498,7 @@ export default function ApartmentsScreen() {
         <View key={chip.key} style={styles.filterPillChip}>
           <Text numberOfLines={1} style={styles.filterPillText}>{chip.label}</Text>
           <Pressable
-            accessibilityLabel={`Αφαίρεση φίλτρου ${chip.label}`}
+            accessibilityLabel={t("apartments.tab.accessibility.removeFilter", { label: chip.label })}
             accessibilityRole="button"
             hitSlop={6}
             onPress={chip.onRemove}
@@ -2777,9 +2787,11 @@ export default function ApartmentsScreen() {
               >
                 <Ionicons name="time-outline" size={18} color={colors.onSurface} />
               </Pressable>
+              {/*CSPT1
               <Pressable style={styles.filterActionButton} onPress={() => void shareFilterSet()} testID="apartments-filter-share-btn">
                 <Ionicons name="share-social-outline" size={18} color={colors.onSurface} />
               </Pressable>
+              */}
             </View>
 
             <Text style={styles.sortTitle}>{t("apartments.sort")}</Text>
@@ -2788,7 +2800,7 @@ export default function ApartmentsScreen() {
               onPress={() => setIsSortDropdownOpen((prev) => !prev)}
               testID="apartments-sort-toggle"
             >
-              <Text style={styles.sortSelectionText}>{SORT_OPTION_LABELS[sortBy]}</Text>
+              <Text style={styles.sortSelectionText}>{t(SORT_OPTION_LABEL_KEYS[sortBy])}</Text>
               <Ionicons
                 name={isSortDropdownOpen ? "chevron-up" : "chevron-down"}
                 size={18}
@@ -2810,7 +2822,7 @@ export default function ApartmentsScreen() {
                       }}
                       testID={`apartments-sort-option-${option}`}
                     >
-                      <Text style={[styles.sortOptionText, isActive && styles.sortOptionTextActive]}>{SORT_OPTION_LABELS[option]}</Text>
+                      <Text style={[styles.sortOptionText, isActive && styles.sortOptionTextActive]}>{t(SORT_OPTION_LABEL_KEYS[option])}</Text>
                       {isActive ? <Ionicons name="checkmark" size={18} color={colors.brand} /> : null}
                     </Pressable>
                   );
@@ -2851,7 +2863,6 @@ export default function ApartmentsScreen() {
                 ) : null}
               </Pressable>
             </View>
-            */}
 
             <Text style={[styles.sortTitle, { marginTop: spacing.md }]}>{t("apartments.showOnly")}</Text>
             <View style={styles.showOnlyRow}>
@@ -2896,6 +2907,7 @@ export default function ApartmentsScreen() {
                 {selectedProposalList ? <Pressable onPress={(event) => { event.stopPropagation(); setSelectedProposalList(null); setProposalApartmentIds([]); }} hitSlop={8}><Ionicons name="close-circle" size={16} color={colors.onBrand} /></Pressable> : null}
               </Pressable>
             </View>
+            */}
 
             {isHostUser && !isViewingMyListings ? (
               <View style={styles.hostFeedToggleRow} testID="apartments-own-listings-toggle-row">
@@ -2976,13 +2988,13 @@ export default function ApartmentsScreen() {
               />
             </View>
 
-            <Text style={styles.filterLabel}>Πόλη</Text>
+            <Text style={styles.filterLabel}>{t("apartments.city")}</Text>
             <Pressable
               style={styles.sortSelectionBar}
               onPress={() => setCityPickerVisible(true)}
               testID="apartments-city-filter"
             >
-              <Text style={styles.sortSelectionText}>{selectedCity || "Όλες οι πόλεις"}</Text>
+              <Text style={styles.sortSelectionText}>{selectedCity || t("apartments.allCities")}</Text>
               {selectedCity ? (
                 <Pressable
                   onPress={(event) => {
@@ -3000,12 +3012,12 @@ export default function ApartmentsScreen() {
               )}
             </Pressable>
 
-            <Text style={styles.filterLabel}>Περιοχή / Γειτονιά</Text>
+            <Text style={styles.filterLabel}>{t("apartments.areaNeighborhood")}</Text>
             <TextInput
               style={styles.singleInput}
               value={areaQuery}
               onChangeText={(value) => updateFilterValue(setAreaQuery, value)}
-              placeholder="π.χ. Κυψέλη, Τούμπα"
+              placeholder={t("apartments.areaPlaceholder")}
               placeholderTextColor={colors.onSurfaceTertiary}
               testID="apartments-area-filter"
             />
@@ -3034,69 +3046,69 @@ export default function ApartmentsScreen() {
 
             <View style={styles.extendedFilterSection}>
               <Text style={styles.filterSectionTitle}>{t("apartments.propertyFeatures")}</Text>
-              <Text style={styles.filterLabel}>Τύπος ακινήτου</Text>
+              <Text style={styles.filterLabel}>{t("apartments.tab.filters.propertyType")}</Text>
               <View style={styles.filterChipGrid}>
                 {PROPERTY_TYPE_FILTER_OPTIONS.map((option) => {
                   const active = propertyTypes.includes(option.value);
-                  return <Pressable key={option.value} style={[styles.filterChip, active && styles.filterChipActive]} onPress={() => setPropertyTypes((current) => active ? current.filter((value) => value !== option.value) : [...current, option.value])} testID={`apartments-property-type-${option.value}`}><Ionicons name={option.icon!} size={15} color={active ? colors.onBrand : colors.onSurfaceTertiary} /><Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{option.label}</Text></Pressable>;
+                  return <Pressable key={option.value} style={[styles.filterChip, active && styles.filterChipActive]} onPress={() => setPropertyTypes((current) => active ? current.filter((value) => value !== option.value) : [...current, option.value])} testID={`apartments-property-type-${option.value}`}><Ionicons name={option.icon!} size={15} color={active ? colors.onBrand : colors.onSurfaceTertiary} /><Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{getFilterChipLabel(option)}</Text></Pressable>;
                 })}
               </View>
-              <Text style={styles.filterLabel}>Κατηγορία</Text>
+              <Text style={styles.filterLabel}>{t("apartments.tab.filters.category")}</Text>
               <View style={styles.filterChipGrid}>
                 {PROPERTY_CATEGORY_FILTER_OPTIONS.map((option) => {
                   const active = propertyCategories.includes(option.value);
-                  return <Pressable key={option.value} style={[styles.filterChip, active && styles.filterChipActive]} onPress={() => setPropertyCategories((current) => active ? current.filter((value) => value !== option.value) : [...current, option.value])}><Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{option.label}</Text></Pressable>;
+                  return <Pressable key={option.value} style={[styles.filterChip, active && styles.filterChipActive]} onPress={() => setPropertyCategories((current) => active ? current.filter((value) => value !== option.value) : [...current, option.value])}><Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{getFilterChipLabel(option)}</Text></Pressable>;
                 })}
               </View>
-              <Text style={styles.filterLabel}>Όροφος</Text>
+              <Text style={styles.filterLabel}>{t("apartments.tab.filters.floor")}</Text>
               <View style={styles.filterChipGrid}>
                 {FLOOR_FILTER_OPTIONS.map((option) => {
                   const active = floors.includes(option.value);
-                  return <Pressable key={option.value} style={[styles.filterChip, active && styles.filterChipActive]} onPress={() => setFloors((current) => active ? current.filter((value) => value !== option.value) : [...current, option.value])}><Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{option.label}</Text></Pressable>;
+                  return <Pressable key={option.value} style={[styles.filterChip, active && styles.filterChipActive]} onPress={() => setFloors((current) => active ? current.filter((value) => value !== option.value) : [...current, option.value])}><Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{getFilterChipLabel(option)}</Text></Pressable>;
                 })}
               </View>
-              <Text style={styles.filterLabel}>Επιπλωμένο</Text>
+              <Text style={styles.filterLabel}>{t("apartments.tab.filters.furnished")}</Text>
               <View style={styles.segmentedFilterRow}>
-                {([{ value: "all", label: "Όλα" }, { value: "furnished", label: "Επιπλωμένο" }, { value: "unfurnished", label: "Μη επιπλωμένο" }] as const).map((option) => <Pressable key={option.value} style={[styles.segmentedFilterOption, furnishedStatus === option.value && styles.filterChipActive]} onPress={() => setFurnishedStatus(option.value)}><Text style={[styles.filterChipText, furnishedStatus === option.value && styles.filterChipTextActive]}>{option.label}</Text></Pressable>)}
+                {([{ value: "all", labelKey: "apartments.tab.filters.all" }, { value: "furnished", labelKey: "apartments.tab.filters.furnishedOption" }, { value: "unfurnished", labelKey: "apartments.tab.filters.unfurnishedOption" }] as const).map((option) => <Pressable key={option.value} style={[styles.segmentedFilterOption, furnishedStatus === option.value && styles.filterChipActive]} onPress={() => setFurnishedStatus(option.value)}><Text style={[styles.filterChipText, furnishedStatus === option.value && styles.filterChipTextActive]}>{t(option.labelKey)}</Text></Pressable>)}
               </View>
               <View style={styles.rangeRow}>
-                <TextInput style={styles.rangeInput} value={bedroomsMin} onChangeText={(value) => updateFilterValue(setBedroomsMin, value.replace(/[^0-9]/g, ""))} placeholder="Ελάχιστα υπνοδωμάτια" keyboardType="number-pad" placeholderTextColor={colors.onSurfaceTertiary} testID="apartments-bedrooms-min" />
-                <TextInput style={styles.rangeInput} value={bathroomsMin} onChangeText={(value) => updateFilterValue(setBathroomsMin, value.replace(/[^0-9]/g, ""))} placeholder="Ελάχιστα μπάνια" keyboardType="number-pad" placeholderTextColor={colors.onSurfaceTertiary} testID="apartments-bathrooms-min" />
+                <TextInput style={styles.rangeInput} value={bedroomsMin} onChangeText={(value) => updateFilterValue(setBedroomsMin, value.replace(/[^0-9]/g, ""))} placeholder={t("apartments.tab.filters.bedroomsPlaceholder")} keyboardType="number-pad" placeholderTextColor={colors.onSurfaceTertiary} testID="apartments-bedrooms-min" />
+                <TextInput style={styles.rangeInput} value={bathroomsMin} onChangeText={(value) => updateFilterValue(setBathroomsMin, value.replace(/[^0-9]/g, ""))} placeholder={t("apartments.tab.filters.bathroomsPlaceholder")} keyboardType="number-pad" placeholderTextColor={colors.onSurfaceTertiary} testID="apartments-bathrooms-min" />
               </View>
-              <Text style={styles.filterLabel}>Θέρμανση</Text>
+              <Text style={styles.filterLabel}>{t("apartments.tab.filters.heating")}</Text>
               <View style={styles.filterChipGrid}>
                 {HEATING_FILTER_OPTIONS.map((option) => {
                   const active = heatingTypes.includes(option.value);
-                  return <Pressable key={option.value} style={[styles.filterChip, active && styles.filterChipActive]} onPress={() => setHeatingTypes((current) => active ? current.filter((value) => value !== option.value) : [...current, option.value])}><Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{option.label}</Text></Pressable>;
+                  return <Pressable key={option.value} style={[styles.filterChip, active && styles.filterChipActive]} onPress={() => setHeatingTypes((current) => active ? current.filter((value) => value !== option.value) : [...current, option.value])}><Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{getFilterChipLabel(option)}</Text></Pressable>;
                 })}
               </View>
             </View>
 
             <View style={styles.extendedFilterSection}>
-              <Text style={styles.filterSectionTitle}>Παροχές &amp; χαρακτηριστικά</Text>
+              <Text style={styles.filterSectionTitle}>{t("apartments.tab.filters.amenitiesTitle")}</Text>
               <View style={styles.filterChipGrid}>
                 {AMENITY_FILTER_OPTIONS.map((option) => {
                   const active = selectedAmenities.includes(option.value);
-                  return <Pressable key={option.value} style={[styles.filterChip, active && styles.filterChipActive]} onPress={() => setSelectedAmenities((current) => active ? current.filter((value) => value !== option.value) : [...current, option.value])} testID={`apartments-amenity-${option.value}`}><Ionicons name={option.icon!} size={15} color={active ? colors.onBrand : colors.onSurfaceTertiary} /><Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{option.label}</Text>{active ? <Ionicons name="checkmark" size={14} color={colors.onBrand} /> : null}</Pressable>;
+                  return <Pressable key={option.value} style={[styles.filterChip, active && styles.filterChipActive]} onPress={() => setSelectedAmenities((current) => active ? current.filter((value) => value !== option.value) : [...current, option.value])} testID={`apartments-amenity-${option.value}`}><Ionicons name={option.icon!} size={15} color={active ? colors.onBrand : colors.onSurfaceTertiary} /><Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{getFilterChipLabel(option)}</Text>{active ? <Ionicons name="checkmark" size={14} color={colors.onBrand} /> : null}</Pressable>;
                 })}
               </View>
             </View>
 
             <View style={styles.extendedFilterSection}>
               <Pressable style={styles.filterSectionHeader} onPress={() => setShowBuildingFilters((current) => !current)} testID="apartments-building-filters-toggle">
-                <Text style={styles.filterSectionTitle}>Κτιριακές προδιαγραφές</Text>
+                <Text style={styles.filterSectionTitle}>{t("apartments.tab.filters.buildingSpecs")}</Text>
                 <Ionicons name={showBuildingFilters ? "chevron-up" : "chevron-down"} size={18} color={colors.onSurface} />
               </Pressable>
               {showBuildingFilters ? <>
                 <View style={styles.rangeRow}>
-                  <TextInput style={styles.rangeInput} value={constructionYearMin} onChangeText={(value) => updateFilterValue(setConstructionYearMin, value.replace(/[^0-9]/g, ""))} placeholder="Κατασκευή από" keyboardType="number-pad" placeholderTextColor={colors.onSurfaceTertiary} testID="apartments-construction-year-min" />
-                  <TextInput style={styles.rangeInput} value={renovationYearMin} onChangeText={(value) => updateFilterValue(setRenovationYearMin, value.replace(/[^0-9]/g, ""))} placeholder="Ανακαίνιση από" keyboardType="number-pad" placeholderTextColor={colors.onSurfaceTertiary} testID="apartments-renovation-year-min" />
+                  <TextInput style={styles.rangeInput} value={constructionYearMin} onChangeText={(value) => updateFilterValue(setConstructionYearMin, value.replace(/[^0-9]/g, ""))} placeholder={t("apartments.tab.filters.constructionFrom")} keyboardType="number-pad" placeholderTextColor={colors.onSurfaceTertiary} testID="apartments-construction-year-min" />
+                  <TextInput style={styles.rangeInput} value={renovationYearMin} onChangeText={(value) => updateFilterValue(setRenovationYearMin, value.replace(/[^0-9]/g, ""))} placeholder={t("apartments.tab.filters.renovationFrom")} keyboardType="number-pad" placeholderTextColor={colors.onSurfaceTertiary} testID="apartments-renovation-year-min" />
                 </View>
-                <Text style={styles.filterLabel}>Ενεργειακή κλάση</Text>
+                <Text style={styles.filterLabel}>{t("apartments.tab.filters.energyClass")}</Text>
                 <View style={styles.filterChipGrid}>
                   {ENERGY_CLASS_FILTER_OPTIONS.map((option) => {
                     const active = energyClasses.includes(option.value);
-                    return <Pressable key={option.value} style={[styles.filterChip, active && styles.filterChipActive]} onPress={() => setEnergyClasses((current) => active ? current.filter((value) => value !== option.value) : [...current, option.value])}><Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{option.label}</Text></Pressable>;
+                    return <Pressable key={option.value} style={[styles.filterChip, active && styles.filterChipActive]} onPress={() => setEnergyClasses((current) => active ? current.filter((value) => value !== option.value) : [...current, option.value])}><Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{getFilterChipLabel(option)}</Text></Pressable>;
                   })}
                 </View>
               </> : null}
@@ -3113,7 +3125,7 @@ export default function ApartmentsScreen() {
             </View>
             <View style={styles.hostFeedToggleRow} testID="apartments-map-match-score-toggle-row">
               <View style={styles.hostFeedToggleTextWrap}>
-                <Text style={styles.hostFeedToggleTitle}>Εμφάνιση ποσοστού συμβατότητας στις αγγελίες &amp; χάρτη</Text>
+                <Text style={styles.hostFeedToggleTitle}>{t("apartments.tab.filters.matchScore")}</Text>
               </View>
               <Switch
                 value={showMatchScoreOnMap}
@@ -3124,11 +3136,11 @@ export default function ApartmentsScreen() {
               />
             </View>
             <View style={styles.hardCriteriaSection}>
-              <Text style={styles.hardCriteriaTitle}>My Hard Criteria</Text>
-              <Text style={styles.hardCriteriaDescription}>Επιλέξτε τα κριτήρια που είναι απολύτως απαραίτητα για εσάς.</Text>
+              <Text style={styles.hardCriteriaTitle}>{t("apartments.tab.filters.hardCriteriaTitle")}</Text>
+              <Text style={styles.hardCriteriaDescription}>{t("apartments.tab.filters.hardCriteriaDescription")}</Text>
               <View style={styles.hardCriteriaPills}>
                 {userHardCriteria.map((criterion) => <View key={criterion} style={styles.hardCriteriaPill}><Text style={styles.hardCriteriaPillText}>{HARD_CRITERIA_OPTIONS.find((option) => option.key === criterion)?.label ?? criterion}</Text><Pressable onPress={() => updateFilterValue(setUserHardCriteria, userHardCriteria.filter((item) => item !== criterion))} hitSlop={6} testID={`apartments-hard-criteria-remove-${criterion}`}><Ionicons name="close" size={14} color={colors.brand} /></Pressable></View>)}
-                <Pressable style={styles.hardCriteriaEditButton} onPress={() => setHardCriteriaModalVisible(true)} testID="apartments-hard-criteria-edit"><Ionicons name="add" size={15} color={colors.brand} /><Text style={styles.hardCriteriaEditText}>{userHardCriteria.length ? "Επεξεργασία" : "Προσθήκη"}</Text></Pressable>
+                <Pressable style={styles.hardCriteriaEditButton} onPress={() => setHardCriteriaModalVisible(true)} testID="apartments-hard-criteria-edit"><Ionicons name="add" size={15} color={colors.brand} /><Text style={styles.hardCriteriaEditText}>{userHardCriteria.length ? t("apartments.tab.filters.edit") : t("apartments.tab.filters.add")}</Text></Pressable>
               </View>
             </View>
           </KeyboardAwareScrollView>
@@ -3176,7 +3188,7 @@ export default function ApartmentsScreen() {
               );
             })}
           </MapView>
-          <Pressable style={styles.mapRecenterButton} onPress={recenterMap} testID="apartments-map-recenter" accessibilityRole="button" accessibilityLabel="Επανακεντρισμός χάρτη">
+          <Pressable style={styles.mapRecenterButton} onPress={recenterMap} testID="apartments-map-recenter" accessibilityRole="button" accessibilityLabel={t("apartments.tab.accessibility.recenterMap")}>
             <Ionicons name="locate-outline" size={21} color={colors.brand} />
           </Pressable>
           {selectedMapApartment ? (
@@ -3201,16 +3213,16 @@ export default function ApartmentsScreen() {
           <View style={styles.compactHeaderRow}>
             <View style={styles.compactThumbSpacer} />
             <View style={[styles.compactCol, styles.compactAreaCol]}>
-              <Text numberOfLines={1} style={styles.compactHeaderPill}>Τοποθεσία</Text>
+              <Text numberOfLines={1} style={styles.compactHeaderPill}>{t("apartments.tab.compactHeaders.location")}</Text>
             </View>
             <View style={[styles.compactCol, styles.compactSqmCol]}>
-              <Text numberOfLines={1} style={styles.compactHeaderPill}>Τ.μ.</Text>
+              <Text numberOfLines={1} style={styles.compactHeaderPill}>{t("apartments.tab.compactHeaders.size")}</Text>
             </View>
             <View style={[styles.compactCol, styles.compactAvailCol]}>
-              <Text numberOfLines={1} style={styles.compactHeaderPillDiat}>Διαθ.</Text>
+              <Text numberOfLines={1} style={styles.compactHeaderPillDiat}>{t("apartments.tab.compactHeaders.availability")}</Text>
             </View>
             <View style={[styles.compactCol, styles.compactRentCol]}>
-              <Text numberOfLines={1} style={[styles.compactHeaderPill, styles.compactRentHeaderPill]}>Νοίκι</Text>
+              <Text numberOfLines={1} style={[styles.compactHeaderPill, styles.compactRentHeaderPill]}>{t("apartments.tab.compactHeaders.rent")}</Text>
             </View>
           </View>
         )}
@@ -3664,7 +3676,7 @@ export default function ApartmentsScreen() {
                       {[
                         selectedSetForPreview.selectedCity?.trim() || selectedSetForPreview.cityQuery?.trim(),
                         selectedSetForPreview.areaQuery?.trim(),
-                      ].filter(Boolean).join(" · ") || "Όλες οι περιοχές"}
+                        ].filter(Boolean).join(" · ") || t("apartments.tab.preview.allAreas")}
                     </Text>
                   </View>
                   <View style={styles.filterPreviewPill}>
@@ -3673,15 +3685,15 @@ export default function ApartmentsScreen() {
                   </View>
                   <View style={styles.filterPreviewPill}>
                     <Text style={styles.filterPreviewLabel}>{t("apartments.petsLabel")}</Text>
-                    <Text style={styles.filterPreviewValue}>{selectedSetForPreview.petFriendly ? "Ναι" : "Όχι"}</Text>
+                    <Text style={styles.filterPreviewValue}>{selectedSetForPreview.petFriendly ? t("apartments.tab.preview.yes") : t("apartments.tab.preview.no")}</Text>
                   </View>
                   <View style={styles.filterPreviewPill}>
                     <Text style={styles.filterPreviewLabel}>{t("apartments.metroLabel")}</Text>
-                    <Text style={styles.filterPreviewValue}>{selectedSetForPreview.nearMetro ? "Ναι" : "Όχι"}</Text>
+                    <Text style={styles.filterPreviewValue}>{selectedSetForPreview.nearMetro ? t("apartments.tab.preview.yes") : t("apartments.tab.preview.no")}</Text>
                   </View>
                   <View style={styles.filterPreviewPill}>
-                    <Text style={styles.filterPreviewLabel}>Ταξινόμηση</Text>
-                    <Text style={styles.filterPreviewValue}>{SORT_OPTION_LABELS[selectedSetForPreview.sortBy || "newest"]}</Text>
+                    <Text style={styles.filterPreviewLabel}>{t("apartments.tab.preview.sort")}</Text>
+                    <Text style={styles.filterPreviewValue}>{t(SORT_OPTION_LABEL_KEYS[selectedSetForPreview.sortBy || "newest"])}</Text>
                   </View>
                 </ScrollView>
                 <Pressable
@@ -3729,7 +3741,7 @@ export default function ApartmentsScreen() {
               </View>
             ) : notesList.length === 0 ? (
               <View style={styles.notesStateWrap}>
-                <Text style={styles.notesStateText}>Δεν υπάρχουν αποθηκευμένες σημειώσεις ακόμα.</Text>
+                <Text style={styles.notesStateText}>{t("apartments.tab.notes.empty")}</Text>
               </View>
             ) : (
               <DraggableFlatList
@@ -3806,7 +3818,7 @@ export default function ApartmentsScreen() {
               />
             )}
 
-            {notesOrderSaving ? <Text style={styles.notesSavingText}>Αποθήκευση νέας σειράς...</Text> : null}
+            {notesOrderSaving ? <Text style={styles.notesSavingText}>{t("apartments.tab.notes.savingOrder")}</Text> : null}
           </View>
         </View>
       </Modal>

@@ -19,6 +19,7 @@ import { doc, getDoc } from "firebase/firestore";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
+import { useAuth } from "@/src/context/auth";
 import { subscribeApartmentLikeCount } from "@/src/api/apartmentLikes";
 import { db } from "@/src/config/firebase";
 import { sendPropertyProposalViaMessaging } from "@/src/utils/messagingAutomation";
@@ -40,6 +41,8 @@ type ReelApartment = Apartment & {
   sizeSqm?: number;
   rooms?: number;
   floor?: string;
+  hostId?: string;
+  userId?: string;
   city?: string;
   ownerId?: string;
   assignedBrokerIds?: string[];
@@ -73,6 +76,7 @@ export default function ApartmentReelCard({
 }: ApartmentReelCardProps) {
   const apartmentData = apartment as ReelApartment;
   const { colors } = useTheme();
+  const auth = useAuth();
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   const BOTTOM_CLEARANCE = TAB_BAR_HEIGHT + insets.bottom + spacing.lg;
@@ -98,6 +102,10 @@ export default function ApartmentReelCard({
     videoPlayer.muted = true;
   });
   const hostId = apartmentData.assignedBrokerIds?.find((id) => id.trim().length > 0) || apartmentData.hostId || apartmentData.ownerId;
+  const isOwnListing = Boolean(
+    auth.userId &&
+    (apartmentData.hostId === auth.userId || apartmentData.ownerId === auth.userId || apartmentData.userId === auth.userId),
+  );
   const tourData = apartmentData.virtualTour;
   const price = Number(apartmentData.rent ?? apartmentData.monthlyRent ?? apartmentData.price ?? 0);
   const area = [apartmentData.area, apartmentData.city].filter((value, index, all): value is string => typeof value === "string" && value.trim().length > 0 && all.indexOf(value) === index).join(", ");
@@ -226,7 +234,13 @@ export default function ApartmentReelCard({
       ) : null}
 
       <View style={[styles.rightRail, { bottom: BOTTOM_CLEARANCE }]}>
-        <Pressable style={styles.avatarCircle} onPress={onOpenChat} accessibilityLabel={hostProfile.name ?? t("feed.openHostChat")}>
+        <Pressable
+          style={styles.avatarCircle}
+          onPress={isOwnListing ? undefined : onOpenChat}
+          disabled={isOwnListing}
+          accessibilityLabel={hostProfile.name ?? t("feed.openHostChat")}
+          accessibilityState={{ disabled: isOwnListing }}
+        >
           {hostProfile.avatar ? <Image source={hostProfile.avatar} style={styles.avatarImage} contentFit="cover" /> : <DefaultProfileAvatar size={42} iconSize={20} />}
         </Pressable>
         <Pressable style={styles.actionButton} onPress={animateLike} accessibilityLabel={isLiked ? t("feed.removeFavorite") : t("feed.addFavorite")}>

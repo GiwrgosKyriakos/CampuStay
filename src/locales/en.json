@@ -318,6 +318,8 @@
     "subtitle": "Control who sees your profile and manage blocked accounts.",
     "visibilityTitle": "Show my profile in the stack",
     "visibilityHelp": "If turned off, your profile will not appear in other students' Home screens.",
+    "deckVisibilityTitle": "Hide profile sharing",
+    "deckVisibilityHelp": "When enabled, your profile cannot be shared with other users.",
     "blockedTitle": "Blocked Profiles",
     "blockedEmpty": "You have not blocked any profiles.",
     "saving": "Saving privacy settings...",
@@ -454,6 +456,7 @@
     "markAllRead": "Mark all as read",
     "emptyTitle": "No notifications",
     "emptyBody": "New updates will appear here.",
+    "feedHistory": "Notification History",
     "saving": "Saving changes...",
     "errors": {
       "load": "Unable to load notification settings.",
@@ -463,6 +466,15 @@
       "newMatches": { "title": "New Matches", "subtitle": "Notify me when someone likes me back" },
       "directMessages": { "title": "Direct Messages", "subtitle": "Notify me when I receive a new chat message" },
       "updatesTips": { "title": "App Updates & Tips", "subtitle": "Occasional reminders and compatibility tips" }
+    },
+    "brokerStagnation": {
+      "title": "Deal Stagnation Alerts",
+      "enabled": "Enable stagnation alerts",
+      "firstAlertTime": "First alert time",
+      "frequency": "Alert frequency",
+      "startTimePlaceholder": "11:00",
+      "every15Minutes": "Every 15 minutes",
+      "everyHour": "Every hour"
     }
   },
   "deleteAccount": {
@@ -487,6 +499,9 @@
     "title": "Quiz"
   },
   "chat": {
+    "header": {
+      "activeNow": "Active now"
+    },
     "unavailable": "Unavailable",
     "exactLocation": "Exact location",
     "openNavigation": "Open navigation",
@@ -502,6 +517,7 @@
     "shareExactAddressDescription": "The address will be sent to the client for tomorrow's visit.",
     "exactAddressUnavailable": "Exact address not found",
     "shareAddress": "Share address",
+    "deletedUser": "Deleted User",
     "placeholderDeleted": "This user deleted their account",
     "placeholderPending": "Waiting for acceptance...",
     "placeholderMessage": "Message {{name}}...",
@@ -856,6 +872,128 @@
   },
   "apartments": {
     "title": "Apartments",
+    "tab": {
+      "clientOnlyView": "client-only view",
+      "proposedListTitle": "Suggested list",
+      "filterShareMessage": "[Search criteria: {{criteria}}]",
+      "filterSummary": {
+        "rentRange": "{{min}}€ - {{max}}€",
+        "sqmPriceRange": "{{min}} - {{max}} €/m²",
+        "sizeRange": "{{min}} - {{max}} m²",
+        "pets": "Pets",
+        "metro": "Metro",
+        "furnished": "Furnished",
+        "unfurnished": "Unfurnished",
+        "constructionYear": "Built {{year}}+",
+        "renovationYear": "Renovated {{year}}+",
+        "allApartments": "All apartments",
+        "floor": "Floor: {{value}}",
+        "city": "City: {{value}}",
+        "area": "Area: {{value}}",
+        "bedrooms": "{{count}}+ bedrooms",
+        "bathrooms": "{{count}}+ bathrooms",
+        "polygon": "Map area"
+      },
+      "sortOptions": {
+        "newest": "Newest",
+        "oldest": "Oldest",
+        "priceAsc": "Price ascending (€ -> €€€)",
+        "priceDesc": "Price descending (€€€ -> €)",
+        "sizeAsc": "Size ascending (m² -> m³)",
+        "sizeDesc": "Size descending (m³ -> m²)",
+        "priceSqmAsc": "Price/sq.m. ascending (€/m² -> €€€/m²)",
+        "priceSqmDesc": "Price/sq.m. descending (€€€/m² -> €/m²)"
+      },
+      "propertyTypes": {
+        "apartment": "Apartment",
+        "studio": "Studio",
+        "maisonette": "Maisonette",
+        "loft": "Loft",
+        "room": "Room"
+      },
+      "propertyCategories": {
+        "residential": "Residential",
+        "commercial": "Commercial",
+        "land": "Land",
+        "other": "Other"
+      },
+      "floors": {
+        "basement": "Basement",
+        "mezzanine": "Mezzanine",
+        "ground": "Ground floor",
+        "first": "1st",
+        "second": "2nd",
+        "third": "3rd",
+        "fourth": "4th",
+        "fifthPlus": "5th+"
+      },
+      "heating": {
+        "autonomous": "Autonomous",
+        "central": "Central",
+        "airConditioning": "Air conditioning",
+        "heatPump": "Heat pump"
+      },
+      "amenities": {
+        "elevator": "Elevator",
+        "balcony": "Balcony",
+        "parking": "Parking",
+        "airConditioner": "Air conditioning",
+        "securityDoor": "Security door",
+        "solarWaterHeater": "Solar water heater",
+        "alarm": "Alarm",
+        "storageRoom": "Storage room",
+        "garden": "Garden",
+        "fireplace": "Fireplace",
+        "wifi": "WiFi",
+        "billsIncluded": "Bills included",
+        "sharedKitchen": "Shared kitchen",
+        "furnished": "Furnished",
+        "petFriendly": "Pets",
+        "nearMetro": "Near metro"
+      },
+      "filters": {
+        "propertyType": "Property type",
+        "category": "Category",
+        "floor": "Floor",
+        "furnished": "Furnished",
+        "all": "All",
+        "furnishedOption": "Furnished",
+        "unfurnishedOption": "Unfurnished",
+        "bedroomsPlaceholder": "Minimum bedrooms",
+        "bathroomsPlaceholder": "Minimum bathrooms",
+        "heating": "Heating",
+        "amenitiesTitle": "Amenities & features",
+        "buildingSpecs": "Building specifications",
+        "constructionFrom": "Built from",
+        "renovationFrom": "Renovated from",
+        "energyClass": "Energy class",
+        "matchScore": "Show compatibility percentage on listings & map",
+        "hardCriteriaTitle": "My Hard Criteria",
+        "hardCriteriaDescription": "Select the criteria that are absolutely essential for you.",
+        "edit": "Edit",
+        "add": "Add"
+      },
+      "accessibility": {
+        "removeFilter": "Remove filter {{label}}",
+        "recenterMap": "Recenter map"
+      },
+      "compactHeaders": {
+        "location": "Location",
+        "size": "Sq.m.",
+        "availability": "Avail.",
+        "rent": "Rent"
+      },
+      "preview": {
+        "sort": "Sort",
+        "allAreas": "All areas",
+        "yes": "Yes",
+        "no": "No"
+      },
+      "notes": {
+        "empty": "No saved notes yet.",
+        "savingOrder": "Saving new order..."
+      }
+    },
     "withdrawnByOtherBrokerBanner": "Withdrawn by another broker managing this property",
     "selectManagingBrokerTitle": "Select a broker managing this property",
     "selectManagingBrokerSubtitle": "This property is managed by multiple brokers. Choose who you would like to contact.",
@@ -1317,21 +1455,21 @@
       "personal": "Personal Preferences"
     },
     "questions": {
-      "q1": { "question": "What is your overall standard of cleanliness for the shared spaces?", "options": ["Very tidy and highly organized", "Average and reasonably clean", "Pretty relaxed or messy"] },
-      "q2": { "question": "How frequently do you plan to contribute to deep house cleaning?", "options": ["At least once a week", "Every now and then", "Only when it gets absolutely necessary"] },
-      "q3": { "question": "What is your golden rule for doing the dishes?", "options": ["Wash them immediately or daily", "Leave them for the next day", "Wash them only when no clean ones are left"] },
-      "q4": { "question": "How do you want to manage the shared utility bills?", "options": ["Split everything strictly down the middle", "Each person takes responsibility for a specific bill", "Figure it out dynamically month by month"] },
-      "q5": { "question": "What is your stance on smoking or vaping inside the house?", "options": ["I smoke regularly", "I only smoke outside or on the balcony", "I am a strict non-smoker"] },
-      "q6": { "question": "What are your expectations regarding noise levels in the apartment?", "options": ["I need absolute quiet most of the time", "I only need it quiet during late-night hours", "Noise doesn't bother me at all"] },
-      "q7": { "question": "What does your typical sleep schedule look like?", "options": ["Early bird (asleep before 11 PM)", "Normal student routine (asleep between 11 PM and 1 AM)", "Night owl (asleep after 1 AM)"] },
-      "q8": { "question": "What is your policy on having friends or guests over?", "options": ["Guests can come over anytime without notice", "Please ask or give a heads-up first", "Rare visits only, I prefer privacy"] },
-      "q9": { "question": "How do you feel about hosting parties or gatherings in the apartment?", "options": ["Love them, the more the merrier", "Occasional small gatherings are perfectly fine", "Strictly no parties at home"] },
-      "q10": { "question": "What kind of social dynamic do you want to build with your roommate?", "options": ["I want us to become close friends and hang out together", "Friendly and polite, but we keep our separate lives", "Just roommates co-existing quietly"] },
-      "q11": { "question": "How do you feel about sharing personal belongings like kitchenware or furniture?", "options": ["Share everything freely", "Always ask before using my things", "I completely prefer not to share"] },
-      "q12": { "question": "How should we organize groceries and common household items?", "options": ["Take turns buying shared supplies", "Split the grocery costs evenly", "Everyone buys and consumes their own stuff"] },
-      "q13": { "question": "What is your situation or preference regarding pets in the house?", "options": ["I have a pet or definitely want to get one", "I don't have one, but pets are totally fine with me", "Strictly no pets allowed"] },
-      "q14": { "question": "What is your preference regarding alcohol consumption inside the apartment?", "options": ["I enjoy drinking frequently at home", "I only drink occasionally on weekends", "I don't drink or prefer an alcohol-free home"] },
-      "q15": { "question": "How often do you plan on using the kitchen to cook your meals?", "options": ["I cook every single day", "A few times a week", "Rarely, I mostly order out or eat on campus"] }
+      "q1": { "question": "What is your overall standard of cleanliness for shared spaces?", "options": { "veryTidy": "Very tidy and highly organized", "average": "Average and reasonably clean", "messy": "Pretty relaxed or messy" } },
+      "q2": { "question": "How often do you plan to contribute to deep cleaning the home?", "options": { "weekly": "At least once a week", "sometimes": "Every now and then", "onlyWhenNeeded": "Only when it becomes absolutely necessary" } },
+      "q3": { "question": "What is your golden rule for doing the dishes?", "options": { "daily": "Wash them immediately or daily", "nextDay": "Leave them until the next day", "noCleanOnes": "Wash them only when no clean ones are left" } },
+      "q4": { "question": "How do you want to manage shared utility bills?", "options": { "splitEvenly": "Split everything evenly", "assignedBills": "Each person pays for a different bill", "flexible": "We will figure it out as we go" } },
+      "q5": { "question": "What is your stance on smoking or vaping inside the home?", "options": { "regular": "I smoke regularly", "outside": "I only smoke outside or on the balcony", "nonSmoker": "I am a strict non-smoker" } },
+      "q6": { "question": "What are your expectations regarding noise levels in the apartment?", "options": { "alwaysQuiet": "I need absolute quiet most of the time", "nightQuiet": "I only need it quiet during late-night hours", "noiseFine": "Noise does not bother me at all" } },
+      "q7": { "question": "What does your typical sleep schedule look like?", "options": { "earlyBird": "Early bird (asleep before 11 PM)", "studentRoutine": "Normal student routine (asleep between 11 PM and 1 AM)", "nightOwl": "Night owl (asleep after 1 AM)" } },
+      "q8": { "question": "What is your policy on having friends or guests over?", "options": { "anytime": "Guests can come over anytime without notice", "askFirst": "Please ask or give me a heads-up first", "rareVisits": "Rare visits only, I prefer privacy" } },
+      "q9": { "question": "How do you feel about hosting parties or gatherings in the apartment?", "options": { "loveParties": "I love them, the more the merrier", "occasional": "Occasional small gatherings are perfectly fine", "noParties": "Strictly no parties at home" } },
+      "q10": { "question": "What kind of social dynamic do you want to build with your roommate?", "options": { "closeFriends": "I want us to become close friends and hang out together", "friendlySeparate": "Friendly and polite, but we keep our separate lives", "quietRoommates": "Just roommates co-existing quietly" } },
+      "q11": { "question": "How do you feel about sharing personal belongings like kitchenware or furniture?", "options": { "shareFreely": "Share everything freely", "askFirst": "Always ask before using my things", "noSharing": "I prefer not to share" } },
+      "q12": { "question": "How should we organize groceries and common household items?", "options": { "takeTurns": "Take turns buying shared supplies", "splitCosts": "Split the grocery costs evenly", "ownSupplies": "Everyone buys and consumes their own things" } },
+      "q13": { "question": "What is your situation or preference regarding pets in the home?", "options": { "haveOrWant": "I have a pet or definitely want to get one", "petsFine": "I do not have one, but pets are totally fine with me", "noPets": "Strictly no pets allowed" } },
+      "q14": { "question": "What is your preference regarding alcohol consumption inside the apartment?", "options": { "often": "I enjoy drinking frequently at home", "weekends": "I only drink occasionally on weekends", "noAlcohol": "I do not drink or prefer an alcohol-free home" } },
+      "q15": { "question": "How often do you plan on using the kitchen to cook your meals?", "options": { "everyDay": "I cook every single day", "fewTimes": "A few times a week", "rarely": "Rarely, I mostly order out or eat on campus" } }
     }
   },
   "esign": {

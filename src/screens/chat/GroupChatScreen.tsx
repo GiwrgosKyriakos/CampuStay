@@ -52,6 +52,8 @@ import type { ContractDraftContext, ContractType } from "@/src/types/esignature"
 import EditVisitModal from "@/src/components/chat/modals/EditVisitModal";
 import CenteredActionModal from "@/src/components/CenteredActionModal";
 
+const campuStay = true;
+
 type GroupMessage = {
   id: string;
   senderId: string;
@@ -133,6 +135,7 @@ export default function GroupChatScreen({
   const [hostApartment, setHostApartment] = useState<Apartment | null>(null);
   const [agencyId, setAgencyId] = useState("independent");
   const [contractPickerVisible, setContractPickerVisible] = useState(false);
+  const [underConstructionModalVisible, setUnderConstructionModalVisible] = useState(false);
   const [visitToEdit, setVisitToEdit] = useState<GroupMessage | null>(null);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const [contextMenuVisible, setContextMenuVisible] = useState(false);
@@ -510,6 +513,11 @@ export default function GroupChatScreen({
   };
 
   const startContract = (contractType: Extract<ContractType, "roommate_agreement" | "holding_deposit_viewing">) => {
+    if (campuStay) {
+      setContractPickerVisible(false);
+      setUnderConstructionModalVisible(true);
+      return;
+    }
     setContractPickerVisible(false);
     const participantIds = metadata.memberIds.map((id) => ({
       id,
@@ -589,7 +597,14 @@ export default function GroupChatScreen({
           <View style={styles.headerActions}>
             <Pressable
               style={styles.iconBtn}
-              onPress={() => setContractPickerVisible(true)}
+              onPress={() => {
+                if (campuStay) {
+                  setContractPickerVisible(false);
+                  setUnderConstructionModalVisible(true);
+                } else {
+                  setContractPickerVisible(true);
+                }
+              }}
               hitSlop={8}
               testID="group-contract-button"
             >
@@ -698,7 +713,11 @@ export default function GroupChatScreen({
                 <Pressable
                   style={[styles.contractMessage, isMine ? styles.mineContract : styles.theirsContract, itemMarginStyle]}
                   onPress={() => {
-                    router.push({ pathname: "/contract/[id]", params: { id: item.contractId, contractId: item.contractId, signerId: currentUserId } } as never);
+                    if (campuStay) {
+                      setUnderConstructionModalVisible(true);
+                    } else {
+                      router.push({ pathname: "/contract/[id]", params: { id: item.contractId, contractId: item.contractId, signerId: currentUserId } } as never);
+                    }
                   }}
                   testID={`group-contract-message-${item.id}`}
                 >
@@ -808,6 +827,16 @@ export default function GroupChatScreen({
         onClose={() => setContractPickerVisible(false)}
         onSelect={startContract}
       />
+      <CenteredActionModal
+        visible={underConstructionModalVisible}
+        title={t("common.underConstruction.title")}
+        description={t("common.underConstruction.description")}
+        onDismiss={() => setUnderConstructionModalVisible(false)}
+        actions={[{ label: t("common.underConstruction.action"), iconName: "checkmark-circle-outline", onPress: () => setUnderConstructionModalVisible(false) }]}
+        testID="group-chat-contract-under-construction-modal"
+      >
+        <Ionicons name="construct-outline" size={46} color={colors.brand} style={{ alignSelf: "center" }} />
+      </CenteredActionModal>
       <EditVisitModal
         visible={visitToEdit !== null}
         appointmentDate={visitToEdit?.metadata?.appointmentDate}

@@ -58,6 +58,9 @@ export interface FirestoreUserDoc {
   twitter?: string;
   photoUrl?: string;
   photos?: string[];
+  deleted?: boolean;
+  isDeleted?: boolean;
+  deletedAt?: unknown;
   phone_number?: string | null;
   phone?: string | null;
   directMessagesEnabled?: boolean;

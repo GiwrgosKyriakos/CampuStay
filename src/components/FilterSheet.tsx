@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
 import { useTheme } from "@/src/context/ThemeContext";
+import { useLocale } from "@/src/context/locale";
 import { t } from "@/src/locales";
 import { QUIZ_SECTIONS, type QuizQuestionId } from "@/src/data/quiz";
 
@@ -45,8 +46,6 @@ type RangeName = "age" | "budget";
 type RangeField = "min" | "max";
 type PickerTarget = { range: RangeName; field: RangeField };
 type NumericInputValues = Record<"ageMin" | "ageMax" | "budgetMin" | "budgetMax", string>;
-
-const HARD_CRITERIA_OPTIONS = QUIZ_SECTIONS.flatMap((section) => section.questions.map((question) => ({ key: question.id, label: question.question })));
 
 function inputValuesFromFilters(filters: Filters): NumericInputValues {
   return {
@@ -328,7 +327,7 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
               </View>
               <View style={styles.hardCriteriaPills}>
                 {(draft.userHardCriteria ?? []).map((key) => {
-                  const option = HARD_CRITERIA_OPTIONS.find((item) => item.key === key);
+                  const option = hardCriteriaOptions.find((item) => item.key === key);
                   if (!option) return null;
                   return (
                     <View key={key} style={styles.hardCriteriaPill}>
@@ -483,7 +482,12 @@ interface HardCriteriaSelectionModalProps {
 
 function HardCriteriaSelectionModal({ visible, selected, onClose, onToggle }: HardCriteriaSelectionModalProps) {
   const { colors } = useTheme();
+  const { locale } = useLocale();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const hardCriteriaOptions = useMemo(
+    () => QUIZ_SECTIONS.flatMap((section) => section.questions.map((question) => ({ key: question.id, label: t(question.questionKey) }))),
+    [locale],
+  );
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -498,11 +502,11 @@ function HardCriteriaSelectionModal({ visible, selected, onClose, onToggle }: Ha
             </Pressable>
           </View>
           <ScrollView contentContainerStyle={styles.hardCriteriaOptions} showsVerticalScrollIndicator={false}>
-            {HARD_CRITERIA_OPTIONS.map((option) => {
+            {hardCriteriaOptions.map((option) => {
               const active = selected.includes(option.key);
               return (
                 <Pressable key={option.key} style={[styles.hardCriteriaOption, active && styles.hardCriteriaOptionActive]} onPress={() => onToggle(option.key)} testID={`hard-criteria-option-${option.key}`}>
-                  <Text style={[styles.hardCriteriaOptionText, active && styles.hardCriteriaOptionTextActive]}>{t(option.label)}</Text>
+                  <Text style={[styles.hardCriteriaOptionText, active && styles.hardCriteriaOptionTextActive]}>{option.label}</Text>
                   <Ionicons name={active ? "checkbox" : "square-outline"} size={22} color={active ? colors.brand : colors.onSurfaceTertiary} />
                 </Pressable>
               );

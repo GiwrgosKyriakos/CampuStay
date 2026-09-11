@@ -13,7 +13,6 @@ import { getUserId } from "@/src/utils/userId";
 import { useAuth } from "@/src/context/auth";
 import { db } from "@/src/config/firebase";
 import { cleanupObsoleteChatMessages } from "@/src/api/chatCleanup";
-import { DELETED_ACCOUNT_LABEL } from "@/src/api/accountDeletion";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import { t } from "@/src/locales";
 import { getBlockRelationshipState } from "@/src/api/chat";
@@ -62,6 +61,8 @@ interface FirestoreUserDoc {
   photoUrl?: string;
   photos?: string[];
   deleted?: boolean;
+  isDeleted?: boolean;
+  deletedAt?: unknown;
   is_broker?: boolean;
   agencyId?: string | null;
   agencyRole?: string | null;
@@ -82,6 +83,7 @@ interface FirestoreChatDoc {
   rejections?: string[];
   clearedAt?: Record<string, unknown>;
   deletedUsers?: Record<string, boolean>;
+  blockedByUsers?: Record<string, boolean>;
   participantDisplayNames?: Record<string, string>;
   lastMessage?: string;
   lastMessageType?: string;
@@ -178,6 +180,10 @@ function isDeletedForUser(chatData: FirestoreChatDoc, uid: string): boolean {
   return nestedValue === true || flatValue === true;
 }
 
+function isDeletedUserData(data: FirestoreUserDoc): boolean {
+  return data.deleted === true || data.isDeleted === true || data.deletedAt != null;
+}
+
 function isMessageRead(msg: FirestoreLastMessageDoc | null, currentUserId: string): boolean {
   if (!msg) return true;
   if (msg.isRead === true || msg.read === true) return true;
@@ -196,7 +202,7 @@ function buildDeletedCandidate(
 ): ChatListItem {
   return {
     id: uid,
-    name: label || DELETED_ACCOUNT_LABEL,
+    name: label || t("chat.deletedUser"),
     age: 0,
     gender: t("common.values.nonBinary") as Gender,
     budget: 0,
@@ -224,12 +230,13 @@ function mapUserToChatItem(
 ): ChatListItem {
   if (!data) return buildDeletedCandidate(uid, chatRoomId, status, initiatedBy);
 
-  const photos = Array.isArray(data.photos) ? data.photos : [];
-  const photo = data.photoUrl || photos[0] || "";
+  const deleted = isDeletedUserData(data);
+  const photos = deleted ? [] : Array.isArray(data.photos) ? data.photos : [];
+  const photo = deleted ? "" : data.photoUrl || photos[0] || "";
 
   return {
     id: uid,
-    name: data.name?.trim() || DELETED_ACCOUNT_LABEL,
+    name: deleted ? t("chat.deletedUser") : data.name?.trim() || t("chat.deletedUser"),
     age: typeof data.age === "number" ? data.age : 0,
     gender: (data.gender as Gender) || (t("common.values.nonBinary") as Gender),
     budget: typeof data.maxBudget === "number" ? data.maxBudget : typeof data.budget === "number" ? data.budget : 0,
@@ -238,7 +245,7 @@ function mapUserToChatItem(
     bio: data.about || data.bio || "",
     tags: [],
     photo,
-    deleted: !!data.deleted,
+    deleted,
     chatRoomId,
     chat_users: Array.isArray(users) ? users : undefined,
     chat_status: status,
@@ -714,10 +721,10 @@ export default function MatchesScreen() {
                     ? chatData.rejections.filter((entry): entry is string => typeof entry === "string")
                     : [];
 
-                  // ΔΙΟΡΘΩΣΗ: Διαβάζουμε το blockedByUsers map από το metadata του chat document
-                  const blockedMap = (chatData as any).blockedByUsers ?? {};
-                  const isBlocker = blockedMap[uid] === true;
-                  const isBlocked = blockedMap[counterpartUid] === true;
+                  const blockedMap = chatData.blockedByUsers ?? {};
+                  const relationState = await getBlockRelationshipState(uid, counterpartUid);
+                  const isBlocker = blockedMap[uid] === true || relationState.isBlocker;
+                  const isBlocked = blockedMap[counterpartUid] === true || relationState.isBlocked;
 
                   return {
                     sortKey,
@@ -757,7 +764,7 @@ export default function MatchesScreen() {
                   return !existingChatIds.has(chatRoomId);
                 });
 
-                const fallbackCandidates = await Promise.all(
+                const fallbackCandidates: Array<{ sortKey: number; item: ChatListItem } | null> = await Promise.all(
                   missingTargets.map(async (targetUid) => {
                     const chatRoomId = [uid, targetUid].sort().join("_");
                     if (locallyDeletedChatIdsRef.current.has(chatRoomId)) return null;
@@ -765,10 +772,16 @@ export default function MatchesScreen() {
                     const existingChatData = existingChat.exists() ? existingChat.data() as FirestoreChatDoc : null;
                     if (existingChatData && (isDeletedForUser(existingChatData, uid) || getClearedAtForUser(existingChatData, uid) > 0)) return null;
                     const userData = await fetchUserProfile(targetUid);
+                    const relationState = await getBlockRelationshipState(uid, targetUid);
+                    const blockedMap = existingChatData?.blockedByUsers ?? {};
 
                     return {
                       sortKey: 0,
-                      item: mapUserToChatItem(targetUid, chatRoomId, [uid, targetUid], "pending", uid, null, [], userData),
+                      item: {
+                        ...mapUserToChatItem(targetUid, chatRoomId, [uid, targetUid], "pending", uid, null, [], userData),
+                        isBlocker: blockedMap[uid] === true || relationState.isBlocker,
+                        isBlocked: blockedMap[targetUid] === true || relationState.isBlocked,
+                      },
                     };
                   }),
                 );
@@ -819,6 +832,7 @@ export default function MatchesScreen() {
 
   const handleAcceptChat = async (profile: ChatListItem) => {
     if (!currentUserId || !profile.chatRoomId) return;
+    if (profile.isBlocker || profile.isBlocked) return;
     setAcceptingChatId(profile.chatRoomId);
     try {
       if (profile.isGroup) {
@@ -847,6 +861,7 @@ export default function MatchesScreen() {
 
   const handleRejectChat = async (profile: ChatListItem) => {
     if (!currentUserId || !profile.chatRoomId) return;
+    if (profile.isBlocker || profile.isBlocked) return;
     setAcceptingChatId(profile.chatRoomId);
     try {
       if (profile.isGroup) {
@@ -897,6 +912,7 @@ export default function MatchesScreen() {
   }
 
   const isHostSharer = !isBroker && notLookingForRoommate && hasApartmentShareFlag;
+  const availableMatchCount = matches.filter((match) => !match.isBlocker && !match.isBlocked).length;
 
   if (isHostSharer) {
     return <HostInboxContent titleOverride="Incoming Requests" showBackButton={false} />;
@@ -916,7 +932,6 @@ export default function MatchesScreen() {
                 <Ionicons name="people-circle-outline" size={20} color={colors.onBrand} />
               </Pressable>
             ) : null}
-            */}
             
             <Pressable
               style={[styles.brokersToggleBtn, isBrokersView && styles.brokersToggleBtnActive]}
@@ -925,6 +940,7 @@ export default function MatchesScreen() {
             >
               <Ionicons name="briefcase-outline" size={18} color={isBrokersView ? colors.onBrand : colors.onSurface} />
             </Pressable>
+            */}
           </View>
         </View>
         <Text style={styles.subtitle}>
@@ -932,10 +948,10 @@ export default function MatchesScreen() {
             ? "Συνομιλίες με Μεσίτες"
             : auth.isGuest
             ? t("matches.subtitleGuest")
-            : matches.length > 0 && selectedChatType === "roommate"
+            : availableMatchCount > 0 && selectedChatType === "roommate"
             ? t("matches.subtitleCount", {
-                count: matches.length,
-                roommateLabel: matches.length === 1 ? t("matches.roommateSingular") : t("matches.roommatePlural"),
+              count: availableMatchCount,
+              roommateLabel: availableMatchCount === 1 ? t("matches.roommateSingular") : t("matches.roommatePlural"),
               })
             : selectedChatType === "host"
             ? t("matches.subtitleHosts")
@@ -1015,20 +1031,21 @@ export default function MatchesScreen() {
             const isDeleted = isDeletedCounterpart(p);
             
             // ΔΙΟΡΘΩΣΗ: Καθαρό conditional mapping για blocking και deletion
-            let displayName = isDeleted ? t("common.account.deleted") : p.name;
+            let displayName = isDeleted ? t("chat.deletedUser") : p.name;
             let hasAvatar = !isDeleted && !!p.photo?.trim();
 
             if (p.isBlocker) {
               displayName = t("common.account.blocked");
               hasAvatar = false; // Αναγκάζει το UI να δείξει το DefaultProfileAvatar
             } else if (p.isBlocked) {
-              displayName = t("common.account.deleted");
+              displayName = t("chat.deletedUser");
               hasAvatar = false; // Εξομοιώνει τη διαγραφή λογαριασμού στον μπλοκαρισμένο
             }
             
             const chatStatus = p.chat_status ?? "active";
             const isPending = chatStatus === "pending";
             const isRejected = chatStatus === "rejected";
+            const isBlockedChat = !!p.isBlocker || !!p.isBlocked;
             const rejectedByCounterpart = isRejected && !!currentUserId && (
               p.chat_rejected_by === p.id ||
               (Array.isArray(p.chat_rejections) && p.chat_rejections.includes(currentUserId)) ||
@@ -1049,7 +1066,7 @@ export default function MatchesScreen() {
             const avatarUri2 = groupAvatarUris[1] || "";
 
             if (rejectedByCounterpart) {
-              displayName = t("common.account.deleted");
+              displayName = t("chat.deletedUser");
               hasAvatar = false;
             }
             const lastMessage = lastMessageByChat[p.chatRoomId];
@@ -1061,6 +1078,7 @@ export default function MatchesScreen() {
               : (lastMessage?.text || defaultPreview);
             const unreadFromCounterparty =
               !isPending &&
+              !isBlockedChat &&
               !!lastMessage &&
               lastMessage.senderId !== currentUserId &&
               !lastMessage.isRead;
@@ -1069,7 +1087,7 @@ export default function MatchesScreen() {
             return (
               <Pressable
                 key={p.id}
-                style={styles.row}
+                style={[styles.row, isBlockedChat && styles.row]}
                 testID={`chat-row-${p.id}`}
                 onPress={() => handleNavigateToChat(p)}
                 onLongPress={() => setActiveContextChatId(p.chatRoomId)}
@@ -1117,7 +1135,11 @@ export default function MatchesScreen() {
                   </Text>
                   {isPending ? (
                     isReceiver ? (
-                      acceptingChatId === p.chatRoomId ? (
+                      isBlockedChat ? (
+                        <Text style={[styles.rowMsg, styles.rowMsgFaded]} numberOfLines={1}>
+                          {t("host-inbox.blockedUnavailable")}
+                        </Text>
+                      ) : acceptingChatId === p.chatRoomId ? (
                         <View style={styles.pendingActionRow}>
                           <ActivityIndicator size="small" color={colors.brand} />
                         </View>

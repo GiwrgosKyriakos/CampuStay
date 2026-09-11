@@ -301,12 +301,13 @@ function isDeletedCounterpart(profile: RoommateProfile): boolean {
 }
 
 function mapFirestoreUserToProfile(uid: string, data: FirestoreUserDoc): RoommateProfile {
-  const photos = Array.isArray(data.photos) ? data.photos : [];
-  const photo = data.photoUrl || photos[0] || "";
+  const deleted = data.deleted === true || data.isDeleted === true || data.deletedAt != null;
+  const photos = deleted ? [] : Array.isArray(data.photos) ? data.photos : [];
+  const photo = deleted ? "" : data.photoUrl || photos[0] || "";
 
   return {
     id: uid,
-    name: data.name?.trim() || t("common.values.unknown"),
+    name: deleted ? t("chat.deletedUser") : data.name?.trim() || t("common.values.unknown"),
     age: typeof data.age === "number" ? data.age : 0,
     gender: (data.gender as Gender) || (t("common.values.nonBinary") as Gender),
     budget: typeof data.maxBudget === "number" ? data.maxBudget : typeof data.budget === "number" ? data.budget : 0,
@@ -315,7 +316,7 @@ function mapFirestoreUserToProfile(uid: string, data: FirestoreUserDoc): Roommat
     bio: data.about || data.bio || "",
     tags: [],
     photo,
-    deleted: false,
+    deleted,
   };
 }
 
@@ -994,7 +995,21 @@ function DirectChatScreen() {
       (!auth.isBroker && counterpartDetails?.is_broker === true));
   const isManualClient = auth.isBroker && isBrokerClientChat && brokerChatRole === "client" && counterpartDetails?.is_manual_client === true;
 
+  const openRoommateContractAction = useCallback(() => {
+    if (campuStay) {
+      setRoommateContractPickerVisible(false);
+      setUnderConstructionModalVisible(true);
+      return;
+    }
+    setRoommateContractPickerVisible(true);
+  }, []);
+
   const startRoommateContract = useCallback((contractType: Extract<ContractType, "roommate_agreement" | "holding_deposit_viewing">) => {
+    if (campuStay) {
+      setRoommateContractPickerVisible(false);
+      setUnderConstructionModalVisible(true);
+      return;
+    }
     if (!currentUserId || !counterpartId || !chatRoomId || !isRoommateChat) return;
     setRoommateContractPickerVisible(false);
     const draft: ContractDraftContext = {
@@ -1915,7 +1930,7 @@ function DirectChatScreen() {
 
   const deletedProfileFallback: RoommateProfile = {
     id,
-    name: t("common.account.deleted"),
+    name: t("chat.deletedUser"),
     age: 0,
     gender: t("common.values.nonBinary") as Gender,
     budget: 0,
@@ -1945,7 +1960,7 @@ function DirectChatScreen() {
   const blockedByOtherUser = isBlocked || settingsBlockState.isBlocked;
 
   // ΔΙΟΡΘΩΣΗ: Δυναμικός έλεγχος για απόκρυψη στοιχείων λόγω Block
-  let displayName = maskedAsDeleted ? t("common.account.deleted") : activeProfile.name;
+  let displayName = maskedAsDeleted ? t("chat.deletedUser") : activeProfile.name;
   let displayAbout = maskedAsDeleted
     ? t("chat.placeholderDeleted")
     : counterpartDetails?.about?.trim() || counterpartDetails?.bio?.trim() || t("common.values.notAvailable");
@@ -1958,7 +1973,7 @@ function DirectChatScreen() {
     displayUniversity = "";
     displayAbout = t("chat.blocked.profileHidden");
   } else if (blockedByOtherUser) {
-    displayName = t("common.account.deleted") || "Deleted Account";
+    displayName = t("chat.deletedUser");
     showAvatarImage = false;
     displayUniversity = "";
     displayAbout = t("chat.placeholderDeleted") || t("chat.blocked.accountDeletedFallback");
@@ -3168,7 +3183,7 @@ function DirectChatScreen() {
                           </Pressable>
                         ) : null}
                         {isRoommateChat ? (
-                          <Pressable style={[styles.headerSecondaryAction, roommateContractPickerVisible && styles.headerSecondaryActionActive]} onPress={() => setRoommateContractPickerVisible(true)} testID="chat-roommate-contract-button">
+                          <Pressable style={[styles.headerSecondaryAction, roommateContractPickerVisible && styles.headerSecondaryActionActive]} onPress={openRoommateContractAction} testID="chat-roommate-contract-button">
                             <Ionicons name="document-text-outline" size={15} color={roommateContractPickerVisible ? colors.brand : colors.onSurfaceTertiary} />
                             <Text style={[styles.headerSecondaryActionText, roommateContractPickerVisible && styles.headerSecondaryActionTextActive]}>Συμβόλαιο</Text>
                           </Pressable>

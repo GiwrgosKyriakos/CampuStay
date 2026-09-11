@@ -35,7 +35,7 @@ interface BlockedAccountRow {
 }
 
 function getDeletedAccountLabel(): string {
-  return t("common.account.deleted") || "Deleted Account";
+  return t("common.account.deleted");
 }
 
 export default function PrivacySafetyScreen() {
@@ -311,8 +311,8 @@ export default function PrivacySafetyScreen() {
             <View style={styles.cardHeader}>
               <View style={styles.iconWrap}><Ionicons name="share-social-outline" size={20} color={colors.onSurface} /></View>
               <View style={styles.cardHeaderTextWrap}>
-                <Text style={styles.cardTitle}>Απόκρυψη κοινοποίησης προφίλ</Text>
-                <Text style={styles.subtitle}>Αν το ενεργοποιήσεις, το προφίλ σου δεν θα μπορεί να κοινοποιηθεί σε άλλους χρήστες.</Text>
+                <Text style={styles.cardTitle}>{t("privacySafety.deckVisibilityTitle")}</Text>
+                <Text style={styles.subtitle}>{t("privacySafety.deckVisibilityHelp")}</Text>
               </View>
             </View>
             <View style={isGuest ? styles.disabledControl : undefined}>

@@ -12,6 +12,7 @@ import { QUIZ_SECTIONS, TOTAL_QUESTIONS } from "@/src/data/quiz";
 import { useAuth } from "@/src/context/auth";
 import { db } from "@/src/config/firebase";
 import { t } from "@/src/locales";
+import { useLocale } from "@/src/context/locale";
 
 const STICKY_FOOTER_PADDING = 152;
 
@@ -21,6 +22,7 @@ export default function RoomieProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const auth = useAuth();
+  const { locale } = useLocale();
   const [userId, setUserId] = useState<string | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -92,6 +94,7 @@ export default function RoomieProfileScreen() {
 
   const answeredCount = Object.keys(answers).length;
   const progressPct = Math.min(100, Math.round((answeredCount / TOTAL_QUESTIONS) * 100));
+  const quizSections = useMemo(() => QUIZ_SECTIONS, [locale]);
 
   return (
     <View style={styles.container} testID="roomie-profile-screen">
@@ -139,32 +142,32 @@ export default function RoomieProfileScreen() {
               />
             )}
 
-            {QUIZ_SECTIONS.map((section) => (
-              <View key={section.category} style={styles.section}>
+            {quizSections.map((section) => (
+              <View key={section.categoryKey} style={styles.section}>
                 <View style={styles.categoryRow}>
                   <View style={styles.categoryDot} />
-                  <Text style={styles.category}>{section.category}</Text>
+                  <Text style={styles.category}>{t(section.categoryKey)}</Text>
                 </View>
                 {section.questions.map((q) => (
                   <View key={q.id} style={styles.questionBlock} testID={`question-${q.id}`}>
                     <View style={styles.questionRow}>
                       <Ionicons name={q.icon} size={18} color={colors.brand} />
-                      <Text style={styles.question}>{q.question}</Text>
+                      <Text style={styles.question}>{t(q.questionKey)}</Text>
                     </View>
                     {q.options.map((opt, idx) => {
-                      const selected = answers[q.id] === opt;
+                      const selected = answers[q.id] === opt.value;
                       return (
                         <Pressable
                           key={idx}
                           style={[styles.option, selected && styles.optionSelected, guestLocked && styles.optionDisabled]}
-                          onPress={guestLocked ? undefined : () => select(q.id, opt)}
+                          onPress={guestLocked ? undefined : () => select(q.id, opt.value)}
                           disabled={guestLocked}
                           testID={`option-${q.id}-${idx}`}
                         >
                           <View style={[styles.radio, selected && styles.radioSelected]}>
                             {selected && <View style={styles.radioInner} />}
                           </View>
-                          <Text style={[styles.optionText, selected && styles.optionTextSelected]}>{opt}</Text>
+                          <Text style={[styles.optionText, selected && styles.optionTextSelected]}>{t(opt.labelKey)}</Text>
                         </Pressable>
                       );
                     })}

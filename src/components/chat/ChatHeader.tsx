@@ -71,7 +71,7 @@ export default function ChatHeader({
   displayUniversity,
   recipientProfile,
   showRoommateDetails = true,
-  statusLabel = "Ενεργός τώρα",
+  statusLabel = t("chat.header.activeNow"),
   hostPhoneNumber,
   onProfilePress,
   profileDisabled,

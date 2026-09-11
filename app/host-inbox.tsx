@@ -11,7 +11,6 @@ import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme"
 import { useAuth } from "@/src/context/auth";
 import { db } from "@/src/config/firebase";
 import { cleanupObsoleteChatMessages } from "@/src/api/chatCleanup";
-import { DELETED_ACCOUNT_LABEL } from "@/src/api/accountDeletion";
 import { t } from "@/src/locales";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import { getBlockRelationshipState } from "@/src/api/chat";
@@ -26,6 +25,8 @@ interface FirestoreUserDoc {
   photoUrl?: string;
   photos?: string[];
   deleted?: boolean;
+  isDeleted?: boolean;
+  deletedAt?: unknown;
   is_broker?: boolean;
   agencyId?: string | null;
   agencyRole?: string | null;
@@ -37,6 +38,7 @@ interface FirestoreHostChatDoc {
   type?: "roommate" | "host" | "colleague" | string;
   clearedAt?: Record<string, unknown>;
   deletedUsers?: Record<string, boolean>;
+  blockedByUsers?: Record<string, boolean>;
   apartmentTitle?: string;
   apartmentId?: string;
   apartmentImage?: string;
@@ -93,6 +95,7 @@ interface HostInboxItem {
   // ΠΡΟΣΘΗΚΗ: Flags για το blocking
   isBlocker?: boolean;
   isBlocked?: boolean;
+  isDeleted?: boolean;
 }
 
 function toMillis(value: unknown): number {
@@ -155,6 +158,10 @@ function isDeletedForUser(chatData: FirestoreHostChatDoc, uid: string): boolean 
   }
   const flatKey = `deletedUsers.${uid}`;
   return (chatData as Record<string, unknown>)[flatKey] === true;
+}
+
+function isDeletedUserData(data: FirestoreUserDoc | null): boolean {
+  return !data || data.deleted === true || data.isDeleted === true || data.deletedAt != null;
 }
 
 const normalizeText = (text: string): string =>
@@ -322,6 +329,11 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
                   if (!isColleagueChat && isBrokerOrAgencyUser(customerData) && chatData.brokerChatRole !== "client" && !chatData.apartmentId) {
                     return null;
                   }
+
+                  const blockedMap = chatData.blockedByUsers ?? {};
+                  const relationState = await getBlockRelationshipState(currentUid, customerId);
+                  const isBlocker = blockedMap[currentUid] === true || relationState.isBlocker;
+                  const isBlocked = blockedMap[customerId] === true || relationState.isBlocked;
                   
                   // Preview + unread state come straight from denormalized chat doc
                   // fields — no per-row message sub-collection queries.
@@ -334,21 +346,16 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
                     : typeof chatData.lastMessageIsRead === "boolean"
                     ? chatData.lastMessageIsRead
                     : true;
-                  const isUnread = !!chatData.lastMessageSenderId && chatData.lastMessageSenderId === customerId && !lastMessageIsRead;
+                  const isUnread = !isBlocker && !isBlocked && !!chatData.lastMessageSenderId && chatData.lastMessageSenderId === customerId && !lastMessageIsRead;
 
                   const apartmentTitle = isColleagueChat ? "Συνεργάτης" : chatData.apartmentTitle?.trim() || "Apartment";
                   const brokerChatRole = chatData.brokerChatRole === "client" || chatData.brokerChatRole === "owner"
                     ? chatData.brokerChatRole
                     : undefined;
-                  const customerName = customerData?.name?.trim() || DELETED_ACCOUNT_LABEL;
-                  const photos = Array.isArray(customerData?.photos) ? customerData.photos : [];
-                  const customerAvatar = customerData?.photoUrl || photos[0] || "";
-
-                  // Combine metadata and settings-based relationship checks for global blocking.
-                  const blockedMap = (chatData as any).blockedByUsers ?? {};
-                  const relationState = await getBlockRelationshipState(currentUid, customerId);
-                  const isBlocker = blockedMap[currentUid] === true || relationState.isBlocker;
-                  const isBlocked = blockedMap[customerId] === true || relationState.isBlocked;
+                  const isDeleted = isDeletedUserData(customerData);
+                  const customerName = isDeleted ? t("chat.deletedUser") : customerData?.name?.trim() || t("chat.deletedUser");
+                  const photos = isDeleted ? [] : Array.isArray(customerData?.photos) ? customerData.photos : [];
+                  const customerAvatar = isDeleted ? "" : customerData?.photoUrl || photos[0] || "";
 
                   return {
                     id: chatDoc.id,
@@ -367,6 +374,7 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
                     apartmentImage: chatData.apartmentImage?.trim() || "",
                     isBlocker,
                     isBlocked,
+                    isDeleted,
                   } as HostInboxItem;
 
                 } catch (itemError) {
@@ -409,9 +417,6 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
   const handleOpenChat = (item: HostInboxItem) => {
     if (activeContextChatId) {
       setActiveContextChatId(null);
-      return;
-    }
-    if (item.isBlocker || item.isBlocked) {
       return;
     }
     if (item.status === "active" || item.status === "rejected") {
@@ -461,6 +466,7 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
 
   const handleAcceptChat = async (item: HostInboxItem) => {
     if (!auth.userId || !item.chatRoomId) return;
+    if (item.isBlocker || item.isBlocked) return;
     setAcceptingChatId(item.chatRoomId);
     try {
       await updateDoc(doc(db, "chats", item.chatRoomId), {
@@ -483,6 +489,7 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
 
   const handleRejectChat = async (item: HostInboxItem) => {
     if (!auth.userId || !item.chatRoomId) return;
+    if (item.isBlocker || item.isBlocked) return;
     setAcceptingChatId(item.chatRoomId);
     try {
       await updateDoc(doc(db, "chats", item.chatRoomId), {
@@ -660,8 +667,8 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
             if (item.isBlocker) {
               customerName = t("common.account.blocked");
               hasAvatar = false;
-            } else if (item.isBlocked) {
-              customerName = t("common.account.deleted");
+            } else if (item.isBlocked || item.isDeleted) {
+              customerName = t("chat.deletedUser");
               hasAvatar = false;
             }
             
@@ -684,7 +691,7 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
                 onPress={() => handleOpenChat(item)}
                 onLongPress={() => setActiveContextChatId(item.id)}
                 delayLongPress={350}
-                disabled={isPending || isBlockedChat}
+                disabled={isPending}
               >
                 {activeContextChatId === item.id ? (
                   <View style={styles.contextTooltip}>
