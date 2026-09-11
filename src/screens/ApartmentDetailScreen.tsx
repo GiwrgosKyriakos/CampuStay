@@ -80,6 +80,7 @@ import { settleClosedDeal } from "@/src/utils/dealAutomations";
 import BrokerSelectorPopover, { type BrokerSelectorItem } from "@/src/components/BrokerSelectorPopover";
 import { clearPendingCallInteraction, getPendingCallInteraction, persistPendingCallInteraction, PENDING_CALL_MAX_AGE_MS } from "@/src/utils/callTracking";
 import { evaluateCompetingClientsStrategy, type ClientDealContext, type StrategyClientInsight } from "@/src/utils/portfolioStrategyAdvisor";
+import { localizeCity, localizePropertyCategory, localizePropertyType } from "@/src/utils/localizeData";
 import { checkoutKeySafe, returnKeySafe, updateOpenHouseConfig } from "@/src/api/agencyCollaboration";
 import CrossBrokerVisitModal from "@/src/components/CrossBrokerVisitModal";
 import OpenHouseScannerModal from "@/src/components/OpenHouseScannerModal";
@@ -959,7 +960,7 @@ export default function ApartmentDetailScreen() {
       apartmentId: apt.id,
       apartmentTitle: apt.title,
     }).then((chatRoomId) => {
-      const apartmentAddress = apt.exactAddress || apt.address || [apt.area, apt.city].filter(Boolean).join(", ");
+      const apartmentAddress = apt.exactAddress || apt.address || [apt.area, localizeCity(apt.city) || apt.city].filter(Boolean).join(", ");
       const draft: ContractDraftContext = {
         agencyId: resolvedAgencyId,
         createdByUserId: userId,
@@ -2301,8 +2302,9 @@ export default function ApartmentDetailScreen() {
   const displayRooms = resolvedRooms ?? apt.rooms;
   const displayMaxRoommates = resolvedMaxRoommates ?? apt.maxRoommates;
   const displayFloor = resolvedFloor ?? (apt.floor?.trim() || "");
-  const displayPropertyCategory = resolvedPropertyCategory ?? (apt.propertyCategory?.trim() || "");
-  const displayPropertyType = resolvedPropertyType ?? (apt.propertyType?.trim() || "");
+  const displayPropertyCategory = localizePropertyCategory(resolvedPropertyCategory ?? (apt.propertyCategory?.trim() || ""));
+  const displayPropertyType = localizePropertyType(resolvedPropertyType ?? (apt.propertyType?.trim() || ""));
+  const displayCity = localizeCity(apt.city) || apt.city;
   const displayOrientation = resolvedOrientation ?? "";
   const displayExtraDetails = resolvedExtraDetails ?? normalizeExtraDetailsMap(apt.extraDetails);
   const displayExtraInformation = resolvedExtraInformation ?? normalizeExtraInformation(apt.extraInformation);
@@ -2962,7 +2964,7 @@ export default function ApartmentDetailScreen() {
 
           <View style={styles.locRow}>
             <Ionicons name="location-outline" size={16} color={colors.onSurfaceTertiary} />
-            <Text style={styles.locText}>{apt.area}, {apt.city}</Text>
+            <Text style={styles.locText}>{apt.area}, {displayCity}</Text>
           </View>
 
           {virtualTour?.enabled && virtualTour.scenes.length > 0 ? (
@@ -3524,7 +3526,7 @@ export default function ApartmentDetailScreen() {
                   {t("apartmentDetail.descriptionSummary", {
                     size: apt.size,
                     area: apt.area,
-                    city: apt.city,
+                    city: displayCity,
                     roomText: apt.rooms > 1 ? t("common.format.roomCount", { count: apt.rooms }) : t("apartmentDetail.privateRoom"),
                     currency: CURRENCY,
                     rent: apt.rent,
@@ -3559,7 +3561,7 @@ export default function ApartmentDetailScreen() {
               color={colors.onSurfaceTertiary}
             />
             <Text style={styles.locationMetaText} numberOfLines={2}>
-              {showExactAddress && apt.address ? apt.address : `${apt.area}, ${apt.city}`}
+              {showExactAddress && apt.address ? apt.address : `${apt.area}, ${displayCity}`}
             </Text>
           </View>
         </View>
@@ -3907,7 +3909,7 @@ export default function ApartmentDetailScreen() {
         apartmentId={apt.id}
           transactionType={apt.transactionType === "sale" ? "sale" : "rent"}
           targetPrice={apt.transactionType === "sale" ? apt.price ?? displayRentPrice : displayRentPrice}
-        area={apt.area || apt.city}
+        area={apt.area || displayCity}
         sqm={apt.size}
         rooms={displayRooms}
         floor={Number.parseFloat(displayFloor) || undefined}
@@ -3936,7 +3938,7 @@ export default function ApartmentDetailScreen() {
         listingBrokerId={crossBrokerListingBrokerId ?? ""}
         apartmentId={apt.id}
         apartmentTitle={apt.title}
-        apartmentAddress={apt.address || `${apt.area}, ${apt.city}`}
+        apartmentAddress={apt.address || `${apt.area}, ${displayCity}`}
         apartmentPrice={apt.rent}
         onClose={() => setCrossBrokerVisitVisible(false)}
         onCreated={() => {

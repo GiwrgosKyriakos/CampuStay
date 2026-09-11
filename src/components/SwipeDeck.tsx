@@ -20,6 +20,7 @@ import { useTheme } from "@/src/context/ThemeContext";
 import type { RoommateProfile } from "@/src/data/profiles";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import { t } from "@/src/locales";
+import { localizeCity, localizeGender, localizeLifestyle } from "@/src/utils/localizeData";
 
 const { width: SCREEN_W } = Dimensions.get("window");
 const SWIPE_THRESHOLD = SCREEN_W * 0.28;
@@ -54,8 +55,8 @@ function QuizCompatibilityBadges({ profileAnswers, currentAnswers, colors, style
 
   return (
     <View style={styles.quizBadgesRow}>
-      {profileSmokingAnswer ? <View style={[styles.quizPillBadge, isMutualSmokingMatch && styles.quizPillBadgeMutualMatch]}><Ionicons name={profileIsSmoker ? "flame-outline" : "ban-outline"} size={12} color={isMutualSmokingMatch ? colors.onBrand : "#FFFFFF"} /><Text style={[styles.quizPillText, isMutualSmokingMatch && styles.quizPillTextMutualMatch]}>{profileIsSmoker ? "Καπνιστής" : "Μη καπνιστής"}</Text></View> : null}
-      {profilePetsAnswer ? <View style={[styles.quizPillBadge, isMutualPetsMatch && styles.quizPillBadgeMutualMatch]}><Ionicons name={profileIsPetFriendly ? "paw-outline" : "ban-outline"} size={12} color={isMutualPetsMatch ? colors.onBrand : "#FFFFFF"} /><Text style={[styles.quizPillText, isMutualPetsMatch && styles.quizPillTextMutualMatch]}>{profileIsPetFriendly ? "Κατοικίδια" : "Όχι κατοικίδια"}</Text></View> : null}
+      {profileSmokingAnswer ? <View style={[styles.quizPillBadge, isMutualSmokingMatch && styles.quizPillBadgeMutualMatch]}><Ionicons name={profileIsSmoker ? "flame-outline" : "ban-outline"} size={12} color={isMutualSmokingMatch ? colors.onBrand : "#FFFFFF"} /><Text style={[styles.quizPillText, isMutualSmokingMatch && styles.quizPillTextMutualMatch]}>{profileIsSmoker ? t("lifestyle.smoker") : t("lifestyle.nonSmoker")}</Text></View> : null}
+      {profilePetsAnswer ? <View style={[styles.quizPillBadge, isMutualPetsMatch && styles.quizPillBadgeMutualMatch]}><Ionicons name={profileIsPetFriendly ? "paw-outline" : "ban-outline"} size={12} color={isMutualPetsMatch ? colors.onBrand : "#FFFFFF"} /><Text style={[styles.quizPillText, isMutualPetsMatch && styles.quizPillTextMutualMatch]}>{profileIsPetFriendly ? t("lifestyle.petsAllowed") : t("lifestyle.noPets")}</Text></View> : null}
     </View>
   );
 }
@@ -69,6 +70,7 @@ interface CardContentProps {
 
 const CardContent = React.memo(function CardContent({ profile: p, currentQuizAnswers, currency, colors }: CardContentProps) {
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const localizedTags = p.tags.map((tag) => localizeLifestyle(tag)).filter(Boolean).slice(0, 3);
 
   return (
     <View style={styles.card}>
@@ -111,10 +113,21 @@ const CardContent = React.memo(function CardContent({ profile: p, currentQuizAns
         <Text style={styles.uni} numberOfLines={1}>
           {p.program} · {p.university}
         </Text>
+        {p.city ? (
+          <View style={styles.locationRow}>
+            <Ionicons name="location-outline" size={14} color={colors.onSurfaceInverse} />
+            <Text style={styles.locationText} numberOfLines={1}>{localizeCity(p.city)}</Text>
+          </View>
+        ) : null}
+        {localizedTags.length > 0 ? (
+          <View style={styles.tagRow}>
+            {localizedTags.map((tag) => <View key={tag} style={styles.tagPill}><Text style={styles.tagText} numberOfLines={1}>{tag}</Text></View>)}
+          </View>
+        ) : null}
         <View style={styles.pillRow}>
           <View style={styles.metaPill}>
             <Ionicons name="person-outline" size={14} color={colors.onBrand} />
-            <Text style={styles.metaText}>{p.gender}</Text>
+            <Text style={styles.metaText}>{localizeGender(p.gender)}</Text>
           </View>
           <View style={[styles.metaPill, styles.budgetPill]}>
             <Ionicons name="wallet-outline" size={14} color={colors.onBrand} />
@@ -477,6 +490,11 @@ function createStyles(colors: ThemeColors) {
     name: { fontFamily: fonts.displayExtra, fontSize: fontSize["3xl"], color: colors.onSurfaceInverse },
     age: { fontFamily: fonts.display, fontSize: fontSize["2xl"], color: colors.onSurfaceInverse, paddingBottom: 3 },
     uni: { fontFamily: fonts.semibold, fontSize: fontSize.base, color: "rgba(255,255,255,0.85)" },
+    locationRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+    locationText: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: "rgba(255,255,255,0.85)" },
+    tagRow: { flexDirection: "row", flexWrap: "wrap", gap: 5 },
+    tagPill: { maxWidth: "48%", backgroundColor: "rgba(255,255,255,0.16)", paddingHorizontal: 7, paddingVertical: 3, borderRadius: radius.pill },
+    tagText: { fontFamily: fonts.semibold, fontSize: 10, color: "rgba(255,255,255,0.92)" },
     pillRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.xs },
     metaPill: {
       flexDirection: "row",

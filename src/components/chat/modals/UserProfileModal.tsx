@@ -6,6 +6,7 @@ import type { RoommateProfile } from "@/src/data/profiles";
 import { radius, spacing, fonts, fontSize } from "@/src/theme";
 import { useTheme } from "@/src/context/ThemeContext";
 import { t } from "@/src/locales";
+import { localizeCity } from "@/src/utils/localizeData";
 import type { FirestoreUserDoc } from "./types";
 import ShareProfileButton from "@/src/components/chat/ShareProfileButton";
 import BaseBottomSheet from "@/src/components/common/BaseBottomSheet";
@@ -30,7 +31,7 @@ export default function UserProfileModal({ visible, profile, details, compatibil
   const { colors } = useTheme();
   const styles = createStyles(colors);
   const activeProfile = profile;
-  const city = details?.city?.trim() || activeProfile?.city || t("common.values.notAvailable");
+  const city = localizeCity(details?.city?.trim() || activeProfile?.city) || t("common.values.notAvailable");
   const university = activeProfile?.university || t("common.values.notAvailable");
 
   return (

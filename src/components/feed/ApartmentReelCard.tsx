@@ -29,6 +29,7 @@ import { useTheme } from "@/src/context/ThemeContext";
 import { TAB_BAR_HEIGHT } from "@/src/components/GlassTabBar";
 import type { Apartment, VirtualTourData } from "@/src/types/apartment";
 import BaseBottomSheet from "@/src/components/common/BaseBottomSheet";
+import { localizeCity, localizePropertyType } from "@/src/utils/localizeData";
 
 type ReelApartment = Apartment & {
   photos?: string[];
@@ -44,6 +45,7 @@ type ReelApartment = Apartment & {
   hostId?: string;
   userId?: string;
   city?: string;
+    propertyType?: string;
   ownerId?: string;
   assignedBrokerIds?: string[];
   virtualTour?: VirtualTourData;
@@ -108,7 +110,9 @@ export default function ApartmentReelCard({
   );
   const tourData = apartmentData.virtualTour;
   const price = Number(apartmentData.rent ?? apartmentData.monthlyRent ?? apartmentData.price ?? 0);
-  const area = [apartmentData.area, apartmentData.city].filter((value, index, all): value is string => typeof value === "string" && value.trim().length > 0 && all.indexOf(value) === index).join(", ");
+  const localizedCity = localizeCity(apartmentData.city);
+  const area = [apartmentData.area, localizedCity].filter((value, index, all): value is string => typeof value === "string" && value.trim().length > 0 && all.indexOf(value) === index).join(", ");
+  const propertyType = localizePropertyType(apartmentData.propertyType);
   const energyClass = apartmentData.energyClass ?? apartmentData.extraInformation?.energyClass ?? "A+";
   const shareProperty = { title: apartmentData.title ?? "Property listing", price, shareUrl: `https://campustay.app/apartment/${apartment.id ?? ""}` };
 
@@ -268,6 +272,7 @@ export default function ApartmentReelCard({
         <View style={styles.chipsRow}>
           <View style={styles.chip}><Text style={styles.chipText}>{`📐 ${Number(apartmentData.size ?? apartmentData.sizeSqm ?? 0)} τ.μ.`}</Text></View>
           <View style={styles.chip}><Text style={styles.chipText}>{`🛏️ ${Number(apartmentData.rooms ?? 0)} Υ/Δ`}</Text></View>
+          {propertyType ? <View style={styles.chip}><Text style={styles.chipText}>{propertyType}</Text></View> : null}
           <View style={styles.chip}><Text style={styles.chipText}>{`🏢 ${apartmentData.floor ?? "-"}`}</Text></View>
           <View style={styles.chip}><Text style={styles.chipText}>{`⚡ ${energyClass}`}</Text></View>
         </View>

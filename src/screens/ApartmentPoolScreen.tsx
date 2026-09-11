@@ -24,6 +24,7 @@ import { useTheme } from "@/src/context/ThemeContext";
 import { db } from "@/src/config/firebase";
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
 import { isBrokerOrSecretariat } from "@/src/utils/roles";
+import { localizeCity } from "@/src/utils/localizeData";
 
 const TAB_BAR_BOTTOM_SPACE = 90;
 const CURRENCY = "€";
@@ -302,7 +303,7 @@ export default function ApartmentPoolScreen() {
                     <View style={styles.locationRow}>
                       <Ionicons name="location-outline" size={13} color={colors.onSurfaceTertiary} />
                       <Text style={styles.locationText} numberOfLines={1}>
-                        {item.area || "Άγνωστη περιοχή"}{item.city ? `, ${item.city}` : ""}
+                        {item.area || "Άγνωστη περιοχή"}{item.city ? `, ${localizeCity(item.city)}` : ""}
                       </Text>
                     </View>
 
