@@ -158,7 +158,7 @@ useEffect(() => {
       ]);
       setUserProfile(profile);
 
-      const candidateRecords = await getCandidateMatchRecords(userId, profile?.city ?? null).catch(() => []);
+      const candidateRecords = await getCandidateMatchRecords(userId, profile?.city ?? null);
 
       const quizData = quizSnap?.exists() ? (quizSnap.data() as { answers?: Record<string, string> }) : null;
       setCurrentQuizAnswers(quizData?.answers ?? {});
@@ -175,7 +175,8 @@ useEffect(() => {
 
       memoryCandidatesCache = { userId, data: scoredCandidates, timestamp: Date.now() };
       setCandidates(scoredCandidates);
-    } catch {
+    } catch (error) {
+      console.error("[Roommates] Candidate pipeline failed", { error });
       if (!memoryCandidatesCache) setCandidates([]);
     } finally {
       setLoading(false);

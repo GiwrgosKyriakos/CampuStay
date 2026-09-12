@@ -6,6 +6,7 @@ import {
   localizeQuizAnswer,
   normalizeKey,
 } from "@/src/utils/localizeData";
+import { getCanonicalCity } from "@/src/utils/cityNormalization";
 
 describe("localizeData", () => {
   afterEach(() => {
@@ -21,6 +22,13 @@ describe("localizeData", () => {
 
     setI18nLocale("en");
     expect(localizeCity("Θεσσαλονίκη")).toBe("Thessaloniki");
+  });
+
+  it("resolves supported bilingual city synonyms to canonical slugs", () => {
+    expect(getCanonicalCity("Salonica")).toBe("thessaloniki");
+    expect(getCanonicalCity("Πάτρα")).toBe("patras");
+    expect(getCanonicalCity("Chania")).toBe("chania");
+    expect(getCanonicalCity("Χανιά")).toBe("chania");
   });
 
   it("localizes standard stored attributes and quiz answers", () => {

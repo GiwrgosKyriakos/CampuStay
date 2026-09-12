@@ -1,9 +1,11 @@
 const CITY_ALIAS_MAP: Record<string, string> = {
   "thessaloniki": "thessaloniki",
   "thessalonica": "thessaloniki",
+  "salonica": "thessaloniki",
   "θεσσαλονικη": "thessaloniki",
   "athens": "athens",
   "αθηνα": "athens",
+  "patra": "patras",
   "patras": "patras",
   "πατρα": "patras",
   "heraklion": "heraklion",
@@ -12,6 +14,8 @@ const CITY_ALIAS_MAP: Record<string, string> = {
   "ιωαννινα": "ioannina",
   "larissa": "larissa",
   "λαρισα": "larissa",
+  "chania": "chania",
+  "χανια": "chania",
   "rethymno": "rethymno",
   "ρεθυμνο": "rethymno",
 };
@@ -25,15 +29,19 @@ function sanitizeCity(value: string): string {
     .replace(/\s+/g, " ");
 }
 
-export function normalizeCity(value?: string | null): string {
+export function getCanonicalCity(value?: string | null): string {
   const sanitized = sanitizeCity(value ?? "");
   if (!sanitized) return "";
   return CITY_ALIAS_MAP[sanitized] ?? sanitized;
 }
 
+export function normalizeCity(value?: string | null): string {
+  return getCanonicalCity(value);
+}
+
 export function areCitiesEquivalent(a?: string | null, b?: string | null): boolean {
-  const left = normalizeCity(a);
-  const right = normalizeCity(b);
+  const left = getCanonicalCity(a);
+  const right = getCanonicalCity(b);
   if (!left || !right) return false;
   return left === right;
 }

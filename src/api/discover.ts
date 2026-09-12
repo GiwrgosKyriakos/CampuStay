@@ -32,12 +32,26 @@ interface FirestoreUserDoc {
   photos?: string[];
   deleted?: boolean;
   is_broker?: boolean;
+  role?: string | null;
   agencyId?: string | null;
   agencyRole?: string | null;
   is_agency_ceo?: boolean;
   looking_for_roommate?: boolean;
+  isLookingForRoommate?: boolean;
+  not_looking_for_roommate?: boolean;
+  is_visible?: boolean;
+  isVisible?: boolean;
+  privacy?: { is_visible?: boolean };
+  blockedUserIds?: string[];
+  preferences?: { hideNameInDeck?: boolean; hideInStack?: boolean };
   expoPushToken?: string;
   newMatchesEnabled?: boolean;
+}
+
+interface FirestoreSettingsDoc {
+  privacy?: {
+    blocked_profiles?: Array<{ id?: string | null }>;
+  };
 }
 
 interface FirestoreQuizDoc {
@@ -108,26 +122,21 @@ function normalizeCandidate(uid: string, data: FirestoreUserDoc): RoommateProfil
 
 async function getExcludedCandidateIds(
   userId: string,
-): Promise<{ swipedTo: Set<string>; chattedWith: Set<string>; likedYou: Set<string> }> {
+): Promise<{ swipedTo: Set<string>; chattedWith: Set<string>; blockedUsers: Set<string> }> {
   const swipesRef = collection(db, "swipes");
   const chatsRef = collection(db, "chats");
 
-  const [swipedSnap, incomingLikesSnap, chatsSnap] = await Promise.all([
+  const [swipedSnap, chatsSnap, userSnap, settingsSnap] = await Promise.all([
     getDocs(query(swipesRef, where("fromUid", "==", userId))),
-    getDocs(query(swipesRef, where("toUid", "==", userId), where("type", "==", "like"))),
     getDocs(query(chatsRef, where("users", "array-contains", userId))),
+    getDoc(doc(db, "users", userId)),
+    getDoc(doc(db, "settings", userId)),
   ]);
 
   const swipedTo = new Set<string>();
   swipedSnap.forEach((d) => {
     const toUid = d.data()?.toUid;
     if (typeof toUid === "string" && toUid) swipedTo.add(toUid);
-  });
-
-  const likedYou = new Set<string>();
-  incomingLikesSnap.forEach((d) => {
-    const fromUid = d.data()?.fromUid;
-    if (typeof fromUid === "string" && fromUid) likedYou.add(fromUid);
   });
 
   const chattedWith = new Set<string>();
@@ -142,45 +151,128 @@ async function getExcludedCandidateIds(
     if (typeof counterpart === "string" && counterpart) chattedWith.add(counterpart);
   });
 
-  return { swipedTo, chattedWith, likedYou };
+  const userData = userSnap.exists() ? (userSnap.data() as FirestoreUserDoc) : {};
+  const settingsData = settingsSnap.exists() ? (settingsSnap.data() as FirestoreSettingsDoc) : {};
+  const blockedUsers = new Set<string>([
+    ...(Array.isArray(userData.blockedUserIds) ? userData.blockedUserIds : []),
+    ...(Array.isArray(settingsData.privacy?.blocked_profiles)
+      ? settingsData.privacy.blocked_profiles.map((profile) => profile.id)
+      : []),
+  ].filter((id): id is string => typeof id === "string" && id.length > 0));
+
+  return { swipedTo, chattedWith, blockedUsers };
 }
 
 async function getPotentialCandidateRecords(userId: string, currentCity?: string | null): Promise<CandidateMatchRecord[]> {
   const usersRef = collection(db, "users");
-  const { swipedTo, chattedWith, likedYou } = await getExcludedCandidateIds(userId);
+  const { swipedTo, chattedWith, blockedUsers } = await getExcludedCandidateIds(userId);
   const normalizedCity = normalizeCity(currentCity);
   const usersSnap = await getDocs(usersRef);
 
   const candidateEntries: { uid: string; profile: RoommateProfile }[] = [];
+  const exclusionCounts = {
+    self: 0,
+    swipeHistory: 0,
+    activeChat: 0,
+    blocked: 0,
+    invisible: 0,
+    notLookingForRoommate: 0,
+    role: 0,
+    deleted: 0,
+    cityMismatch: 0,
+    invalidId: 0,
+  };
 
   usersSnap.forEach((u) => {
     const uid = u.id;
-    if (!uid || uid === userId || swipedTo.has(uid) || chattedWith.has(uid) || likedYou.has(uid)) return;
+    if (!uid) {
+      exclusionCounts.invalidId += 1;
+      return;
+    }
+    if (uid === userId) {
+      exclusionCounts.self += 1;
+      return;
+    }
+    if (swipedTo.has(uid)) {
+      exclusionCounts.swipeHistory += 1;
+      return;
+    }
+    if (chattedWith.has(uid)) {
+      exclusionCounts.activeChat += 1;
+      return;
+    }
+    if (blockedUsers.has(uid)) {
+      exclusionCounts.blocked += 1;
+      return;
+    }
 
     // Ενημερωμένος τύπος με υποστήριξη για is_visible στη ρίζα του user document
-    const data = u.data() as FirestoreUserDoc & { is_visible?: boolean; privacy?: { is_visible?: boolean } };
+    const data = u.data() as FirestoreUserDoc;
     
     // Έλεγχος αν η ορατότητα είναι απενεργοποιημένη
-    if (data.is_visible === false || data.privacy?.is_visible === false) return;
-    if (isBrokerOrAgencyUser(data) && data.looking_for_roommate !== true) return;
+    if (data.is_visible === false || data.isVisible === false || data.privacy?.is_visible === false) {
+      exclusionCounts.invisible += 1;
+      return;
+    }
+    const candidateBlockedUsers = Array.isArray(data.blockedUserIds) ? data.blockedUserIds : [];
+    if (candidateBlockedUsers.includes(userId)) {
+      exclusionCounts.blocked += 1;
+      return;
+    }
+    if (data.not_looking_for_roommate === true || data.looking_for_roommate === false || data.isLookingForRoommate === false) {
+      exclusionCounts.notLookingForRoommate += 1;
+      return;
+    }
+    const isLookingForRoommate = data.looking_for_roommate === true || data.isLookingForRoommate === true;
+    if (isBrokerOrAgencyUser(data) && !isLookingForRoommate) {
+      exclusionCounts.role += 1;
+      return;
+    }
 
     const candidate = normalizeCandidate(uid, data);
-    if (candidate.deleted) return;
-    if (normalizedCity && normalizeCity(candidate.city) !== normalizedCity) return;
+    if (candidate.deleted) {
+      exclusionCounts.deleted += 1;
+      return;
+    }
+    const candidateCity = normalizeCity(candidate.city);
+    if (normalizedCity && candidateCity && candidateCity !== normalizedCity) {
+      exclusionCounts.cityMismatch += 1;
+      return;
+    }
     candidateEntries.push({ uid, profile: candidate });
   });
 
+  let quizReadFailures = 0;
   const quizEntries = await Promise.all(
     candidateEntries.map(async ({ uid, profile }) => {
-      const quizSnap = await getDoc(doc(db, "quiz_answers", uid));
-      const quizData = quizSnap.exists() ? (quizSnap.data() as FirestoreQuizDoc) : null;
+      let quizAnswers: Record<string, string> = {};
+      try {
+        const quizSnap = await getDoc(doc(db, "quiz_answers", uid));
+        const quizData = quizSnap.exists() ? (quizSnap.data() as FirestoreQuizDoc) : null;
+        quizAnswers = quizData?.answers ?? {};
+      } catch (error) {
+        quizReadFailures += 1;
+        console.warn("[Discover] Candidate quiz unavailable; retaining profile", {
+          candidateId: uid,
+          error,
+        });
+      }
 
       return {
         profile,
-        quizAnswers: quizData?.answers ?? {},
+        quizAnswers,
       } satisfies CandidateMatchRecord;
     }),
   );
+
+  console.log("[Discover] Candidate pipeline", {
+    userId,
+    fetchedFromDb: usersSnap.size,
+    exclusionCounts,
+    eligibleProfiles: candidateEntries.length,
+    quizReadFailures,
+    finalRecords: quizEntries.length,
+  });
 
   return quizEntries;
 }
