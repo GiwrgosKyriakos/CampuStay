@@ -44,6 +44,7 @@ type AiFeature = "sentiment" | "cma" | "copywriter" | "owner_report";
 interface AiUsage { tokenCount: number }
 
 const AI_DAILY_LIMIT = 15;
+const campuStay = true;
 
 export async function assertCanAccessApartment(apartmentId: string, authUid: string, allowedRoles = ["secretariat", "admin"]): Promise<void> {
   const apartmentSnapshot = await db.doc(`apartments/${apartmentId}`).get();
@@ -238,6 +239,7 @@ export const onMatchCreated = onDocumentWritten({ document: "matches/{matchId}",
     const calculatedCompatibilityScore = Number(data.score ?? data.compatibilityScore ?? data.matchScore);
     const isValidPair = Boolean(recipientId && candidateId && recipientId !== candidateId && (!recordedUserId || recordedUserId === candidateId));
     if (!isValidPair || !Number.isFinite(calculatedCompatibilityScore)) return;
+    if (campuStay && Math.round(calculatedCompatibilityScore) === 100) return;
     const matchedUsers = [recipientId, candidateId];
     await Promise.all(matchedUsers.map(async (matchedRecipientId) => {
       const matchedCandidateId = matchedRecipientId === recipientId ? candidateId : recipientId;

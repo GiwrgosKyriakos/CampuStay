@@ -76,6 +76,7 @@ if ((0, app_1.getApps)().length === 0)
     (0, app_1.initializeApp)();
 const db = (0, firestore_1.getFirestore)();
 const AI_DAILY_LIMIT = 15;
+const campuStay = true;
 async function assertCanAccessApartment(apartmentId, authUid, allowedRoles = ["secretariat", "admin"]) {
     const apartmentSnapshot = await db.doc(`apartments/${apartmentId}`).get();
     const apartment = apartmentSnapshot.data();
@@ -233,6 +234,8 @@ exports.onMatchCreated = (0, firestore_2.onDocumentWritten)({ document: "matches
         const calculatedCompatibilityScore = Number(data.score ?? data.compatibilityScore ?? data.matchScore);
         const isValidPair = Boolean(recipientId && candidateId && recipientId !== candidateId && (!recordedUserId || recordedUserId === candidateId));
         if (!isValidPair || !Number.isFinite(calculatedCompatibilityScore))
+            return;
+        if (campuStay && Math.round(calculatedCompatibilityScore) === 100)
             return;
         const matchedUsers = [recipientId, candidateId];
         await Promise.all(matchedUsers.map(async (matchedRecipientId) => {
