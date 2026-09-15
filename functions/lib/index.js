@@ -222,8 +222,8 @@ exports.onApartmentUpdate = (0, firestore_2.onDocumentUpdated)({ document: "apar
     const title = typeof after.title === "string" ? after.title : "Ακίνητο";
     await notifyFavoriteUsers(event.params.apartmentId, { type: "price_drop", title: "Μείωση τιμής", body: `Μείωση τιμής σε αποθηκευμένο ακίνητο: ${title} τώρα στα €${newPrice}`, screen: "apartment-detail", params: { apartmentId: event.params.apartmentId }, entityId: event.params.apartmentId });
 });
-exports.onMatchCreated = (0, firestore_2.onDocumentCreated)({ document: "matches/{matchId}", region: "europe-west1" }, async (event) => {
-    const data = event.data?.data();
+exports.onMatchCreated = (0, firestore_2.onDocumentWritten)({ document: "matches/{matchId}", region: "europe-west1" }, async (event) => {
+    const data = event.data?.after.data();
     if (!data)
         return;
     if (data.source === "roommate_swipe") {
@@ -232,20 +232,32 @@ exports.onMatchCreated = (0, firestore_2.onDocumentCreated)({ document: "matches
         const recordedUserId = typeof data.userId === "string" ? data.userId.trim() : "";
         const calculatedCompatibilityScore = Number(data.score ?? data.compatibilityScore ?? data.matchScore);
         const isValidPair = Boolean(recipientId && candidateId && recipientId !== candidateId && (!recordedUserId || recordedUserId === candidateId));
-        const isHighCompatibilityMatch = Number.isFinite(calculatedCompatibilityScore) && calculatedCompatibilityScore > 90;
-        if (!isValidPair || !isHighCompatibilityMatch)
+        if (!isValidPair || !Number.isFinite(calculatedCompatibilityScore))
             return;
-        await (0, push_1.sendPushToUser)(recipientId, {
-            type: "high_match",
-            title: `🔥 Match ${calculatedCompatibilityScore}%`,
-            body: "Βρέθηκε συγκάτοικος με εξαιρετική συμβατότητα.",
-            screen: "roomie-profile",
-            params: { matchId: event.params.matchId, candidateId, score: calculatedCompatibilityScore },
-            entityId: event.params.matchId,
-            action: "view_roommate_match",
-        }, "high_matches", {
-            dedupeKey: `roommate-high-match:${recipientId}:${candidateId}`,
-        });
+        const matchedUsers = [recipientId, candidateId];
+        await Promise.all(matchedUsers.map(async (matchedRecipientId) => {
+            const matchedCandidateId = matchedRecipientId === recipientId ? candidateId : recipientId;
+            const recipientSnapshot = await db.doc(`users/${matchedRecipientId}`).get();
+            const recipientData = recipientSnapshot.data() ?? {};
+            const settingsSnapshot = await db.doc(`settings/${matchedRecipientId}`).get();
+            const notificationSettings = {
+                ...(recipientData.notifications ?? {}),
+                ...(settingsSnapshot.data()?.notifications ?? {}),
+            };
+            if (notificationSettings.new_matches === false || recipientData.newMatchesEnabled === false || notificationSettings.mute_all_notifications === true)
+                return;
+            await (0, push_1.sendPushToUser)(matchedRecipientId, {
+                type: "high_match",
+                title: `🔥 Match ${calculatedCompatibilityScore}%`,
+                body: "Βρέθηκε συγκάτοικος με εξαιρετική συμβατότητα.",
+                screen: "roomie-profile",
+                params: { matchId: event.params.matchId, candidateId: matchedCandidateId, score: calculatedCompatibilityScore },
+                entityId: event.params.matchId,
+                action: "view_roommate_match",
+            }, "high_matches", {
+                dedupeKey: `roommate-high-match:${matchedRecipientId}:${matchedCandidateId}`,
+            });
+        }));
         return;
     }
     const score = Number(data.score ?? data.compatibilityScore ?? data.matchScore);

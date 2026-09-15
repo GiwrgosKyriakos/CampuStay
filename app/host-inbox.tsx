@@ -16,6 +16,7 @@ import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import { getBlockRelationshipState } from "@/src/api/chat";
 import { syncBrokerClientProfile } from "@/src/api/brokerClientProfiles";
 import { isBrokerOrAgencyUser } from "@/src/utils/roles";
+import { isChatBlockedByUser } from "@/src/utils/chatHelpers";
 import InboxSkeleton from "@/src/components/skeletons/InboxSkeleton";
 import AgencyColleaguesModal from "@/src/components/AgencyColleaguesModal";
 import { createOrGetColleagueChat } from "@/src/api/agencyCollaboration";
@@ -330,10 +331,9 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
                     return null;
                   }
 
-                  const blockedMap = chatData.blockedByUsers ?? {};
                   const relationState = await getBlockRelationshipState(currentUid, customerId);
-                  const isBlocker = blockedMap[currentUid] === true || relationState.isBlocker;
-                  const isBlocked = blockedMap[customerId] === true || relationState.isBlocked;
+                  const isBlocker = isChatBlockedByUser(chatData, currentUid) || relationState.isBlocker;
+                  const isBlocked = isChatBlockedByUser(chatData, customerId) || relationState.isBlocked;
                   
                   // Preview + unread state come straight from denormalized chat doc
                   // fields — no per-row message sub-collection queries.
@@ -439,23 +439,14 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
       const chatRef = doc(db, "chats", roomId);
       const now = Date.now();
 
-      await setDoc(
-        chatRef,
-        {
-          clearedAt: { [currentUid]: now },
-          deletedUsers: { [currentUid]: true },
-          updatedAt: now,
-        },
-        { merge: true },
-      );
-
       await updateDoc(
         chatRef,
-        new FieldPath(`clearedAt.${currentUid}`),
-        deleteField(),
-        new FieldPath(`deletedUsers.${currentUid}`),
-        deleteField(),
-      ).catch(() => {});
+        new FieldPath("clearedAt", currentUid), now,
+        new FieldPath("deletedUsers", currentUid), true,
+        new FieldPath(`clearedAt.${currentUid}`), deleteField(),
+        new FieldPath(`deletedUsers.${currentUid}`), deleteField(),
+        "updatedAt", now,
+      );
       void cleanupObsoleteChatMessages(roomId);
     } catch (err) {
       console.error("[HostInbox] Delete chat failed:", err);
@@ -515,23 +506,14 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
       const chatRef = doc(db, "chats", roomId);
       const now = Date.now();
 
-      await setDoc(
-        chatRef,
-        {
-          clearedAt: { [currentUid]: now },
-          deletedUsers: { [currentUid]: true },
-          updatedAt: now,
-        },
-        { merge: true },
-      );
-
       await updateDoc(
         chatRef,
-        new FieldPath(`clearedAt.${currentUid}`),
-        deleteField(),
-        new FieldPath(`deletedUsers.${currentUid}`),
-        deleteField(),
-      ).catch(() => {});
+        new FieldPath("clearedAt", currentUid), now,
+        new FieldPath("deletedUsers", currentUid), true,
+        new FieldPath(`clearedAt.${currentUid}`), deleteField(),
+        new FieldPath(`deletedUsers.${currentUid}`), deleteField(),
+        "updatedAt", now,
+      );
       void cleanupObsoleteChatMessages(roomId);
     } catch (err) {
       console.error("[HostInbox] Delete rejected chat failed:", err);

@@ -51,6 +51,7 @@ import FilterSetDetailsModal from "@/src/components/chat/modals/FilterSetDetails
 import SearchHistoryPickerModal, { type SearchHistorySelection } from "@/src/components/chat/modals/SearchHistoryPickerModal";
 import type { FilterSetMessageData, FirestoreUserDoc } from "@/src/components/chat/modals/types";
 import { getUserSettings, saveUserNotifications, saveUserPrivacy, type NotificationPreferences } from "@/src/api/accountSettings";
+import { isChatBlockedByUser } from "@/src/utils/chatHelpers";
 import { submitReportedUserEntry } from "@/src/services/reportedUsers";
 import { subscribeUserLikedApartmentIds, toggleApartmentLike } from "@/src/api/apartmentLikes";
 import {
@@ -77,6 +78,16 @@ import type { ContractDraftContext, ContractType } from "@/src/types/esignature"
 const CURRENCY = "€";
 const campuStay = true;
 
+function logPinnedApartmentActionFailure(action: string, error: unknown): void {
+  const errorDetails = error && typeof error === "object" ? error as { code?: unknown; message?: unknown } : {};
+  console.error("[PinnedApartmentAction FAILED]", {
+    action,
+    code: errorDetails.code,
+    message: errorDetails.message,
+    details: error,
+  });
+}
+
 function ObtuseChevron({ isExpanded, color }: { isExpanded: boolean; color: string }) {
   return (
     <Svg width={24} height={7} viewBox="0 0 24 7">
@@ -98,6 +109,8 @@ interface Message {
   noteText?: string;
   senderId: string;
   createdAt: any;
+  createdAtMillis?: number;
+  hasPendingWrites?: boolean;
   isRead?: boolean;
   type?: string;
   status?: "pending" | "approved";
@@ -167,6 +180,7 @@ interface FirestoreMessageDoc {
   noteText?: string;
   senderId?: string;
   createdAt?: any;
+  createdAtMillis?: number;
   isRead?: boolean;
   readAt?: any;
   type?: string;
@@ -816,6 +830,14 @@ function DirectChatScreen() {
 
     setLoadingProfile(true);
     const userRef = doc(db, "users", counterpartId);
+    if (auth.isGuest || !auth.userId) {
+      setProfile(null);
+      setCounterpartDetails(null);
+      setCounterpartExists(false);
+      setLoadingProfile(false);
+      return;
+    }
+
     const unsubscribe = onSnapshot(
       userRef,
       (snapshot) => {
@@ -840,7 +862,7 @@ function DirectChatScreen() {
     );
 
     return () => unsubscribe();
-  }, [counterpartId]);
+  }, [auth.isGuest, auth.userId, counterpartId]);
 
   useEffect(() => {
     setCurrentUserId(auth.userId ?? null);
@@ -876,7 +898,7 @@ function DirectChatScreen() {
   const [isNoticeDismissedLocally, setIsNoticeDismissedLocally] = useState(false);
   const [chatType, setChatType] = useState<"roommate" | "host" | "colleague">("roommate");
   const showRoommateHeaderDetails = chatType === "roommate" && !isBrokerOrAgencyUser(counterpartDetails) && counterpartDetails?.looking_for_roommate !== false && counterpartDetails?.isLookingForRoommate !== false && counterpartDetails?.not_looking_for_roommate !== true;
-  const headerSubInfo = isBrokerOrAgencyUser(counterpartDetails) ? "Μεσίτης" : "Ενεργός τώρα";
+  const headerSubInfo = isBrokerOrAgencyUser(counterpartDetails) ? "Μεσίτης" : "";
   const [brokerChatRole, setBrokerChatRole] = useState<"client" | "owner" | null>(null);
   const [assignedOwnerProperties, setAssignedOwnerProperties] = useState<ReturnType<typeof buildApartmentRoutePayload>[]>([]);
   const [loadingAssignedOwnerProperties, setLoadingAssignedOwnerProperties] = useState(false);
@@ -1181,7 +1203,10 @@ function DirectChatScreen() {
 
     if (userClearedAt <= 0) return sorted;
 
-    return sorted.filter((message) => safeTimestampToMillis(message.createdAt) > userClearedAt);
+    return sorted.filter((message) => {
+      if (message.hasPendingWrites || !message.createdAt) return true;
+      return safeTimestampToMillis(message.createdAtMillis ?? message.createdAt) > userClearedAt;
+    });
   }, [chatMetadataLoaded, chatMetadataRoomId, chatRoomId, rawMessages, targetMessage, userClearedAt, userDeleted]);
 
   // FlatList inverted={true} expects newest-first order (index 0 = latest message).
@@ -1292,9 +1317,13 @@ function DirectChatScreen() {
       setIsApartmentUnavailable(!!data.apartmentUnavailable);
       setIsChatMuted(!!data.mutedByUsers?.[currentUserId]);
       // ΔΙΟΡΘΩΣΗ: Ενημερώνουμε real-time τα block flags μέσα στο δωμάτιο τσατ
-      const blockedMap = (data as any).blockedByUsers ?? {};
-      setIsBlocker(currentUserId ? blockedMap[currentUserId] === true : false);
-      setIsBlocked(counterpartId ? blockedMap[counterpartId] === true : false);
+      setIsBlocker(currentUserId ? isChatBlockedByUser(data, currentUserId) : false);
+      setIsBlocked(counterpartId ? isChatBlockedByUser(data, counterpartId) : false);
+    }, (error) => {
+      console.warn("[Chat] Chat metadata listener failed:", error);
+      setChatMetadataLoaded(false);
+      setChatMetadataRoomId(null);
+      setMessagesLoaded(true);
     });
     return () => {
       unsubChat();
@@ -1332,9 +1361,7 @@ function DirectChatScreen() {
     }
 
     const messagesCollection = collection(db, "chats", chatRoomId, "messages");
-    const messagesQuery = userClearedAt > 0 && userClearedAtValue != null
-      ? query(messagesCollection, where("createdAt", ">", userClearedAtValue), orderBy("createdAt", "desc"), limit(messageLimit))
-      : query(messagesCollection, orderBy("createdAt", "desc"), limit(messageLimit));
+    const messagesQuery = query(messagesCollection, orderBy("createdAt", "desc"), limit(messageLimit));
 
     const unsubscribe = onSnapshot(
       messagesQuery,
@@ -1348,7 +1375,8 @@ function DirectChatScreen() {
               text: data.text ?? "",
               noteText: typeof data.noteText === "string" ? data.noteText : undefined,
               senderId: data.senderId ?? "",
-              createdAt: safeTimestampToMillis(data.createdAt, Date.now()),
+              createdAt: safeTimestampToMillis(data.createdAt, typeof data.createdAtMillis === "number" ? data.createdAtMillis : Date.now()),
+              createdAtMillis: typeof data.createdAtMillis === "number" ? data.createdAtMillis : safeTimestampToMillis(data.createdAt),
               isRead: data.isRead ?? true,
               type: data.type,
               status: data.status,
@@ -1370,9 +1398,14 @@ function DirectChatScreen() {
               hasClientInteracted: data.hasClientInteracted === true,
               proposalFeedback: data.proposalFeedback,
               metadata: data.metadata,
+              hasPendingWrites: messageDoc.metadata.hasPendingWrites,
             };
           })
-          .filter((message) => safeTimestampToMillis(message.createdAt) > userClearedAt);
+          .filter((message) => {
+            if (message.hasPendingWrites || !message.createdAt) return true;
+            if (userClearedAt <= 0) return true;
+            return safeTimestampToMillis(message.createdAtMillis ?? message.createdAt) > userClearedAt;
+          });
 
         const oldestMessageMillis = fetched.length > 0
           ? Math.min(...fetched.map((message) => safeTimestampToMillis(message.createdAt)))
@@ -1665,7 +1698,7 @@ function DirectChatScreen() {
   }, [counterpartId, currentUserId]);
 
   useEffect(() => {
-    if (chatType !== "host" || !hostApartmentId) {
+    if (chatType !== "host" || !currentUserId || !hostApartmentId) {
       setHostApartment(null);
       setIsApartmentUnavailable(false);
       return;
@@ -1713,7 +1746,7 @@ function DirectChatScreen() {
     );
 
     return () => unsubscribe();
-  }, [chatType, hostApartmentId, hostApartmentTitle]);
+  }, [chatType, currentUserId, hostApartmentId, hostApartmentTitle]);
 
   useEffect(() => {
     if (!isBrokerOwnerChat || !currentUserId || !counterpartId || !showAssignedPropertiesDropdown) {
@@ -1772,8 +1805,8 @@ function DirectChatScreen() {
         const [currentProfile, counterpartProfile, currentQuizSnap, counterpartQuizSnap] = await Promise.all([
           getUserProfile(currentUserId),
           getUserProfile(counterpartId),
-          getDoc(doc(db, "quiz_answers", currentUserId)),
-          getDoc(doc(db, "quiz_answers", counterpartId)),
+          getDoc(doc(db, "quiz_answers", currentUserId)).catch(() => null),
+          getDoc(doc(db, "quiz_answers", counterpartId)).catch(() => null),
         ]);
 
         if (!active || !currentProfile || !counterpartProfile) {
@@ -1782,8 +1815,8 @@ function DirectChatScreen() {
         }
 
         // 2. Καθαρίζουμε τις απαντήσεις του Quiz όπως ακριβώς κάνουμε και στο roommates.tsx
-        const rawCurrentQuiz = (currentQuizSnap.exists() ? (currentQuizSnap.data() as FirestoreQuizDoc).answers : {}) ?? {};
-        const rawCounterpartQuiz = (counterpartQuizSnap.exists() ? (counterpartQuizSnap.data() as FirestoreQuizDoc).answers : {}) ?? {};
+        const rawCurrentQuiz = (currentQuizSnap?.exists() ? (currentQuizSnap.data() as FirestoreQuizDoc).answers : {}) ?? {};
+        const rawCounterpartQuiz = (counterpartQuizSnap?.exists() ? (counterpartQuizSnap.data() as FirestoreQuizDoc).answers : {}) ?? {};
         if (active) setSharedProfileQuizAnswers(rawCounterpartQuiz);
 
         const cleanCurrentQuiz: any = {};
@@ -1799,6 +1832,14 @@ function DirectChatScreen() {
             cleanCounterpartQuiz[key] = rawCounterpartQuiz[key];
           }
         });
+
+        if (Object.keys(cleanCurrentQuiz).length === 0 || Object.keys(cleanCounterpartQuiz).length === 0) {
+          if (active) {
+            setCompatibilityScore(null);
+            setSharedProfileQuizAnswers({});
+          }
+          return;
+        }
 
         // 3. Δημιουργία των αντικειμένων για τον αλγόριθμο
         const currentProfileForScore: MatchUserProfile = {
@@ -1861,12 +1902,14 @@ function DirectChatScreen() {
     requestAnimationFrame(() => scrollRef.current?.scrollToOffset({ offset: 0, animated: true }));
 
     try {
+      const now = Date.now();
       // 1. Αποθήκευση μηνύματος στο Firestore (Subcollection)
       await addDoc(collection(db, "chats", chatRoomId, "messages"), {
         text: trimmed,
         senderId: currentUserId,
         receiverId: id,
         createdAt: serverTimestamp(),
+        createdAtMillis: now,
         isRead: false,
       });
 
@@ -1880,9 +1923,11 @@ function DirectChatScreen() {
           lastMessageSenderId: currentUserId,
           lastMessageIsRead: false,
           lastMessageReadBy: [currentUserId],
-          lastMessageTimestamp: Date.now(),
-          updatedAt: Date.now(),
-          deletedUsers: { [id]: false },
+          lastMessageTimestamp: now,
+          lastMessageCreatedAt: serverTimestamp(),
+          lastMessageCreatedAtMillis: now,
+          updatedAt: now,
+          deletedUsers: { [currentUserId]: false, [id]: false },
         },
         { merge: true },
       );
@@ -2290,22 +2335,32 @@ function DirectChatScreen() {
         createdAt: serverTimestamp(),
       });
 
-      await syncBrokerClientProfile({
-        brokerId: counterpartId,
-        clientId: currentUserId,
-        role: brokerChatRole === "owner" ? "owner" : "client",
-        chatRoomId,
-        apartmentId,
-        pipelineStage: "offer_made",
-      });
+      try {
+        await syncBrokerClientProfile({
+          brokerId: counterpartId,
+          clientId: currentUserId,
+          role: brokerChatRole === "owner" ? "owner" : "client",
+          chatRoomId,
+          apartmentId,
+          pipelineStage: "offer_made",
+        });
+      } catch (error) {
+        logPinnedApartmentActionFailure("price_offer_profile_sync", error);
+      }
 
       const chatRef = doc(db, "chats", chatRoomId);
+      const summaryText = `Πρόταση τιμής: ${Math.round(price)}${CURRENCY}`;
+      const summaryTimestamp = Date.now();
       await setDoc(
         chatRef,
         {
-          lastMessage: `Πρόταση τιμής: ${Math.round(price)}${CURRENCY}`,
-          lastMessageTimestamp: Date.now(),
-          updatedAt: Date.now(),
+          lastMessage: summaryText,
+          lastMessageText: summaryText,
+          lastMessageType: "price_proposal",
+          lastMessageTimestamp: summaryTimestamp,
+          lastMessageCreatedAt: serverTimestamp(),
+          lastMessageCreatedAtMillis: summaryTimestamp,
+          updatedAt: serverTimestamp(),
           deletedUsers: { [counterpartId]: false },
         },
         { merge: true },
@@ -2317,7 +2372,8 @@ function DirectChatScreen() {
       );
 
       setShowPriceProposalModal(false);
-    } catch {
+    } catch (error) {
+      logPinnedApartmentActionFailure("price_offer", error);
       setActionModal({
         title: t("chat.modals.actionFailedTitle"),
         description: t("common.messages.tryAgain"),
@@ -2354,22 +2410,32 @@ function DirectChatScreen() {
         createdAt: serverTimestamp(),
       });
 
-      await syncBrokerClientProfile({
-        brokerId: counterpartId,
-        clientId: currentUserId,
-        role: brokerChatRole === "owner" ? "owner" : "client",
-        chatRoomId,
-        apartmentId,
-        pipelineStage: "showing_scheduled",
-      });
+      try {
+        await syncBrokerClientProfile({
+          brokerId: counterpartId,
+          clientId: currentUserId,
+          role: brokerChatRole === "owner" ? "owner" : "client",
+          chatRoomId,
+          apartmentId,
+          pipelineStage: "showing_scheduled",
+        });
+      } catch (error) {
+        logPinnedApartmentActionFailure("appointment_profile_sync", error);
+      }
 
       const chatRef = doc(db, "chats", chatRoomId);
+      const summaryText = `Αίτημα επίσκεψης: ${formatRequestDate(date)} ${time}`;
+      const summaryTimestamp = Date.now();
       await setDoc(
         chatRef,
         {
-          lastMessage: `Αίτημα επίσκεψης: ${formatRequestDate(date)} ${time}`,
-          lastMessageTimestamp: Date.now(),
-          updatedAt: Date.now(),
+          lastMessage: summaryText,
+          lastMessageText: summaryText,
+          lastMessageType: "visit_request",
+          lastMessageTimestamp: summaryTimestamp,
+          lastMessageCreatedAt: serverTimestamp(),
+          lastMessageCreatedAtMillis: summaryTimestamp,
+          updatedAt: serverTimestamp(),
           deletedUsers: { [counterpartId]: false },
         },
         { merge: true },
@@ -2381,7 +2447,8 @@ function DirectChatScreen() {
       );
 
       setShowVisitRequestModal(false);
-    } catch {
+    } catch (error) {
+      logPinnedApartmentActionFailure("appointment", error);
       setActionModal({
         title: t("chat.modals.actionFailedTitle"),
         description: t("common.messages.tryAgain"),
@@ -2425,7 +2492,8 @@ function DirectChatScreen() {
       });
       await setDoc(doc(db, "chats", chatRoomId), { lastMessage: "Αλλαγή Ραντεβού Υπόδειξης", lastMessageType: "visit_rescheduled", lastMessageTimestamp: Date.now(), updatedAt: serverTimestamp() }, { merge: true });
       setVisitToEdit(null);
-    } catch {
+    } catch (error) {
+      logPinnedApartmentActionFailure("appointment_reschedule", error);
       setActionModal({ title: t("chat.modals.actionFailedTitle"), description: t("common.messages.tryAgain"), actions: [{ label: t("common.actions.gotIt"), iconName: "alert-circle-outline", onPress: () => setActionModal(null) }] });
     } finally {
       setIsSavingVisit(false);
@@ -2443,7 +2511,8 @@ function DirectChatScreen() {
       await addDoc(collection(db, "chats", chatRoomId, "messages"), { senderId: "system", text: messageText, type: "visit_cancelled", metadata: { ...visitToEdit.metadata, appointmentId, status: "cancelled" }, createdAt: serverTimestamp(), isRead: true });
       await setDoc(doc(db, "chats", chatRoomId), { lastMessage: messageText, lastMessageType: "visit_cancelled", lastMessageTimestamp: Date.now(), updatedAt: serverTimestamp() }, { merge: true });
       setVisitToEdit(null);
-    } catch {
+    } catch (error) {
+      logPinnedApartmentActionFailure("appointment_cancel", error);
       setActionModal({ title: t("chat.modals.actionFailedTitle"), description: t("common.messages.tryAgain"), actions: [{ label: t("common.actions.gotIt"), iconName: "alert-circle-outline", onPress: () => setActionModal(null) }] });
     } finally {
       setIsSavingVisit(false);
@@ -2518,7 +2587,7 @@ function DirectChatScreen() {
         await addDoc(collection(db, "chats", chatRoomId, "messages"), {
           senderId: "system",
           text: confirmationText,
-          type: message.type === "visit_request" ? "visit_confirmed" : "system_notice",
+          type: message.type === "visit_request" ? "visit_confirmed" : "price_offer_accepted",
           ...(appointmentId ? {
             metadata: {
               appointmentId,
@@ -2534,13 +2603,20 @@ function DirectChatScreen() {
         });
 
         const chatRef = doc(db, "chats", chatRoomId);
+        const confirmationTimestamp = Date.now();
+        const confirmationLastMessage = message.type === "visit_request"
+          ? `Επιβεβαιωμένη Υπόδειξη: ${formatRequestDate(message.requestedDate ?? "")}`
+          : confirmationText;
         await setDoc(
           chatRef,
           {
-            lastMessage: message.type === "visit_request" ? `Επιβεβαιωμένη Υπόδειξη: ${formatRequestDate(message.requestedDate ?? "")}` : confirmationText,
-            lastMessageType: message.type === "visit_request" ? "visit_confirmed" : "system_notice",
-            lastMessageTimestamp: Date.now(),
-            updatedAt: Date.now(),
+            lastMessage: confirmationLastMessage,
+            lastMessageText: confirmationLastMessage,
+            lastMessageType: message.type === "visit_request" ? "visit_confirmed" : "price_offer_accepted",
+            lastMessageTimestamp: confirmationTimestamp,
+            lastMessageCreatedAt: serverTimestamp(),
+            lastMessageCreatedAtMillis: confirmationTimestamp,
+            updatedAt: serverTimestamp(),
             deletedUsers: { [counterpartId]: false },
           },
           { merge: true },
@@ -2550,7 +2626,8 @@ function DirectChatScreen() {
           new FieldPath(`deletedUsers.${counterpartId}`),
           deleteField(),
         );
-      } catch {
+      } catch (error) {
+        logPinnedApartmentActionFailure(message.type === "visit_request" ? "accept_appointment" : "accept_price_offer", error);
         setActionModal({
           title: t("chat.modals.actionFailedTitle"),
           description: t("common.messages.tryAgain"),
@@ -2824,21 +2901,13 @@ function DirectChatScreen() {
     const now = Date.now();
     try {
       const chatRef = doc(db, "chats", chatRoomId);
-      await setDoc(
-        chatRef,
-        {
-          clearedAt: { [currentUserId]: now },
-          deletedUsers: { [currentUserId]: true },
-          updatedAt: now,
-        },
-        { merge: true },
-      );
       await updateDoc(
         chatRef,
-        new FieldPath(`clearedAt.${currentUserId}`),
-        deleteField(),
-        new FieldPath(`deletedUsers.${currentUserId}`),
-        deleteField(),
+        new FieldPath("clearedAt", currentUserId), now,
+        new FieldPath("deletedUsers", currentUserId), true,
+        new FieldPath(`clearedAt.${currentUserId}`), deleteField(),
+        new FieldPath(`deletedUsers.${currentUserId}`), deleteField(),
+        "updatedAt", now,
       );
       void cleanupObsoleteChatMessages(chatRoomId);
       router.back();
@@ -3305,6 +3374,8 @@ function DirectChatScreen() {
           <View style={{ paddingHorizontal: spacing.xs, paddingVertical: 2, borderRadius: radius.sm, backgroundColor: colors.surface }}>
             <Text style={{ fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.brand }}>{activePinnedAppointment.message.metadata?.status === "pending" ? "Εκκρεμές" : "Επιβεβαιωμένο"}</Text>
           </View>
+          
+          {/*CSPT1 
           <Pressable
             onPress={(event) => {
               event.stopPropagation();
@@ -3315,6 +3386,8 @@ function DirectChatScreen() {
           >
             <Ionicons name="create-outline" size={20} color={colors.brand} />
           </Pressable>
+          */}
+          
           <Pressable
             onPress={(event) => {
               event.stopPropagation();
@@ -3781,6 +3854,23 @@ function DirectChatScreen() {
               }}
             />
           )}
+
+          {hasBlockedByMe || blockedByOtherUser ? (
+            <View
+              style={{
+                marginHorizontal: spacing.md,
+                marginBottom: spacing.sm,
+                paddingHorizontal: spacing.md,
+                paddingVertical: spacing.sm,
+                borderRadius: radius.md,
+                backgroundColor: colors.surfaceSecondary,
+              }}
+            >
+              <Text style={{ fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurfaceTertiary, textAlign: "center" }}>
+                This conversation is blocked.
+              </Text>
+            </View>
+          ) : null}
 
           <View
             style={[
@@ -5293,7 +5383,10 @@ export default function ChatScreenRoute() {
   const [groupMetadata, setGroupMetadata] = useState<GroupChatMetadata | null>(null);
 
   useEffect(() => {
-    if (!chatRoomId) return;
+    if (auth.isGuest || !auth.userId || !chatRoomId) {
+      setGroupMetadata(null);
+      return;
+    }
     return onSnapshot(doc(db, "chats", chatRoomId), (snapshot) => {
       const data = snapshot.exists() ? snapshot.data() as { type?: string; groupMetadata?: GroupChatMetadata; users?: string[]; groupName?: string; hostApartmentId?: string; createdBy?: string } : null;
       if (!data || data.type !== "roommate_group") {
@@ -5309,8 +5402,11 @@ export default function ChatScreenRoute() {
         ...(data.groupMetadata?.hostUserId ? { hostUserId: data.groupMetadata.hostUserId } : {}),
         ...(data.groupMetadata?.hostApartmentId ?? data.hostApartmentId ? { hostApartmentId: data.groupMetadata?.hostApartmentId ?? data.hostApartmentId } : {}),
       });
+    }, (error) => {
+      console.warn("[Chat] Group metadata listener failed:", error);
+      setGroupMetadata(null);
     });
-  }, [chatRoomId]);
+  }, [auth.isGuest, auth.userId, chatRoomId]);
 
   if (groupMetadata && auth.userId) {
     return <GroupChatScreen chatRoomId={chatRoomId} currentUserId={auth.userId} metadata={groupMetadata} />;

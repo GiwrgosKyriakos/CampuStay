@@ -196,9 +196,13 @@ export default function GroupChatScreen({
   }, [currentUserId, memberBlockModalVisible, metadata.memberIds]);
 
   useEffect(() => {
+    if (!currentUserId || !chatRoomId) return undefined;
     return onSnapshot(doc(db, "chats", chatRoomId), (snapshot) => {
       const data = snapshot.exists() ? snapshot.data() as { mutedByUsers?: Record<string, boolean> } : {};
       setIsChatMuted(data.mutedByUsers?.[currentUserId] === true);
+    }, (error) => {
+      console.warn("[GroupChat] Chat metadata listener failed:", { chatRoomId, error });
+      setIsChatMuted(false);
     });
   }, [chatRoomId, currentUserId]);
 
@@ -228,8 +232,9 @@ export default function GroupChatScreen({
   }, [currentUserId]);
 
   useEffect(
-    () =>
-      onSnapshot(query(collection(db, "chats", chatRoomId, "messages"), orderBy("createdAt", "asc")), (snapshot) => {
+    () => {
+      if (!currentUserId || !chatRoomId) return undefined;
+      return onSnapshot(query(collection(db, "chats", chatRoomId, "messages"), orderBy("createdAt", "asc")), (snapshot) => {
         const fetchedMessages = snapshot.docs.map((message) => {
             const data = message.data() as {
               senderId?: string;
@@ -265,8 +270,12 @@ export default function GroupChatScreen({
           );
           return [...fetchedMessages, ...pendingMessages].sort((first, second) => first.createdAt - second.createdAt);
         });
-      }),
-    [chatRoomId],
+      }, (error) => {
+        console.warn("[GroupChat] Messages listener failed:", { chatRoomId, error });
+        setMessages([]);
+      });
+    },
+    [chatRoomId, currentUserId],
   );
 
   const invertedMessages = useMemo(() => [...messages].reverse(), [messages]);
@@ -287,37 +296,57 @@ export default function GroupChatScreen({
   const saveVisitChanges = async (appointmentDate: string) => {
     const appointmentId = visitToEdit?.metadata?.appointmentId;
     if (!appointmentId || !visitToEdit) return;
-    await updateVisitAppointment(appointmentId, { appointmentDate, status: "confirmed" });
-    await updateLinkedCalendarNotes({ appointmentId, appointmentDate, status: "confirmed" });
-    await addDoc(collection(db, "chats", chatRoomId, "messages"), {
-      senderId: "system",
-      text: "Το ραντεβού ενημερώθηκε.",
-      type: "visit_rescheduled",
-      metadata: { ...visitToEdit.metadata, appointmentId, appointmentDate, status: "confirmed" },
-      createdAt: serverTimestamp(),
-      isRead: true,
-    });
-    setVisitToEdit(null);
+    try {
+      await updateVisitAppointment(appointmentId, { appointmentDate, status: "confirmed" });
+      await updateLinkedCalendarNotes({ appointmentId, appointmentDate, status: "confirmed" });
+      await addDoc(collection(db, "chats", chatRoomId, "messages"), {
+        senderId: "system",
+        text: "Το ραντεβού ενημερώθηκε.",
+        type: "visit_rescheduled",
+        metadata: { ...visitToEdit.metadata, appointmentId, appointmentDate, status: "confirmed" },
+        createdAt: serverTimestamp(),
+        isRead: true,
+      });
+      setVisitToEdit(null);
+    } catch (error) {
+      console.error("[PinnedApartmentAction FAILED]", {
+        action: "appointment_reschedule",
+        code: error && typeof error === "object" ? (error as { code?: unknown }).code : undefined,
+        message: error && typeof error === "object" ? (error as { message?: unknown }).message : undefined,
+        details: error,
+      });
+      Alert.alert("Action failed", "Please try again.");
+    }
   };
 
   const cancelVisit = async () => {
     const appointmentId = visitToEdit?.metadata?.appointmentId;
     if (!appointmentId || !visitToEdit) return;
-    await updateVisitAppointment(appointmentId, { status: "cancelled" });
-    await updateLinkedCalendarNotes({
-      appointmentId,
-      appointmentDate: visitToEdit.metadata?.appointmentDate ?? "",
-      status: "cancelled",
-    });
-    await addDoc(collection(db, "chats", chatRoomId, "messages"), {
-      senderId: "system",
-      text: "Το ραντεβού ακυρώθηκε.",
-      type: "visit_cancelled",
-      metadata: { ...visitToEdit.metadata, appointmentId, status: "cancelled" },
-      createdAt: serverTimestamp(),
-      isRead: true,
-    });
-    setVisitToEdit(null);
+    try {
+      await updateVisitAppointment(appointmentId, { status: "cancelled" });
+      await updateLinkedCalendarNotes({
+        appointmentId,
+        appointmentDate: visitToEdit.metadata?.appointmentDate ?? "",
+        status: "cancelled",
+      });
+      await addDoc(collection(db, "chats", chatRoomId, "messages"), {
+        senderId: "system",
+        text: "Το ραντεβού ακυρώθηκε.",
+        type: "visit_cancelled",
+        metadata: { ...visitToEdit.metadata, appointmentId, status: "cancelled" },
+        createdAt: serverTimestamp(),
+        isRead: true,
+      });
+      setVisitToEdit(null);
+    } catch (error) {
+      console.error("[PinnedApartmentAction FAILED]", {
+        action: "appointment_cancel",
+        code: error && typeof error === "object" ? (error as { code?: unknown }).code : undefined,
+        message: error && typeof error === "object" ? (error as { message?: unknown }).message : undefined,
+        details: error,
+      });
+      Alert.alert("Action failed", "Please try again.");
+    }
   };
 
   useEffect(() => {
@@ -351,6 +380,9 @@ export default function GroupChatScreen({
         rent: data.rent ?? data.price ?? 0,
         image: data.image || data.imageUrl || data.images?.[0],
       });
+    }, (error) => {
+      console.warn("[GroupChat] Host apartment listener failed:", { apartmentId: metadata.hostApartmentId, error });
+      setHostApartment(null);
     });
   }, [metadata.hostApartmentId]);
 
@@ -419,11 +451,13 @@ export default function GroupChatScreen({
     requestAnimationFrame(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }));
 
     try {
+      const now = Date.now();
       await addDoc(collection(db, "chats", chatRoomId, "messages"), {
         senderId: currentUserId,
         type: "text",
         text: value,
         createdAt: serverTimestamp(),
+        createdAtMillis: now,
         isRead: false,
       });
       await setDoc(
@@ -435,8 +469,10 @@ export default function GroupChatScreen({
           lastMessageSenderId: currentUserId,
           lastMessageIsRead: false,
           lastMessageReadBy: [currentUserId],
-          lastMessageTimestamp: serverTimestamp(),
-          updatedAt: serverTimestamp(),
+          lastMessageTimestamp: now,
+          lastMessageCreatedAt: serverTimestamp(),
+          lastMessageCreatedAtMillis: now,
+          updatedAt: now,
         },
         { merge: true },
       );

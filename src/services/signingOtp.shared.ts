@@ -4,51 +4,23 @@ import {
 } from "@/src/api/contracts";
 import { startFirebasePhoneVerification } from "@/src/services/signingOtpPlatform";
 import { logOtpTerminalDiagnostic } from "@/src/services/otpDiagnostics";
-
-export type OtpProvider = "twilio" | "firebase";
-
-export type OtpVerificationResult = {
-  verified: boolean;
-  verifiedAt: number;
-  verificationId?: string;
-  verificationToken?: string;
-};
-
-export type OtpConfirmation = {
-  confirm: (code: string) => Promise<{ user: { getIdToken: (forceRefresh?: boolean) => Promise<string> } }>;
-};
-
-export type FirebasePhoneAuthHandler = {
-  startPhoneVerification: (params: { phone: string; signerId: string }) => Promise<{
-    confirmation: OtpConfirmation;
-    cleanup?: () => void;
-  }>;
-};
-
-export type SigningOtpSession =
-  | { provider: "twilio"; phone: string }
-  | {
-      provider: "firebase";
-      phone: string;
-      confirmation: OtpConfirmation;
-      cleanup: () => void;
-    };
-
-export type SigningOtpSendResult = {
-  provider: OtpProvider;
-  delivered: boolean;
-  expiresInSeconds: number;
-  session: SigningOtpSession;
-};
-
-export class OtpProviderUnavailableError extends Error {
-  code = "otp-provider-unavailable";
-
-  constructor(message: string) {
-    super(message);
-    this.name = "OtpProviderUnavailableError";
-  }
-}
+export {
+  OtpProviderUnavailableError,
+  type FirebasePhoneAuthHandler,
+  type OtpConfirmation,
+  type OtpProvider,
+  type OtpVerificationResult,
+  type SigningOtpSendResult,
+  type SigningOtpSession,
+} from "@/src/services/signingOtp.types";
+import type {
+  FirebasePhoneAuthHandler,
+  OtpProvider,
+  OtpVerificationResult,
+  SigningOtpSendResult,
+  SigningOtpSession,
+} from "@/src/services/signingOtp.types";
+import { OtpProviderUnavailableError } from "@/src/services/signingOtp.types";
 
 let firebasePhoneAuthHandler: FirebasePhoneAuthHandler | null = null;
 

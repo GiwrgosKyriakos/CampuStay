@@ -166,14 +166,21 @@ export function subscribeUserLikedApartmentIds(
   onChange: (apartmentIds: Set<string>) => void,
 ): () => void {
   const likesQ = query(collection(db, "liked_apartments"), where("userId", "==", userId));
-  return onSnapshot(likesQ, (snapshot) => {
-    const ids = new Set<string>();
-    snapshot.forEach((item) => {
-      const apartmentId = item.data()?.apartmentId;
-      if (typeof apartmentId === "string" && apartmentId) ids.add(apartmentId);
-    });
-    onChange(ids);
-  });
+  return onSnapshot(
+    likesQ,
+    (snapshot) => {
+      const ids = new Set<string>();
+      snapshot.forEach((item) => {
+        const apartmentId = item.data()?.apartmentId;
+        if (typeof apartmentId === "string" && apartmentId) ids.add(apartmentId);
+      });
+      onChange(ids);
+    },
+    (error) => {
+      console.warn("[ApartmentLikes] User likes listener failed:", { userId, error });
+      onChange(new Set());
+    },
+  );
 }
 
 export async function getApartmentLikeCount(apartmentId: string): Promise<number> {
@@ -184,5 +191,12 @@ export async function getApartmentLikeCount(apartmentId: string): Promise<number
 
 export function subscribeApartmentLikeCount(apartmentId: string, onChange: (count: number) => void): () => void {
   const likesQ = query(collection(db, "liked_apartments"), where("apartmentId", "==", apartmentId));
-  return onSnapshot(likesQ, (snapshot) => onChange(snapshot.size));
+  return onSnapshot(
+    likesQ,
+    (snapshot) => onChange(snapshot.size),
+    (error) => {
+      console.warn("[ApartmentLikes] Apartment likes listener failed:", { apartmentId, error });
+      onChange(0);
+    },
+  );
 }

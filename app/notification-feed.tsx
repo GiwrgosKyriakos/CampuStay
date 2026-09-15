@@ -39,7 +39,8 @@ function notificationRoute(screen?: string): string {
 
 function iconForType(type?: string): IconName {
   if (type === "new_offer" || type === "price_drop" || type === "closed_deal" || type === "deal_stage_update") return "cash-outline";
-  if (type?.startsWith("visit") || type === "post_visit_rating") return "calendar-outline";
+  if (type?.startsWith("visit") || type === "appointment_proposal" || type === "appointment_accepted" || type === "post_visit_rating") return "calendar-outline";
+  if (type === "price_offer" || type === "price_offer_accepted") return "cash-outline";
   if (type === "broker_registration" || type === "broker_approved" || type === "high_match") return "person-outline";
   if (type === "document_required") return "document-text-outline";
   return "notifications-outline";

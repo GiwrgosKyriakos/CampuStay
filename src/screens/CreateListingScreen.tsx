@@ -2301,7 +2301,7 @@ export default function CreateListingScreen() {
       const existingFiles2d3d = files2d3d.filter((uri) => /^https?:\/\//i.test(uri));
       const localFiles2d3d = files2d3d.filter((uri) => !/^https?:\/\//i.test(uri));
       const uploadedFiles2d3d = await Promise.all(
-        localFiles2d3d.map((uri, index) => uploadImageAsync(uri, `apartments/${savedApartmentId}/files2d3d/file_${index}_${Date.now()}.png`)),
+          localFiles2d3d.map((uri, index) => uploadImageAsync(uri, `apartments/${savedApartmentId}/files2d3d/file_${index}_${Date.now()}.png`, "image/png")),
       );
       const finalFiles2d3d = [...existingFiles2d3d, ...uploadedFiles2d3d];
       await upsertListing({
@@ -2821,6 +2821,8 @@ export default function CreateListingScreen() {
               </View>
             ) : null}
 
+            {/*CSPT1 
+
             <View style={styles.sectionHeaderRow}>
               <View style={styles.sectionTitleWrap}>
                 <Ionicons name="sparkles-outline" size={19} color={colors.onSurface} />
@@ -2840,6 +2842,8 @@ export default function CreateListingScreen() {
               </Pressable>
             )}
 
+            */}
+
             <View style={styles.reelUploadHeader}>
               <View style={styles.sectionTitleWrap}>
                 <Ionicons name="videocam-outline" size={19} color={colors.onSurface} />
@@ -2855,6 +2859,8 @@ export default function CreateListingScreen() {
               <Text style={styles.reelUploadButtonText}>{reelVideoUri ? "Αντικατάσταση Video Reel" : t("feed.uploadReel")}</Text>
             </Pressable>
             {reelVideoUri ? <Text style={styles.fieldHint}>{reelVideoUri.startsWith("http") ? "Το video reel είναι αποθηκευμένο στην αγγελία." : "Το video reel θα ανέβει με τη δημοσίευση."}</Text> : null}
+            
+            {/*CSPT1 
 
             <View style={styles.sectionHeaderRow}>
               <View style={styles.sectionTitleWrap}>
@@ -2932,6 +2938,8 @@ export default function CreateListingScreen() {
                 {tourScenes.length === 0 ? <Text style={styles.fieldHint}>Δεν έχουν προστεθεί ακόμη πανοράματα.</Text> : null}
               </>
             ) : null}
+            
+            */}
 
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
 

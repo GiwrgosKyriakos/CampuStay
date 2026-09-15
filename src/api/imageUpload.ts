@@ -95,15 +95,22 @@ export async function uploadImageAsync(uri: string, path: string, contentType?: 
   }
 
   const blob = await uriToBlob(uri);
-  await ensureFirebaseAuthSession();
+  const user = await ensureFirebaseAuthSession();
   const imageRef = ref(storage, path);
 
   try {
-    await uploadBytes(imageRef, blob, { contentType: contentType ?? guessContentType(uri) });
+    const resolvedContentType = contentType ?? guessContentType(uri);
+    console.log("[ImageUpload] Uploading Storage file", {
+      path,
+      userId: user.uid,
+      contentType: resolvedContentType,
+    });
+    await uploadBytes(imageRef, blob, { contentType: resolvedContentType });
     return await getDownloadURL(imageRef);
   } catch (error) {
     console.error("[ImageUpload] Firebase Storage upload failed", {
       path,
+      userId: user.uid,
       uri,
       error,
     });

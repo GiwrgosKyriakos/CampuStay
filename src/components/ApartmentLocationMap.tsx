@@ -6,6 +6,7 @@ import { collection, onSnapshot } from "firebase/firestore";
 
 import { fonts, fontSize, radius, type ThemeColors } from "@/src/theme";
 import { useTheme } from "@/src/context/ThemeContext";
+import { useAuth } from "@/src/context/auth";
 import { t } from "@/src/locales";
 import { db } from "@/src/config/firebase";
 
@@ -163,6 +164,7 @@ export default function ApartmentLocationMap({
   showLayerControls = true,
 }: ApartmentLocationMapProps) {
   const { colors, isDark } = useTheme();
+  const auth = useAuth();
   const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const mapRef = useRef<MapView>(null);
   const mapStyle = isDark ? darkMapStyle : lightMapStyle;
@@ -225,6 +227,10 @@ export default function ApartmentLocationMap({
   }, [exactCoordinates]);
 
   useEffect(() => {
+    if (auth.isGuest || !auth.userId) {
+      setPriceRegions([]);
+      return;
+    }
     let active = true;
     const unsubscribe = onSnapshot(collection(db, "apartments"), (snapshot) => {
       if (!active) return;
@@ -258,7 +264,7 @@ export default function ApartmentLocationMap({
       setPriceRegions(overallAverage > 0 ? regions : []);
     }, () => { if (active) setPriceRegions([]); });
     return () => { active = false; unsubscribe(); };
-  }, [cityCoordinates, transactionType]);
+  }, [auth.isGuest, auth.userId, cityCoordinates, transactionType]);
 
   const availableLayers = useMemo(() => (Object.keys(layerLabels) as MapLayer[]).filter((layer) => layer === "heatmap" ? priceRegions.length > 0 : pois.some((poi) => poi.category === layer)), [pois, priceRegions]);
   const overallPriceAverage = useMemo(() => {

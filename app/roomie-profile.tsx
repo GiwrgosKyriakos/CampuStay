@@ -82,6 +82,16 @@ export default function RoomieProfileScreen() {
         ).catch((err) => {
           console.error("[RoomieProfile] Failed to persist quiz answer:", err);
         });
+        void setDoc(
+          doc(db, "users", userId),
+          {
+            quizCompleted: Object.keys(updatedAnswers).length === TOTAL_QUESTIONS,
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true },
+        ).catch((err) => {
+          console.error("[RoomieProfile] Failed to persist quiz completion state:", err);
+        });
       }
 
       return updatedAnswers;

@@ -133,11 +133,11 @@ useEffect(() => {
 
   const load = useCallback(async (isSilent = false) => {
     try {
-      if (!auth.isGuest && !auth.userId) {
+      if (auth.isLoading || auth.isGuest || !auth.userId) {
         setLoading(false);
         return;
       }
-      const userId = auth.isGuest ? "guest" : auth.userId;
+      const userId = auth.userId;
       if (!userId) {
         setLoading(false);
         return;
@@ -153,8 +153,8 @@ useEffect(() => {
       });
 
       const [profile, quizSnap] = await Promise.all([
-        auth.isGuest ? Promise.resolve(null) : getUserProfile(userId).catch(() => null),
-        auth.isGuest ? Promise.resolve(null) : getDoc(doc(db, "quiz_answers", userId)).catch(() => null),
+        getUserProfile(userId).catch(() => null),
+        getDoc(doc(db, "quiz_answers", userId)).catch(() => null),
       ]);
       setUserProfile(profile);
 
@@ -181,15 +181,16 @@ useEffect(() => {
     } finally {
       setLoading(false);
     }
-  }, [auth.isGuest, auth.userId]);
+  }, [auth.isGuest, auth.isLoading, auth.userId]);
 
   useFocusEffect(
     useCallback(() => {
+      if (auth.isLoading || auth.isGuest || !auth.userId) return;
       void load(true);
       return () => {
         if (actionTimeout.current) clearTimeout(actionTimeout.current);
       };
-    }, [load]),
+    }, [auth.isGuest, auth.isLoading, auth.userId, load]),
   );
 
   useFocusEffect(

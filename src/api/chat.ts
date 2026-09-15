@@ -11,6 +11,8 @@ import {
   setDoc,
   addDoc,
   arrayUnion,
+  deleteField,
+  FieldPath,
 } from "firebase/firestore";
 import { db } from "@/src/config/firebase";
 import { getUserSettings } from "@/src/api/accountSettings";
@@ -303,7 +305,8 @@ async function findExistingHostChatRoomId(params: {
     where("apartmentId", "==", apartmentId),
     where("users", "array-contains", currentUserId),
   );
-  const hostChatsSnap = await getDocs(hostChatsQ);
+  const hostChatsSnap = await getDocs(hostChatsQ).catch(() => null);
+  if (!hostChatsSnap) return null;
   const existing = hostChatsSnap.docs.find((chatDoc) => {
     const users = chatDoc.data()?.users;
     return Array.isArray(users) && users.includes(hostId);
@@ -319,8 +322,8 @@ export async function getOrCreateHostChat(params: {
 }): Promise<string> {
   const { currentUserId, hostId, apartmentId, apartmentTitle } = params;
   const blockState = await getBlockRelationshipState(currentUserId, hostId);
-  const hostSnapshot = await getDoc(doc(db, "users", hostId));
-  const hostData = hostSnapshot.exists() ? hostSnapshot.data() as { is_broker?: boolean } : null;
+  const hostSnapshot = await getDoc(doc(db, "users", hostId)).catch(() => null);
+  const hostData = hostSnapshot?.exists() ? hostSnapshot.data() as { is_broker?: boolean } : null;
   const brokerChatRole = hostData?.is_broker === true ? "client" : undefined;
   const blockedByUsers = {
     [currentUserId]: blockState.isBlocker,
@@ -355,9 +358,9 @@ export async function getOrCreateHostChat(params: {
 
   const chatRoomId = buildChatRoomId(currentUserId, hostId, apartmentId);
   const chatRef = doc(db, "chats", chatRoomId);
-  const snapshot = await getDoc(chatRef);
+  const snapshot = await getDoc(chatRef).catch(() => null);
 
-  if (!snapshot.exists()) {
+  if (!snapshot?.exists()) {
     await setDoc(
       chatRef,
       {
@@ -435,13 +438,11 @@ export async function setBlockStateBetweenUsers(
       const users = chatDoc.data()?.users;
       if (Array.isArray(users) && users.includes(targetUserId)) {
         hasUpdates = true;
-        batch.set(
+        batch.update(
           chatDoc.ref,
-          {
-            [`blockedByUsers.${currentUserId}`]: isBlocked,
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true }
+          new FieldPath("blockedByUsers", currentUserId), isBlocked,
+          new FieldPath(`blockedByUsers.${currentUserId}`), deleteField(),
+          "updatedAt", serverTimestamp(),
         );
       }
     });

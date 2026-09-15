@@ -42,6 +42,17 @@ import HardCriteriaSelectionModal, { HARD_CRITERIA_OPTIONS } from "@/src/compone
 import VoiceInputButton from "@/src/components/common/VoiceInputButton";
 import { useVoiceInputPreview } from "@/src/hooks/useVoiceInputPreview";
 import { shouldDisplayListingForUser } from "@/src/utils/listingFilters";
+import {
+  localizeAmenity,
+  localizeCity,
+  localizePropertyCategory,
+  localizePropertyType,
+  toCanonicalAmenity,
+  toCanonicalCity,
+  toCanonicalHeatingType,
+  toCanonicalPropertyType,
+  toCanonicalFurnishedStatus,
+} from "@/src/utils/localizeData";
 
 function ObtuseChevron({ isExpanded, color }: { isExpanded: boolean; color: string }) {
   return (
@@ -165,11 +176,11 @@ export function formatFilterSetSummary(filters: FilterSetPayload): string {
   if (filters.sizeMin || filters.sizeMax) {
     parts.push(t("apartments.tab.filterSummary.sizeRange", { min: filters.sizeMin || "0", max: filters.sizeMax || "∞" }));
   }
-  if (filters.selectedCity?.trim()) parts.push(filters.selectedCity.trim());
+  if (filters.selectedCity?.trim()) parts.push(localizeCity(filters.selectedCity.trim()));
   if (filters.areaQuery?.trim()) parts.push(filters.areaQuery.trim());
   if (filters.petFriendly) parts.push(t("apartments.tab.filterSummary.pets"));
   if (filters.nearMetro) parts.push(t("apartments.tab.filterSummary.metro"));
-  if (filters.propertyTypes?.length) parts.push(filters.propertyTypes.join(", "));
+  if (filters.propertyTypes?.length) parts.push(filters.propertyTypes.map((value) => localizePropertyType(value)).join(", "));
   if (filters.propertyCategories?.length) parts.push(filters.propertyCategories.join(", "));
   if (filters.floors?.length) parts.push(filters.floors.join(", "));
   if (filters.bedroomsMin) parts.push(`${filters.bedroomsMin}+ υπνοδωμ.`);
@@ -237,11 +248,11 @@ function getFilterChipLabel(option: FilterChipOption): string {
 }
 
 const PROPERTY_TYPE_FILTER_OPTIONS: FilterChipOption[] = [
-  { value: "Διαμέρισμα", labelKey: "apartments.tab.propertyTypes.apartment", icon: "business-outline" },
-  { value: "Studio", labelKey: "apartments.tab.propertyTypes.studio", icon: "bed-outline" },
-  { value: "Μεζονέτα", labelKey: "apartments.tab.propertyTypes.maisonette", icon: "home-outline" },
-  { value: "Loft", labelKey: "apartments.tab.propertyTypes.loft", icon: "layers-outline" },
-  { value: "Δωμάτιο", labelKey: "apartments.tab.propertyTypes.room", icon: "person-outline" },
+  { value: "apartment", labelKey: "apartments.tab.propertyTypes.apartment", icon: "business-outline" },
+  { value: "studio", labelKey: "apartments.tab.propertyTypes.studio", icon: "bed-outline" },
+  { value: "maisonette", labelKey: "apartments.tab.propertyTypes.maisonette", icon: "home-outline" },
+  { value: "loft", labelKey: "apartments.tab.propertyTypes.loft", icon: "layers-outline" },
+  { value: "room", labelKey: "apartments.tab.propertyTypes.room", icon: "person-outline" },
 ];
 const PROPERTY_CATEGORY_FILTER_OPTIONS: FilterChipOption[] = [
   { value: "Κατοικία", labelKey: "apartments.tab.propertyCategories.residential" },
@@ -260,17 +271,17 @@ const FLOOR_FILTER_OPTIONS: FilterChipOption[] = [
   { value: "5ος+", labelKey: "apartments.tab.floors.fifthPlus" },
 ];
 const HEATING_FILTER_OPTIONS: FilterChipOption[] = [
-  { value: "Αυτόνομη", labelKey: "apartments.tab.heating.autonomous" },
-  { value: "Κεντρική", labelKey: "apartments.tab.heating.central" },
-  { value: "Κλιματισμός", labelKey: "apartments.tab.heating.airConditioning" },
-  { value: "Αντλία Θερμότητας", labelKey: "apartments.tab.heating.heatPump" },
+  { value: "autonomous_gas", labelKey: "apartments.tab.heating.autonomous" },
+  { value: "central", labelKey: "apartments.tab.heating.central" },
+  { value: "air_condition", labelKey: "apartments.tab.heating.airConditioning" },
+  { value: "heat_pump", labelKey: "apartments.tab.heating.heatPump" },
 ];
 const ENERGY_CLASS_FILTER_OPTIONS: FilterChipOption[] = ["A+", "A", "B+", "B", "C", "D", "E"].map((value) => ({ value, labelKey: "" }));
 const AMENITY_FILTER_OPTIONS: FilterChipOption[] = [
   { value: "elevator", labelKey: "apartments.tab.amenities.elevator", icon: "business-outline" },
   { value: "balcony", labelKey: "apartments.tab.amenities.balcony", icon: "sunny-outline" },
   { value: "parking", labelKey: "apartments.tab.amenities.parking", icon: "car-sport-outline" },
-  { value: "air_conditioner", labelKey: "apartments.tab.amenities.airConditioner", icon: "snow-outline" },
+  { value: "air_condition", labelKey: "apartments.tab.amenities.airConditioner", icon: "snow-outline" },
   { value: "security_door", labelKey: "apartments.tab.amenities.securityDoor", icon: "lock-closed-outline" },
   { value: "solar_water_heater", labelKey: "apartments.tab.amenities.solarWaterHeater", icon: "sunny-outline" },
   { value: "alarm", labelKey: "apartments.tab.amenities.alarm", icon: "notifications-outline" },
@@ -284,28 +295,16 @@ const AMENITY_FILTER_OPTIONS: FilterChipOption[] = [
   { value: "pet_friendly", labelKey: "apartments.tab.amenities.petFriendly", icon: "paw-outline" },
   { value: "near_metro", labelKey: "apartments.tab.amenities.nearMetro", icon: "train-outline" },
 ];
-const AMENITY_MATCH_TERMS: Record<string, string[]> = {
-  elevator: ["elevator", "ασανσερ"], balcony: ["balcony", "μπαλκονι", "βεραντα"], parking: ["parking", "θεση σταθμευση"],
-  air_conditioner: ["air_conditioner", "air conditioning", "κλιματισμο"], security_door: ["security_door", "πορτα ασφαλειας"],
-  solar_water_heater: ["solar_water_heater", "ηλιακο θερμοσιφωνα"], alarm: ["alarm", "συναγερμο"], storage_room: ["storage_room", "αποθηκη"],
-  garden: ["garden", "κηπο"], fireplace: ["fireplace", "τζακι"], wifi: ["wifi"], bills_included: ["bills_included", "λογαριασμο"],
-  shared_kitchen: ["shared_kitchen", "κοινοχρηστη κουζινα"], furnished: ["furnished", "επιπλωμενο"], pet_friendly: ["pet_friendly", "κατοικιδ"], near_metro: ["near_metro", "μετρο"],
-};
 const FILTER_VALUE_ALIASES: Record<string, string[]> = {
-  Studio: ["studio", "γκαρσονιερα"],
   Κατοικία: ["residential", "κατοικια"],
   "Επαγγελματική στέγη": ["commercial", "επαγγελματικη στεγη"],
   Ισόγειο: ["ground", "ισογειο"],
   "5ος+": ["5th+", "5ος"],
-  Αυτόνομη: ["autonomous_gas", "autonomous"],
-  Κεντρική: ["central", "κεντρικη"],
-  Κλιματισμός: ["air_condition", "air_conditioner", "κλιματισμος"],
-  "Αντλία Θερμότητας": ["heat_pump", "αντλια θερμοτητας"],
 };
 
 function matchesFilterValue(selected: string, actual: string): boolean {
-  const actualValue = normalizeText(actual);
   const selectedValue = normalizeText(selected);
+  const actualValue = normalizeText(actual);
   const aliasGroup = Object.entries(FILTER_VALUE_ALIASES).find(([key, aliases]) =>
     normalizeText(key) === selectedValue || aliases.some((alias) => normalizeText(alias) === selectedValue),
   );
@@ -469,7 +468,13 @@ interface Apartment {
 }
 
 function getApartmentSearchText(apt: Apartment): string {
-  return [apt.city, apt.area, apt.neighborhood, apt.district, apt.title, apt.address, apt.exactAddress, apt.description]
+  const canonicalTerms = [
+    toCanonicalCity(apt.city),
+    toCanonicalPropertyType(apt.propertyType || ""),
+    ...apt.tags.map(toCanonicalAmenity),
+    ...apt.amenities.map(toCanonicalAmenity),
+  ];
+  return [apt.city, apt.area, apt.neighborhood, apt.district, apt.title, apt.address, apt.exactAddress, apt.description, ...canonicalTerms]
     .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
     .map(normalizeText)
     .join(" ");
@@ -581,6 +586,8 @@ function normalizeTagSlug(tag: string): string {
 }
 
 function translateApartmentTag(tag: string): string {
+  const localizedAmenity = localizeAmenity(tag);
+  if (localizedAmenity !== tag) return localizedAmenity;
   const translated = t(`apartments.tags.${tag}`);
   return translated === `apartments.tags.${tag}` ? tag.replace(/_/g, " ") : translated;
 }
@@ -600,7 +607,7 @@ export function getActiveFilterChipDescriptors(state: ActiveFilterChipState): Ac
   addRange("sqm-price", state.minSqmPrice, state.maxSqmPrice, "apartments.tab.filterSummary.sqmPriceRange");
 
   state.floors.forEach((value) => descriptors.push({ key: `floor:${value}`, label: t("apartments.tab.filterSummary.floor", { value: getOptionLabel(FLOOR_FILTER_OPTIONS, value) }) }));
-  if (state.selectedCity.trim()) descriptors.push({ key: "city", label: t("apartments.tab.filterSummary.city", { value: state.selectedCity.trim() }) });
+  if (state.selectedCity.trim()) descriptors.push({ key: "city", label: t("apartments.tab.filterSummary.city", { value: localizeCity(state.selectedCity.trim()) }) });
   if (state.areaQuery.trim()) descriptors.push({ key: "area", label: t("apartments.tab.filterSummary.area", { value: state.areaQuery.trim() }) });
   state.propertyTypes.forEach((value) => descriptors.push({ key: `property-type:${value}`, label: getOptionLabel(PROPERTY_TYPE_FILTER_OPTIONS, value) }));
   state.propertyCategories.forEach((value) => descriptors.push({ key: `property-category:${value}`, label: getOptionLabel(PROPERTY_CATEGORY_FILTER_OPTIONS, value) }));
@@ -655,8 +662,8 @@ function apartmentHasAmenity(apt: Apartment, amenity: string): boolean {
     ...apt.tags,
     ...apt.amenities,
     ...Object.entries(apt.extraDetails ?? {}).filter(([, enabled]) => enabled).map(([key]) => key),
-  ].map((value) => normalizeText(value));
-  return (AMENITY_MATCH_TERMS[amenity] ?? [amenity]).some((term) => listingValues.includes(normalizeText(term)));
+  ].map(toCanonicalAmenity);
+  return listingValues.includes(toCanonicalAmenity(amenity));
 }
 
 type ApartmentGridCardProps = {
@@ -789,7 +796,7 @@ function ApartmentGridCard({
           <View style={styles.locRow}>
             <Ionicons name="location-outline" size={14} color="rgba(255,255,255,0.85)" />
             <Text style={styles.loc}>
-              {apt.area}, {apt.city}
+              {apt.area}, {localizeCity(apt.city) || apt.city}
             </Text>
           </View>
           <View style={styles.statsRow}>
@@ -807,7 +814,17 @@ function ApartmentGridCard({
             ) : null}
           </View>
           <View style={styles.tagRow}>
-            {apt.tags.map((tag) => (
+            {apt.propertyCategory ? (
+              <View style={styles.tag}>
+                <Text style={styles.tagText}>{localizePropertyCategory(apt.propertyCategory)}</Text>
+              </View>
+            ) : null}
+            {apt.propertyType ? (
+              <View style={styles.tag}>
+                <Text style={styles.tagText}>{localizePropertyType(apt.propertyType)}</Text>
+              </View>
+            ) : null}
+            {Array.from(new Set([...apt.tags, ...apt.amenities])).map((tag) => (
               <View key={tag} style={styles.tag}>
                 <Text style={styles.tagText}>{translateApartmentTag(tag)}</Text>
               </View>
@@ -972,7 +989,7 @@ export default function ApartmentsScreen() {
   const [notesOrderSaving, setNotesOrderSaving] = useState(false);
   const cityFilterOverrideRef = useRef(false);
   const profileCityLoadedForUserRef = useRef<string | null>(null);
-  const cities = t("editProfile.options.cities") as unknown as string[];
+  const cities = ["thessaloniki", "athens", "patra", "heraklion", "ioannina", "larissa", "chania", "rethymno"];
   const SWIPE_THRESHOLD = 56;
   const canOpenHostInbox = hasPublishedHostApartment || hasApartmentShareFlag;
   const canManageListings = !auth.isGuest && (hasPublishedHostApartment || hasApartmentShareFlag || auth.isBroker);
@@ -1171,23 +1188,23 @@ export default function ApartmentsScreen() {
     setRentMax(savedSet.rentMax ?? "");
     setMinSqmPrice(savedSet.minSqmPrice ?? "");
     setMaxSqmPrice(savedSet.maxSqmPrice ?? "");
-    setSelectedCity(savedSet.selectedCity?.trim() || savedSet.cityQuery?.trim() || "");
+    setSelectedCity(toCanonicalCity(savedSet.selectedCity?.trim() || savedSet.cityQuery?.trim() || ""));
     setAreaQuery(savedSet.areaQuery ?? "");
     setSizeMin(savedSet.sizeMin ?? "");
     setSizeMax(savedSet.sizeMax ?? "");
     setPetFriendly(savedSet.petFriendly === true);
     setNearMetro(savedSet.nearMetro === true);
-    setPropertyTypes(savedSet.propertyTypes ?? []);
+    setPropertyTypes((savedSet.propertyTypes ?? []).map(toCanonicalPropertyType));
     setPropertyCategories(savedSet.propertyCategories ?? []);
     setFloors(savedSet.floors ?? []);
     setBedroomsMin(savedSet.bedroomsMin ?? "");
     setBathroomsMin(savedSet.bathroomsMin ?? "");
-    setFurnishedStatus(savedSet.furnishedStatus ?? "all");
-    setHeatingTypes(savedSet.heatingTypes ?? []);
+    setFurnishedStatus(savedSet.furnishedStatus === "all" ? "all" : toCanonicalFurnishedStatus(savedSet.furnishedStatus ?? "furnished") as "furnished" | "unfurnished");
+    setHeatingTypes((savedSet.heatingTypes ?? []).map(toCanonicalHeatingType));
     setEnergyClasses(savedSet.energyClasses ?? []);
     setConstructionYearMin(savedSet.constructionYearMin ?? "");
     setRenovationYearMin(savedSet.renovationYearMin ?? "");
-    setSelectedAmenities(savedSet.selectedAmenities ?? []);
+    setSelectedAmenities((savedSet.selectedAmenities ?? []).map(toCanonicalAmenity));
     setUserHardCriteria(savedSet.userHardCriteria ?? []);
     setShowMatchScoreOnMap(savedSet.showMatchScore === true || savedSet.showMatchScoreOnMap === true);
     setPolygonCoordinates(savedSet.polygonCoordinates ?? []);
@@ -1454,23 +1471,23 @@ export default function ApartmentsScreen() {
       setRentMax(imported.rentMax || "");
       setMinSqmPrice(imported.minSqmPrice || "");
       setMaxSqmPrice(imported.maxSqmPrice || "");
-      setSelectedCity(imported.selectedCity?.trim() || imported.cityQuery?.trim() || "");
+      setSelectedCity(toCanonicalCity(imported.selectedCity?.trim() || imported.cityQuery?.trim() || ""));
       setAreaQuery(imported.areaQuery || "");
       setSizeMin(imported.sizeMin || "");
       setSizeMax(imported.sizeMax || "");
       setPetFriendly(imported.petFriendly === true);
       setNearMetro(imported.nearMetro === true);
-      setPropertyTypes(imported.propertyTypes ?? []);
+      setPropertyTypes((imported.propertyTypes ?? []).map(toCanonicalPropertyType));
       setPropertyCategories(imported.propertyCategories ?? []);
       setFloors(imported.floors ?? []);
       setBedroomsMin(imported.bedroomsMin || "");
       setBathroomsMin(imported.bathroomsMin || "");
-      setFurnishedStatus(imported.furnishedStatus ?? "all");
-      setHeatingTypes(imported.heatingTypes ?? []);
+      setFurnishedStatus(imported.furnishedStatus === "all" ? "all" : toCanonicalFurnishedStatus(imported.furnishedStatus ?? "furnished") as "furnished" | "unfurnished");
+      setHeatingTypes((imported.heatingTypes ?? []).map(toCanonicalHeatingType));
       setEnergyClasses(imported.energyClasses ?? []);
       setConstructionYearMin(imported.constructionYearMin || "");
       setRenovationYearMin(imported.renovationYearMin || "");
-      setSelectedAmenities(imported.selectedAmenities ?? []);
+      setSelectedAmenities((imported.selectedAmenities ?? []).map(toCanonicalAmenity));
       setUserHardCriteria(imported.userHardCriteria ?? []);
       setShowMatchScoreOnMap(imported.showMatchScore === true || imported.showMatchScoreOnMap === true);
       setPolygonCoordinates(imported.polygonCoordinates ?? []);
@@ -1501,7 +1518,7 @@ export default function ApartmentsScreen() {
       .then((profile) => {
         const profileCity = profile?.city?.trim();
         if (active && profileCity && !cityFilterOverrideRef.current) {
-          setSelectedCity(profileCity);
+          setSelectedCity(toCanonicalCity(profileCity));
         }
       })
       .catch(() => undefined);
@@ -1689,6 +1706,9 @@ export default function ApartmentsScreen() {
           if (mounted) setHostInboxHasUnread(false);
         }
       })();
+    }, (error) => {
+      console.warn("[Apartments] Host inbox listener failed:", error);
+      if (mounted) setHostInboxHasUnread(false);
     });
 
     return () => {
@@ -1743,7 +1763,13 @@ export default function ApartmentsScreen() {
   }, [auth.isGuest, auth.userId]);
 
   useEffect(() => {
-    if (auth.isLoading) return;
+    if (auth.isLoading || auth.isGuest || !auth.userId) {
+      if (!auth.isLoading) {
+        setPublishedApartments([]);
+        setLoading(false);
+      }
+      return;
+    }
 
     let active = true;
     setLoading(true);
@@ -1948,15 +1974,29 @@ export default function ApartmentsScreen() {
     }
 
     const apartmentsQ = query(collection(db, "apartments"), where("hostId", "==", auth.userId));
-    const unsubscribeApartments = onSnapshot(apartmentsQ, (snapshot) => {
-      setHasPublishedHostApartment(snapshot.size > 0);
-    });
+    const unsubscribeApartments = onSnapshot(
+      apartmentsQ,
+      (snapshot) => {
+        setHasPublishedHostApartment(snapshot.size > 0);
+      },
+      (error) => {
+        console.warn("[Apartments] Published host listener failed:", error);
+        setHasPublishedHostApartment(false);
+      },
+    );
 
     const userRef = doc(db, "users", auth.userId);
-    const unsubscribeUser = onSnapshot(userRef, (snapshot) => {
-      const data = snapshot.exists() ? (snapshot.data() as FirestoreHostInboxUserDoc) : null;
-      setHasApartmentShareFlag(snapshot.exists() && !!(data?.already_have_apartment_to_share || data?.has_place));
-    });
+    const unsubscribeUser = onSnapshot(
+      userRef,
+      (snapshot) => {
+        const data = snapshot.exists() ? (snapshot.data() as FirestoreHostInboxUserDoc) : null;
+        setHasApartmentShareFlag(snapshot.exists() && !!(data?.already_have_apartment_to_share || data?.has_place));
+      },
+      (error) => {
+        console.warn("[Apartments] User flag listener failed:", error);
+        setHasApartmentShareFlag(false);
+      },
+    );
 
     return () => {
       unsubscribeApartments();
@@ -2118,6 +2158,9 @@ export default function ApartmentsScreen() {
           if (mounted) setHostInboxHasUnread(false);
         }
       })();
+    }, (error) => {
+      console.warn("[Apartments] Host inbox unread listener failed:", error);
+      if (mounted) setHostInboxHasUnread(false);
     });
 
     return () => {
@@ -2153,6 +2196,10 @@ export default function ApartmentsScreen() {
 
       setLikedApartmentIds(ids);
       setLikedApartmentTimestampById(timestampMap);
+    }, (error) => {
+      console.warn("[Apartments] Likes listener failed:", error);
+      setLikedApartmentIds(new Set());
+      setLikedApartmentTimestampById({});
     });
 
     return () => unsubscribe();
@@ -2207,9 +2254,15 @@ export default function ApartmentsScreen() {
     const minimumBathrooms = bathroomsMin ? Number(bathroomsMin) : null;
     const minimumConstructionYear = constructionYearMin ? Number(constructionYearMin) : null;
     const minimumRenovationYear = renovationYearMin ? Number(renovationYearMin) : null;
-    const normalizedSelectedCity = normalizeText(selectedCity);
+    const normalizedSelectedCity = toCanonicalCity(selectedCity);
     const normalizedAreaQuery = normalizeText(areaQuery);
-    const normalizedSearchTokens = normalizeText(searchQuery).split(/\s+/).filter(Boolean);
+    const rawSearchTokens = normalizeText(searchQuery).split(/\s+/).filter(Boolean);
+    const canonicalSingleSearchToken = rawSearchTokens.length === 1
+      ? [toCanonicalCity(searchQuery), toCanonicalPropertyType(searchQuery), toCanonicalAmenity(searchQuery)]
+        .map(normalizeText)
+        .find((value) => value && value !== rawSearchTokens[0])
+      : undefined;
+    const normalizedSearchTokens = canonicalSingleSearchToken ? [canonicalSingleSearchToken] : rawSearchTokens;
     const currentUid = auth.userId;
 
     const baseFiltered = apartments.filter((apt) => {
@@ -2276,7 +2329,7 @@ export default function ApartmentsScreen() {
         if (!isPointInPolygon({ latitude: apt.latitude!, longitude: apt.longitude! }, polygonCoordinates)) return false;
       }
 
-      const cityMatch = normalizedSelectedCity.length === 0 || normalizeText(apt.city) === normalizedSelectedCity;
+      const cityMatch = normalizedSelectedCity.length === 0 || toCanonicalCity(apt.city) === normalizedSelectedCity;
       const areaMatch = normalizedAreaQuery.length === 0 || normalizeText(apt.area).includes(normalizedAreaQuery);
       const rentMatch =
         (minRent == null || apt.rent >= minRent) &&
@@ -2286,8 +2339,8 @@ export default function ApartmentsScreen() {
         (maxSize == null || apt.size <= maxSize);
       const petMatch = !petFriendly || apartmentHasAmenity(apt, "pet_friendly");
       const metroMatch = !nearMetro || apartmentHasAmenity(apt, "near_metro");
-      const normalizedPropertyType = normalizeText(apt.propertyType || "");
-      const typeMatch = propertyTypes.length === 0 || propertyTypes.some((value) => matchesFilterValue(value, normalizedPropertyType));
+      const normalizedPropertyType = toCanonicalPropertyType(apt.propertyType || "");
+      const typeMatch = propertyTypes.length === 0 || propertyTypes.some((value) => toCanonicalPropertyType(value) === normalizedPropertyType);
       const categoryMatch = propertyCategories.length === 0 || propertyCategories.some((value) => matchesFilterValue(value, apt.propertyCategory || ""));
       const floorMatch = floors.length === 0 || floors.some((value) => matchesFilterValue(value, apt.floor || ""));
       const bedroomsMatch = minimumBedrooms === null || (Number.isFinite(apt.rooms) && apt.rooms >= minimumBedrooms);
@@ -2295,8 +2348,8 @@ export default function ApartmentsScreen() {
       const bathroomsMatch = minimumBathrooms === null || (typeof bathrooms === "number" && bathrooms >= minimumBathrooms);
       const furnished = apartmentHasAmenity(apt, "furnished");
       const furnishedMatch = furnishedStatus === "all" || (furnishedStatus === "furnished" ? furnished : !furnished);
-      const heatingType = apt.extraInformation?.heatingSystem || "";
-      const heatingMatch = heatingTypes.length === 0 || heatingTypes.some((value) => matchesFilterValue(value, heatingType));
+      const heatingType = toCanonicalHeatingType(apt.extraInformation?.heatingSystem || "");
+      const heatingMatch = heatingTypes.length === 0 || heatingTypes.some((value) => toCanonicalHeatingType(value) === heatingType);
       const energyClass = apt.extraInformation?.energyClass || "";
       const energyMatch = energyClasses.length === 0 || energyClasses.some((value) => normalizeText(value) === normalizeText(energyClass));
       const constructionYear = apt.extraInformation?.buildYear;
@@ -2994,7 +3047,7 @@ export default function ApartmentsScreen() {
               onPress={() => setCityPickerVisible(true)}
               testID="apartments-city-filter"
             >
-              <Text style={styles.sortSelectionText}>{selectedCity || t("apartments.allCities")}</Text>
+              <Text style={styles.sortSelectionText}>{selectedCity ? localizeCity(selectedCity) : t("apartments.allCities")}</Text>
               {selectedCity ? (
                 <Pressable
                   onPress={(event) => {
@@ -3416,19 +3469,21 @@ export default function ApartmentsScreen() {
                 {!selectedCity ? <Ionicons name="checkmark" size={18} color={colors.brand} /> : null}
               </Pressable>
               {cities.map((city) => {
-                const isSelected = city === selectedCity;
+                const canonicalCity = toCanonicalCity(city);
+                const cityLabel = localizeCity(city);
+                const isSelected = canonicalCity === selectedCity;
                 return (
                   <Pressable
                     key={city}
                     style={styles.sortOptionRow}
                     onPress={() => {
                       cityFilterOverrideRef.current = true;
-                      updateFilterValue<string>(setSelectedCity, city);
+                      updateFilterValue<string>(setSelectedCity, canonicalCity);
                       setCityPickerVisible(false);
                     }}
-                    testID={`apartments-city-option-${city}`}
+                    testID={`apartments-city-option-${canonicalCity}`}
                   >
-                    <Text style={[styles.sortOptionText, isSelected && styles.sortOptionTextActive]}>{city}</Text>
+                    <Text style={[styles.sortOptionText, isSelected && styles.sortOptionTextActive]}>{cityLabel}</Text>
                     {isSelected ? <Ionicons name="checkmark" size={18} color={colors.brand} /> : null}
                   </Pressable>
                 );

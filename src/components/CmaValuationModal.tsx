@@ -7,6 +7,7 @@ import { AiServiceError, fetchComparativeMarketAnalysis, type CmaAnalysisInput, 
 import { db } from "@/src/config/firebase";
 import Dropdown from "@/src/components/Dropdown";
 import { useTheme } from "@/src/context/ThemeContext";
+import { useAuth } from "@/src/context/auth";
 import { t } from "@/src/locales";
 import { fonts, fontSize, radius, spacing } from "@/src/theme";
 import BaseBottomSheet from "@/src/components/common/BaseBottomSheet";
@@ -44,6 +45,7 @@ function historyLabel(entry: CmaHistoryEntry): string {
 
 export default function CmaValuationModal({ visible, onClose, apartmentId, transactionType, targetPrice, area, sqm, rooms, floor }: CmaValuationModalProps) {
   const { colors } = useTheme();
+  const auth = useAuth();
   const [result, setResult] = useState<CmaAnalysisResult | null>(null);
   const [errorText, setErrorText] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -52,7 +54,11 @@ export default function CmaValuationModal({ visible, onClose, apartmentId, trans
   const nextAllowedRequest = useRef(0);
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible || auth.isLoading || auth.isGuest || !auth.userId || !apartmentId) {
+      if (!visible) return;
+      setHistory([]);
+      return;
+    }
     const unsubscribe = onSnapshot(
       query(collection(db, "apartments", apartmentId, "cma_history"), orderBy("createdAt", "desc"), limit(20)),
       (snapshot) => setHistory(snapshot.docs.map((document) => {
@@ -66,10 +72,17 @@ export default function CmaValuationModal({ visible, onClose, apartmentId, trans
           comparablesUsed: Number(data.comparablesUsed) || 0,
         };
       })),
-      () => setHistory([]),
+      (error) => {
+        console.warn("[CMA] History listener failed:", {
+          apartmentId,
+          userId: auth.userId,
+          error,
+        });
+        setHistory([]);
+      },
     );
     return unsubscribe;
-  }, [apartmentId, visible]);
+  }, [apartmentId, auth.isGuest, auth.isLoading, auth.userId, visible]);
 
   const runAnalysis = async () => {
     if (isLoading || Date.now() < nextAllowedRequest.current) return;

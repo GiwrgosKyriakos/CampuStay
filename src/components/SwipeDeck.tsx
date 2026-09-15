@@ -21,24 +21,23 @@ import type { RoommateProfile } from "@/src/data/profiles";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import { t } from "@/src/locales";
 import { localizeCity, localizeGender, localizeLifestyle } from "@/src/utils/localizeData";
+import { canonicalizeQuizAnswer } from "@/src/utils/matchAlgorithm";
 
 const { width: SCREEN_W } = Dimensions.get("window");
 const SWIPE_THRESHOLD = SCREEN_W * 0.28;
 const OUT_X = SCREEN_W * 1.5;
 
 function getQuizAnswer(answers: Record<string, string>, key: "smoking" | "pets"): string | null {
-  const aliases = key === "smoking" ? ["q7_smoke", "q7", "q5"] : ["q8_pets", "q8", "q13"];
+  const aliases = key === "smoking" ? ["q7_smoke", "q5"] : ["q8_pets", "q13"];
   return aliases.map((alias) => answers[alias]?.trim()).find(Boolean) ?? null;
 }
 
 function isSmokerAnswer(answer: string): boolean {
-  const normalized = answer.toLowerCase();
-  return normalized.includes("yes") || normalized.includes("outside") || normalized.includes("καπν") || normalized.includes("έξω");
+  return answer === "smoker" || answer === "smokes_outside";
 }
 
 function isPetFriendlyAnswer(answer: string): boolean {
-  const normalized = answer.toLowerCase();
-  return normalized.includes("yes") || normalized.includes("fine") || normalized.includes("pets are") || normalized.includes("κατοικ") || normalized.includes("ναι");
+  return answer === "pet_owner_or_wants" || answer === "pets_allowed";
 }
 
 function QuizCompatibilityBadges({ profileAnswers, currentAnswers, colors, styles }: { profileAnswers: Record<string, string>; currentAnswers: Record<string, string>; colors: ThemeColors; styles: ReturnType<typeof createStyles> }) {
@@ -46,10 +45,14 @@ function QuizCompatibilityBadges({ profileAnswers, currentAnswers, colors, style
   const currentSmokingAnswer = getQuizAnswer(currentAnswers, "smoking");
   const profilePetsAnswer = getQuizAnswer(profileAnswers, "pets");
   const currentPetsAnswer = getQuizAnswer(currentAnswers, "pets");
-  const profileIsSmoker = profileSmokingAnswer ? isSmokerAnswer(profileSmokingAnswer) : false;
-  const profileIsPetFriendly = profilePetsAnswer ? isPetFriendlyAnswer(profilePetsAnswer) : false;
-  const isMutualSmokingMatch = Boolean(profileSmokingAnswer && currentSmokingAnswer && profileSmokingAnswer === currentSmokingAnswer);
-  const isMutualPetsMatch = Boolean(profilePetsAnswer && currentPetsAnswer && profilePetsAnswer === currentPetsAnswer);
+  const profileSmokingValue = profileSmokingAnswer ? canonicalizeQuizAnswer("q5", profileSmokingAnswer) : undefined;
+  const currentSmokingValue = currentSmokingAnswer ? canonicalizeQuizAnswer("q5", currentSmokingAnswer) : undefined;
+  const profilePetsValue = profilePetsAnswer ? canonicalizeQuizAnswer("q13", profilePetsAnswer) : undefined;
+  const currentPetsValue = currentPetsAnswer ? canonicalizeQuizAnswer("q13", currentPetsAnswer) : undefined;
+  const profileIsSmoker = profileSmokingValue ? isSmokerAnswer(profileSmokingValue) : false;
+  const profileIsPetFriendly = profilePetsValue ? isPetFriendlyAnswer(profilePetsValue) : false;
+  const isMutualSmokingMatch = Boolean(profileSmokingValue && currentSmokingValue && profileSmokingValue === currentSmokingValue);
+  const isMutualPetsMatch = Boolean(profilePetsValue && currentPetsValue && profilePetsValue === currentPetsValue);
 
   if (!profileSmokingAnswer && !profilePetsAnswer) return null;
 
@@ -113,6 +116,7 @@ const CardContent = React.memo(function CardContent({ profile: p, currentQuizAns
         <Text style={styles.uni} numberOfLines={1}>
           {p.program} · {p.university}
         </Text>
+        {/*
         {p.city ? (
           <View style={styles.locationRow}>
             <Ionicons name="location-outline" size={14} color={colors.onSurfaceInverse} />
@@ -124,6 +128,7 @@ const CardContent = React.memo(function CardContent({ profile: p, currentQuizAns
             {localizedTags.map((tag) => <View key={tag} style={styles.tagPill}><Text style={styles.tagText} numberOfLines={1}>{tag}</Text></View>)}
           </View>
         ) : null}
+        */}
         <View style={styles.pillRow}>
           <View style={styles.metaPill}>
             <Ionicons name="person-outline" size={14} color={colors.onBrand} />

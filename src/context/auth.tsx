@@ -315,17 +315,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           await persist(idToken, mapFirebaseUser(firebaseUser, resolvedAgencyName), needsSetup);
 
           unsubscribeUserDoc?.();
-          unsubscribeUserDoc = onSnapshot(userRef, (snapshot) => {
-            if (!mounted) return;
-            const data = snapshot.exists() ? snapshot.data() : null;
-            setIsBroker(isBrokerOrAgencyUser(data));
-            setNotLookingForRoommate(data?.not_looking_for_roommate === true);
-            setAgencyId(typeof data?.agencyId === "string" ? data.agencyId : null);
-            setAgencyRole(typeof data?.agencyRole === "string" ? data.agencyRole : typeof data?.role === "string" ? data.role : null);
-            if (typeof data?.needsProfileSetup === "boolean") {
-              setNeedsProfileSetup(data.needsProfileSetup);
-            }
-          });
+          unsubscribeUserDoc = onSnapshot(
+            userRef,
+            (snapshot) => {
+              if (!mounted) return;
+              const data = snapshot.exists() ? snapshot.data() : null;
+              setIsBroker(isBrokerOrAgencyUser(data));
+              setNotLookingForRoommate(data?.not_looking_for_roommate === true);
+              setAgencyId(typeof data?.agencyId === "string" ? data.agencyId : null);
+              setAgencyRole(typeof data?.agencyRole === "string" ? data.agencyRole : typeof data?.role === "string" ? data.role : null);
+              if (typeof data?.needsProfileSetup === "boolean") {
+                setNeedsProfileSetup(data.needsProfileSetup);
+              }
+            },
+            (error) => {
+              console.warn("[Auth] User profile listener failed:", {
+                path: userRef.path,
+                uid: firebaseUser.uid,
+                code: error.code,
+                message: error.message,
+              });
+            },
+          );
         } catch (err) {
           console.error("[Auth] Failed to sync Firebase session:", err);
           setStatus("unauth");
@@ -445,6 +456,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [user]);
 
   const logout = useCallback(async () => {
+    const currentFirebaseUser = firebaseAuth.currentUser;
+    const isGoogleProvider = currentFirebaseUser?.providerData.some((provider) => provider.providerId === "google.com") === true;
+    let googleSessionActive = false;
+    try {
+      googleSessionActive = isGoogleProvider && (
+        GoogleSignin.getCurrentUser() !== null || GoogleSignin.hasPreviousSignIn()
+      );
+    } catch {
+      googleSessionActive = false;
+    }
+
     // ΔΙΟΡΘΩΣΗ: Γράφουμε ΠΡΩΤΑ τα flags του Guest mode στο storage.
     // Έτσι, όταν πυροδοτηθεί το ασύγχρονο signOut, η εφαρμογή θα ξέρει ήδη ότι είσαι Guest και δεν θα κάνει flash στο auth-landing.
     try {
@@ -463,16 +485,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.warn("[Auth] Firebase signOut failed; clearing local session anyway:", err);
     }
 
-    try {
-      await GoogleSignin.revokeAccess();
-    } catch (err) {
-      console.warn("[Auth] Google revokeAccess failed; continuing sign out:", err);
-    }
+    if (googleSessionActive) {
+      try {
+        await GoogleSignin.revokeAccess();
+      } catch {
+        // Google may have already expired/revoked the credential.
+      }
 
-    try {
-      await GoogleSignin.signOut();
-    } catch (err) {
-      console.warn("[Auth] Google signOut failed; clearing local session anyway:", err);
+      try {
+        await GoogleSignin.signOut();
+      } catch {
+        // Firebase sign-out and local cleanup still complete.
+      }
     }
 
     // Ενημέρωση των τοπικών states

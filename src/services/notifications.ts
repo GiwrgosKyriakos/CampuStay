@@ -164,7 +164,7 @@ export async function handleNotificationResponse(
     return;
   }
 
-  if (type === "visit_confirmed" || type === "visit_cancelled" || type === "visit_request") {
+  if (type === "visit_confirmed" || type === "visit_cancelled" || type === "visit_request" || type === "appointment_proposal" || type === "appointment_accepted" || type === "price_offer" || type === "price_offer_accepted") {
     router.push({ pathname: "/chat/[id]", params: { id: chatTargetId, chatRoomId: chatId, ...params } });
     return;
   }

@@ -9,6 +9,8 @@ const db = getFirestore();
 
 export type UnifiedNotificationType =
   | "visit_request"
+  | "appointment_proposal"
+  | "appointment_accepted"
   | "visit_confirmed"
   | "visit_cancelled"
   | "visit_reminder"
@@ -21,6 +23,8 @@ export type UnifiedNotificationType =
   | "broker_registration"
   | "broker_approved"
   | "new_offer"
+  | "price_offer"
+  | "price_offer_accepted"
   | "document_required"
   | "document_rejected"
   | "document_verified"

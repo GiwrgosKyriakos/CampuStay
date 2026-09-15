@@ -13,11 +13,29 @@ function messagePreview(data) {
         case "filter_set_share":
         case "filter_share": return "🔍 Διαμοιρασμός Φίλτρων Αναζήτησης";
         case "assignment_request": return "📋 Νέα Ανάθεση Ακινήτου";
-        case "visit_confirmed": return "📅 Επιβεβαιωμένη Υπόδειξη";
+        case "appointment_proposal":
+        case "visit_request": return "Νέο αίτημα για ραντεβού επίσκεψης";
+        case "appointment_accepted":
+        case "visit_confirmed": return "Το ραντεβού επιβεβαιώθηκε!";
         case "visit_rescheduled": return "⚠️ Αλλαγή Ραντεβού Υπόδειξης";
         case "visit_cancelled": return "Ακύρωση Ραντεβού Υπόδειξης";
+        case "price_offer":
+        case "price_proposal": return "Νέα πρόταση τιμής";
+        case "price_offer_accepted": return "Η πρόταση τιμής έγινε δεκτή!";
         case "address_revealed": return "Ο μεσίτης σας κοινοποίησε την ακριβή τοποθεσία.";
         default: return typeof data.text === "string" ? data.text : "Νέο μήνυμα";
+    }
+}
+function messageNotificationType(data) {
+    switch (data.type) {
+        case "appointment_proposal":
+        case "visit_request": return "appointment_proposal";
+        case "appointment_accepted":
+        case "visit_confirmed": return "appointment_accepted";
+        case "price_offer":
+        case "price_proposal": return "price_offer";
+        case "price_offer_accepted": return "price_offer_accepted";
+        default: return "chat_message";
     }
 }
 exports.onNewChatMessage = (0, firestore_2.onDocumentCreated)({ document: "chats/{conversationId}/messages/{messageId}", region: "europe-west1" }, async (event) => {
@@ -35,23 +53,43 @@ exports.onNewChatMessage = (0, firestore_2.onDocumentCreated)({ document: "chats
         ? [explicitRecipient]
         : (Array.isArray(chat.users) ? chat.users.filter((userId) => typeof userId === "string" && userId !== senderId) : []);
     const preview = messagePreview(message);
+    const notificationType = messageNotificationType(message);
+    const metadata = message.metadata && typeof message.metadata === "object" ? message.metadata : {};
+    const apartmentId = typeof message.apartmentId === "string"
+        ? message.apartmentId
+        : typeof metadata.apartmentId === "string" ? metadata.apartmentId : undefined;
+    const senderSnapshot = senderId ? await db.doc(`users/${senderId}`).get() : null;
+    const senderData = senderSnapshot?.data() ?? {};
+    const senderName = typeof senderData.name === "string" && senderData.name.trim() ? senderData.name.trim() : "CampuStay";
     await Promise.all(recipients.map(async (recipientId) => {
         const recipient = await db.doc(`users/${recipientId}`).get();
-        if (recipient.data()?.activeChatId === conversationId) {
+        const recipientData = recipient.data() ?? {};
+        if (recipientData.activeChatId === conversationId) {
             console.log("Recipient is actively in chat. Suppressing push notification.");
             return;
         }
         const settings = await db.doc(`settings/${recipientId}`).get();
-        const notifications = settings.data()?.notifications ?? recipient.data()?.notifications ?? {};
-        if (notifications.direct_messages === false || notifications.mute_all_notifications === true)
+        const notifications = { ...(recipientData.notifications ?? {}), ...(settings.data()?.notifications ?? {}) };
+        if (notifications.direct_messages === false || recipientData.directMessagesEnabled === false || notifications.mute_all_notifications === true)
             return;
         const mutedChats = Array.isArray(notifications.muted_chat_ids) ? notifications.muted_chat_ids : [];
         if (mutedChats.includes(conversationId) || chat.mutedByUsers?.[recipientId] === true)
             return;
-        await (0, push_1.sendPushToUser)(recipientId, { type: "chat_message", title: "Νέα ενημέρωση στο CampuStay", body: preview, screen: "chat/[id]", params: { chatId: conversationId, messageId: event.params.messageId }, entityId: event.params.messageId, action: "scroll_to_message" });
+        await (0, push_1.sendPushToUser)(recipientId, {
+            type: notificationType,
+            title: senderName,
+            body: preview,
+            screen: "chat/[id]",
+            params: {
+                chatId: conversationId,
+                messageId: event.params.messageId,
+                messageType: typeof message.type === "string" ? message.type : "chat_message",
+                ...(apartmentId ? { apartmentId } : {}),
+            },
+            entityId: event.params.messageId,
+            action: "scroll_to_message",
+        });
     }));
-    const senderSnapshot = senderId ? await db.doc(`users/${senderId}`).get() : null;
-    const senderData = senderSnapshot?.data() ?? {};
     const senderIsBroker = senderData.is_broker === true || senderData.agencyRole === "ceo" || senderData.agencyRole === "secretary" || senderData.agencyRole === "secretariat" || senderData.role === "ceo" || senderData.role === "secretary" || senderData.role === "secretariat";
     if (senderId && senderIsBroker && message.type === "text") {
         const matchingLeads = await db.collection("leads").where("chatRoomId", "==", conversationId).where("status", "==", "assigned").get();

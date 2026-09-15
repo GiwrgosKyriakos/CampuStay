@@ -14,7 +14,7 @@ import {
 import { db } from "@/src/config/firebase";
 import { normalizeCity } from "@/src/utils/cityNormalization";
 import { isBrokerOrAgencyUser } from "@/src/utils/roles";
-import { calculateMatchScore, type UserProfile as MatchUserProfile } from "@/src/utils/matchAlgorithm";
+import { calculateMatchScore, canonicalizeQuizAnswer, type UserProfile as MatchUserProfile } from "@/src/utils/matchAlgorithm";
 
 interface FirestoreUserDoc {
   name?: string | null;
@@ -46,6 +46,7 @@ interface FirestoreUserDoc {
   preferences?: { hideNameInDeck?: boolean; hideInStack?: boolean };
   expoPushToken?: string;
   newMatchesEnabled?: boolean;
+  tags?: string[];
 }
 
 interface FirestoreSettingsDoc {
@@ -77,15 +78,16 @@ async function calculateRoommateCompatibilityScore(userId: string, targetId: str
   const [userSnapshot, targetSnapshot, userQuizSnapshot, targetQuizSnapshot] = await Promise.all([
     getDoc(doc(db, "users", userId)),
     getDoc(doc(db, "users", targetId)),
-    getDoc(doc(db, "quiz_answers", userId)),
-    getDoc(doc(db, "quiz_answers", targetId)),
+    getDoc(doc(db, "quiz_answers", userId)).catch(() => null),
+    getDoc(doc(db, "quiz_answers", targetId)).catch(() => null),
   ]);
   if (!userSnapshot.exists() || !targetSnapshot.exists()) return null;
 
   const userData = userSnapshot.data() as FirestoreUserDoc;
   const targetData = targetSnapshot.data() as FirestoreUserDoc;
-  const userQuiz = userQuizSnapshot.exists() ? (userQuizSnapshot.data() as FirestoreQuizDoc).answers ?? {} : {};
-  const targetQuiz = targetQuizSnapshot.exists() ? (targetQuizSnapshot.data() as FirestoreQuizDoc).answers ?? {} : {};
+  const userQuiz = userQuizSnapshot?.exists() ? (userQuizSnapshot.data() as FirestoreQuizDoc).answers ?? {} : {};
+  const targetQuiz = targetQuizSnapshot?.exists() ? (targetQuizSnapshot.data() as FirestoreQuizDoc).answers ?? {} : {};
+  if (Object.keys(userQuiz).length === 0 || Object.keys(targetQuiz).length === 0) return null;
   return calculateMatchScore(toMatchProfile(userId, userData, userQuiz), toMatchProfile(targetId, targetData, targetQuiz));
 }
 
@@ -114,15 +116,24 @@ function normalizeCandidate(uid: string, data: FirestoreUserDoc): RoommateProfil
     university: data.university || "",
     program: data.year || data.year_of_study || "Student",
     bio: data.about || data.bio || "",
-    tags: [],
+    tags: Array.isArray(data.tags) ? data.tags.filter((tag): tag is string => typeof tag === "string" && tag.trim().length > 0) : [],
     photo: firstPhoto,
     deleted: !!data.deleted,
   };
 }
 
+function buildQuizLifestyleTags(answers: Record<string, string>): string[] {
+  const tags = [
+    canonicalizeQuizAnswer("q5", answers.q5 ?? answers.q7_smoke),
+    canonicalizeQuizAnswer("q13", answers.q13 ?? answers.q8_pets),
+    canonicalizeQuizAnswer("q7", answers.q7 ?? answers.q9_sleep),
+  ];
+  return tags.filter((tag): tag is string => typeof tag === "string" && tag.length > 0);
+}
+
 async function getExcludedCandidateIds(
   userId: string,
-): Promise<{ swipedTo: Set<string>; chattedWith: Set<string>; blockedUsers: Set<string> }> {
+): Promise<{ swipedTo: Set<string>; chattedWith: Set<string>; rejectedChatUsers: Set<string>; blockedUsers: Set<string> }> {
   const swipesRef = collection(db, "swipes");
   const chatsRef = collection(db, "chats");
 
@@ -140,15 +151,19 @@ async function getExcludedCandidateIds(
   });
 
   const chattedWith = new Set<string>();
+  const rejectedChatUsers = new Set<string>();
   chatsSnap.forEach((chatDoc) => {
     const data = chatDoc.data() as { users?: string[]; status?: "pending" | "active" | string };
     const status = data.status;
-    const shouldExcludeFromRecommendations = status === "active" || status === "pending";
-    if (!shouldExcludeFromRecommendations) return;
-
     const users = Array.isArray(data.users) ? data.users : [];
-    const counterpart = users.find((uid) => uid !== userId);
-    if (typeof counterpart === "string" && counterpart) chattedWith.add(counterpart);
+    const counterpartIds = users.filter((uid) => typeof uid === "string" && uid && uid !== userId);
+    if (status === "rejected") {
+      counterpartIds.forEach((counterpart) => rejectedChatUsers.add(counterpart));
+      return;
+    }
+    if (status === "active" || status === "pending") {
+      counterpartIds.forEach((counterpart) => chattedWith.add(counterpart));
+    }
   });
 
   const userData = userSnap.exists() ? (userSnap.data() as FirestoreUserDoc) : {};
@@ -160,12 +175,12 @@ async function getExcludedCandidateIds(
       : []),
   ].filter((id): id is string => typeof id === "string" && id.length > 0));
 
-  return { swipedTo, chattedWith, blockedUsers };
+  return { swipedTo, chattedWith, rejectedChatUsers, blockedUsers };
 }
 
 async function getPotentialCandidateRecords(userId: string, currentCity?: string | null): Promise<CandidateMatchRecord[]> {
   const usersRef = collection(db, "users");
-  const { swipedTo, chattedWith, blockedUsers } = await getExcludedCandidateIds(userId);
+  const { swipedTo, chattedWith, rejectedChatUsers, blockedUsers } = await getExcludedCandidateIds(userId);
   const normalizedCity = normalizeCity(currentCity);
   const usersSnap = await getDocs(usersRef);
 
@@ -174,6 +189,7 @@ async function getPotentialCandidateRecords(userId: string, currentCity?: string
     self: 0,
     swipeHistory: 0,
     activeChat: 0,
+    rejectedChat: 0,
     blocked: 0,
     invisible: 0,
     notLookingForRoommate: 0,
@@ -199,6 +215,10 @@ async function getPotentialCandidateRecords(userId: string, currentCity?: string
     }
     if (chattedWith.has(uid)) {
       exclusionCounts.activeChat += 1;
+      return;
+    }
+    if (rejectedChatUsers.has(uid)) {
+      exclusionCounts.rejectedChat += 1;
       return;
     }
     if (blockedUsers.has(uid)) {
@@ -259,7 +279,10 @@ async function getPotentialCandidateRecords(userId: string, currentCity?: string
       }
 
       return {
-        profile,
+        profile: {
+          ...profile,
+          tags: Array.from(new Set([...profile.tags, ...buildQuizLifestyleTags(quizAnswers)])),
+        },
         quizAnswers,
       } satisfies CandidateMatchRecord;
     }),
@@ -303,8 +326,12 @@ export async function postSwipe(
     {
       fromUid: userId,
       toUid: targetId,
+      userId,
+      profileId: targetId,
       type: swipeType,
+      direction,
       timestamp: serverTimestamp(),
+      createdAt: Date.now(),
     },
     { merge: true },
   );
@@ -312,10 +339,15 @@ export async function postSwipe(
   if (direction === "right") {
     const chatRoomId = buildChatRoomId(userId, targetId);
     const chatRef = doc(db, "chats", chatRoomId);
-    const existingChat = await getDoc(chatRef);
-    const existingData = existingChat.exists()
-      ? (existingChat.data() as FirestoreChatDoc)
-      : null;
+    let existingData: FirestoreChatDoc | null = null;
+    let existingChatExists = false;
+    try {
+      const existingChat = await getDoc(chatRef);
+      existingChatExists = existingChat.exists();
+      existingData = existingChatExists ? (existingChat.data() as FirestoreChatDoc) : null;
+    } catch {
+      // A new or legacy room may not be readable until it contains `users`.
+    }
 
     await setDoc(
       chatRef,
@@ -328,7 +360,7 @@ export async function postSwipe(
         rejections: [],
         updatedAt: serverTimestamp(),
         lastMessageTimestamp: serverTimestamp(),
-        ...(existingChat.exists()
+        ...(!existingChatExists
           ? {}
           : {
               createdAt: serverTimestamp(),
@@ -339,20 +371,29 @@ export async function postSwipe(
     );
 
     try {
-      const score = await calculateRoommateCompatibilityScore(userId, targetId);
-      const matchId = `roommate_${userId}_${targetId}`;
-      await setDoc(doc(db, "matches", matchId), {
-        recipientId: targetId,
-        candidateId: userId,
-        userId,
-        score: typeof score === "number" && Number.isFinite(score) ? score : 0,
-        chatRoomId,
-        source: "roommate_swipe",
-        updatedAt: Date.now(),
-        createdAt: Date.now(),
-      }, { merge: true });
-    } catch (notifErr) {
-      console.error("[postSwipe] Σφάλμα αποστολής notification match:", notifErr);
+      const reciprocalSwipe = await getDoc(doc(db, "swipes", `${targetId}_${userId}`));
+      const reciprocalData = reciprocalSwipe.exists() ? reciprocalSwipe.data() : null;
+      const hasReciprocalSwipe = reciprocalData?.type === "like"
+        && (reciprocalData.fromUid === targetId || reciprocalData.userId === targetId);
+
+      if (hasReciprocalSwipe) {
+        const score = await calculateRoommateCompatibilityScore(userId, targetId);
+        const matchId = `roommate_${[userId, targetId].sort().join("_")}`;
+        await setDoc(doc(db, "matches", matchId), {
+          users: [userId, targetId],
+          recipientId: targetId,
+          candidateId: userId,
+          userId,
+          profileId: targetId,
+          score: typeof score === "number" && Number.isFinite(score) ? score : 0,
+          chatRoomId,
+          source: "roommate_swipe",
+          updatedAt: Date.now(),
+          createdAt: Date.now(),
+        }, { merge: true });
+      }
+    } catch (matchDispatchError) {
+      console.warn("[postSwipe] Match notification dispatch skipped:", matchDispatchError);
     }
   }
 

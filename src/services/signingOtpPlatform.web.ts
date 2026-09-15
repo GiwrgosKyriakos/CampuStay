@@ -1,8 +1,8 @@
 import { RecaptchaVerifier, signInWithPhoneNumber, signOut } from "firebase/auth";
 
 import { firebasePhoneAuth } from "@/src/config/firebase";
-import type { OtpConfirmation } from "@/src/services/signingOtp.shared";
-import { OtpProviderUnavailableError } from "@/src/services/signingOtp.shared";
+import type { OtpConfirmation } from "@/src/services/signingOtp.types";
+import { OtpProviderUnavailableError } from "@/src/services/signingOtp.types";
 import { logOtpTerminalDiagnostic } from "@/src/services/otpDiagnostics";
 
 export function NativeFirebaseRecaptchaHost(): null {

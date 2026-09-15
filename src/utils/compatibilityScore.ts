@@ -1,5 +1,11 @@
 import type { FilterSetPayload, HardCriteriaKey } from "@/src/types/filters";
 import { normalizeCity } from "@/src/utils/cityNormalization";
+import {
+  toCanonicalAmenity,
+  toCanonicalFurnishedStatus,
+  toCanonicalHeatingType,
+  toCanonicalPropertyType,
+} from "@/src/utils/localizeData";
 
 export interface ListingFormData {
   city?: string;
@@ -103,7 +109,8 @@ function matchesConfiguredList(value: string | number | undefined, options?: str
 
 function matchesAnyAmenity(tags: string[], options?: string[]): boolean {
   if (!options || options.length === 0) return true;
-  return options.every((option) => tags.some((tag) => textsMatch(tag, option)));
+  const canonicalTags = tags.map(toCanonicalAmenity);
+  return options.every((option) => canonicalTags.includes(toCanonicalAmenity(option)));
 }
 
 export function evaluateUserHardCriteriaMatch(
@@ -136,7 +143,7 @@ export function evaluateUserHardCriteriaMatch(
         if (filterSet.floors?.length && !matchesConfiguredList(apartment.floor, filterSet.floors)) failedCriteria.push(criterion);
         break;
       case "propertyType":
-        if (filterSet.propertyTypes?.length && !matchesConfiguredList(apartment.propertyType, filterSet.propertyTypes)) failedCriteria.push(criterion);
+        if (filterSet.propertyTypes?.length && !filterSet.propertyTypes.some((value) => toCanonicalPropertyType(value) === toCanonicalPropertyType(apartment.propertyType ?? ""))) failedCriteria.push(criterion);
         break;
       case "bedrooms": {
         const minimum = parseNumber(filterSet.bedroomsMin);
@@ -149,16 +156,16 @@ export function evaluateUserHardCriteriaMatch(
         break;
       }
       case "furnished":
-        if (filterSet.furnishedStatus && filterSet.furnishedStatus !== "all" && !matchesConfiguredList(apartment.furnishedStatus, [filterSet.furnishedStatus]) && !includesTag(tags, ["furnish"])) failedCriteria.push(criterion);
+        if (filterSet.furnishedStatus && filterSet.furnishedStatus !== "all" && toCanonicalFurnishedStatus(apartment.furnishedStatus ?? "") !== toCanonicalFurnishedStatus(filterSet.furnishedStatus) && !matchesAnyAmenity(tags, ["furnished"])) failedCriteria.push(criterion);
         break;
       case "heating":
-        if (filterSet.heatingTypes?.length && !matchesConfiguredList(apartment.heatingSystem, filterSet.heatingTypes)) failedCriteria.push(criterion);
+        if (filterSet.heatingTypes?.length && !filterSet.heatingTypes.some((value) => toCanonicalHeatingType(value) === toCanonicalHeatingType(apartment.heatingSystem ?? ""))) failedCriteria.push(criterion);
         break;
       case "petFriendly":
-        if (filterSet.petFriendly === true && !apartment.petFriendly && !includesTag(tags, ["pet", "κατοικ"])) failedCriteria.push(criterion);
+        if (filterSet.petFriendly === true && !apartment.petFriendly && !matchesAnyAmenity(tags, ["pet_friendly"])) failedCriteria.push(criterion);
         break;
       case "nearMetro":
-        if (filterSet.nearMetro === true && !apartment.nearMetro && !includesTag(tags, ["metro", "μετρο"])) failedCriteria.push(criterion);
+        if (filterSet.nearMetro === true && !apartment.nearMetro && !matchesAnyAmenity(tags, ["near_metro"])) failedCriteria.push(criterion);
         break;
       case "amenities":
         if (!matchesAnyAmenity(tags, filterSet.selectedAmenities)) failedCriteria.push(criterion);
@@ -249,8 +256,8 @@ export function calculateTenantCompatibilityScore(
 
   const tags = [...(listing.tags ?? []), ...(listing.amenities ?? [])];
   const softChecks: boolean[] = [];
-  if (filters.petFriendly === true) softChecks.push(listing.petFriendly === true || includesTag(tags, ["pet", "κατοικ"]));
-  if (filters.nearMetro === true) softChecks.push(listing.nearMetro === true || includesTag(tags, ["metro", "μετρο"]));
+  if (filters.petFriendly === true) softChecks.push(listing.petFriendly === true || matchesAnyAmenity(tags, ["pet_friendly"]));
+  if (filters.nearMetro === true) softChecks.push(listing.nearMetro === true || matchesAnyAmenity(tags, ["near_metro"]));
 
   const minSqmPrice = parseNumber(filters.minSqmPrice);
   const maxSqmPrice = parseNumber(filters.maxSqmPrice);
@@ -260,7 +267,7 @@ export function calculateTenantCompatibilityScore(
     const sqmPrice = rent !== null && size !== null && size > 0 && rent > 0 ? rent / size : null;
     softChecks.push(sqmPrice !== null && (minSqmPrice === null || sqmPrice >= minSqmPrice) && (maxSqmPrice === null || sqmPrice <= maxSqmPrice));
   }
-  if (filters.propertyType) softChecks.push(textsMatch(listing.propertyType, filters.propertyType));
+  if (filters.propertyType) softChecks.push(toCanonicalPropertyType(listing.propertyType ?? "") === toCanonicalPropertyType(filters.propertyType));
   if (filters.propertyCategory) softChecks.push(textsMatch(listing.propertyCategory, filters.propertyCategory));
 
   score += softChecks.length === 0 ? 25 : softChecks.filter(Boolean).length * (25 / softChecks.length);
@@ -311,10 +318,10 @@ export function getCompatibilityDetails(
   }
 
   const tags = [...(listing.tags ?? []), ...(listing.amenities ?? [])];
-  if (filters.petFriendly === true && (listing.petFriendly === true || includesTag(tags, ["pet", "κατοικ"]))) {
+  if (filters.petFriendly === true && (listing.petFriendly === true || matchesAnyAmenity(tags, ["pet_friendly"]))) {
     softMet.push("Κατοικίδια (Pet friendly)");
   }
-  if (filters.nearMetro === true && (listing.nearMetro === true || includesTag(tags, ["metro", "μετρο"]))) {
+  if (filters.nearMetro === true && (listing.nearMetro === true || matchesAnyAmenity(tags, ["near_metro"]))) {
     softMet.push("Πλησίον Μετρό");
   }
   const minSqmPrice = parseNumber(filters.minSqmPrice);
@@ -325,7 +332,7 @@ export function getCompatibilityDetails(
       softMet.push(`Τιμή ανά τ.μ. (${Math.round(sqmPrice)} €/m²)`);
     }
   }
-  if (filters.propertyType && textsMatch(listing.propertyType, filters.propertyType)) softMet.push(`Τύπος (${listing.propertyType})`);
+  if (filters.propertyType && toCanonicalPropertyType(listing.propertyType ?? "") === toCanonicalPropertyType(filters.propertyType)) softMet.push(`Τύπος (${listing.propertyType})`);
   if (filters.propertyCategory && textsMatch(listing.propertyCategory, filters.propertyCategory)) softMet.push(`Κατηγορία (${listing.propertyCategory})`);
 
   return { score, hardMet, softMet };

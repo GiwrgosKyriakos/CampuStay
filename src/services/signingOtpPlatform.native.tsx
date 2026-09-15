@@ -4,8 +4,8 @@ import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import type { ApplicationVerifier } from "firebase/auth";
 
 import { firebasePhoneAuth } from "@/src/config/firebase";
-import type { OtpConfirmation } from "@/src/services/signingOtp.shared";
-import { OtpProviderUnavailableError } from "@/src/services/signingOtp.shared";
+import type { OtpConfirmation } from "@/src/services/signingOtp.types";
+import { OtpProviderUnavailableError } from "@/src/services/signingOtp.types";
 import { logOtpTerminalDiagnostic } from "@/src/services/otpDiagnostics";
 
 type PendingRecaptcha = {

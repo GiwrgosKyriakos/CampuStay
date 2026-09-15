@@ -43,6 +43,18 @@ describe("getCandidateMatchRecords", () => {
             id: "candidate-without-readable-quiz",
             data: () => ({ name: "Candidate", age: 24, city: "Athens", gender: "Female", budget: 500 }),
           },
+          {
+            id: "candidate-with-rejected-chat",
+            data: () => ({ name: "Rejected", age: 25, city: "Athens", gender: "Male", budget: 500 }),
+          },
+        ]);
+      }
+      if (target.path === "chats") {
+        return makeSnapshot([
+          {
+            id: "viewer_candidate-with-rejected-chat",
+            data: () => ({ users: ["viewer", "candidate-with-rejected-chat"], status: "rejected" }),
+          },
         ]);
       }
 

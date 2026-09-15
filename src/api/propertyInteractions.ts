@@ -84,6 +84,9 @@ export function subscribePropertyInteractions(
     });
 
     callback(list);
+  }, (error) => {
+    console.warn("[PropertyInteractions] Apartment subscription failed:", { apartmentId, error });
+    callback([]);
   });
 }
 

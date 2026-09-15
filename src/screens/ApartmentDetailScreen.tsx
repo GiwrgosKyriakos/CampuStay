@@ -80,7 +80,7 @@ import { settleClosedDeal } from "@/src/utils/dealAutomations";
 import BrokerSelectorPopover, { type BrokerSelectorItem } from "@/src/components/BrokerSelectorPopover";
 import { clearPendingCallInteraction, getPendingCallInteraction, persistPendingCallInteraction, PENDING_CALL_MAX_AGE_MS } from "@/src/utils/callTracking";
 import { evaluateCompetingClientsStrategy, type ClientDealContext, type StrategyClientInsight } from "@/src/utils/portfolioStrategyAdvisor";
-import { localizeCity, localizePropertyCategory, localizePropertyType } from "@/src/utils/localizeData";
+import { localizeCity, localizeHeatingType, localizePropertyCategory, localizePropertyType, toCanonicalAmenity } from "@/src/utils/localizeData";
 import { checkoutKeySafe, returnKeySafe, updateOpenHouseConfig } from "@/src/api/agencyCollaboration";
 import CrossBrokerVisitModal from "@/src/components/CrossBrokerVisitModal";
 import OpenHouseScannerModal from "@/src/components/OpenHouseScannerModal";
@@ -617,13 +617,13 @@ function formatDateTime(millis: number): string {
 
 const AMENITIES: AmenityDef[] = [
   { key: "wifi", label: "apartmentDetail.amenities.wifi", icon: "wifi-outline", tagMatch: ["wifi"] },
-  { key: "ac", label: "apartmentDetail.amenities.ac", icon: "snow-outline", tagMatch: ["ac", "air_conditioning"] },
-  { key: "washer", label: "apartmentDetail.amenities.washer", icon: "water-outline", tagMatch: ["washer", "washing_machine"] },
-  { key: "pet", label: "apartmentDetail.amenities.pet", icon: "paw-outline", tagMatch: ["pet_friendly", "pet"] },
-  { key: "furn", label: "apartmentDetail.amenities.furn", icon: "bed-outline", tagMatch: ["furnished", "furn"] },
+  { key: "ac", label: "apartmentDetail.amenities.ac", icon: "snow-outline", tagMatch: ["air_condition"] },
+  { key: "washer", label: "apartmentDetail.amenities.washer", icon: "water-outline", tagMatch: ["washing_machine"] },
+  { key: "pet", label: "apartmentDetail.amenities.pet", icon: "paw-outline", tagMatch: ["pet_friendly"] },
+  { key: "furn", label: "apartmentDetail.amenities.furn", icon: "bed-outline", tagMatch: ["furnished"] },
   { key: "balcony", label: "createListing.amenities.balcony", icon: "sunny-outline", tagMatch: ["balcony"] },
   { key: "parking", label: "createListing.amenities.parking", icon: "car-sport-outline", tagMatch: ["parking"] },
-  { key: "metro", label: "createListing.amenities.nearMetro", icon: "train-outline", tagMatch: ["near_metro", "metro"] },
+  { key: "metro", label: "createListing.amenities.nearMetro", icon: "train-outline", tagMatch: ["near_metro"] },
 ];
 
 type ExtraDetailCategory = {
@@ -1721,6 +1721,8 @@ export default function ApartmentDetailScreen() {
       setResolvedBrokerId(typeof data.brokerId === "string" ? data.brokerId : apt?.brokerId || null);
       setResolvedCreatorId(typeof data.creatorId === "string" ? data.creatorId : apt?.creatorId || null);
       setResolvedAssignedBrokerIds(Array.isArray(data.assignedBrokerIds) ? data.assignedBrokerIds : []);
+    }, (error) => {
+      console.warn("[ApartmentDetail] Apartment listener failed:", { apartmentId, error });
     });
   }, [apt?.id]);
 
@@ -2296,9 +2298,11 @@ export default function ApartmentDetailScreen() {
     );
   }
 
-  const activeTags = (realTags.length > 0 ? realTags : [...(apt.tags || []), ...((apt as unknown as { amenities?: string[] }).amenities || [])]).map((entry) =>
-    String(entry).toLowerCase().trim(),
-  );
+  const activeTags = Array.from(new Set([
+    ...realTags,
+    ...(apt.tags || []),
+    ...((apt as unknown as { amenities?: string[] }).amenities || []),
+  ])).map((entry) => toCanonicalAmenity(String(entry)));
   const displayRooms = resolvedRooms ?? apt.rooms;
   const displayMaxRoommates = resolvedMaxRoommates ?? apt.maxRoommates;
   const displayFloor = resolvedFloor ?? (apt.floor?.trim() || "");
@@ -2479,7 +2483,14 @@ export default function ApartmentDetailScreen() {
       await deleteListingPermanently(apt.id);
       setDeleteModalVisible(false);
       router.replace("/apartments");
-    } catch {
+    } catch (error: any) {
+      console.error("[DELETE LISTING ERROR]", {
+        code: error?.code,
+        message: error?.message,
+        name: error?.name,
+        stack: error?.stack,
+        raw: error,
+      });
       setDeleteModalVisible(false);
       setActionModal({
         title: t("apartmentDetail.deleteFailedTitle"),
@@ -2876,7 +2887,9 @@ export default function ApartmentDetailScreen() {
 
             {isListingOwner ? (
               <View style={styles.titleActions}>
+                {/*CSPT1
                 {isStrictHostOwner ? (
+                  
                   <Pressable
                     style={[
                       styles.titleActionBtn,
@@ -2901,6 +2914,8 @@ export default function ApartmentDetailScreen() {
                     )}
                   </Pressable>
                 ) : null}
+                */}
+                {/*CSPT1
                 <Pressable
                   style={styles.titleActionBtn}
                   onPress={() => setIsCmaVisible(true)}
@@ -2912,6 +2927,7 @@ export default function ApartmentDetailScreen() {
                 >
                   <Ionicons name="analytics-outline" size={20} color={colors.brand} />
                 </Pressable>
+                */}
                 {isManagingBroker ? (
                   <Pressable
                     style={[styles.titleActionBtn, isClientsSectionOpen && styles.titleActionBtnActive]}
@@ -3747,7 +3763,7 @@ export default function ApartmentDetailScreen() {
                 {displayExtraInformation?.heatingSystem ? (
                   <View style={styles.extraInformationRow}>
                     <View style={styles.infoLabelRow}><Ionicons name="thermometer-outline" size={16} color={colors.onSurfaceTertiary} /><Text style={styles.extraInformationLabel}>Heating System</Text></View>
-                    <Text style={styles.extraInformationValue}>{displayExtraInformation.heatingSystem}</Text>
+                    <Text style={styles.extraInformationValue}>{localizeHeatingType(displayExtraInformation.heatingSystem)}</Text>
                   </View>
                 ) : null}
                 {displayExtraInformation?.energyClass ? (

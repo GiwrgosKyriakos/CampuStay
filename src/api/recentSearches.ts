@@ -28,6 +28,10 @@ export async function saveRecentSearch(userId: string, queryText: string): Promi
 }
 
 export function subscribeRecentSearches(userId: string, callback: (searches: string[]) => void): () => void {
+  if (!userId.trim()) {
+    callback([]);
+    return () => undefined;
+  }
   const recentSearchesQ = query(collection(db, "users", userId, "recentSearches"), orderBy("createdAt", "desc"));
 
   return onSnapshot(recentSearchesQ, (snapshot) => {
@@ -36,5 +40,8 @@ export function subscribeRecentSearches(userId: string, callback: (searches: str
       .filter((queryText): queryText is string => typeof queryText === "string" && queryText.trim().length > 0);
 
     callback(searches);
+  }, (error) => {
+    console.warn("[RecentSearches] Listener failed:", { userId, error });
+    callback([]);
   });
 }

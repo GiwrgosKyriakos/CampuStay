@@ -23,6 +23,7 @@ import InboxSkeleton from "@/src/components/skeletons/InboxSkeleton";
 import CreateRoommateGroupModal from "@/src/components/chat/CreateRoommateGroupModal";
 import { getUserProfile } from "@/src/api/userProfile";
 import type { GroupMemberStatus } from "@/src/types/chat";
+import { isChatBlockedByUser } from "@/src/utils/chatHelpers";
 
 const TAB_BAR_SPACE = 84;
 const INBOX_PAGE_SIZE = 10;
@@ -90,6 +91,8 @@ interface FirestoreChatDoc {
   lastMessageSenderId?: string;
   lastMessageReadBy?: string[];
   lastMessageIsRead?: boolean;
+  lastMessageCreatedAt?: { toMillis?: () => number } | number | null;
+  lastMessageCreatedAtMillis?: number | null;
   lastMessageTimestamp?: { toMillis?: () => number } | number | null;
   updatedAt?: { toMillis?: () => number } | number | null;
   createdAt?: { toMillis?: () => number } | number | null;
@@ -317,10 +320,17 @@ export default function MatchesScreen() {
     }
 
     const userRef = doc(db, "users", auth.userId);
-    const unsubscribe = onSnapshot(userRef, (snapshot) => {
-      const data = snapshot.exists() ? snapshot.data() : null;
-      setHasApartmentShareFlag(Boolean(data?.already_have_apartment_to_share || data?.has_place));
-    });
+    const unsubscribe = onSnapshot(
+      userRef,
+      (snapshot) => {
+        const data = snapshot.exists() ? snapshot.data() : null;
+        setHasApartmentShareFlag(Boolean(data?.already_have_apartment_to_share || data?.has_place));
+      },
+      (error) => {
+        console.warn("[Matches] User flag listener failed:", error);
+        setHasApartmentShareFlag(false);
+      },
+    );
 
     return () => unsubscribe();
   }, [auth.isGuest, auth.userId, isBroker]);
@@ -390,21 +400,13 @@ export default function MatchesScreen() {
         const chatRef = doc(db, "chats", roomId);
         const now = Date.now();
 
-        await setDoc(
-          chatRef,
-          {
-            clearedAt: { [currentUserId]: now },
-            deletedUsers: { [currentUserId]: true },
-            updatedAt: now,
-          },
-          { merge: true },
-        );
         await updateDoc(
           chatRef,
-          new FieldPath(`clearedAt.${currentUserId}`),
-          deleteField(),
-          new FieldPath(`deletedUsers.${currentUserId}`),
-          deleteField(),
+          new FieldPath("clearedAt", currentUserId), now,
+          new FieldPath("deletedUsers", currentUserId), true,
+          new FieldPath(`clearedAt.${currentUserId}`), deleteField(),
+          new FieldPath(`deletedUsers.${currentUserId}`), deleteField(),
+          "updatedAt", now,
         );
         void cleanupObsoleteChatMessages(roomId);
       } catch (err) {
@@ -434,8 +436,13 @@ export default function MatchesScreen() {
 
         const chatRoomId = [uid, toUid].sort().join("_");
         const chatRef = doc(db, "chats", chatRoomId);
-        const chatSnap = await getDoc(chatRef);
-        const chatData = chatSnap.exists()
+        let chatSnap: Awaited<ReturnType<typeof getDoc>> | null = null;
+        try {
+          chatSnap = await getDoc(chatRef);
+        } catch {
+          chatSnap = null;
+        }
+        const chatData = chatSnap?.exists()
           ? (chatSnap.data() as FirestoreChatDoc)
           : null;
         if (chatData && (isDeletedForUser(chatData, uid) || getClearedAtForUser(chatData, uid) > 0)) return;
@@ -454,7 +461,7 @@ export default function MatchesScreen() {
             initiatedBy: chatData?.initiatedBy ?? uid,
             blockedByUsers,
             updatedAt: serverTimestamp(),
-            ...(chatSnap.exists()
+            ...(chatSnap?.exists()
               ? {}
               : {
                   createdAt: serverTimestamp(),
@@ -591,7 +598,13 @@ export default function MatchesScreen() {
             const chatData = chatDoc.data() as FirestoreChatDoc;
             const isExplicitlyDeleted = isDeletedForUser(chatData, uid);
             const clearedAtForCurrentUser = getClearedAtForUser(chatData, uid);
-            const lastMessageTs = getSafeMillis(chatData.lastMessageTimestamp);
+            const lastMessageTs = getSafeMillis(
+              chatData.lastMessageCreatedAtMillis ??
+              chatData.lastMessageCreatedAt ??
+              chatData.lastMessageTimestamp ??
+              chatData.updatedAt,
+            );
+            const hasLastMessage = typeof chatData.lastMessage === "string" && chatData.lastMessage.trim().length > 0;
 
             if (
               locallyDeletedChatIdsRef.current.has(chatDoc.id) &&
@@ -601,12 +614,16 @@ export default function MatchesScreen() {
               locallyDeletedChatIdsRef.current.delete(chatDoc.id);
             }
 
-            const isHiddenByClear = clearedAtForCurrentUser > 0 && lastMessageTs <= clearedAtForCurrentUser;
+            const isHiddenByClear = clearedAtForCurrentUser > 0 && !(
+              hasLastMessage && lastMessageTs === 0
+            ) && lastMessageTs <= clearedAtForCurrentUser;
             const shouldHideForClear =
               locallyDeletedChatIdsRef.current.has(chatDoc.id) || isExplicitlyDeleted || isHiddenByClear;
             if (shouldHideForClear) {
-              console.log("[Matches] Hiding chat because no message exists after clear cutoff", {
+              console.log("[Matches] Hiding chat: last message is at or before clear cutoff", {
                 chatId: chatDoc.id,
+                lastMessageTs,
+                clearedAtForCurrentUser,
               });
             }
             const chatType = chatData.type ?? "roommate";
@@ -676,6 +693,7 @@ export default function MatchesScreen() {
                 visibleChatDocs.map(async (chatDoc) => {
                   const chatData = chatDoc.data() as FirestoreChatDoc;
                   const sortKey =
+                    getSafeMillis(chatData.lastMessageCreatedAtMillis ?? chatData.lastMessageCreatedAt) ||
                     getSafeMillis(chatData.lastMessageTimestamp) ||
                     getSafeMillis(chatData.updatedAt) ||
                     getSafeMillis(chatData.createdAt) ||
@@ -721,10 +739,9 @@ export default function MatchesScreen() {
                     ? chatData.rejections.filter((entry): entry is string => typeof entry === "string")
                     : [];
 
-                  const blockedMap = chatData.blockedByUsers ?? {};
                   const relationState = await getBlockRelationshipState(uid, counterpartUid);
-                  const isBlocker = blockedMap[uid] === true || relationState.isBlocker;
-                  const isBlocked = blockedMap[counterpartUid] === true || relationState.isBlocked;
+                  const isBlocker = isChatBlockedByUser(chatData, uid) || relationState.isBlocker;
+                  const isBlocked = isChatBlockedByUser(chatData, counterpartUid) || relationState.isBlocked;
 
                   return {
                     sortKey,
@@ -768,19 +785,25 @@ export default function MatchesScreen() {
                   missingTargets.map(async (targetUid) => {
                     const chatRoomId = [uid, targetUid].sort().join("_");
                     if (locallyDeletedChatIdsRef.current.has(chatRoomId)) return null;
-                    const existingChat = await getDoc(doc(db, "chats", chatRoomId));
-                    const existingChatData = existingChat.exists() ? existingChat.data() as FirestoreChatDoc : null;
+                    let existingChatData: FirestoreChatDoc | null = null;
+                    try {
+                      const existingChat = await getDoc(doc(db, "chats", chatRoomId));
+                      existingChatData = existingChat.exists() ? existingChat.data() as FirestoreChatDoc : null;
+                    } catch {
+                      existingChatData = null;
+                    }
                     if (existingChatData && (isDeletedForUser(existingChatData, uid) || getClearedAtForUser(existingChatData, uid) > 0)) return null;
                     const userData = await fetchUserProfile(targetUid);
                     const relationState = await getBlockRelationshipState(uid, targetUid);
-                    const blockedMap = existingChatData?.blockedByUsers ?? {};
+                    const isBlockerFromChat = existingChatData ? isChatBlockedByUser(existingChatData, uid) : false;
+                    const isBlockedFromChat = existingChatData ? isChatBlockedByUser(existingChatData, targetUid) : false;
 
                     return {
                       sortKey: 0,
                       item: {
                         ...mapUserToChatItem(targetUid, chatRoomId, [uid, targetUid], "pending", uid, null, [], userData),
-                        isBlocker: blockedMap[uid] === true || relationState.isBlocker,
-                        isBlocked: blockedMap[targetUid] === true || relationState.isBlocked,
+                        isBlocker: isBlockerFromChat || relationState.isBlocker,
+                        isBlocked: isBlockedFromChat || relationState.isBlocked,
                       },
                     };
                   }),
