@@ -70,7 +70,7 @@ function ObtuseChevron({ isExpanded, color }: { isExpanded: boolean; color: stri
 }
 
 const CURRENCY = "€";
-const campuStay = true;
+const campuStay = false;
 const TAB_BAR_SPACE = 84;
 const COLLAPSE_DISTANCE = 46;
 const darkMapStyle = [
@@ -2840,11 +2840,11 @@ export default function ApartmentsScreen() {
               >
                 <Ionicons name="time-outline" size={18} color={colors.onSurface} />
               </Pressable>
-              {/*CSPT1
+              
               <Pressable style={styles.filterActionButton} onPress={() => void shareFilterSet()} testID="apartments-filter-share-btn">
                 <Ionicons name="share-social-outline" size={18} color={colors.onSurface} />
               </Pressable>
-              */}
+              
             </View>
 
             <Text style={styles.sortTitle}>{t("apartments.sort")}</Text>
@@ -2883,7 +2883,7 @@ export default function ApartmentsScreen() {
               </View>
             ) : null}
 
-            {/*CSPT1 
+            
 
             <View style={styles.polygonFilterSection}>
               <Text style={styles.filterLabel}>{t("apartments.mapArea")}</Text>
@@ -2960,7 +2960,7 @@ export default function ApartmentsScreen() {
                 {selectedProposalList ? <Pressable onPress={(event) => { event.stopPropagation(); setSelectedProposalList(null); setProposalApartmentIds([]); }} hitSlop={8}><Ionicons name="close-circle" size={16} color={colors.onBrand} /></Pressable> : null}
               </Pressable>
             </View>
-            */}
+            
 
             {isHostUser && !isViewingMyListings ? (
               <View style={styles.hostFeedToggleRow} testID="apartments-own-listings-toggle-row">

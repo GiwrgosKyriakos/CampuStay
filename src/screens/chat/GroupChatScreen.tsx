@@ -52,7 +52,7 @@ import type { ContractDraftContext, ContractType } from "@/src/types/esignature"
 import EditVisitModal from "@/src/components/chat/modals/EditVisitModal";
 import CenteredActionModal from "@/src/components/CenteredActionModal";
 
-const campuStay = true;
+const campuStay = false;
 
 type GroupMessage = {
   id: string;

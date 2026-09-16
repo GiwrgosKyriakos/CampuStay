@@ -2887,7 +2887,7 @@ export default function ApartmentDetailScreen() {
 
             {isListingOwner ? (
               <View style={styles.titleActions}>
-                {/*CSPT1
+            
                 {isStrictHostOwner ? (
                   
                   <Pressable
@@ -2914,8 +2914,8 @@ export default function ApartmentDetailScreen() {
                     )}
                   </Pressable>
                 ) : null}
-                */}
-                {/*CSPT1
+                
+                
                 <Pressable
                   style={styles.titleActionBtn}
                   onPress={() => setIsCmaVisible(true)}
@@ -2927,7 +2927,7 @@ export default function ApartmentDetailScreen() {
                 >
                   <Ionicons name="analytics-outline" size={20} color={colors.brand} />
                 </Pressable>
-                */}
+                
                 {isManagingBroker ? (
                   <Pressable
                     style={[styles.titleActionBtn, isClientsSectionOpen && styles.titleActionBtnActive]}

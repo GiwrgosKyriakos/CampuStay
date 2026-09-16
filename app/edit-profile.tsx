@@ -602,7 +602,7 @@ export default function EditProfileScreen() {
             pointerEvents={hasPlace ? "auto" : "none"}
             testID="housing-listing-prompt"
           >
-            {/*CSPT1 
+             
             <Pressable
               style={({ pressed }) => [styles.housingPromptCard, pressed && styles.housingPromptCardPressed]}
               onPress={() => router.push("/create-listing" as any)}
@@ -612,7 +612,7 @@ export default function EditProfileScreen() {
                 {t("editProfile.housingPrompt")}
               </Text>
             </Pressable>
-            */}
+            
               </Animated.View>
 
               <Pressable
@@ -635,7 +635,7 @@ export default function EditProfileScreen() {
         </View>
 
         {/* SECTION 3: User Experience */}
-        {/*CSPT1
+        
         {!isAgencyAffiliated && <View style={styles.card}>
           <View style={styles.cardHeader}>
             <Ionicons name="settings-outline" size={22} color={colors.onSurface} />
@@ -671,7 +671,7 @@ export default function EditProfileScreen() {
           </Pressable>
         </View>}
 
-        */}
+        
 
         {/* SECTION 4: Education & Living */}
         {!isBroker && (

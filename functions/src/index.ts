@@ -44,7 +44,7 @@ type AiFeature = "sentiment" | "cma" | "copywriter" | "owner_report";
 interface AiUsage { tokenCount: number }
 
 const AI_DAILY_LIMIT = 15;
-const campuStay = true;
+const campuStay = false;
 
 export async function assertCanAccessApartment(apartmentId: string, authUid: string, allowedRoles = ["secretariat", "admin"]): Promise<void> {
   const apartmentSnapshot = await db.doc(`apartments/${apartmentId}`).get();

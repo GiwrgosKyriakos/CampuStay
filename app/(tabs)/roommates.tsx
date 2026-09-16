@@ -345,7 +345,7 @@ useEffect(() => {
           </View>
 
           <View style={styles.headerActionsRow}>
-            {/*CSPT1
+            
             {canUseCalendar ? (
               <Pressable
                 style={[styles.iconBtn, activeView === "calendar" && styles.iconBtnActive]}
@@ -357,7 +357,7 @@ useEffect(() => {
                 <Ionicons name={activeView === "calendar" ? "calendar" : "calendar-outline"} size={22} color={activeView === "calendar" ? colors.onBrand : colors.onSurface} />
               </Pressable>
             ) : null}
-            */}
+            
             {quizAnsweredCount === 0 ? (
               <Pressable style={styles.quizPill} onPress={() => router.push("/roomie-profile")} testID="roommates-quiz-pill">
                 <Text style={styles.quizPillText}>{t("roommates.quiz")}</Text>

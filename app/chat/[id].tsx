@@ -76,7 +76,7 @@ import RoommateContractPickerModal from "@/src/components/RoommateContractPicker
 import type { ContractDraftContext, ContractType } from "@/src/types/esignature";
 
 const CURRENCY = "€";
-const campuStay = true;
+const campuStay = false;
 
 function logPinnedApartmentActionFailure(action: string, error: unknown): void {
   const errorDetails = error && typeof error === "object" ? error as { code?: unknown; message?: unknown } : {};
@@ -3375,7 +3375,7 @@ function DirectChatScreen() {
             <Text style={{ fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.brand }}>{activePinnedAppointment.message.metadata?.status === "pending" ? "Εκκρεμές" : "Επιβεβαιωμένο"}</Text>
           </View>
           
-          {/*CSPT1 
+           
           <Pressable
             onPress={(event) => {
               event.stopPropagation();
@@ -3386,7 +3386,7 @@ function DirectChatScreen() {
           >
             <Ionicons name="create-outline" size={20} color={colors.brand} />
           </Pressable>
-          */}
+          
           
           <Pressable
             onPress={(event) => {

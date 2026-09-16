@@ -402,7 +402,7 @@ const PHOTO_SLOTS = 6;
 const BROKER_PRIVATE_PHOTO_SLOTS = 12;
 const IMAGE_QUALITY = 0.7;
 const CURRENT_BUILD_YEAR = 2026;
-const campuStay = true;
+const campuStay = false;
 const HEATING_SYSTEM_OPTIONS = ["Αυτόνομη", "Κεντρική", "Ρεύμα", "Φυσικό Αέριο", "Αντλία Θερμότητας", "Πετρέλαιο", "Χωρίς Θέρμανση", "Άλλο"];
 const ENERGY_CLASS_OPTIONS = ["A+", "A", "B+", "B", "C", "D", "E", "F", "G"];
 
@@ -2821,7 +2821,7 @@ export default function CreateListingScreen() {
               </View>
             ) : null}
 
-            {/*CSPT1 
+            
 
             <View style={styles.sectionHeaderRow}>
               <View style={styles.sectionTitleWrap}>
@@ -2842,7 +2842,7 @@ export default function CreateListingScreen() {
               </Pressable>
             )}
 
-            */}
+            
 
             <View style={styles.reelUploadHeader}>
               <View style={styles.sectionTitleWrap}>
@@ -2860,7 +2860,7 @@ export default function CreateListingScreen() {
             </Pressable>
             {reelVideoUri ? <Text style={styles.fieldHint}>{reelVideoUri.startsWith("http") ? "Το video reel είναι αποθηκευμένο στην αγγελία." : "Το video reel θα ανέβει με τη δημοσίευση."}</Text> : null}
             
-            {/*CSPT1 
+            
 
             <View style={styles.sectionHeaderRow}>
               <View style={styles.sectionTitleWrap}>
@@ -2939,7 +2939,7 @@ export default function CreateListingScreen() {
               </>
             ) : null}
             
-            */}
+            
 
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
 

@@ -63,6 +63,12 @@ function parseNumericInput(value: string): number | null {
 
 const GENDERS: GenderFilter[] = ["female", "male", "nonBinary"];
 
+type HardCriteriaOption = { key: RoommateHardCriteriaKey; label: string };
+
+const hardCriteriaOptions: HardCriteriaOption[] = QUIZ_SECTIONS.flatMap((section) =>
+  section.questions.map((question) => ({ key: question.id, label: question.questionKey })),
+);
+
 function getGenderLabel(value: GenderFilter | "all"): string {
   switch (value) {
     case "female":
@@ -315,7 +321,7 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
               maxTestID="filter-budget-max-input"
             />
 
-            {/*CSPT1
+            
 
             <View style={styles.hardCriteriaSection}>
               <View style={styles.hardCriteriaHeaderRow}>
@@ -341,7 +347,7 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
               </View>
             </View>
 
-            */}
+            
 
             <View style={[styles.actions, { marginBottom: actionsBottomOffset }, { marginTop: actionsTopOffset }]}>
               <Pressable
