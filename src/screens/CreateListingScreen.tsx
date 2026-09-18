@@ -16,9 +16,10 @@ import {
   BackHandler,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
 import Slider from "@react-native-community/slider";
 import { File } from "expo-file-system";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { addDoc, arrayUnion, collection, deleteField, doc, getDoc, getDocs, limit, orderBy, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 import * as ImagePicker from "expo-image-picker";
@@ -46,26 +47,27 @@ import PriceHistoryChart, { type PriceHistoryEntry } from "@/src/components/Pric
 import VoiceInputButton from "@/src/components/common/VoiceInputButton";
 import { useVoiceInputPreview } from "@/src/hooks/useVoiceInputPreview";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
+import Animated, { FadeIn, FadeOut, LinearTransition } from "react-native-reanimated";
+import { scheduleListingStatusNotification } from "@/src/utils/notificationService";
 import AiCopywriterModal from "@/src/components/AiCopywriterModal";
 import type { CopywriterResult } from "@/src/services/aiFeatureService";
 import { calculateTenantCompatibilityScore } from "@/src/utils/compatibilityScore";
 import type { FilterSetPayload } from "@/src/types/filters";
 import type { RealEstateAgency } from "@/src/types/agency";
 import type { LogoWatermarkStyle, WatermarkConfig, WatermarkType } from "@/src/types/listing";
-import type { ApartmentReelMedia, TourScene, VirtualTourData, VirtualTourHotspot } from "@/src/types/apartment";
+import type { ApartmentReelMedia, ListingPhotoItem, TourScene, VirtualTourData, VirtualTourHotspot } from "@/src/types/apartment";
+import type { BrokerPropertyStatusKey, ListingBrokerDraft } from "@/src/types/listingBroker";
+import ListingPhotoGrid from "@/src/components/ListingPhotoGrid";
+import PhotoCaptionModal from "@/src/components/PhotoCaptionModal";
+import { applyPhotoCaptions, normalizeListingPhotoItems, photoItemsToCaptionMap, photoItemsToUrls, reindexListingPhotoItems } from "@/src/utils/listingMedia";
+import { getListingBrokerDraft, saveListingBrokerDraft } from "@/src/utils/listingBrokerDraft";
 import { buildTourSceneStoragePath, isValidEquirectangularDimensions } from "@/src/utils/virtualTour";
 
 type AmenityKey = "petFriendly" | "nearMetro" | "furnished" | "balcony" | "parking";
 type AmenitySlug = "pet_friendly" | "near_metro" | "furnished" | "balcony" | "parking";
 type ReturnTarget = "edit-profile";
 
-export type PropertyStatusKey =
-  | "available"
-  | "available_after_call"
-  | "under_negotiation"
-  | "closed_deposit"
-  | "sold_rented"
-  | "on_hold_owner_request";
+export type PropertyStatusKey = BrokerPropertyStatusKey;
 
 export const PROPERTY_STATUS_OPTIONS: { key: PropertyStatusKey; label: string }[] = [
   { key: "available", label: "Διαθέσιμο" },
@@ -233,13 +235,17 @@ interface FirestoreApartmentDoc {
   sqft?: number;
   image?: string;
   imageUrl?: string;
-  images?: string[];
+  images?: Array<string | ListingPhotoItem>;
   files2d3d?: string[];
   watermarkConfig?: WatermarkConfig;
   virtualTour?: VirtualTourData;
   reelMedia?: ApartmentReelMedia | null;
   showInExploreFeed?: boolean;
-  brokerPrivatePhotos?: string[];
+  brokerPrivatePhotos?: Array<string | ListingPhotoItem>;
+  photos?: Array<string | ListingPhotoItem>;
+  photoCaptions?: Record<string, string>;
+  extraPhotos?: Array<string | ListingPhotoItem>;
+  reelsPhotos?: Array<string | ListingPhotoItem>;
   documents?: Partial<Record<DocumentCategoryKey, ListingDocument[]>>;
   tags?: string[];
   amenities?: string[];
@@ -271,6 +277,11 @@ interface FirestoreApartmentDoc {
   isOffMarket?: boolean;
   visibility?: "client_only" | "public";
   offMarketAccessUserIds?: string[];
+  commissionRate?: number;
+  expectedBrokerSplit?: number;
+  mandateNotes?: string;
+  internalNotes?: string;
+  clientCriteria?: string;
 }
 
 const AMENITIES: Amenity[] = [
@@ -404,8 +415,9 @@ const EXTRA_DETAIL_CATEGORIES: ExtraDetailCategory[] = [
   },
 ];
 
-const PHOTO_SLOTS = 6;
-const BROKER_PRIVATE_PHOTO_SLOTS = 12;
+export const PHOTO_SLOTS = 15;
+export const BROKER_PRIVATE_PHOTO_SLOTS = 6;
+export const REELS_PHOTO_SLOTS = 6;
 const IMAGE_QUALITY = 0.7;
 const CURRENT_BUILD_YEAR = 2026;
 const campuStay = false;
@@ -645,6 +657,11 @@ export default function CreateListingScreen() {
   const [publishedAtMillis, setPublishedAtMillis] = useState<number | null>(null);
   const [updatedAtMillis, setUpdatedAtMillis] = useState<number | null>(null);
   const [maxDiscountPercent, setMaxDiscountPercent] = useState("");
+  const [commissionRate, setCommissionRate] = useState("");
+  const [expectedBrokerSplit, setExpectedBrokerSplit] = useState("");
+  const [mandateNotes, setMandateNotes] = useState("");
+  const [internalNotes, setInternalNotes] = useState("");
+  const [clientCriteria, setClientCriteria] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [showPhoneNumber, setShowPhoneNumber] = useState(true);
   const [hidePhoneFromBrokers, setHidePhoneFromBrokers] = useState(false);
@@ -658,8 +675,9 @@ export default function CreateListingScreen() {
     balcony: false,
     parking: false,
   });
-  const [photos, setPhotos] = useState<string[]>([]);
+  const [photos, setPhotos] = useState<ListingPhotoItem[]>([]);
   const [reelVideoUri, setReelVideoUri] = useState<string | null>(null);
+  const [reelsPhotos, setReelsPhotos] = useState<ListingPhotoItem[]>([]);
   const [virtualStagingEnabled, setVirtualStagingEnabled] = useState(false);
   const [virtualStagingPhotoIndexes, setVirtualStagingPhotoIndexes] = useState<number[]>([]);
   const [files2d3d, setFiles2d3d] = useState<string[]>([]);
@@ -674,13 +692,15 @@ export default function CreateListingScreen() {
   const [logoStyle, setLogoStyle] = useState<LogoWatermarkStyle>("no_bg_transparent");
   const [agencyData, setAgencyData] = useState<RealEstateAgency | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [brokerPrivatePhotos, setBrokerPrivatePhotos] = useState<string[]>([]);
+  const [brokerPrivatePhotos, setBrokerPrivatePhotos] = useState<ListingPhotoItem[]>([]);
+  const [captionPhoto, setCaptionPhoto] = useState<ListingPhotoItem | null>(null);
+  const [captionTarget, setCaptionTarget] = useState<"listing" | "brokerPrivate" | "reels">("listing");
   const [isBrokerPrivatePhotosExpanded, setIsBrokerPrivatePhotosExpanded] = useState(false);
   const [isDocumentsExpanded, setIsDocumentsExpanded] = useState(false);
   const [expandedDocumentCategory, setExpandedDocumentCategory] = useState<DocumentCategoryKey | null>(null);
   const [documents, setDocuments] = useState<DocumentsState>(() => createEmptyDocumentsState());
   const [uploadingDocumentCategory, setUploadingDocumentCategory] = useState<DocumentCategoryKey | null>(null);
-  const [photoPickerTarget, setPhotoPickerTarget] = useState<"listing" | "brokerPrivate">("listing");
+  const [photoPickerTarget, setPhotoPickerTarget] = useState<"listing" | "brokerPrivate" | "reels">("listing");
   const [photoSourceModalVisible, setPhotoSourceModalVisible] = useState(false);
   const [aiCopywriterVisible, setAiCopywriterVisible] = useState(false);
   const [aiCopywriterValidation, setAiCopywriterValidation] = useState<string | null>(null);
@@ -710,6 +730,8 @@ export default function CreateListingScreen() {
   const [clientPool, setClientPool] = useState<BrokerClientWithFilters[]>([]);
   const [loadingClientPool, setLoadingClientPool] = useState(false);
   const [publishModeModalVisible, setPublishModeModalVisible] = useState(false);
+  const [publishMode, setPublishMode] = useState<"direct" | "pool" | null>(null);
+  const brokerDraftKey = `${listingId || "new"}:${auth.userId || "guest"}`;
 
   const handlePick2D3DFiles = useCallback(async () => {
     try {
@@ -852,6 +874,65 @@ export default function CreateListingScreen() {
   }, [auth.user?.name, auth.userId, monthlyRent, ownerPriceExpectation, priceHistory]);
   const isBrokerMode = auth.isBroker === true;
   const canAssignBroker = !isBrokerMode && userProfile?.looking_for_roommate === false;
+
+  const buildBrokerDraft = useCallback((): ListingBrokerDraft => ({
+    maxDiscountPercent,
+    propertyStatus,
+    closedDealPrice,
+    ownerName,
+    ownerPhone,
+    ownerMotivationType,
+    customOwnerMotivation,
+    ownerPriceExpectation,
+    commissionRate,
+    expectedBrokerSplit,
+    mandateNotes,
+    internalNotes,
+    clientCriteria,
+    brokerPrivatePhotos,
+    isOffMarket,
+    offMarketAccessUserIds,
+    assignedBrokerIds: existingAssignedBrokerIds,
+    assignmentStatus: existingAssignmentStatus,
+    publishMode,
+  }), [brokerPrivatePhotos, clientCriteria, closedDealPrice, commissionRate, customOwnerMotivation, expectedBrokerSplit, existingAssignedBrokerIds, existingAssignmentStatus, internalNotes, isOffMarket, mandateNotes, maxDiscountPercent, offMarketAccessUserIds, ownerMotivationType, ownerName, ownerPhone, ownerPriceExpectation, propertyStatus, publishMode]);
+
+  const applyBrokerDraft = useCallback((draft: ListingBrokerDraft) => {
+    setMaxDiscountPercent(draft.maxDiscountPercent);
+    setPropertyStatus(draft.propertyStatus);
+    setClosedDealPrice(draft.closedDealPrice);
+    setOwnerName(draft.ownerName);
+    setOwnerPhone(draft.ownerPhone);
+    setOwnerMotivationType(draft.ownerMotivationType);
+    setCustomOwnerMotivation(draft.customOwnerMotivation);
+    setOwnerPriceExpectation(draft.ownerPriceExpectation);
+    setCommissionRate(draft.commissionRate);
+    setExpectedBrokerSplit(draft.expectedBrokerSplit);
+    setMandateNotes(draft.mandateNotes);
+    setInternalNotes(draft.internalNotes);
+    setClientCriteria(draft.clientCriteria);
+    setBrokerPrivatePhotos(draft.brokerPrivatePhotos);
+    setIsOffMarket(draft.isOffMarket);
+    setOffMarketAccessUserIds(draft.offMarketAccessUserIds);
+    setExistingAssignedBrokerIds(draft.assignedBrokerIds);
+    setExistingAssignmentStatus(draft.assignmentStatus);
+    setPublishMode(draft.publishMode);
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!isBrokerMode) return undefined;
+      const draft = getListingBrokerDraft(brokerDraftKey);
+      if (draft) applyBrokerDraft(draft);
+      return undefined;
+    }, [applyBrokerDraft, brokerDraftKey, isBrokerMode]),
+  );
+
+  const openBrokerView = useCallback(() => {
+    const draft = buildBrokerDraft();
+    saveListingBrokerDraft(brokerDraftKey, draft);
+    router.push({ pathname: "/listing-broker-view", params: { listingId: currentListingId || listingId || brokerDraftKey, draftKey: brokerDraftKey } } as never);
+  }, [brokerDraftKey, buildBrokerDraft, currentListingId, listingId, router]);
 
   useEffect(() => {
     if (auth.isGuest || !auth.userId) {
@@ -1059,7 +1140,7 @@ export default function CreateListingScreen() {
   );
 
   const hasValidPhoto = useMemo(
-    () => photos.some((uri) => typeof uri === "string" && uri.trim().length > 0),
+    () => photos.some((photo) => photo.url.trim().length > 0),
     [photos],
   );
 
@@ -1377,6 +1458,11 @@ export default function CreateListingScreen() {
             ? Math.min(100, Math.max(0, Math.trunc(data.maxDiscountPercent)))
             : null;
         setMaxDiscountPercent(mappedMaxDiscount !== null ? String(mappedMaxDiscount) : "");
+        setCommissionRate(typeof data.commissionRate === "number" && Number.isFinite(data.commissionRate) ? String(data.commissionRate) : "");
+        setExpectedBrokerSplit(typeof data.expectedBrokerSplit === "number" && Number.isFinite(data.expectedBrokerSplit) ? String(data.expectedBrokerSplit) : "");
+        setMandateNotes(data.mandateNotes ?? "");
+        setInternalNotes(data.internalNotes ?? "");
+        setClientCriteria(data.clientCriteria ?? "");
         setTitle(data.title ?? "");
         setDescription(data.description ?? data.about ?? "");
         setShowPhoneNumber(data.showPhoneNumber !== false);
@@ -1539,10 +1625,13 @@ export default function CreateListingScreen() {
           : [];
         setTechnicalSpecEntries(mappedTechnicalSpecs);
 
-        const imageList = Array.isArray(data.images)
-          ? data.images
-          : [data.imageUrl || data.image || ""].filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0);
-        setPhotos(imageList.slice(0, PHOTO_SLOTS));
+        const imageList = Array.isArray(data.photos) && data.photos.length > 0
+          ? data.photos
+          : Array.isArray(data.images)
+            ? data.images
+            : [data.imageUrl || data.image || ""].filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0);
+        setPhotos(applyPhotoCaptions(normalizeListingPhotoItems(imageList), data.photoCaptions).slice(0, PHOTO_SLOTS));
+        setReelsPhotos(normalizeListingPhotoItems(data.reelsPhotos).slice(0, REELS_PHOTO_SLOTS));
         setReelVideoUri(data.reelMedia?.videoUrl ?? null);
         setFiles2d3d(Array.isArray(data.files2d3d) ? data.files2d3d.filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0) : []);
         const savedTour = data.virtualTour;
@@ -1566,10 +1655,8 @@ export default function CreateListingScreen() {
             : "no_bg_transparent",
         );
 
-        const privateImageList = Array.isArray(data.brokerPrivatePhotos)
-          ? data.brokerPrivatePhotos.filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0)
-          : [];
-        setBrokerPrivatePhotos(privateImageList.slice(0, BROKER_PRIVATE_PHOTO_SLOTS));
+        const privateImageList = Array.isArray(data.extraPhotos) && data.extraPhotos.length > 0 ? data.extraPhotos : data.brokerPrivatePhotos;
+        setBrokerPrivatePhotos(applyPhotoCaptions(normalizeListingPhotoItems(privateImageList), data.photoCaptions).slice(0, BROKER_PRIVATE_PHOTO_SLOTS));
 
         const mappedDocuments = createEmptyDocumentsState();
         if (data.documents && typeof data.documents === "object") {
@@ -1606,7 +1693,7 @@ export default function CreateListingScreen() {
     try {
       const apartmentRef = doc(db, "apartments", listingId);
       const finalTitle = title.trim() || "Ακίνητο";
-      const firstImage = photos[0] || "";
+      const firstImage = photos[0]?.url || "";
       const finalOwnerName = ownerName.trim() || auth.user?.name || "Ιδιοκτήτης";
       const chatRoomId = [auth.userId, selectedBrokerId].sort().join("_");
       const messageText = `[Ανάθεση Ακινήτου: ${finalTitle}]`;
@@ -1656,9 +1743,16 @@ export default function CreateListingScreen() {
 
   const pickPhoto = useCallback(
     async (source: "camera" | "library") => {
-      const isPrivateTarget = photoPickerTarget === "brokerPrivate";
-      const slotLimit = isPrivateTarget ? BROKER_PRIVATE_PHOTO_SLOTS : PHOTO_SLOTS;
-      const currentCount = isPrivateTarget ? brokerPrivatePhotos.length : photos.length;
+      const slotLimit = photoPickerTarget === "brokerPrivate"
+        ? BROKER_PRIVATE_PHOTO_SLOTS
+        : photoPickerTarget === "reels"
+          ? REELS_PHOTO_SLOTS
+          : PHOTO_SLOTS;
+      const currentCount = photoPickerTarget === "brokerPrivate"
+        ? brokerPrivatePhotos.length
+        : photoPickerTarget === "reels"
+          ? reelsPhotos.length
+          : photos.length;
       if (currentCount >= slotLimit) return;
 
       setPermBlocked(false);
@@ -1711,26 +1805,37 @@ export default function CreateListingScreen() {
           return;
         }
 
-        if (isPrivateTarget) {
-          setBrokerPrivatePhotos((prev) => [...prev, ...pickedUris].slice(0, BROKER_PRIVATE_PHOTO_SLOTS));
+        const pickedItems = pickedUris.map((uri, index) => ({
+          id: `photo-${Date.now()}-${currentCount + index}`,
+          url: uri,
+          orderIndex: currentCount + index,
+        } satisfies ListingPhotoItem));
+        if (photoPickerTarget === "brokerPrivate") {
+          setBrokerPrivatePhotos((prev) => reindexListingPhotoItems([...prev, ...pickedItems].slice(0, BROKER_PRIVATE_PHOTO_SLOTS)));
+        } else if (photoPickerTarget === "reels") {
+          setReelsPhotos((prev) => reindexListingPhotoItems([...prev, ...pickedItems].slice(0, REELS_PHOTO_SLOTS)));
         } else {
-          setPhotos((prev) => [...prev, ...pickedUris].slice(0, PHOTO_SLOTS));
+          setPhotos((prev) => reindexListingPhotoItems([...prev, ...pickedItems].slice(0, PHOTO_SLOTS)));
         }
         setError(null);
       } catch {
         setError(t("createListing.errors.imagePicker"));
       }
     },
-    [brokerPrivatePhotos.length, photoPickerTarget, photos.length],
+    [brokerPrivatePhotos.length, photoPickerTarget, photos.length, reelsPhotos.length],
   );
 
-  const openImagePicker = useCallback((target: "listing" | "brokerPrivate" = "listing") => {
+  const openImagePicker = useCallback((target: "listing" | "brokerPrivate" | "reels" = "listing") => {
     setPhotoPickerTarget(target);
     setPhotoSourceModalVisible(true);
   }, []);
 
   const removePhoto = useCallback((index: number) => {
-    setPhotos((prev) => prev.filter((_, photoIndex) => photoIndex !== index));
+    setPhotos((prev) => reindexListingPhotoItems(prev.filter((_, photoIndex) => photoIndex !== index)));
+  }, []);
+
+  const removeReelsPhoto = useCallback((index: number) => {
+    setReelsPhotos((prev) => reindexListingPhotoItems(prev.filter((_, photoIndex) => photoIndex !== index)));
   }, []);
 
   const pickReelVideo = useCallback(async () => {
@@ -1767,8 +1872,20 @@ export default function CreateListingScreen() {
   }, []);
 
   const removeBrokerPrivatePhoto = useCallback((index: number) => {
-    setBrokerPrivatePhotos((prev) => prev.filter((_, photoIndex) => photoIndex !== index));
+    setBrokerPrivatePhotos((prev) => reindexListingPhotoItems(prev.filter((_, photoIndex) => photoIndex !== index)));
   }, []);
+
+  const openCaptionEditor = useCallback((target: "listing" | "brokerPrivate" | "reels", photo: ListingPhotoItem) => {
+    setCaptionTarget(target);
+    setCaptionPhoto(photo);
+  }, []);
+
+  const savePhotoCaption = useCallback((caption: string) => {
+    const update = (items: ListingPhotoItem[]): ListingPhotoItem[] => items.map((item) => item.id === captionPhoto?.id ? { ...item, caption: caption || null } : item);
+    if (captionTarget === "brokerPrivate") setBrokerPrivatePhotos(update);
+    else if (captionTarget === "reels") setReelsPhotos(update);
+    else setPhotos(update);
+  }, [captionPhoto?.id, captionTarget]);
 
   const isDocumentRepositoryReady = useMemo(
     () => DOCUMENT_CATEGORIES.every((category) => (documents[category.key]?.length ?? 0) > 0),
@@ -1860,7 +1977,7 @@ export default function CreateListingScreen() {
   }): Record<string, unknown> => {
     const parsedMaxDiscount = maxDiscountPercent.trim().length > 0 ? Number(maxDiscountPercent) : null;
     const normalizedRooms = Number.isFinite(Number(rooms)) && Number(rooms) > 0 ? Math.trunc(Number(rooms)) : 1;
-    const imageList = options?.imageList ?? photos;
+    const imageList = options?.imageList ?? photoItemsToUrls(photos);
     const hostId = listingOwnerId || auth.userId || "";
     const watermarkConfig: WatermarkConfig | { enabled: false } = watermarkEnabled
       ? {
@@ -1895,6 +2012,11 @@ export default function CreateListingScreen() {
       ...offerFields,
       transactionType: "rent",
       maxDiscountPercent: parsedMaxDiscount,
+      commissionRate: commissionRate.trim() ? Number(commissionRate) : undefined,
+      expectedBrokerSplit: expectedBrokerSplit.trim() ? Number(expectedBrokerSplit) : undefined,
+      mandateNotes: mandateNotes.trim() || undefined,
+      internalNotes: internalNotes.trim() || undefined,
+      clientCriteria: clientCriteria.trim() || undefined,
       rooms: normalizedRooms,
       size: Number(sizeSqm) || 0,
       sqft: Number(sizeSqm) || 0,
@@ -1902,6 +2024,10 @@ export default function CreateListingScreen() {
       image: imageList[0] || "",
       imageUrl: imageList[0] || "",
       images: imageList,
+      photos,
+      photoCaptions: photoItemsToCaptionMap([...photos, ...brokerPrivatePhotos, ...reelsPhotos]),
+      extraPhotos: brokerPrivatePhotos,
+      reelsPhotos,
       files2d3d,
       watermarkConfig,
       tags: selectedAmenitySlugs.length ? selectedAmenitySlugs : ["new_listing"],
@@ -1943,7 +2069,7 @@ export default function CreateListingScreen() {
       visibility: options?.visibility ?? (isOffMarket ? "client_only" : "public"),
       offMarketAccessUserIds: options?.offMarketAccessUserIds ?? offMarketAccessUserIds,
     };
-  }, [address, addressLatitude, addressLongitude, agencyData, area, availableFromDate, buildYear, city, closedDealPrice, commonExpenses, currentPriceHistory, customOwnerMotivation, description, energyClass, existingAssignedBrokerIds, extraDetailsState, files2d3d, floor, hasExactLocation, heatingSystem, hidePhoneFromBrokers, initialPrice, isEditMode, isOfferChecked, isPriceReduced, isImmediatelyAvailable, isOffMarket, kitchens, levels, livingRooms, listingOwnerId, logoStyle, maxDiscountPercent, maxRoommates, monthlyRent, offMarketAccessUserIds, orientation, ownerMotivationType, ownerName, ownerPhone, ownerPriceExpectation, photos, propertyCategory, propertyStatus, propertyType, rooms, selectedAmenitySlugs, showExactAddress, showInExploreFeed, showPhoneNumber, sizeSqm, technicalSpecificationsPayload, title, watermarkEnabled, watermarkType, windowFrames, renovationYear, bathrooms, auth.userId]);
+  }, [address, addressLatitude, addressLongitude, agencyData, area, availableFromDate, brokerPrivatePhotos, buildYear, city, clientCriteria, closedDealPrice, commissionRate, commonExpenses, currentPriceHistory, customOwnerMotivation, description, energyClass, existingAssignedBrokerIds, expectedBrokerSplit, extraDetailsState, files2d3d, floor, hasExactLocation, heatingSystem, hidePhoneFromBrokers, initialPrice, internalNotes, isEditMode, isOfferChecked, isPriceReduced, isImmediatelyAvailable, isOffMarket, kitchens, levels, livingRooms, listingOwnerId, logoStyle, mandateNotes, maxDiscountPercent, maxRoommates, monthlyRent, offMarketAccessUserIds, orientation, ownerMotivationType, ownerName, ownerPhone, ownerPriceExpectation, photos, propertyCategory, propertyStatus, propertyType, reelsPhotos, rooms, selectedAmenitySlugs, showExactAddress, showInExploreFeed, showPhoneNumber, sizeSqm, technicalSpecificationsPayload, title, watermarkEnabled, watermarkType, windowFrames, renovationYear, bathrooms, auth.userId]);
 
   const ensureOwnerForListing = useCallback(async (apartmentId: string, options: { addToBroker?: boolean } = {}): Promise<string | null> => {
     if (!isBrokerMode || !auth.userId || !ownerName.trim()) return null;
@@ -2044,7 +2170,7 @@ export default function CreateListingScreen() {
         apartmentId: finalListingId,
         apartmentTitle: finalTitle,
         apartmentPrice: Number(monthlyRent) || 0,
-        apartmentImage: photos[0] || "",
+        apartmentImage: photos[0]?.url || "",
         text: `[Αποκλειστική Πρόταση Ακινήτου (Off-market): ${finalTitle}]`,
         createdAt: serverTimestamp(),
         isRead: false,
@@ -2073,15 +2199,12 @@ export default function CreateListingScreen() {
     return () => clearTimeout(timer);
   }, [address, amenities, area, auth.isBroker, buildCurrentListingPayload, city, currentListingId, description, floor, isOffMarket, maxRoommates, monthlyRent, photos, rooms, sizeSqm, title]);
 
-  const validateAndSubmit = async (publishMode?: "direct" | "pool") => {
-        const parsedMaxDiscount = maxDiscountPercent.trim().length > 0 ? Number(maxDiscountPercent) : null;
-        if (parsedMaxDiscount !== null && (!Number.isInteger(parsedMaxDiscount) || parsedMaxDiscount < 0 || parsedMaxDiscount > 100)) {
-          showFeedbackModal(
-            t("createListing.alerts.publishFailedTitle"),
-            "Το όριο αποδεκτών προσφορών πρέπει να είναι ακέραιος αριθμός από 0 έως 100.",
-          );
-          return;
-        }
+  const persistListingInBackground = async (publishMode?: "direct" | "pool") => {
+    const parsedMaxDiscount = maxDiscountPercent.trim().length > 0 ? Number(maxDiscountPercent) : null;
+    if (parsedMaxDiscount !== null && (!Number.isInteger(parsedMaxDiscount) || parsedMaxDiscount < 0 || parsedMaxDiscount > 100)) {
+      void scheduleListingStatusNotification("failed", t("listings.publishFailed"));
+      return;
+    }
 
     if (submitting) return;
 
@@ -2106,7 +2229,7 @@ export default function CreateListingScreen() {
     }
 
     if (isOffMarket && currentListingId) {
-      if (!title.trim() || !monthlyRent || !city || !area.trim() || !photos.some((photo) => photo.trim().length > 0)) {
+      if (!title.trim() || !monthlyRent || !city || !area.trim() || !photos.some((photo) => photo.url.trim().length > 0)) {
         showFeedbackModal("Συμπληρώστε τα στοιχεία δημοσίευσης", "Ο τίτλος, η τιμή, η τοποθεσία και τουλάχιστον μία φωτογραφία είναι απαραίτητα.");
         return;
       }
@@ -2120,13 +2243,9 @@ export default function CreateListingScreen() {
           updatedAt: serverTimestamp(),
         });
         setIsOffMarket(false);
-        showFeedbackModal(
-          "Η αγγελία δημοσιεύτηκε επίσημα και είναι πλέον ορατή σε όλους!",
-          "",
-            leaveListingFlow,
-        );
+        void scheduleListingStatusNotification("success", t("listings.publishSuccess"));
       } catch {
-        showFeedbackModal("Η δημοσίευση απέτυχε", "Δεν ήταν δυνατή η επίσημη δημοσίευση της αγγελίας. Δοκιμάστε ξανά.");
+        void scheduleListingStatusNotification("failed", t("listings.publishFailed"));
       } finally {
         setSubmitting(false);
       }
@@ -2138,8 +2257,13 @@ export default function CreateListingScreen() {
       setError(null);
 
       const uploadedImages = await Promise.all(
-        photos.map((uri, index) => uploadListingImageAsync(uri, hostId, index)),
+        photos.map((photo, index) => uploadListingImageAsync(photo.url, hostId, index)),
       );
+      const uploadedPhotoItems = photos.map((photo, index) => ({
+        ...photo,
+        url: uploadedImages[index] ?? photo.url,
+        orderIndex: index,
+      } satisfies ListingPhotoItem));
       const firstImage = uploadedImages[0] ?? "";
       const defaultTitle = t("createListing.listingTitle", { area: area.trim() });
       const finalTitle = title.trim() || defaultTitle;
@@ -2220,6 +2344,11 @@ export default function CreateListingScreen() {
         price: Number(monthlyRent),
         ...offerFields,
         maxDiscountPercent: parsedMaxDiscount,
+        commissionRate: commissionRate.trim() ? Number(commissionRate) : undefined,
+        expectedBrokerSplit: expectedBrokerSplit.trim() ? Number(expectedBrokerSplit) : undefined,
+        mandateNotes: mandateNotes.trim() || undefined,
+        internalNotes: internalNotes.trim() || undefined,
+        clientCriteria: clientCriteria.trim() || undefined,
         rooms: normalizedRooms,
         size: Number(sizeSqm),
         sqft: Number(sizeSqm),
@@ -2227,6 +2356,8 @@ export default function CreateListingScreen() {
         image: firstImage,
         imageUrl: firstImage,
         images: uploadedImages,
+        photos: uploadedPhotoItems,
+        photoCaptions: photoItemsToCaptionMap(uploadedPhotoItems),
         virtualStaging: {
           enabled: virtualStagingEnabled,
           photoIndexes: virtualStagingPhotoIndexes.filter((index) => index < uploadedImages.length),
@@ -2302,11 +2433,17 @@ export default function CreateListingScreen() {
         );
       }
 
+      let uploadedPrivatePhotoItems: ListingPhotoItem[] = [];
       if (isBrokerMode) {
         // Το storage path των ιδιωτικών φωτογραφιών απαιτεί το id της αγγελίας.
         const uploadedPrivatePhotos = await Promise.all(
-          brokerPrivatePhotos.map((uri, index) => uploadBrokerPrivateImageAsync(uri, savedApartmentId, index)),
+          brokerPrivatePhotos.map((photo, index) => uploadBrokerPrivateImageAsync(photo.url, savedApartmentId, index)),
         );
+        uploadedPrivatePhotoItems = brokerPrivatePhotos.map((photo, index) => ({
+          ...photo,
+          url: uploadedPrivatePhotos[index] ?? photo.url,
+          orderIndex: index,
+        } satisfies ListingPhotoItem));
 
         const uploadedDocumentEntries = await Promise.all(
           DOCUMENT_CATEGORIES.map(async (category) => {
@@ -2331,13 +2468,32 @@ export default function CreateListingScreen() {
           apartmentId: savedApartmentId,
           payload: {
             brokerPrivatePhotos: uploadedPrivatePhotos,
+            extraPhotos: uploadedPrivatePhotoItems,
+            photoCaptions: photoItemsToCaptionMap([...uploadedPhotoItems, ...uploadedPrivatePhotoItems]),
             documents: uploadedDocuments,
           },
         });
 
-        setBrokerPrivatePhotos(uploadedPrivatePhotos);
+        setBrokerPrivatePhotos(uploadedPrivatePhotoItems);
         setDocuments(uploadedDocuments);
       }
+
+      const uploadedReelsPhotos = await Promise.all(
+        reelsPhotos.map((photo, index) => uploadImageAsync(photo.url, `apartments/${savedApartmentId}/reels/photos/photo_${index}_${Date.now()}.jpg`)),
+      );
+      const uploadedReelPhotoItems = reelsPhotos.map((photo, index) => ({
+        ...photo,
+        url: uploadedReelsPhotos[index] ?? photo.url,
+        orderIndex: index,
+      } satisfies ListingPhotoItem));
+      await upsertListing({
+        apartmentId: savedApartmentId,
+        payload: {
+          reelsPhotos: uploadedReelPhotoItems,
+          photoCaptions: photoItemsToCaptionMap([...uploadedPhotoItems, ...uploadedPrivatePhotoItems, ...uploadedReelPhotoItems]),
+        },
+      });
+      setReelsPhotos(uploadedReelPhotoItems);
 
       const uploadedReelUrl = reelVideoUri
         ? await uploadListingReelAsync(reelVideoUri, savedApartmentId)
@@ -2395,31 +2551,56 @@ export default function CreateListingScreen() {
       setTourUploadLoading(false);
 
       if (uploadedImages.length) {
-        setPhotos(uploadedImages);
+        setPhotos(uploadedPhotoItems);
       }
 
     } catch {
       setFiles2d3dLoading(false);
       setError(t("createListing.errors.uploadPhotos"));
-      showFeedbackModal(t("createListing.alerts.publishFailedTitle"), t("createListing.alerts.publishFailedMessage"));
+      void scheduleListingStatusNotification("failed", t("listings.publishFailed"));
       setSubmitting(false);
       return;
     }
 
     setSubmitting(false);
-    showFeedbackModal(
-      isEditMode ? t("createListing.alerts.updatedTitle") : t("createListing.alerts.publishedTitle"),
-      t("createListing.alerts.publishedMessage", { size: sizeSqm, area, city }),
-      leaveListingFlow,
-    );
+    void scheduleListingStatusNotification("success", isEditMode ? t("listings.publishSuccess") : t("listings.publishSuccess"));
+  };
+
+  const validateAndSubmit = (publishMode?: "direct" | "pool") => {
+    if (submitting) return;
+    if (publishMode) setPublishMode(publishMode);
+
+    const hasMedia = photos.some((photo) => photo.url.trim().length > 0);
+    if (!title.trim() || !monthlyRent.trim() || !city || !area.trim() || !sizeSqm.trim() || !hasMedia) {
+      scrollToMissingField(missingRequiredFields[0]?.key ?? "city");
+      showFeedbackModal(
+        t("createListing.alerts.missingDetailsTitle"),
+        t("createListing.alerts.missingDetailsMessage"),
+      );
+      return;
+    }
+
+    if (!auth.userId || auth.isGuest) {
+      showFeedbackModal(
+        t("createListing.alerts.signInRequiredTitle"),
+        t("createListing.alerts.signInRequiredMessage"),
+        () => router.push("/auth-landing"),
+      );
+      return;
+    }
+
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    void scheduleListingStatusNotification("publishing", t("listings.publishingInBackground"));
+    void persistListingInBackground(publishMode);
+    leaveListingFlow();
   };
 
   const handlePublishPress = () => {
-    if (isBrokerMode && !isEditMode && !currentListingId) {
+    if (isBrokerMode && !isEditMode && !currentListingId && !publishMode) {
       setPublishModeModalVisible(true);
       return;
     }
-    void validateAndSubmit();
+    void validateAndSubmit(publishMode ?? undefined);
   };
 
   return (
@@ -2472,32 +2653,6 @@ export default function CreateListingScreen() {
                   style={styles.input}
                   testID="create-listing-rent-input"
                 />
-              </View>
-              <View style={styles.formColumn}>
-                <Text style={styles.sectionTitle}>Max Offer</Text>
-                <View style={styles.percentInputRow}>
-                  <TextInput
-                    value={maxDiscountPercent}
-                    onChangeText={(value) => {
-                      const digitsOnly = value.replace(/[^0-9]/g, "");
-                      if (!digitsOnly.length) {
-                        setMaxDiscountPercent("");
-                        return;
-                      }
-
-                      const parsed = Number(digitsOnly);
-                      if (Number.isNaN(parsed)) return;
-                      setMaxDiscountPercent(String(Math.min(100, parsed)));
-                    }}
-                    placeholder={t("createListing.maxOfferDiscountPlaceholder")}
-                    placeholderTextColor={colors.onSurfaceTertiary}
-                    keyboardType="number-pad"
-                    maxLength={3}
-                    style={[styles.input, styles.percentInput]}
-                    testID="create-listing-max-discount-input"
-                  />
-                  <Text style={styles.percentSuffix}>%</Text>
-                </View>
               </View>
             </View>
             {isPriceReduced ? (
@@ -2608,17 +2763,15 @@ export default function CreateListingScreen() {
               <Text style={styles.sectionTitle}>{t("createListing.location")}</Text>
               {isLocationSectionComplete ? <CompletionBadge colors={colors} styles={styles} /> : null}
             </View>
-            {isBrokerMode ? (
-              <View onLayout={(event) => { requiredFieldY.current.city = event.nativeEvent.layout.y; }}>
-                <Dropdown
-                  value={city}
-                  options={cityOptions}
-                  placeholder={t("createListing.cityPlaceholder")}
-                  onSelect={setCity}
-                  testID="create-listing-city-dropdown"
-                />
-              </View>
-            ) : null}
+            <View onLayout={(event) => { requiredFieldY.current.city = event.nativeEvent.layout.y; }}>
+              <Dropdown
+                value={city}
+                options={cityOptions}
+                placeholder={t("createListing.cityPlaceholder")}
+                onSelect={setCity}
+                testID="create-listing-city-dropdown"
+              />
+            </View>
             <View onLayout={(event) => { requiredFieldY.current.area = event.nativeEvent.layout.y; }}>
               <TextInput
                 value={area}
@@ -2698,99 +2851,36 @@ export default function CreateListingScreen() {
               <Text style={styles.sectionTitle}>{t("common.labels.photos")}</Text>
               {isPhotosSectionComplete ? <CompletionBadge colors={colors} styles={styles} /> : null}
             </View>
-            <View style={styles.photoGrid}>
-              {Array.from({ length: PHOTO_SLOTS }, (_, index) => index).map((index) => {
-                const uri = photos[index];
-                const filled = !!uri;
-                return (
-                  <Pressable
-                    key={`photo-slot-${index}`}
-                    onPress={() => {
-                      if (filled) {
-                        if (virtualStagingEnabled) {
-                          setVirtualStagingPhotoIndexes((previous) => previous.includes(index) ? previous.filter((item) => item !== index) : [...previous, index]);
-                          return;
-                        }
-                        removePhoto(index);
-                        return;
-                      }
-                      openImagePicker();
-                    }}
-                    style={[
-                      styles.photoTile,
-                      filled ? styles.photoTileFilled : styles.photoTileEmpty,
-                    ]}
-                    testID={`create-listing-photo-slot-${index}`}
-                  >
-                    {filled ? (
-                      <>
-                        <Image source={{ uri }} style={styles.photoImage} contentFit="cover" />
-                        <View style={styles.photoOverlay}>
-                          <Ionicons name="close-circle" size={20} color={colors.onSurface} />
-                        </View>
-                      </>
-                    ) : (
-                      <>
-                        <Ionicons name="add" size={26} color={colors.onSurfaceTertiary} />
-                        <Text style={[styles.photoTileText, styles.photoTileTextMuted]}>{t("common.actions.add")}</Text>
-                      </>
-                    )}
-                  </Pressable>
-                );
-              })}
-            </View>
+            <ListingPhotoGrid
+              photos={photos}
+              maxSlots={PHOTO_SLOTS}
+              onAdd={() => openImagePicker()}
+              onRemove={removePhoto}
+              onReorder={(nextPhotos) => setPhotos(reindexListingPhotoItems(nextPhotos))}
+              onCaption={(photo) => openCaptionEditor("listing", photo)}
+              onPhotoPress={virtualStagingEnabled ? (index) => setVirtualStagingPhotoIndexes((previous) => previous.includes(index) ? previous.filter((item) => item !== index) : [...previous, index]) : undefined}
+              testID="create-listing-photo-grid"
+            />
 
-            {isBrokerMode ? (
-              <View style={styles.card}>
-                  <View style={styles.brokerPrivatePhotosContent}>
-                    <Text style={styles.sectionTitle}>Επιπλέον φωτογραφίες (Μόνο για το γραφείο)</Text>
-                    <Text style={styles.fieldHint}>
-                      Οι φωτογραφίες αυτές είναι αυστηρά εμπιστευτικές, δεν εμφανίζονται στην αγγελία και είναι
-                      προσβάσιμες μόνο από το γραφείο που τη διαχειρίζεται.
-                    </Text>
-                    <Text style={styles.fieldHint}>
-                      {`${brokerPrivatePhotos.length}/${BROKER_PRIVATE_PHOTO_SLOTS} φωτογραφίες`}
-                    </Text>
-
-                    <View style={styles.photoGrid}>
-                      {Array.from({ length: BROKER_PRIVATE_PHOTO_SLOTS }, (_, index) => index).map((index) => {
-                        const uri = brokerPrivatePhotos[index];
-                        const filled = !!uri;
-                        return (
-                          <Pressable
-                            key={`broker-private-photo-slot-${index}`}
-                            onPress={() => {
-                              if (filled) {
-                                removeBrokerPrivatePhoto(index);
-                                return;
-                              }
-                              openImagePicker("brokerPrivate");
-                            }}
-                            style={[styles.photoTile, filled ? styles.photoTileFilled : styles.photoTileEmpty]}
-                            testID={`create-listing-broker-private-photo-slot-${index}`}
-                          >
-                            {filled ? (
-                              <>
-                                <Image source={{ uri }} style={styles.photoImage} contentFit="cover" />
-                                <View style={styles.photoOverlay}>
-                                  <Ionicons name="close-circle" size={20} color={colors.onSurface} />
-                                </View>
-                              </>
-                            ) : (
-                              <>
-                                <Ionicons name="add" size={26} color={colors.onSurfaceTertiary} />
-                                <Text style={[styles.photoTileText, styles.photoTileTextMuted]}>
-                                  {t("common.actions.add")}
-                                </Text>
-                              </>
-                            )}
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-                  </View>
+            <View style={styles.reelsPhotosSection}>
+              <View style={styles.sectionTitleWrap}>
+                <Ionicons name="images-outline" size={19} color={colors.onSurface} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.sectionTitle}>{t("listings.photos.reelsTitle")}</Text>
+                  <Text style={styles.fieldHint}>{t("listings.photos.reelsSubtitle")}</Text>
+                </View>
               </View>
-            ) : null}
+              <ListingPhotoGrid
+                photos={reelsPhotos}
+                maxSlots={REELS_PHOTO_SLOTS}
+                onAdd={() => openImagePicker("reels")}
+                onRemove={removeReelsPhoto}
+                onReorder={(nextPhotos) => setReelsPhotos(reindexListingPhotoItems(nextPhotos))}
+                onCaption={(photo) => openCaptionEditor("reels", photo)}
+                tileAspectRatio={9 / 16}
+                testID="create-listing-reels-photo-grid"
+              />
+            </View>
 
             {/*
             {watermarkEnabled ? (
@@ -3068,7 +3158,12 @@ export default function CreateListingScreen() {
             </Pressable>
 
             {isExtraDetailsExpanded ? (
-              <View style={styles.extraDetailsContent}>
+              <Animated.View
+                entering={FadeIn.duration(180)}
+                exiting={FadeOut.duration(140)}
+                layout={LinearTransition.duration(250)}
+                style={styles.extraDetailsContent}
+              >
                 {EXTRA_DETAIL_CATEGORIES.map((category) => {
                   return (
                     <View key={category.title} style={styles.extraDetailsCategoryBlock}>
@@ -3121,7 +3216,7 @@ export default function CreateListingScreen() {
                     </View>
                   );
                 })}
-              </View>
+              </Animated.View>
             ) : null}
           </View>
 
@@ -3338,48 +3433,6 @@ export default function CreateListingScreen() {
             ) : null}
           </View>
 
-          {isBrokerMode ? (
-            <View style={styles.card}>
-              <Text style={styles.sectionTitle}>Κατάσταση ακινήτου</Text>
-                <View style={styles.brokerDetailsContent}>
-                  <View style={styles.propertyStatusOptions}>
-                    {PROPERTY_STATUS_OPTIONS.map((option) => {
-                      const isSelected = propertyStatus === option.key;
-                      return (
-                        <Pressable
-                          key={option.key}
-                          style={[styles.propertyStatusOptionRow, isSelected && styles.propertyStatusOptionRowSelected]}
-                          onPress={() => setPropertyStatus(option.key)}
-                          testID={`create-listing-status-option-${option.key}`}
-                        >
-                          <Text style={styles.propertyStatusOptionLabel}>{option.label}</Text>
-                          <Ionicons
-                            name={isSelected ? "checkmark-circle" : "ellipse-outline"}
-                            size={22}
-                            color={isSelected ? colors.brand : colors.onSurfaceTertiary}
-                          />
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-
-                  {propertyStatus === "sold_rented" ? (
-                    <View>
-                      <TextInput
-                        value={closedDealPrice}
-                        onChangeText={(value) => setClosedDealPrice(digitsOnlyInput(value))}
-                        keyboardType="number-pad"
-                        placeholder={t("createListing.finalPricePlaceholder")}
-                        placeholderTextColor={colors.onSurfaceTertiary}
-                        style={styles.input}
-                        testID="create-listing-closed-deal-price"
-                      />
-                    </View>
-                  ) : null}
-                </View>
-            </View>
-          ) : null}
-
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Στοιχεία Επικοινωνίας</Text>
             <View style={styles.contactToggleRow}>
@@ -3423,322 +3476,6 @@ export default function CreateListingScreen() {
             </View>
           </View>
 
-
-          {isBrokerMode ? (
-            <View
-              style={styles.card}
-              onLayout={(event) => {
-                matchingSectionY.current = event.nativeEvent.layout.y;
-              }}
-              testID="create-listing-client-matching"
-            >
-              <View style={styles.sectionHeaderRow}>
-                <View style={styles.matchingHeaderTextWrap}>
-                  <Text style={styles.sectionTitle}>Ταίριασμα με Υπάρχοντες Πελάτες (Off-market Exclusive)</Text>
-                  <Text style={styles.fieldHint}>Προτείνετε το ακίνητο σε συμβατούς πελάτες πριν την επίσημη δημοσίευση.</Text>
-                </View>
-                {loadingClientPool ? <ActivityIndicator size="small" color={colors.brandSecondary} /> : null}
-              </View>
-
-              {!loadingClientPool && !hasAnyListingData ? (
-                <Text style={styles.fieldHintBrand}>Συμπληρώστε τουλάχιστον ένα στοιχείο του ακινήτου για να δείτε συμβατούς πελάτες.</Text>
-              ) : !loadingClientPool && matchedClients.length === 0 ? (
-                <Text style={styles.fieldHint}>Δεν βρέθηκαν πελάτες των οποίων τα φίλτρα να ταιριάζουν με τα τρέχοντα στοιχεία.</Text>
-              ) : (
-                <View style={styles.matchedClientList}>
-                  {matchedClients.map((client) => (
-                    <View key={client.chatRoomId} style={styles.matchedClientRow}>
-                      {client.clientAvatar ? (
-                        <Image source={{ uri: client.clientAvatar }} style={styles.matchedClientAvatar} contentFit="cover" />
-                      ) : (
-                        <DefaultProfileAvatar size={42} iconSize={19} />
-                      )}
-                      <View style={styles.matchedClientInfo}>
-                        <Text style={styles.matchedClientName} numberOfLines={1}>{client.clientName}</Text>
-                        <View style={styles.compatibilityBadge}>
-                          <Text style={styles.compatibilityBadgeText}>{`${client.compatibilityScore}% Match`}</Text>
-                        </View>
-                      </View>
-                      <View style={styles.matchedClientActions}>
-                        <Pressable
-                          style={styles.matchedClientSendButton}
-                          onPress={() => void handleSendOffMarketListing(client)}
-                          disabled={sendingOffMarketClientId !== null}
-                          accessibilityLabel={`Αποστολή μηνύματος στον ${client.clientName}`}
-                          testID={`create-listing-match-send-${client.clientUserId}`}
-                        >
-                          {sendingOffMarketClientId === client.clientUserId ? (
-                            <ActivityIndicator size="small" color={colors.onBrand} />
-                          ) : (
-                            <Ionicons name="paper-plane-outline" size={18} color={colors.onBrand} />
-                          )}
-                        </Pressable>
-                        <Pressable
-                          style={styles.matchedClientAddButton}
-                          onPress={() => undefined}
-                          accessibilityLabel={`Προσθήκη ${client.clientName}`}
-                          testID={`create-listing-match-add-${client.clientUserId}`}
-                        >
-                          <Ionicons name="add-outline" size={18} color={colors.onSurfaceTertiary} />
-                        </Pressable>
-                      </View>
-                    </View>
-                  ))}
-                </View>
-              )}
-            </View>
-          ) : null}
-
-          {isBrokerMode ? (
-            <View style={styles.card}>
-              <Pressable
-                style={styles.expandHeaderRow}
-                onPress={() => setIsTechnicalSpecsExpanded((prev) => !prev)}
-                testID="create-listing-technical-specs-toggle"
-              >
-                <Text style={styles.sectionTitle}>Τεχνικά Χαρακτηριστικά</Text>
-                <Ionicons
-                  name={isTechnicalSpecsExpanded ? "chevron-up" : "chevron-down"}
-                  size={20}
-                  color={colors.onSurface}
-                />
-              </Pressable>
-
-              {isTechnicalSpecsExpanded ? (
-                <View style={styles.technicalSpecsContent}>
-                  {technicalSpecEntries.length > 0 ? (
-                    <View style={styles.technicalSpecSavedList}>
-                      {technicalSpecEntries.map((entry) => (
-                        <View key={entry.id} style={styles.technicalSpecSavedCard}>
-                          <View style={styles.technicalSpecSavedTextWrap}>
-                            <Text style={styles.technicalSpecSavedLabel}>{entry.label}</Text>
-                            <Text style={styles.technicalSpecSavedValue}>{`${entry.sqft} τ.μ.`}</Text>
-                          </View>
-                          <Pressable
-                            style={styles.technicalSpecEditButton}
-                            onPress={() => handleEditTechnicalSpec(entry)}
-                            hitSlop={6}
-                            testID={`create-listing-technical-spec-edit-${entry.type}-${entry.index}`}
-                          >
-                            <Ionicons name="pencil-outline" size={16} color={colors.onSurface} />
-                          </Pressable>
-                        </View>
-                      ))}
-                    </View>
-                  ) : null}
-
-                  {TECHNICAL_SPEC_ITEMS.map((config) => {
-                    const entriesForType = technicalSpecsByType[config.type] ?? [];
-                    const editingId = technicalSpecEditingIds[config.type] ?? null;
-                    const editingEntry = editingId
-                      ? entriesForType.find((entry) => entry.id === editingId) ?? null
-                      : null;
-                    const activeIndex = editingEntry ? editingEntry.index : entriesForType.length + 1;
-                    const inputValue = technicalSpecInputs[config.type] ?? "";
-                    const hasWarning = technicalSpecWarnings[config.type] === true;
-                    const showAddButton = inputValue.trim().length > 0;
-
-                    return (
-                      <View key={config.type} style={styles.technicalSpecItemBlock}>
-                        <Text style={styles.fieldLabel}>{`${config.label} ${activeIndex}`}</Text>
-                        <View style={styles.technicalSpecInputRow}>
-                          <TextInput
-                            value={inputValue}
-                            onChangeText={(value) => handleTechnicalSpecInputChange(config.type, value)}
-                            placeholder={t("createListing.squareMetersPlaceholder")}
-                            placeholderTextColor={colors.onSurfaceTertiary}
-                            keyboardType="number-pad"
-                            maxLength={4}
-                            style={[styles.input, styles.technicalSpecInput]}
-                            testID={`create-listing-technical-spec-input-${config.type}`}
-                          />
-                          {showAddButton ? (
-                            <Pressable
-                              style={styles.technicalSpecAddButton}
-                              onPress={() => handleCommitTechnicalSpec(config)}
-                              hitSlop={6}
-                              testID={`create-listing-technical-spec-add-${config.type}`}
-                            >
-                              <Ionicons name="add" size={20} color={colors.onBrand} />
-                            </Pressable>
-                          ) : null}
-                        </View>
-                        {hasWarning && config.countField ? (
-                          <Text
-                            style={styles.technicalSpecWarningText}
-                            testID={`create-listing-technical-spec-warning-${config.type}`}
-                          >
-                            {`Έχουν δηλωθεί λιγότερα ${ROOM_COUNT_FIELD_NOUNS[config.countField]} στα βασικά χαρακτηριστικά. Ενημερώστε πρώτα το αντίστοιχο πεδίο.`}
-                          </Text>
-                        ) : null}
-                      </View>
-                    );
-                  })}
-                </View>
-              ) : null}
-            </View>
-          ) : null}
-
-          {isBrokerMode ? (
-            <View style={styles.card}>
-              <Text style={styles.sectionTitle}>Στοιχεία ιδιοκτήτη</Text>
-
-                <View style={styles.brokerDetailsContent}>
-                  <View>
-                    <Text style={styles.fieldLabel}>Όνομα ιδιοκτήτη</Text>
-                    <TextInput
-                      value={ownerName}
-                      onChangeText={setOwnerName}
-                      editable={!isAssignedBrokerListing}
-                      placeholder={t("createListing.ownerNamePlaceholder")}
-                      placeholderTextColor={colors.onSurfaceTertiary}
-                      style={[styles.input, isAssignedBrokerListing && styles.readOnlyInput]}
-                      testID="create-listing-owner-name-input"
-                    />
-                    {isAssignedBrokerListing ? (
-                      <Text style={styles.readOnlyHelper}>Το όνομα του ιδιοκτήτη έχει οριστεί από τον δημιουργό της αγγελίας και είναι κλειδωμένο.</Text>
-                    ) : null}
-                  </View>
-                  <View>
-                    <Text style={styles.fieldLabel}>Κίνητρο ιδιοκτήτη</Text>
-                    <Dropdown
-                      onSelect={setOwnerMotivationType}
-                      options={[...OWNER_MOTIVATION_OPTIONS]}
-                      placeholder={t("createListing.ownerMotivationPlaceholder")}
-                      value={ownerMotivationType}
-                      testID="create-listing-owner-motivation-dropdown"
-                    />
-                  </View>
-                  <View>
-                    <Text style={styles.fieldLabel}>Τηλέφωνο ιδιοκτήτη</Text>
-                    <TextInput
-                      value={ownerPhone}
-                      onChangeText={setOwnerPhone}
-                      editable={!isAssignedBrokerListing}
-                      placeholder={t("createListing.ownerPhonePlaceholder")}
-                      placeholderTextColor={colors.onSurfaceTertiary}
-                      keyboardType="phone-pad"
-                      style={[styles.input, isAssignedBrokerListing && styles.readOnlyInput]}
-                      testID="create-listing-owner-phone-input"
-                    />
-                  </View>
-                  {ownerMotivationType === "Άλλο" ? (
-                    <TextInput
-                      onChangeText={setCustomOwnerMotivation}
-                      placeholder={t("createListing.ownerMotivationDetailsPlaceholder")}
-                      placeholderTextColor={colors.onSurfaceTertiary}
-                      style={[styles.input, styles.mtSm]}
-                      testID="create-listing-owner-custom-motivation-input"
-                      value={customOwnerMotivation}
-                    />
-                  ) : null}
-                  <View>
-                    <Text style={[styles.fieldLabel, styles.mtSm]}>Προσδοκία ιδιοκτήτη για την τιμή (€)</Text>
-                    <TextInput
-                      onChangeText={(value) => setOwnerPriceExpectation(digitsOnlyInput(value))}
-                      value={ownerPriceExpectation}
-                      placeholder={t("createListing.ownerExpectedPricePlaceholder")}
-                      placeholderTextColor={colors.onSurfaceTertiary}
-                      keyboardType="number-pad"
-                      style={styles.input}
-                      testID="create-listing-owner-price-expectation-input"
-                    />
-                  </View>
-                </View>
-                <View style={styles.documentsHeaderTextWrap}>
-                  <Text style={styles.sectionTitle}>Αρχειοθήκη Εγγράφων</Text>
-                  {isDocumentRepositoryReady ? (
-                    <View style={styles.documentsReadyBadge} testID="create-listing-documents-ready-badge">
-                      <Ionicons name="checkmark-circle" size={14} color={colors.success} />
-                      <Text style={styles.documentsReadyBadgeText}>Έτοιμο για μεταβίβαση</Text>
-                    </View>
-                  ) : (
-                    <Text style={styles.fieldHint}>
-                      Συμπληρώστε και τις 8 κατηγορίες για να χαρακτηριστεί έτοιμη προς μεταβίβαση.
-                    </Text>
-                  )}
-                </View>
-                <View style={styles.documentsContent}>
-                  {DOCUMENT_CATEGORIES.map((category) => {
-                    const files = documents[category.key] ?? [];
-                    const hasFiles = files.length > 0;
-                    const isCategoryExpanded = expandedDocumentCategory === category.key;
-                    const isUploading = uploadingDocumentCategory === category.key;
-
-                    return (
-                      <View key={category.key} style={styles.documentCategoryBlock}>
-                        <Pressable
-                          style={styles.documentCategoryRow}
-                          onPress={() =>
-                            setExpandedDocumentCategory((prev) => (prev === category.key ? null : category.key))
-                          }
-                          testID={`create-listing-document-category-${category.key}`}
-                        >
-                          <Text style={styles.documentCategoryTitle}>{category.title}</Text>
-                          <View style={styles.documentCategoryActions}>
-                            {hasFiles ? (
-                              <Ionicons name="checkmark-circle" size={18} color={colors.success} />
-                            ) : null}
-                            <View style={[styles.documentCountBadge, hasFiles && styles.documentCountBadgeFilled]}>
-                              <Text
-                                style={[styles.documentCountBadgeText, hasFiles && styles.documentCountBadgeTextFilled]}
-                              >
-                                {files.length}
-                              </Text>
-                            </View>
-                            {isUploading ? (
-                              <ActivityIndicator size="small" color={colors.brandSecondary} />
-                            ) : (
-                              <Pressable
-                                onPress={() => void handleAttachDocument(category.key)}
-                                hitSlop={8}
-                                testID={`create-listing-document-attach-${category.key}`}
-                              >
-                                <Ionicons name="attach-outline" size={20} color={colors.brandSecondary} />
-                              </Pressable>
-                            )}
-                          </View>
-                        </Pressable>
-
-                        {isCategoryExpanded ? (
-                          <View style={styles.documentFileList}>
-                            {hasFiles ? (
-                              files.map((file) => (
-                                <View key={file.id} style={styles.documentFileRow}>
-                                  <View style={styles.documentFileTextWrap}>
-                                    <Text style={styles.documentFileName} numberOfLines={1}>
-                                      {file.name}
-                                    </Text>
-                                    <Text style={styles.documentFileMeta}>{formatFileSize(file.size)}</Text>
-                                  </View>
-                                  <Pressable
-                                    onPress={() => handleOpenDocument(file.url)}
-                                    hitSlop={8}
-                                    testID={`create-listing-document-open-${file.id}`}
-                                  >
-                                    <Ionicons name="download-outline" size={18} color={colors.onSurface} />
-                                  </Pressable>
-                                  <Pressable
-                                    onPress={() => handleRemoveDocument(category.key, file.id)}
-                                    hitSlop={8}
-                                    testID={`create-listing-document-remove-${file.id}`}
-                                  >
-                                    <Ionicons name="trash-outline" size={18} color={colors.error} />
-                                  </Pressable>
-                                </View>
-                              ))
-                            ) : (
-                              <Text style={styles.fieldHint}>Δεν έχουν επισυναφθεί έγγραφα σε αυτή την κατηγορία.</Text>
-                            )}
-                          </View>
-                        ) : null}
-                      </View>
-                    );
-                  })}
-                </View>
-            </View>
-          ) : null}
-
           {/*
           {isBrokerMode ? (
             <View style={styles.card}>
@@ -3771,18 +3508,14 @@ export default function CreateListingScreen() {
             </View>
           ) : null}
           */}
-        </KeyboardAwareScrollView>
 
-        {isBrokerMode ? (
-          <Pressable
-            style={[styles.floatingMatchingButton, { top: spacing.md + insets.top }]}
-            onPress={() => scrollViewRef.current?.scrollTo({ y: matchingSectionY.current, animated: true })}
-            accessibilityLabel={t("createListing.searchCompatibleClientsLabel")}
-            testID="create-listing-matching-scroll-button"
-          >
-            <Ionicons name="search-outline" size={20} color={colors.onSurface} />
-          </Pressable>
-        ) : null}
+          {isBrokerMode ? (
+            <Pressable style={styles.brokerViewButton} onPress={openBrokerView} testID="create-listing-broker-view-button">
+              <Text style={styles.brokerViewButtonText}>{t("listings.brokerView.buttonLabel")}</Text>
+              <Ionicons name="arrow-up-outline" size={17} color={colors.brand} style={styles.brokerViewButtonIcon} />
+            </Pressable>
+          ) : null}
+        </KeyboardAwareScrollView>
 
         <View style={[styles.footer, isOffMarket && styles.offMarketFooter, { paddingBottom: spacing.lg + insets.bottom }]}>
           {isOffMarket ? (
@@ -3862,6 +3595,13 @@ export default function CreateListingScreen() {
           },
         ]}
         testID="create-listing-feedback-modal"
+      />
+
+      <PhotoCaptionModal
+        visible={captionPhoto !== null}
+        photo={captionPhoto}
+        onClose={() => setCaptionPhoto(null)}
+        onSave={savePhotoCaption}
       />
 
       <CenteredActionModal
@@ -4304,6 +4044,33 @@ function createStyles(colors: ThemeColors) {
       zIndex: 2,
       elevation: 3,
     },
+    brokerViewButton: {
+      alignItems: "center",
+      alignSelf: "center",
+      backgroundColor: "#FFFFFF",
+      borderColor: colors.border,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      elevation: 3,
+      flexDirection: "row",
+      justifyContent: "center",
+      marginBottom: spacing.xl,
+      paddingHorizontal: 20,
+      paddingVertical: 12,
+      shadowColor: "#000000",
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.08,
+      shadowRadius: 6,
+    },
+    brokerViewButtonText: {
+      color: colors.brand,
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.sm,
+    },
+    brokerViewButtonIcon: {
+      marginLeft: spacing.sm,
+      transform: [{ rotate: "-45deg" }],
+    },
     sectionCompleteBadge: {
       width: 22,
       height: 22,
@@ -4698,6 +4465,13 @@ function createStyles(colors: ThemeColors) {
     },
     brokerPrivatePhotosContent: {
       gap: spacing.xs,
+    },
+    reelsPhotosSection: {
+      borderTopColor: colors.divider,
+      borderTopWidth: 1,
+      gap: spacing.xs,
+      marginTop: spacing.md,
+      paddingTop: spacing.md,
     },
     documentsHeaderTextWrap: {
       flexShrink: 1,

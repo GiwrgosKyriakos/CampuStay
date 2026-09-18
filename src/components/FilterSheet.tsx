@@ -6,6 +6,7 @@ import {
   BottomSheetModal,
   BottomSheetView,
   BottomSheetTextInput,
+  useBottomSheetSpringConfigs,
   type BottomSheetBackdropProps,
 } from "@gorhom/bottom-sheet";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -106,6 +107,7 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
   const pickerScrollRef = useRef<ScrollView>(null);
   const isPresentedRef = useRef(false);
   const snapPoints = useMemo(() => ["86.4%"], []);
+  const animationConfigs = useBottomSheetSpringConfigs({ damping: 24, stiffness: 200, mass: 1 });
   const actionsBottomOffset = 0 // Math.max(insets.bottom + spacing.md, 40);
   const actionsTopOffset = 0 //Math.max(insets.top + spacing.md, 40);
 
@@ -234,6 +236,7 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
       ref={modalRef}
       index={0}
       snapPoints={snapPoints}
+      animationConfigs={animationConfigs}
       enableOverDrag={false}
       backdropComponent={renderBackdrop}
       onDismiss={handleDismiss}

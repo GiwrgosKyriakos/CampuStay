@@ -101,6 +101,23 @@ export async function scheduleLocalCalendarNotification(params: {
   });
 }
 
+export type ListingStatusNotification = "publishing" | "success" | "failed";
+
+export async function scheduleListingStatusNotification(status: ListingStatusNotification, body: string): Promise<void> {
+  try {
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: "CampuStay",
+        body,
+        data: { type: `listing_${status}` },
+      },
+      trigger: null,
+    });
+  } catch (error) {
+    console.warn("[Notifications] Listing status notification failed:", error);
+  }
+}
+
 export async function cancelScheduledNotification(notificationId?: string): Promise<void> {
   if (!notificationId) return;
   await Notifications.cancelScheduledNotificationAsync(notificationId);

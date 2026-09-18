@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "@/src/context/ThemeContext";
-import { Animated, InteractionManager, View, Text, StyleSheet, ScrollView, Pressable, TextInput, Switch, TouchableOpacity, PanResponder, Modal, ActivityIndicator, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
+import { Animated, InteractionManager, View, Text, StyleSheet, ScrollView, Pressable, TextInput, Switch, TouchableOpacity, PanResponder, Modal, ActivityIndicator, RefreshControl, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -24,7 +24,6 @@ import { t } from "@/src/locales";
 import { getExcludedUserIds } from "@/src/api/blocking";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { syncBrokerClientProfile } from "@/src/api/brokerClientProfiles";
-import { getActiveRoommateGroupsForUser } from "@/src/api/chat";
 import { getUserApartmentNotes, getUserApartmentRatings, updateNotesOrder, type UserApartmentNote } from "@/src/api/apartmentNotes";
 import { storage } from "@/src/utils/storage";
 import { calculatePricePerSqm } from "@/src/utils/pricing";
@@ -958,6 +957,8 @@ export default function ApartmentsScreen() {
   const { importedFilters, proposalApartmentIds: proposalApartmentIdsParam } = params;
   const [publishedApartments, setPublishedApartments] = useState<Apartment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isFeedRefreshing, setIsFeedRefreshing] = useState(false);
+  const feedRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [filterPanelReady, setFilterPanelReady] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
@@ -2308,23 +2309,23 @@ export default function ApartmentsScreen() {
     }, [auth.isGuest]),
   );
 
-  const handleCreateListingPress = useCallback(async () => {
+  const handleCreateListingPress = useCallback(() => {
     if (isTourActive && currentStep?.targetKey === "apartments_create_listing") notifyAction("apartments_create_listing");
-    if (!auth.userId || auth.isBroker) {
-      router.push("/create-listing" as any);
-      return;
-    }
-    try {
-      const activeGroups = await getActiveRoommateGroupsForUser(auth.userId);
-      if (activeGroups.some((group) => group.hostUserId === auth.userId)) {
-        setHostNewListingNoticeVisible(true);
-        return;
-      }
-    } catch (error) {
-      console.warn("[Apartments] Failed to verify host group membership:", error);
-    }
     router.push("/create-listing" as any);
-  }, [auth.isBroker, auth.userId, currentStep?.targetKey, isTourActive, notifyAction, router]);
+  }, [currentStep?.targetKey, isTourActive, notifyAction, router]);
+
+  const handleFeedRefresh = useCallback(() => {
+    setIsFeedRefreshing(true);
+    if (feedRefreshTimerRef.current) clearTimeout(feedRefreshTimerRef.current);
+    feedRefreshTimerRef.current = setTimeout(() => {
+      feedRefreshTimerRef.current = null;
+      setIsFeedRefreshing(false);
+    }, 900);
+  }, []);
+
+  useEffect(() => () => {
+    if (feedRefreshTimerRef.current) clearTimeout(feedRefreshTimerRef.current);
+  }, []);
 
   useEffect(() => {
     if (auth.isGuest || !auth.userId) {
@@ -3654,11 +3655,23 @@ export default function ApartmentsScreen() {
         <View style={[styles.flexOne, { paddingTop: headerHeight }]}>
           <ApartmentsFeedSkeleton style={styles.flexOne} testID="apartments-loading-skeleton" />
         </View>
+      ) : isFeedRefreshing ? (
+        <View style={[styles.flexOne, { paddingTop: headerHeight }]} testID="apartments-refreshing-skeleton">
+          <ApartmentsFeedSkeleton style={styles.flexOne} testID="apartments-refresh-skeleton" />
+        </View>
       ) : <Animated.ScrollView
         contentContainerStyle={[styles.list, isCompactActive && styles.compactList, { paddingTop: headerHeight + spacing.sm, paddingBottom: TAB_BAR_SPACE + insets.bottom }]}
         showsVerticalScrollIndicator={false}
         onScroll={listScrollHandler}
         scrollEventThrottle={16}
+        refreshControl={
+          <RefreshControl
+            refreshing={isFeedRefreshing}
+            onRefresh={handleFeedRefresh}
+            tintColor={colors.brand}
+            colors={[colors.brand]}
+          />
+        }
       >
         {isCompactActive && sortedApartments.length > 0 && (
           <View style={styles.compactHeaderRow}>

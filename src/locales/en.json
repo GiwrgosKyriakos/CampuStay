@@ -1165,6 +1165,10 @@
   },
   "apartments": {
     "title": "Apartments",
+    "details": {
+      "interactionsTitle": "Interaction Log",
+      "priceHistoryTitle": "Price History"
+    },
     "agencyReelsButton": "View Agency Reels",
     "agencyReelsTooltip": "View Agency Reels",
     "exitReels": "Back to Listings",
@@ -1403,7 +1407,23 @@
     "edit": {
       "saveAsOfferPrompt": "Save new price as a special offer?"
     },
-    "offerBadge": "Special Offer"
+    "offerBadge": "Special Offer",
+    "publishingInBackground": "Your listing is being published in the background...",
+    "publishSuccess": "Your listing was published successfully!",
+    "publishFailed": "Failed to publish listing. Please try again.",
+    "photos": {
+      "reelsTitle": "Reels Photos (Vertical 9:16)",
+      "reelsSubtitle": "Add up to 6 vertical photos strictly for Reels display.",
+      "captionModalTitle": "Add Photo Caption",
+      "captionPlaceholder": "e.g., Kitchen, Living Room, Bathroom...",
+      "captionBadge": "c"
+    },
+    "brokerView": {
+      "buttonLabel": "Broker View",
+      "title": "Broker View",
+      "syncedNotice": "Changes saved automatically.",
+      "offMarketLabel": "Off-market exclusive listing"
+    }
   },
   "apartmentDetail": {
     "noPhotosAvailable": "No photos available for this listing.",

@@ -75,6 +75,7 @@ import RoommateDeckDetailModal from "@/src/components/chat/RoommateDeckDetailMod
 import RoommateContractPickerModal from "@/src/components/RoommateContractPickerModal";
 import type { ContractDraftContext, ContractType } from "@/src/types/esignature";
 import { TourAnchor } from "@/src/components/tour/TourAnchor";
+import Animated, { Easing, FadeIn, FadeOut, LinearTransition, useAnimatedStyle, useDerivedValue, withTiming } from "react-native-reanimated";
 
 const CURRENCY = "€";
 const campuStay = false;
@@ -90,17 +91,27 @@ function logPinnedApartmentActionFailure(action: string, error: unknown): void {
 }
 
 function ObtuseChevron({ isExpanded, color }: { isExpanded: boolean; color: string }) {
+  const rotation = useDerivedValue(() => withTiming(isExpanded ? 180 : 0, {
+    duration: 250,
+    easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+  }));
+  const animatedChevronStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${rotation.value}deg` }],
+  }));
+
   return (
-    <Svg width={24} height={7} viewBox="0 0 24 7">
-      <Polyline
-        points={isExpanded ? "2,6 12,1 22,6" : "2,1 12,6 22,1"}
-        fill="none"
-        stroke={color}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={1.8}
-      />
-    </Svg>
+    <Animated.View style={animatedChevronStyle}>
+      <Svg width={24} height={7} viewBox="0 0 24 7">
+        <Polyline
+          points="2,1 12,6 22,1"
+          fill="none"
+          stroke={color}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={1.8}
+        />
+      </Svg>
+    </Animated.View>
   );
 }
 
@@ -3347,7 +3358,12 @@ function DirectChatScreen() {
         {showPersistentContext && hasAttachedProperty ? (
           <View style={styles.collapsibleTierBlock}>
             {!isPropertyCollapsed ? (
-              hasHostApartmentBanner ? (
+              <Animated.View
+                entering={FadeIn.duration(180)}
+                exiting={FadeOut.duration(140)}
+                layout={LinearTransition.duration(250)}
+              >
+              {hasHostApartmentBanner ? (
                 <>
                   <Pressable
                     style={[styles.apartmentPill, apartmentLocked && styles.apartmentPillDisabled]}
@@ -3416,7 +3432,8 @@ function DirectChatScreen() {
                   </Text>
                   <Ionicons name="chevron-forward" size={18} color={colors.brand} />
                 </Pressable>
-              )
+              )}
+              </Animated.View>
             ) : null}
             <Pressable
               style={styles.obtuseToggleHandleCenter}
@@ -3431,6 +3448,11 @@ function DirectChatScreen() {
         {showPersistentContext && hasActionPills ? (
           <View style={styles.collapsibleTierBlock}>
                     {!isActionPillsCollapsed ? (
+                      <Animated.View
+                        entering={FadeIn.duration(180)}
+                        exiting={FadeOut.duration(140)}
+                        layout={LinearTransition.duration(250)}
+                      >
                       <TourAnchor targetKey="chat_actions_non_orange" style={styles.headerSecondaryActions}>
                         {isBrokerOwnerChat || isBrokerClientChat ? (
                           <Pressable style={[styles.headerSecondaryAction, showAssignedPropertiesDropdown && styles.headerSecondaryActionActive]} onPress={() => {
@@ -3468,6 +3490,7 @@ function DirectChatScreen() {
                           </Pressable>
                         ) : null}
                       </TourAnchor>
+                      </Animated.View>
                     ) : null}
                     <Pressable style={styles.obtuseToggleHandleCenter} onPress={() => toggleHideComponent("quickActions")} hitSlop={{ top: 4, bottom: 4, left: 24, right: 24 }} testID="chat-action-collapse-toggle">
                       <ObtuseChevron color={colors.onSurfaceTertiary} isExpanded={!isActionPillsCollapsed} />

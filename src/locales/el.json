@@ -1165,6 +1165,10 @@
   },
   "apartments": {
     "title": "Διαμερίσματα",
+    "details": {
+      "interactionsTitle": "Καταγραφή Αλληλεπιδράσεων",
+      "priceHistoryTitle": "Ιστορικό Τιμών"
+    },
     "agencyReelsButton": "Προβολή Reels Γραφείου",
     "agencyReelsTooltip": "Προβολή Reels Γραφείου",
     "exitReels": "Επιστροφή στις αγγελίες",
@@ -1403,7 +1407,23 @@
     "edit": {
       "saveAsOfferPrompt": "Αποθήκευση της νέας τιμής ως προσφορά;"
     },
-    "offerBadge": "Προσφορά"
+    "offerBadge": "Προσφορά",
+    "publishingInBackground": "Η αγγελία σας δημοσιεύεται στο παρασκήνιο...",
+    "publishSuccess": "Η αγγελία σας δημοσιεύτηκε επιτυχώς!",
+    "publishFailed": "Η δημοσίευση της αγγελίας απέτυχε. Παρακαλούμε δοκιμάστε ξανά.",
+    "photos": {
+      "reelsTitle": "Φωτογραφίες για Reels (Κάθετες 9:16)",
+      "reelsSubtitle": "Προσθέστε έως 6 κάθετες φωτογραφίες αποκλειστικά για την προβολή στα Reels.",
+      "captionModalTitle": "Προσθήκη Περιγραφής Φωτογραφίας",
+      "captionPlaceholder": "π.χ. Κουζίνα, Σαλόνι, Μπάνιο...",
+      "captionBadge": "c"
+    },
+    "brokerView": {
+      "buttonLabel": "Broker View",
+      "title": "Broker View",
+      "syncedNotice": "Οι αλλαγές αποθηκεύτηκαν αυτόματα.",
+      "offMarketLabel": "Αποκλειστική αγγελία εκτός αγοράς"
+    }
   },
   "apartmentDetail": {
     "noPhotosAvailable": "Δεν υπάρχει διαθέσιμη φωτογραφία αγγελίας.",

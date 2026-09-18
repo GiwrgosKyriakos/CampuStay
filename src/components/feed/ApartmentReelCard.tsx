@@ -28,12 +28,13 @@ import { TourAnchor } from "@/src/components/tour/TourAnchor";
 import type { TourAnchorKey } from "@/src/types/tour";
 import { spacing } from "@/src/theme";
 import { useTheme } from "@/src/context/ThemeContext";
-import type { Apartment, VirtualTourData } from "@/src/types/apartment";
+import type { Apartment, ListingPhoto, VirtualTourData } from "@/src/types/apartment";
+import { normalizeListingPhotoItems } from "@/src/utils/listingMedia";
 import BaseBottomSheet from "@/src/components/common/BaseBottomSheet";
 import { localizeCity, localizePropertyType } from "@/src/utils/localizeData";
 
 type ReelApartment = Apartment & {
-  photos?: string[];
+  reelsPhotos?: ListingPhoto[];
   images?: string[];
   image?: string;
   imageUrl?: string;
@@ -66,8 +67,6 @@ export interface ApartmentReelCardProps {
   onOpenVirtualTour?: () => void;
 }
 
-const FALLBACK_IMAGE = "https://placehold.co/900x1600/png";
-
 export default function ApartmentReelCard({
   apartment,
   height,
@@ -92,14 +91,8 @@ export default function ApartmentReelCard({
   const heartScale = useRef(new Animated.Value(1)).current;
   const kenBurnsProgress = useRef(new Animated.Value(0)).current;
   const photos = useMemo(() => {
-    const values = [
-      ...(Array.isArray(apartmentData.photos) ? apartmentData.photos : []),
-      ...(Array.isArray(apartmentData.images) ? apartmentData.images : []),
-      apartmentData.image,
-      apartmentData.imageUrl,
-    ];
-    return Array.from(new Set(values.filter((value): value is string => typeof value === "string" && value.trim().length > 0)));
-  }, [apartmentData.image, apartmentData.imageUrl, apartmentData.images, apartmentData.photos]);
+    return normalizeListingPhotoItems(apartmentData.reelsPhotos).map((photo) => photo.url);
+  }, [apartmentData.reelsPhotos]);
   const videoUrl = apartmentData.reelMedia?.videoUrl?.trim() || undefined;
   const player = useVideoPlayer(videoUrl ?? null, (videoPlayer) => {
     videoPlayer.loop = true;
@@ -187,8 +180,8 @@ export default function ApartmentReelCard({
     }
   };
 
-  const carouselPhotos = photos.length > 0 ? photos : [FALLBACK_IMAGE];
-  const thumbnailUri = apartmentData.reelMedia?.thumbnailUrl ?? photos[0] ?? FALLBACK_IMAGE;
+  const carouselPhotos = photos;
+  const thumbnailUri = apartmentData.reelMedia?.thumbnailUrl ?? photos[0] ?? "";
   const kenBurnsScale = kenBurnsProgress.interpolate({ inputRange: [0, 1], outputRange: [1, 1.08] });
   const kenBurnsTranslate = kenBurnsProgress.interpolate({ inputRange: [0, 1], outputRange: [0, -10] });
 
@@ -198,11 +191,11 @@ export default function ApartmentReelCard({
         {videoUrl ? (
           <>
             <Animated.View style={[StyleSheet.absoluteFillObject, { transform: [{ scale: kenBurnsScale }, { translateY: kenBurnsTranslate }] }]}>
-              <Image source={thumbnailUri} contentFit="cover" style={styles.media} transition={250} />
+              {thumbnailUri ? <Image source={thumbnailUri} contentFit="cover" style={styles.media} transition={250} /> : <View style={[styles.media, styles.noMedia]} />}
             </Animated.View>
             <VideoView player={player} style={styles.video} contentFit="cover" nativeControls={false} />
           </>
-        ) : (
+        ) : carouselPhotos.length > 0 ? (
           <FlatList
             data={carouselPhotos}
             horizontal
@@ -221,6 +214,11 @@ export default function ApartmentReelCard({
               </View>
             )}
           />
+        ) : (
+          <View style={[StyleSheet.absoluteFillObject, styles.noMedia]} testID={`apartment-reel-card-no-media-${apartment.id ?? "listing"}`}>
+            <Ionicons name="images-outline" size={42} color={colors.onSurfaceTertiary} />
+            <Text style={styles.noMediaText}>{t("apartmentDetail.noPhotosAvailable")}</Text>
+          </View>
         )}
         <View style={styles.mediaShade} />
       </View>
@@ -311,6 +309,8 @@ const styles = StyleSheet.create({
   },
   mediaWrap: { flex: 1, overflow: "hidden" },
   media: { flex: 1, backgroundColor: "#17242c" },
+  noMedia: { alignItems: "center", justifyContent: "center", gap: 8 },
+  noMediaText: { color: "#FFFFFF", fontSize: 12, fontWeight: "600" },
   video: { ...StyleSheet.absoluteFillObject },
   mediaShade: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(8,13,17,0.12)" },
   photoSlideContainer: { alignItems: "center", justifyContent: "center", overflow: "hidden" },

@@ -52,6 +52,26 @@ export default function ApartmentDetailSkeleton() {
           <SkeletonBox width="92%" height={14} borderRadius={radius.sm} />
           <SkeletonBox width="60%" height={14} borderRadius={radius.sm} />
         </View>
+
+        <View style={styles.externalSectionHeader}>
+          <SkeletonBox width="42%" height={20} borderRadius={radius.sm} />
+          <SkeletonBox width={88} height={30} borderRadius={radius.pill} />
+        </View>
+        <View style={[styles.sectionCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+          <View style={styles.chipsRow}>
+            <SkeletonBox width={96} height={28} borderRadius={radius.pill} />
+            <SkeletonBox width={84} height={28} borderRadius={radius.pill} />
+          </View>
+          <SkeletonBox width="100%" height={58} borderRadius={radius.md} />
+          <SkeletonBox width="92%" height={58} borderRadius={radius.md} />
+        </View>
+
+        <View style={styles.externalSectionHeader}>
+          <SkeletonBox width="32%" height={20} borderRadius={radius.sm} />
+        </View>
+        <View style={[styles.sectionCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+          <SkeletonBox width="100%" height={220} borderRadius={radius.md} />
+        </View>
       </View>
 
       <View
@@ -129,6 +149,22 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: radius.lg,
     padding: spacing.md,
+    gap: spacing.sm,
+  },
+  externalSectionHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: spacing.md,
+  },
+  sectionCard: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: spacing.md,
+    padding: spacing.md,
+  },
+  chipsRow: {
+    flexDirection: "row",
     gap: spacing.sm,
   },
   footer: {

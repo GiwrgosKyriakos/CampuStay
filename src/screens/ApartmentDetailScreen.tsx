@@ -61,7 +61,9 @@ import { WatermarkBadge } from "@/src/components/WatermarkBadge";
 import ApartmentLocationMap from "@/src/components/ApartmentLocationMap";
 import InquiryCandidatesSkeleton from "@/src/components/skeletons/InquiryCandidatesSkeleton";
 import ApartmentDetailSkeleton from "@/src/components/skeletons/ApartmentDetailSkeleton";
+import BraidedAmenitySkeletonLoader from "@/src/components/BraidedAmenitySkeletonLoader";
 import { t } from "@/src/locales";
+import Animated, { FadeIn, FadeOut, LinearTransition } from "react-native-reanimated";
 
 const Modal = KeyboardAwareModal;
 import { db } from "@/src/config/firebase";
@@ -91,6 +93,8 @@ import { AiServiceError, fetchShowingFeedbackSentiment, type FeedbackSentimentAn
 import PriceHistoryChart, { type PriceHistoryEntry } from "@/src/components/PriceHistoryChart";
 import PropertyAssignmentSetupModal from "@/src/components/PropertyAssignmentSetupModal";
 import type { ContractDraftContext } from "@/src/types/esignature";
+import type { ListingPhotoItem } from "@/src/types/apartment";
+import { applyPhotoCaptions, normalizeListingPhotoItems } from "@/src/utils/listingMedia";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const CURRENCY = "€";
@@ -212,6 +216,9 @@ interface Apartment {
   size: number;
   maxRoommates?: number;
   image: string;
+  images?: string[];
+  photos?: Array<string | ListingPhotoItem>;
+  photoCaptions?: Record<string, string>;
   tags: string[];
   amenities?: string[];
   extraDetails?: Record<string, boolean>;
@@ -233,6 +240,8 @@ interface Apartment {
   offMarketAccessUserIds?: string[];
   watermarkConfig?: WatermarkConfig;
   files2d3d?: string[];
+  extraPhotos?: Array<string | ListingPhotoItem>;
+  reelsPhotos?: Array<string | ListingPhotoItem>;
   virtualTour?: VirtualTourData;
   withdrawalMetadata?: ListingWithdrawalMetadata;
   priceHistory?: PriceHistoryEntry[];
@@ -294,6 +303,9 @@ interface FirestoreApartmentDoc {
   offMarketAccessUserIds?: string[];
   watermarkConfig?: WatermarkConfig;
   files2d3d?: string[];
+  photos?: Array<string | ListingPhotoItem>;
+  photoCaptions?: Record<string, string>;
+  reelsPhotos?: Array<string | ListingPhotoItem>;
   virtualTour?: VirtualTourData;
   withdrawalMetadata?: ListingWithdrawalMetadata;
   priceHistory?: unknown;
@@ -742,7 +754,7 @@ export default function ApartmentDetailScreen() {
   const [brokerSelectorItems, setBrokerSelectorItems] = useState<BrokerSelectorItem[]>([]);
   const [coManagingBrokers, setCoManagingBrokers] = useState<BrokerSelectorItem[]>([]);
 
-  const [dbImages, setDbImages] = useState<string[]>([]);
+  const [dbPhotoItems, setDbPhotoItems] = useState<ListingPhotoItem[]>([]);
   const [files2d3d, setFiles2d3d] = useState<string[]>([]);
   const [selectedFileModal, setSelectedFileModal] = useState<{ title: string; uri: string } | null>(null);
   const [realDescription, setRealDescription] = useState<string | null>(null);
@@ -750,6 +762,7 @@ export default function ApartmentDetailScreen() {
   const [selectedHistoryNode, setSelectedHistoryNode] = useState<PriceHistoryEntry | null>(null);
   const [realTags, setRealTags] = useState<string[]>([]);
   const [resolvedExtraDetails, setResolvedExtraDetails] = useState<Record<string, boolean> | null>(null);
+  const [extraDetailsHydrated, setExtraDetailsHydrated] = useState(false);
   const [resolvedExtraInformation, setResolvedExtraInformation] = useState<ListingExtraInformation | null>(null);
   const [resolvedRooms, setResolvedRooms] = useState<number | null>(null);
   const [resolvedMaxRoommates, setResolvedMaxRoommates] = useState<number | null>(null);
@@ -1627,6 +1640,7 @@ export default function ApartmentDetailScreen() {
     setResolvedAssignedBrokerIds(Array.isArray(apt.assignedBrokerIds) ? apt.assignedBrokerIds : []);
     setResolvedAgencyId(apt.agencyId || "");
     setResolvedOpenHouseConfig(apt.openHouseConfig);
+    setExtraDetailsHydrated(false);
     setPriceHistory(normalizePriceHistory(apt.priceHistory));
     setSelectedHistoryNode(null);
     setHostUserData(null);
@@ -1636,7 +1650,10 @@ export default function ApartmentDetailScreen() {
       try {
         const docSnap = await getDoc(doc(db, "apartments", apt!.id));
         if (!docSnap.exists() || !mounted) {
-          if (mounted) setDbImages([]);
+          if (mounted) {
+            setDbPhotoItems([]);
+            setExtraDetailsHydrated(true);
+          }
           return;
         }
 
@@ -1653,16 +1670,18 @@ export default function ApartmentDetailScreen() {
         setKeySafeLocation(typeof docData.keySafeLocation === "string" ? docData.keySafeLocation : "");
         setKeySafeLogs(Array.isArray(docData.keySafeLogs) ? docData.keySafeLogs : []);
         setFiles2d3d(Array.isArray(docData.files2d3d) ? docData.files2d3d.filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0) : []);
-        const imgs = Array.isArray(docData.images)
-          ? docData.images.filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0)
-          : [docData.image || docData.imageUrl].filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0);
-
-        setDbImages(imgs);
+        const rawPhotos = Array.isArray(docData.photos) && docData.photos.length > 0
+          ? docData.photos
+          : Array.isArray(docData.images)
+            ? docData.images
+            : [docData.image || docData.imageUrl].filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0);
+        setDbPhotoItems(applyPhotoCaptions(normalizeListingPhotoItems(rawPhotos), docData.photoCaptions));
         setShowPhoneNumber(docData.showPhoneNumber === true);
         setHidePhoneFromBrokers(docData.hidePhoneFromBrokers === true);
         setShowExactAddress(docData.showExactAddress !== false);
         setResolvedHostId(docData.hostId || docData.ownerId || apt?.hostId || apt?.ownerId || null);
         setResolvedExtraDetails(normalizeExtraDetailsMap(docData.extraDetails));
+        setExtraDetailsHydrated(true);
         setResolvedExtraInformation(normalizeExtraInformation(docData.extraInformation));
         setResolvedIsOffer(docData.isOffer === true);
         setResolvedOriginalPrice(typeof docData.originalPrice === "number" ? docData.originalPrice : null);
@@ -1711,7 +1730,10 @@ export default function ApartmentDetailScreen() {
         }
       } catch (error) {
         console.error("[ApartmentDetail] Error fetching listing details:", error);
-        if (mounted) setDbImages([]);
+        if (mounted) {
+          setDbPhotoItems([]);
+          setExtraDetailsHydrated(true);
+        }
       }
     })();
 
@@ -2191,12 +2213,20 @@ export default function ApartmentDetailScreen() {
     };
   }, [apt?.id, auth.isBroker, auth.isGuest, auth.userId, canViewerSeeSection, hasAssignedBrokers, hostLookingForRoommate, hostUserData, listingOwnerIds, resolvedHostId, showLikedUsersSection]);
 
-  const allGalleryPhotos = useMemo(
-    () => [...(dbImages.length > 0 ? dbImages : [apt?.image]), ...files2d3d].filter(
-      (uri) => typeof uri === "string" && uri.trim().length > 0,
-    ),
-    [apt?.image, dbImages, files2d3d],
-  );
+  const allGalleryPhotoItems = useMemo(() => {
+    const routePhotos = apt?.photos && apt.photos.length > 0
+      ? apt.photos
+      : apt?.images ?? [apt?.image].filter((uri): uri is string => typeof uri === "string" && uri.trim().length > 0);
+    const standardPhotos = dbPhotoItems.length > 0
+      ? dbPhotoItems
+      : applyPhotoCaptions(normalizeListingPhotoItems(routePhotos), apt?.photoCaptions);
+    const technicalPhotos: ListingPhotoItem[] = files2d3d
+      .filter((uri) => uri.trim().length > 0)
+      .map((url, index) => ({ id: `technical-${index}-${url}`, url, caption: null, orderIndex: standardPhotos.length + index }));
+    return [...standardPhotos, ...technicalPhotos];
+  }, [apt?.image, apt?.images, apt?.photoCaptions, apt?.photos, dbPhotoItems, files2d3d]);
+  const allGalleryPhotos = allGalleryPhotoItems.map((item) => item.url);
+  const activeCaption = allGalleryPhotoItems[activePage]?.caption?.trim() || null;
 
   useEffect(() => {
     let mounted = true;
@@ -2314,7 +2344,8 @@ export default function ApartmentDetailScreen() {
   const displayExtraDetails = resolvedExtraDetails ?? normalizeExtraDetailsMap(apt.extraDetails);
   const displayExtraInformation = resolvedExtraInformation ?? normalizeExtraInformation(apt.extraInformation);
   const shouldShowAdditionalInformation = !!(displayPropertyCategory || displayPropertyType || displayFloor || displayOrientation);
-  const shouldShowExtraDetailsSection = !!displayExtraDetails && Object.keys(displayExtraDetails).length > 0;
+  const isExtraDetailsHydrating = !extraDetailsHydrated;
+  const shouldShowExtraDetailsSection = isExtraDetailsHydrating || (!!displayExtraDetails && Object.keys(displayExtraDetails).length > 0);
   const shouldShowExtraInformationSection = !!displayExtraInformation || shouldShowAdditionalInformation;
   const hasApprovedClientPrice = typeof approvedClientPrice === "number" && approvedClientPrice > 0;
   const resolvedPrice = useApartmentResolvedPrice(apt?.id ?? "", apt.rent);
@@ -2834,6 +2865,11 @@ export default function ApartmentDetailScreen() {
                   ))}
                 </View>
               )}
+              {activeCaption ? (
+                <View style={[styles.photoCaptionPill, { top: insets.top + 52 }]} testID="apartment-detail-photo-caption">
+                  <Text style={styles.photoCaptionText} numberOfLines={1}>{activeCaption}</Text>
+                </View>
+              ) : null}
             </>
           ) : (
             <View style={styles.placeholderContainer} testID="apartment-detail-placeholder">
@@ -3286,30 +3322,28 @@ export default function ApartmentDetailScreen() {
 
         {isManagingBroker && viewMode === "broker" ? (
           <>
-          <View style={styles.propertyInteractionCard} testID="apartment-interaction-log">
-            <View style={styles.interactionHeaderRow}>
-              <View style={styles.interactionTitleWrap}>
-                <Ionicons color={colors.brand} name="newspaper-outline" size={20} />
-                <Text style={styles.interactionCardTitle}>Ιστορικό Αλληλεπιδράσεων</Text>
-              </View>
-              <Pressable
-                style={styles.addInteractionBtn}
-                onPress={() => {
-                  if (availableClientOptions.length > 0 && !newInteractionClientId) {
-                    setNewInteractionClientId(availableClientOptions[0].id);
-                  }
-                  setAddInteractionModalVisible(true);
-                }}
-                hitSlop={8}
-                  disabled={isReadOnlyWithdrawnCoBroker}
-                accessibilityRole="button"
-                accessibilityLabel={t("apartmentDetail.addInteractionLabel")}
-                testID="apartment-detail-add-interaction-btn"
-              >
-                <Ionicons color={colors.onBrand} name="add" size={20} />
-              </Pressable>
-            </View>
+          <View style={styles.externalSectionHeader}>
+            <Text style={styles.externalSectionTitle}>{t("apartments.details.interactionsTitle")}</Text>
+            <Pressable
+              style={styles.addInteractionPill}
+              onPress={() => {
+                if (availableClientOptions.length > 0 && !newInteractionClientId) {
+                  setNewInteractionClientId(availableClientOptions[0].id);
+                }
+                setAddInteractionModalVisible(true);
+              }}
+              hitSlop={8}
+              disabled={isReadOnlyWithdrawnCoBroker}
+              accessibilityRole="button"
+              accessibilityLabel={t("apartmentDetail.addInteractionLabel")}
+              testID="apartment-detail-add-interaction-btn"
+            >
+              <Ionicons color={colors.onBrand} name="add" size={16} />
+              <Text style={styles.addInteractionPillText}>{t("common.add")}</Text>
+            </Pressable>
+          </View>
 
+          <View style={styles.propertyInteractionCard} testID="apartment-interaction-log">
             <ScrollView
               contentContainerStyle={styles.clientFilterChipsWrap}
               horizontal
@@ -3489,9 +3523,9 @@ export default function ApartmentDetailScreen() {
         ) : null}
 
         {isManagingBroker && viewMode === "broker" && canViewPriceHistory ? (
-          <View style={styles.section} testID="apartment-detail-price-history-section">
+          <View style={styles.priceHistorySection} testID="apartment-detail-price-history-section">
+            <Text style={styles.externalSectionTitle}>{t("apartments.details.priceHistoryTitle")}</Text>
             <View style={styles.priceHistoryCard}>
-              <Text style={styles.sectionTitle}>Ιστορικό Τιμών</Text>
               <PriceHistoryChart
                 history={priceHistory}
                 selectedHistoryNode={selectedHistoryNode}
@@ -3590,8 +3624,13 @@ export default function ApartmentDetailScreen() {
             </Pressable>
 
             {isExtraDetailsOpen ? (
-              <View style={styles.extraDetailsCard}>
-                {EXTRA_DETAIL_CATEGORIES.map((category) => {
+              <Animated.View
+                entering={FadeIn.duration(180)}
+                exiting={FadeOut.duration(140)}
+                layout={LinearTransition.duration(250)}
+                style={styles.extraDetailsCard}
+              >
+                {isExtraDetailsHydrating ? <BraidedAmenitySkeletonLoader /> : EXTRA_DETAIL_CATEGORIES.map((category) => {
                   const items = category.items
                     .map((itemKey) => {
                       const value = displayExtraDetails?.[itemKey];
@@ -3635,7 +3674,7 @@ export default function ApartmentDetailScreen() {
                     </View>
                   );
                 })}
-              </View>
+              </Animated.View>
             ) : null}
           </View>
         ) : null}
@@ -4455,6 +4494,22 @@ function createStyles(colors: ThemeColors) {
       justifyContent: "center",
       alignItems: "center",
     },
+    photoCaptionPill: {
+      alignSelf: "center",
+      backgroundColor: "rgba(0,0,0,0.6)",
+      borderRadius: radius.pill,
+      maxWidth: "76%",
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.xs,
+      position: "absolute",
+      zIndex: 10,
+    },
+    photoCaptionText: {
+      color: "#FFFFFF",
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.xs,
+      textAlign: "center",
+    },
     carouselSlide: { width: SCREEN_WIDTH, height: 280, position: "relative" },
     carouselImage: { width: SCREEN_WIDTH, height: 280 },
     placeholderContainer: {
@@ -4719,14 +4774,30 @@ function createStyles(colors: ThemeColors) {
       color: colors.onBrand,
     },
     priceHistoryCard: {
-      marginTop: spacing.lg,
-      marginBottom: spacing.md,
       padding: spacing.md,
       borderRadius: radius.md,
       backgroundColor: colors.surfaceSecondary,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
       gap: spacing.sm,
+    },
+    priceHistorySection: {
+      gap: spacing.sm,
+      marginHorizontal: spacing.lg,
+      marginTop: spacing.lg,
+    },
+    externalSectionHeader: {
+      alignItems: "center",
+      flexDirection: "row",
+      justifyContent: "space-between",
+      marginBottom: spacing.sm,
+      marginHorizontal: spacing.lg,
+    },
+    externalSectionTitle: {
+      color: colors.onSurface,
+      flex: 1,
+      fontFamily: fonts.bold,
+      fontSize: fontSize.lg,
     },
     sectionTitle: {
       fontFamily: fonts.bold,
@@ -5002,17 +5073,8 @@ function createStyles(colors: ThemeColors) {
     aiActionCopy: { flex: 1, fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface },
     aiActionButton: { borderRadius: radius.sm, backgroundColor: colors.brand, paddingHorizontal: spacing.sm, paddingVertical: spacing.sm },
     aiActionButtonText: { fontFamily: fonts.bold, fontSize: fontSize.xs, color: colors.onBrand },
-    interactionHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-    interactionTitleWrap: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
-    interactionCardTitle: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface },
-    addInteractionBtn: {
-      width: 32,
-      height: 32,
-      borderRadius: 16,
-      backgroundColor: colors.brand,
-      alignItems: "center",
-      justifyContent: "center",
-    },
+    addInteractionPill: { alignItems: "center", backgroundColor: colors.brand, borderRadius: radius.pill, flexDirection: "row", gap: 4, paddingHorizontal: spacing.md, paddingVertical: 6 },
+    addInteractionPillText: { color: colors.onBrand, fontFamily: fonts.semibold, fontSize: fontSize.xs },
     clientFilterChipsWrap: {
       flexDirection: "row",
       gap: spacing.xs,

@@ -26,6 +26,15 @@ export type VirtualTour = VirtualTourData;
 export type TourHotspot = VirtualTourHotspot;
 export type TourScene = VirtualTourScene;
 
+export interface ListingPhotoItem {
+  id: string;
+  url: string;
+  caption?: string | null;
+  orderIndex: number;
+}
+
+export type ListingPhoto = string | ListingPhotoItem;
+
 export interface ApartmentReelMedia {
   videoUrl?: string;
   thumbnailUrl?: string;
@@ -92,6 +101,10 @@ export interface Apartment {
   status: "active" | "under_negotiation" | "withdrawn" | "rented" | "sold" | "closed_deal";
   withdrawalMetadata?: ListingWithdrawalMetadata;
   reelMedia?: ApartmentReelMedia;
+  photos?: ListingPhoto[];
+  photoCaptions?: Record<string, string>;
+  extraPhotos?: ListingPhoto[];
+  reelsPhotos?: ListingPhoto[];
   showInExploreFeed?: boolean;
   virtualTour?: VirtualTourData;
   [key: string]: unknown;
@@ -103,4 +116,8 @@ export interface ApartmentListing {
   isOffer?: boolean;
   offerCreatedAt?: Timestamp | Date | null;
   showInExploreFeed?: boolean;
+  photos: ListingPhoto[];
+  photoCaptions?: Record<string, string>;
+  extraPhotos?: ListingPhoto[];
+  reelsPhotos?: ListingPhoto[];
 }
