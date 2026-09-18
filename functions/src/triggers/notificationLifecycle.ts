@@ -22,12 +22,20 @@ async function notifyUsers(userIds: Iterable<string>, payload: UnifiedNotificati
   await Promise.all([...new Set([...userIds].filter(Boolean))].map((userId) => sendPushToUser(userId, payload, channelId)));
 }
 
-function appointmentPayload(type: "visit_confirmed" | "visit_cancelled", data: DocumentData, appointmentId: string, action?: string): UnifiedNotificationPayload {
+function appointmentPayload(type: "visit_confirmed" | "visit_cancelled" | "visit_reschedule_proposed" | "visit_reschedule_accepted" | "visit_reschedule_rejected", data: DocumentData, appointmentId: string, action?: string): UnifiedNotificationPayload {
   const chatId = stringValue(data.chatRoomId);
-  const statusText = type === "visit_cancelled" ? "Το ραντεβού υπόδειξης ακυρώθηκε." : "Το ραντεβού υπόδειξης επιβεβαιώθηκε.";
+  const statusText = type === "visit_cancelled"
+    ? "Το ραντεβού υπόδειξης ακυρώθηκε."
+    : type === "visit_confirmed"
+      ? "Το ραντεβού υπόδειξης επιβεβαιώθηκε."
+      : type === "visit_reschedule_proposed"
+        ? "Προτάθηκε νέα ώρα για την υπόδειξη."
+        : type === "visit_reschedule_accepted"
+          ? "Η νέα ώρα της υπόδειξης έγινε αποδεκτή."
+          : "Η πρόταση αλλαγής ώρας απορρίφθηκε.";
   return {
     type,
-    title: type === "visit_cancelled" ? "Ακύρωση ραντεβού" : "Επιβεβαίωση υπόδειξης",
+    title: type === "visit_cancelled" ? "Ακύρωση ραντεβού" : type === "visit_confirmed" ? "Επιβεβαίωση υπόδειξης" : "Αλλαγή ώρας υπόδειξης",
     body: statusText,
     screen: chatId ? "chat/[id]" : "calendar",
     params: { appointmentId, ...(chatId ? { chatId } : {}) },
@@ -42,8 +50,12 @@ function appointmentUsers(data: DocumentData): string[] {
 
 export const onAppointmentCreated = onDocumentCreated({ document: "appointments/{appointmentId}", region: "europe-west1" }, async (event) => {
   const data = event.data?.data();
-  if (!data || data.status !== "confirmed") return;
-  await notifyUsers(appointmentUsers(data), appointmentPayload("visit_confirmed", data, event.params.appointmentId), "visit_reminders");
+  if (!data) return;
+  if (data.status === "confirmed") {
+    await notifyUsers(appointmentUsers(data), appointmentPayload("visit_confirmed", data, event.params.appointmentId), "visit_reminders");
+  } else if (data.status === "reschedule_proposed") {
+    await notifyUsers(appointmentUsers(data).filter((userId) => userId !== stringValue(data.proposedBy)), appointmentPayload("visit_reschedule_proposed", data, event.params.appointmentId), "visit_reminders");
+  }
 });
 
 export const onAppointmentUpdated = onDocumentUpdated({ document: "appointments/{appointmentId}", region: "europe-west1" }, async (event) => {
@@ -51,6 +63,18 @@ export const onAppointmentUpdated = onDocumentUpdated({ document: "appointments/
   const after = event.data?.after.data();
   if (!before || !after) return;
   const appointmentId = event.params.appointmentId;
+  if (before.status !== "reschedule_proposed" && after.status === "reschedule_proposed") {
+    await notifyUsers(appointmentUsers(after).filter((userId) => userId !== stringValue(after.proposedBy)), appointmentPayload("visit_reschedule_proposed", after, appointmentId), "visit_reminders");
+    return;
+  }
+  if (before.status === "reschedule_proposed" && after.status === "confirmed") {
+    await notifyUsers(appointmentUsers(after).filter((userId) => userId !== stringValue(after.proposedBy)), appointmentPayload("visit_reschedule_accepted", after, appointmentId), "visit_reminders");
+    return;
+  }
+  if (before.status === "reschedule_proposed" && after.status === "reschedule_rejected") {
+    await notifyUsers(appointmentUsers(after).filter((userId) => userId !== stringValue(after.proposedBy)), appointmentPayload("visit_reschedule_rejected", after, appointmentId), "visit_reminders");
+    return;
+  }
   if (before.status === "pending" && after.status === "confirmed") {
     await notifyUsers(appointmentUsers(after), appointmentPayload("visit_confirmed", after, appointmentId), "visit_reminders");
     return;

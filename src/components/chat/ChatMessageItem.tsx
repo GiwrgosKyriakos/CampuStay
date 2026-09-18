@@ -43,7 +43,12 @@ export interface ChatMessageItemData {
     apartmentTitle?: string;
     apartmentAddress?: string;
     appointmentDate?: string;
-    status?: "pending" | "confirmed" | "cancelled" | "completed";
+    status?: "pending" | "confirmed" | "completed" | "cancelled" | "pending_confirmation" | "reschedule_proposed" | "reschedule_accepted" | "reschedule_rejected";
+    proposalStatus?: "pending_confirmation" | "accepted" | "rejected";
+    proposedBy?: string;
+    previousAppointmentId?: string;
+    previousAppointmentDate?: string;
+    proposedAppointmentDate?: string;
     exactAddress?: string;
     latitude?: number;
     longitude?: number;
@@ -72,6 +77,9 @@ export interface ChatMessageItemProps {
   onDeletePress: () => void;
   onApprove: () => void;
   onVisitEdit: () => void;
+  currentUserId: string | null;
+  onVisitRescheduleAccept: () => void;
+  onVisitRescheduleReject: () => void;
   showMatchScore: boolean;
   compatibilityScore: number;
   onSharedProfilePress: () => void;
@@ -97,13 +105,16 @@ export default function ChatMessageItem({
   onDeletePress,
   onApprove,
   onVisitEdit,
+  currentUserId,
+  onVisitRescheduleAccept,
+  onVisitRescheduleReject,
   showMatchScore,
   compatibilityScore,
   onSharedProfilePress,
   onContractPress,
 }: ChatMessageItemProps) {
   const deleteProps = canDeleteForEveryone ? { onLongPress: onDeletePress, delayLongPress: 300 } : {};
-  const apartmentShare = message.type === "apartment_share" && !!message.apartmentData;
+  const apartmentShare = (message.type === "apartment_share" || message.type === "property_card") && !!message.apartmentData;
   const noteShare = message.type === "apartment_note_share" && !!message.apartmentData;
   const filterShare = message.type === "filter_set_share" && !!message.filterSetData;
   const propertyListShare = message.type === "property_list_share";
@@ -155,7 +166,7 @@ export default function ChatMessageItem({
   }
 
   if (message.type === "visit_confirmed" || message.type === "visit_rescheduled" || message.type === "visit_cancelled") {
-    return <VisitMessageCard message={message} isMine={isMine} onEdit={message.type === "visit_cancelled" ? undefined : onVisitEdit} />;
+    return <VisitMessageCard message={message} isMine={isMine} onEdit={message.type === "visit_cancelled" ? undefined : onVisitEdit} canDecideReschedule={message.metadata?.proposalStatus === "pending_confirmation" && message.metadata.proposedBy !== currentUserId} onAcceptReschedule={onVisitRescheduleAccept} onRejectReschedule={onVisitRescheduleReject} />;
   }
 
   if (message.type === "address_revealed" && message.metadata?.exactAddress) {

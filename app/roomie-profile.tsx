@@ -7,7 +7,7 @@ import { useRouter } from "expo-router";
 import { doc, onSnapshot, setDoc, serverTimestamp } from "firebase/firestore";
 
 import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
-import { GuestModeStickyFooter, GuestModeTopBanner } from "@/src/components/GuestModeLayout";
+import { GuestModeStickyFooter } from "@/src/components/GuestModeLayout";
 import { QUIZ_SECTIONS, TOTAL_QUESTIONS } from "@/src/data/quiz";
 import { useAuth } from "@/src/context/auth";
 import { db } from "@/src/config/firebase";
@@ -143,15 +143,6 @@ export default function RoomieProfileScreen() {
             ]}
             showsVerticalScrollIndicator={false}
           >
-            {guestLocked && (
-              <GuestModeTopBanner
-                onPress={() => router.push("/auth-landing")}
-                testID="roomie-guest-notice"
-                buttonTestID="roomie-top-signin-button"
-                style={styles.guestTopBannerSpacing}
-              />
-            )}
-
             {quizSections.map((section) => (
               <View key={section.categoryKey} style={styles.section}>
                 <View style={styles.categoryRow}>
@@ -284,9 +275,6 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   radioInner: { width: 11, height: 11, borderRadius: 6, backgroundColor: colors.onBrandTertiary },
   optionText: { flex: 1, fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurface },
   optionTextSelected: { fontFamily: fonts.semibold, color: colors.onBrandTertiary },
-  guestTopBannerSpacing: {
-    marginBottom: spacing.sm,
-  },
   footer: {
     backgroundColor: colors.surface,
     borderTopLeftRadius: radius.lg,

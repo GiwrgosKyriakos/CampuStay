@@ -16,7 +16,7 @@ import { cleanupObsoleteChatMessages } from "@/src/api/chatCleanup";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import { t } from "@/src/locales";
 import { getBlockRelationshipState } from "@/src/api/chat";
-import { isBrokerOrAgencyUser } from "@/src/utils/roles";
+import { isBrokerOrAgencyUser, isPeerHost } from "@/src/utils/roles";
 import { HostInboxContent } from "../host-inbox";
 import FilterSetVersionModal, { type SharedFilterSetRecord } from "@/src/components/FilterSetVersionModal";
 import InboxSkeleton from "@/src/components/skeletons/InboxSkeleton";
@@ -24,9 +24,11 @@ import CreateRoommateGroupModal from "@/src/components/chat/CreateRoommateGroupM
 import { getUserProfile } from "@/src/api/userProfile";
 import type { GroupMemberStatus } from "@/src/types/chat";
 import { isChatBlockedByUser } from "@/src/utils/chatHelpers";
+import { formatChatPreviewMessage, isPropertyListMessageType } from "@/src/utils/chatMessagePreview";
 
 const TAB_BAR_SPACE = 84;
 const INBOX_PAGE_SIZE = 10;
+type MatchRole = "host" | "broker";
 
 function isDeletedCounterpart(profile: RoommateProfile): boolean {
   return !!profile.deleted;
@@ -46,6 +48,7 @@ interface ChatListItem extends RoommateProfile {
   isGroup?: boolean;
   groupMemberIds?: string[];
   isChatMuted?: boolean;
+  matchRole?: MatchRole;
 }
 
 interface FirestoreUserDoc {
@@ -65,6 +68,9 @@ interface FirestoreUserDoc {
   isDeleted?: boolean;
   deletedAt?: unknown;
   is_broker?: boolean;
+  isBroker?: boolean;
+  isHost?: boolean;
+  role?: string | null;
   agencyId?: string | null;
   agencyRole?: string | null;
   is_agency_ceo?: boolean;
@@ -91,6 +97,8 @@ interface FirestoreChatDoc {
   lastMessageSenderId?: string;
   lastMessageReadBy?: string[];
   lastMessageIsRead?: boolean;
+  lastMessageApartmentIds?: string[];
+  lastMessageApartmentCount?: number;
   lastMessageCreatedAt?: { toMillis?: () => number } | number | null;
   lastMessageCreatedAtMillis?: number | null;
   lastMessageTimestamp?: { toMillis?: () => number } | number | null;
@@ -103,6 +111,8 @@ interface FirestoreLastMessageDoc {
   type?: string;
   requestedDate?: string;
   metadata?: { appointmentDate?: string };
+  apartmentIds?: string[];
+  apartmentCount?: number;
   senderId?: string;
   isRead?: boolean;
   read?: boolean;
@@ -120,6 +130,11 @@ interface LastMessageMeta {
 }
 
 function formatInboxMessage(data: FirestoreLastMessageDoc): string {
+  const propertyListPreview = formatChatPreviewMessage(data);
+  if (isPropertyListMessageType(data.type) || propertyListPreview !== data.text?.trim()) {
+    return propertyListPreview;
+  }
+
   const appointmentDate = data.metadata?.appointmentDate ?? data.requestedDate;
   switch (data.type) {
     case "filter_share":
@@ -230,6 +245,7 @@ function mapUserToChatItem(
   rejectedBy?: string | null,
   rejections?: string[],
   data?: FirestoreUserDoc | null,
+  matchRole?: MatchRole,
 ): ChatListItem {
   if (!data) return buildDeletedCandidate(uid, chatRoomId, status, initiatedBy);
 
@@ -255,6 +271,7 @@ function mapUserToChatItem(
     chat_initiated_by: initiatedBy ?? null,
     chat_rejected_by: rejectedBy ?? null,
     chat_rejections: Array.isArray(rejections) ? rejections : [],
+    matchRole,
   };
 }
 
@@ -627,15 +644,18 @@ export default function MatchesScreen() {
               });
             }
             const chatType = chatData.type ?? "roommate";
+            if (isBrokersView && chatType === "roommate_group") {
+              return false;
+            }
             // ΔΙΑΧΩΡΙΣΜΟΣ ΡΟΛΩΝ:
             // Αν είμαστε στο Tab "Hosts", δείχνουμε ΜΟΝΟ τα chats που ξεκινήσαμε ΕΜΕΙΣ (ως guests).
             const isVisibleForTab = isBrokersView
               ? true
               : chatType === "roommate_group"
               ? selectedChatType === "roommate" && !notLookingForRoommate
-              : (notLookingForRoommate || selectedChatType === "host")
-              ? true
-              : (chatType !== "host");
+              : selectedChatType === "host"
+              ? chatType === "host"
+              : notLookingForRoommate || chatType !== "host";
             if (!isVisibleForTab) {
               console.log("[Matches] Hiding chat due to tab/type split", {
                 chatId: chatDoc.id,
@@ -654,7 +674,12 @@ export default function MatchesScreen() {
             const rawText = typeof chatData.lastMessage === "string" ? chatData.lastMessage.trim() : "";
             const messageType = typeof chatData.lastMessageType === "string" ? chatData.lastMessageType : undefined;
             const senderId = typeof chatData.lastMessageSenderId === "string" ? chatData.lastMessageSenderId : "";
-            const text = rawText || formatInboxMessage({ text: rawText, type: messageType });
+            const text = formatInboxMessage({
+              text: rawText,
+              type: messageType,
+              apartmentIds: chatData.lastMessageApartmentIds,
+              apartmentCount: chatData.lastMessageApartmentCount,
+            });
             if (!text && !senderId) return; // No denormalized preview yet — the row falls back to a localized placeholder.
             const readBy = Array.isArray(chatData.lastMessageReadBy) ? chatData.lastMessageReadBy : undefined;
             nextLastMessages[chatDoc.id] = {
@@ -727,11 +752,18 @@ export default function MatchesScreen() {
                   }
 
                   const userData = await fetchUserProfile(counterpartUid);
-                  const isCounterpartAgencyMember = isBrokerOrAgencyUser(userData);
-                  const isEffectiveHostChat = chatData.type === "host" || isCounterpartAgencyMember;
-                  if (isBrokersView && !isCounterpartAgencyMember && !chatData.brokerChatRole) return null;
-                  if (!isBrokersView && selectedChatType === "roommate" && isCounterpartAgencyMember) return null;
-                  if (!isBrokersView && selectedChatType === "host" && (!isEffectiveHostChat || (chatData.type === "host" && chatData.initiatedBy !== uid))) return null;
+                  const matchRole: MatchRole = isBrokerOrAgencyUser(userData) ? "broker" : "host";
+                  const isBrokerMatch = matchRole === "broker";
+                  const peerHostProfile = userData
+                    ? { ...userData, isHost: userData.isHost === true || chatData.type === "host" }
+                    : null;
+                  const isPeerHostMatch =
+                    chatData.type === "host" &&
+                    chatData.initiatedBy === uid &&
+                    isPeerHost(peerHostProfile);
+                  if (isBrokersView && !isBrokerMatch) return null;
+                  if (!isBrokersView && selectedChatType === "roommate" && isBrokerMatch) return null;
+                  if (!isBrokersView && selectedChatType === "host" && !isPeerHostMatch) return null;
                   const chat_status = chatData.status ?? "active";
                   const chat_initiated_by = chatData.initiatedBy ?? null;
                   const chat_rejected_by = typeof chatData.rejectedBy === "string" ? chatData.rejectedBy : null;
@@ -755,12 +787,14 @@ export default function MatchesScreen() {
                         chat_rejected_by,
                         chat_rejections,
                         userData,
+                        isBrokersView ? "broker" : chatData.type === "host" ? "host" : undefined,
                       ),
                       // Περνάμε τα flags στο αντικείμενο
                       isBlocker,
                       isBlocked,
                       isChatMuted: chatData.mutedByUsers?.[uid] === true,
                       brokerChatRole: chatData.brokerChatRole === "client" || chatData.brokerChatRole === "owner" ? chatData.brokerChatRole : undefined,
+                      matchRole,
                     },
                   };
                 })
@@ -794,6 +828,7 @@ export default function MatchesScreen() {
                     }
                     if (existingChatData && (isDeletedForUser(existingChatData, uid) || getClearedAtForUser(existingChatData, uid) > 0)) return null;
                     const userData = await fetchUserProfile(targetUid);
+                    if (isBrokerOrAgencyUser(userData)) return null;
                     const relationState = await getBlockRelationshipState(uid, targetUid);
                     const isBlockerFromChat = existingChatData ? isChatBlockedByUser(existingChatData, uid) : false;
                     const isBlockedFromChat = existingChatData ? isChatBlockedByUser(existingChatData, targetUid) : false;
@@ -968,7 +1003,7 @@ export default function MatchesScreen() {
         </View>
         <Text style={styles.subtitle}>
           {isBrokersView
-            ? "Συνομιλίες με Μεσίτες"
+            ? t("matches.subtitleBrokers")
             : auth.isGuest
             ? t("matches.subtitleGuest")
             : availableMatchCount > 0 && selectedChatType === "roommate"
@@ -1033,12 +1068,16 @@ export default function MatchesScreen() {
             <Ionicons name="chatbubbles-outline" size={42} color={colors.onBrandTertiary} />
           </View>
           <Text style={styles.emptyTitle}>
-            {selectedChatType === "roommate" 
+            {isBrokersView
+              ? t("matches.emptyTitleBrokers")
+              : selectedChatType === "roommate"
               ? t("matches.emptyTitleRoommates") 
               : t("matches.emptyTitleHosts")}
           </Text>
           <Text style={styles.emptySub}>
-            {selectedChatType === "roommate" 
+            {isBrokersView
+              ? t("matches.emptyBodyBrokers")
+              : selectedChatType === "roommate"
               ? t("matches.emptyBodyRoommates") 
               : t("matches.emptyBodyHosts")}
           </Text>
@@ -1153,9 +1192,18 @@ export default function MatchesScreen() {
                   <DefaultProfileAvatar size={60} iconSize={28} testID={`chat-row-avatar-fallback-${p.id}`} />
                 )}
                 <View style={styles.rowText}>
-                  <Text style={styles.rowName} numberOfLines={1}>
-                    {displayName}
-                  </Text>
+                  <View style={styles.rowNameLine}>
+                    <Text style={styles.rowName} numberOfLines={1}>
+                      {displayName}
+                    </Text>
+                    {!p.isGroup && p.matchRole ? (
+                      <View style={[styles.roleBadge, p.matchRole === "broker" ? styles.brokerRoleBadge : styles.hostRoleBadge]}>
+                        <Text style={styles.roleBadgeText}>
+                          {p.matchRole === "broker" ? t("matches.brokerRole") : t("matches.hostRole")}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
                   {isPending ? (
                     isReceiver ? (
                       isBlockedChat ? (
@@ -1387,7 +1435,12 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   diagonalAvatarTopLeft: { top: 0, left: 0, zIndex: 1 },
   diagonalAvatarBottomRight: { bottom: 0, right: 0, borderWidth: 2, zIndex: 2 },
   rowText: { flex: 1, gap: 3 },
+  rowNameLine: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   rowName: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface },
+  roleBadge: { borderRadius: radius.pill, paddingHorizontal: spacing.sm, paddingVertical: 2 },
+  hostRoleBadge: { backgroundColor: colors.brandTertiary },
+  brokerRoleBadge: { backgroundColor: colors.brandSecondary },
+  roleBadgeText: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onSurface },
   rowMsg: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary },
   rowTrailing: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
   rowMsgFaded: { color: colors.onSurfaceTertiary, opacity: 0.55 },

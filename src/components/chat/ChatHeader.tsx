@@ -1,13 +1,37 @@
 import React from "react";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, Text, View, type ImageStyle, type StyleProp, type TextStyle, type ViewStyle } from "react-native";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import type { ThemeColors } from "@/src/theme";
 import { t } from "@/src/locales";
 import { isBrokerOrAgencyUser, type UserRoleData } from "@/src/utils/roles";
 
-type ChatHeaderStyles = Record<string, any>;
+interface ChatHeaderStyles {
+  header: StyleProp<ViewStyle>;
+  apartmentPill: StyleProp<ViewStyle>;
+  apartmentPillDisabled: StyleProp<ViewStyle>;
+  apartmentThumbFallback: StyleProp<ViewStyle>;
+  apartmentThumb: StyleProp<ImageStyle>;
+  apartmentPillTextWrap: StyleProp<ViewStyle>;
+  apartmentPillText: StyleProp<TextStyle>;
+  apartmentPillMeta: StyleProp<TextStyle>;
+  hostActionTrigger: StyleProp<ViewStyle>;
+  hostActionMenu: StyleProp<ViewStyle>;
+  hostActionMenuItem: StyleProp<ViewStyle>;
+  hostActionMenuText: StyleProp<TextStyle>;
+  headerTop: StyleProp<ViewStyle>;
+  iconBtn: StyleProp<ViewStyle>;
+  iconBtnActive: StyleProp<ViewStyle>;
+  headerProfileTapArea: StyleProp<ViewStyle>;
+  headerAvatar: StyleProp<ImageStyle>;
+  headerTextWrap: StyleProp<ViewStyle>;
+  headerNameRow: StyleProp<ViewStyle>;
+  headerName: StyleProp<TextStyle>;
+  hostPhoneBadge: StyleProp<ViewStyle>;
+  hostPhoneBadgeText: StyleProp<TextStyle>;
+  headerUni: StyleProp<TextStyle>;
+}
 
 export interface ChatHeaderProps {
   styles: ChatHeaderStyles;
@@ -33,10 +57,10 @@ export interface ChatHeaderProps {
   displayUniversity: string;
   recipientProfile?: UserRoleData | null;
   showRoommateDetails?: boolean;
-  statusLabel?: string;
   hostPhoneNumber: string;
   onProfilePress: () => void;
   profileDisabled: boolean;
+  isBrokerConversation?: boolean;
   onBack: () => void;
   onContextMenu: () => void;
   onFilterHistory: () => void;
@@ -71,10 +95,10 @@ export default function ChatHeader({
   displayUniversity,
   recipientProfile,
   showRoommateDetails = true,
-  statusLabel = t("chat.header.activeNow"),
   hostPhoneNumber,
   onProfilePress,
   profileDisabled,
+  isBrokerConversation = false,
   onBack,
   onContextMenu,
   onFilterHistory,
@@ -84,11 +108,17 @@ export default function ChatHeader({
   onMutualLikes,
   testID,
 }: ChatHeaderProps) {
+  const profilePressDisabled = profileDisabled || isBrokerConversation || isBrokerOrAgencyUser(recipientProfile);
+  const handleProfilePress = () => {
+    if (profilePressDisabled) return;
+    onProfilePress();
+  };
   const showRecipientRoommateDetails = !recipientProfile
     || (!isBrokerOrAgencyUser(recipientProfile)
       && recipientProfile.looking_for_roommate !== false
       && recipientProfile.isLookingForRoommate !== false
       && recipientProfile.not_looking_for_roommate !== true);
+  const headerSubtitle = showRoommateDetails && showRecipientRoommateDetails ? displayUniversity.trim() : "";
   const hasApartment = isHostChat && (hostApartment || apartmentTitle);
 
   return (
@@ -140,13 +170,13 @@ export default function ChatHeader({
         <Pressable style={[styles.iconBtn, { width: 32, height: 32, borderRadius: 16 }]} onPress={onBack} testID="chat-back-button" hitSlop={8}>
           <Ionicons name="chevron-back" size={18} color={colors.onSurface} />
         </Pressable>
-        <Pressable style={styles.headerProfileTapArea} onPress={onProfilePress} disabled={profileDisabled} testID="chat-header-profile-trigger">
+        <Pressable style={styles.headerProfileTapArea} onPress={handleProfilePress} disabled={profilePressDisabled} testID="chat-header-profile-trigger">
           {showAvatarImage && avatarUri ? (
             <Image source={{ uri: avatarUri }} style={styles.headerAvatar} contentFit="cover" />
           ) : (
             <DefaultProfileAvatar size={44} iconSize={22} testID="chat-header-avatar-fallback" />
           )}
-          <View style={[styles.headerTextWrap, !displayUniversity?.trim() && { transform: [{ translateY: 7 }] }]}>
+          <View style={[styles.headerTextWrap, !headerSubtitle && { transform: [{ translateY: 7 }] }]}>
             <View style={styles.headerNameRow}>
               <Text style={styles.headerName} numberOfLines={1}>{displayName}</Text>
               {hostPhoneNumber ? (
@@ -156,7 +186,7 @@ export default function ChatHeader({
                 </View>
               ) : null}
             </View>
-            <Text style={styles.headerUni} numberOfLines={1}>{showRoommateDetails && showRecipientRoommateDetails ? displayUniversity : statusLabel}</Text>
+            {headerSubtitle ? <Text style={styles.headerUni} numberOfLines={1}>{headerSubtitle}</Text> : null}
           </View>
         </Pressable>
         <Pressable style={[styles.iconBtn, { width: 32, height: 32, borderRadius: 16 }]} onPress={onContextMenu} testID="chat-context-menu-button" hitSlop={8}>

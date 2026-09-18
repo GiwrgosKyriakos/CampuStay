@@ -40,7 +40,8 @@
       "quiz": "Quiz",
       "location": "Location",
       "photos": "Photos",
-      "socialMedia": "Social Media"
+      "socialMedia": "Social Media",
+      "language": "Language"
     },
     "languages": {
       "english": "English",
@@ -341,6 +342,10 @@
     "profile": "Profile"
   },
   "auth": {
+    "loadingSession": "Restoring your session...",
+    "signingIn": "Signing in...",
+    "creatingAccount": "Creating account...",
+    "settingUpProfile": "Setting up your profile...",
     "landing": {
       "tagline": "Find your perfect roommate",
       "continueWithGoogle": "Continue with Google",
@@ -502,12 +507,19 @@
     "agePlaceholder": "e.g. 22",
     "about": "About You",
     "aboutPlaceholder": "Tell us about yourself, your interests, and what you're looking for in a roommate.",
+    "completeQuiz": "Complete the compatibility quiz",
     "gender": "Gender",
     "city": "City",
     "cityPlaceholder": "Select your city",
     "hasPlace": "I have a house/apartment to share",
     "lookingForApartment": "Currently looking for an apartment",
     "housingPrompt": "Create your listing now!",
+    "roommateGroupLock": {
+      "title": "Active Group Participation",
+      "message": "You cannot change your status to 'I have an apartment' because you are participating in {{groupNames}} as a roommate.",
+      "leaveAndChange": "Leave & Update Status",
+      "stayAsRoomie": "Stay as Roommate"
+    },
     "educationTitle": "Education & Living",
     "university": "University",
     "universityPlaceholder": "Select your university",
@@ -531,6 +543,8 @@
     "errors": {
       "photoLibrary": "Could not open the photo library. Please try again.",
       "aboutTooLong": "About You must be {{limit}} characters or less.",
+      "cityRequired": "Please enter your city.",
+      "budgetInvalid": "Please enter a valid budget greater than 0.",
       "saveFailed": "Failed to save your profile. Please try again."
     },
     "options": {
@@ -592,9 +606,6 @@
     "title": "Quiz"
   },
   "chat": {
-    "header": {
-      "activeNow": "Active now"
-    },
     "unavailable": "Unavailable",
     "exactLocation": "Exact location",
     "openNavigation": "Open navigation",
@@ -617,6 +628,28 @@
     "compatibility": "Compatibility",
     "aboutMe": "About Me",
     "socialLinks": "Social Links",
+    "listingShare": {
+      "latestListing": "Latest listing",
+      "action": "Share listing",
+      "title": "Share listing",
+      "empty": "No eligible active conversations.",
+      "loadFailed": "Unable to load eligible conversations.",
+      "sendFailed": "Unable to share the listing.",
+      "successTitle": "Listing shared",
+      "successMessage": "The listing was shared successfully."
+    },
+    "groupProfile": {
+      "title": "Group profile",
+      "selectProperty": "Select Roommate Property",
+      "members": "Members ({{count}})",
+      "memberFallback": "Group member",
+      "host": "Host",
+      "propertyOwner": "Property of",
+      "activeProperty": "Active Group Property",
+      "setActive": "Set as Active",
+      "noProperties": "No active roommate properties found.",
+      "activePropertyUpdated": "Active group property updated"
+    },
     "socialPlatforms": {
       "instagram": "Instagram",
       "facebook": "Facebook",
@@ -669,6 +702,10 @@
       "proposedProperties": "{{count}} proposed properties",
       "viewList": "View list",
       "listingNote": "Listing note"
+    },
+    "lastMessage": {
+      "propertyList": "🏠 Property list",
+      "propertyListWithCount": "🏠 Property list ({{count}} properties)"
     },
     "blockModal": {
       "title": "Are you sure you want to block this user?",
@@ -745,6 +782,7 @@
     "title": "Matches",
     "subtitleGuest": "Log in to see your matches",
     "subtitleHosts": "Hosts you contacted will show up here",
+    "subtitleBrokers": "Conversations with verified brokers",
     "subtitleNone": "People you like will show up here",
     "subtitleCount": "{{count}} {{roommateLabel}} you liked",
     "roommateSingular": "roommate",
@@ -752,6 +790,8 @@
     "hostPlural": "hosts",
     "roommatesToggle": "Roommates",
     "hostsToggle": "Hosts",
+    "hostRole": "Host",
+    "brokerRole": "Broker",
     "emptyGuestTitleRoommates": "Log in to see your matches",
     "emptyGuestTitleHosts": "Log in to contact hosts of apartments you're interested in",
     "emptyGuestBodyRoommates": "Your likes, matches, and chats appear here after you log in.",
@@ -760,6 +800,8 @@
     "emptyBodyRoommates": "Start swiping to find your future flatmate!",
     "emptyTitleHosts": "No apartments of interest yet",
     "emptyBodyHosts": "Contact the hosts of the apartments you're interested in!",
+    "emptyTitleBrokers": "No broker conversations yet",
+    "emptyBodyBrokers": "Conversations with verified brokers will appear here.",
     "previewPending": "Pending approval",
     "pendingApproval":  " Pending Approval...",
     "previewStart": "Start the conversation"
@@ -783,7 +825,10 @@
   "roommates": {
     "quiz": "Quiz",
     "preferences": "Roommate Preferences",
-    "calendarToggle": "Toggle Calendar"
+    "calendarToggle": "Toggle Calendar",
+    "groupChat": {
+      "maxHostsReached": "A group chat can have at most 1 host (including the creator)."
+    }
   },
   "swipeDeck": {
     "emptyTitle": "You're all caught up!",
@@ -827,6 +872,9 @@
     }
   },
   "calendar": {
+    "broker": "Broker",
+    "host": "Host",
+    "representative": "Appointment Contact",
     "title": "Calendar",
     "myCalendar": "My calendar",
     "scheduledVisits": "Scheduled visits and reminders",
@@ -965,6 +1013,10 @@
   },
   "apartments": {
     "title": "Apartments",
+    "hostNewListingNotice": {
+      "title": "Create New Listing",
+      "message": "You are already participating in group chats as a host. If you proceed, you will remain in existing groups as the host of the original property."
+    },
     "tab": {
       "clientOnlyView": "client-only view",
       "proposedListTitle": "Suggested list",
@@ -1084,7 +1136,8 @@
       },
       "notes": {
         "empty": "No saved notes yet.",
-        "savingOrder": "Saving new order..."
+        "savingOrder": "Saving new order...",
+        "openProperty": "Open property details"
       }
     },
     "withdrawnByOtherBrokerBanner": "Withdrawn by another broker managing this property",
@@ -1119,6 +1172,7 @@
     "filterSetTitle": "Filter set title",
     "filterSetPlaceholder": "e.g. Student two-bedroom near center (up to 40 chars)",
     "saveFilterSet": "Save set",
+    "filterSetSavedToast": "Filter set saved successfully",
     "pricePerSqm": "Price per sq.m. (€/m²)",
     "fromPricePerSqm": "From (€/m²)",
     "toPricePerSqm": "To (€/m²)",
@@ -1191,6 +1245,8 @@
     "emailSubject": "Inquiry about: {{title}}",
     "hostListingTitle": "Host listing",
     "hostListingMessage": "You are the host of this listing.",
+    "acceptedOfferPrice": "Accepted price for you",
+    "originalPrice": "Original",
     "chatUnavailableTitle": "Chat unavailable",
     "chatUnavailableMessage": "We could not open the chat right now. Please try again.",
     "amenitiesTitle": "Amenities",

@@ -41,6 +41,8 @@ export interface FilterSetMessageData {
 export interface FirestoreUserDoc {
   name?: string | null;
   is_broker?: boolean;
+  isBroker?: boolean;
+  role?: string | null;
   age?: number | null;
   gender?: string | null;
   city?: string | null;
@@ -74,5 +76,9 @@ export interface FirestoreUserDoc {
   agencyId?: string | null;
   agencyRole?: string | null;
   is_agency_ceo?: boolean;
+  wantsRoommate?: boolean;
+  roommateSeeking?: boolean;
+  blockedUsers?: string[];
+  blockedByUsers?: string[];
   preferences?: { hideNameInDeck?: boolean; hideInStack?: boolean };
 }

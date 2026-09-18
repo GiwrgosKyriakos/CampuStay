@@ -26,7 +26,6 @@ import { sendPropertyProposalViaMessaging } from "@/src/utils/messagingAutomatio
 import { t } from "@/src/locales";
 import { spacing } from "@/src/theme";
 import { useTheme } from "@/src/context/ThemeContext";
-import { TAB_BAR_HEIGHT } from "@/src/components/GlassTabBar";
 import type { Apartment, VirtualTourData } from "@/src/types/apartment";
 import BaseBottomSheet from "@/src/components/common/BaseBottomSheet";
 import { localizeCity, localizePropertyType } from "@/src/utils/localizeData";
@@ -81,7 +80,6 @@ export default function ApartmentReelCard({
   const auth = useAuth();
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
-  const BOTTOM_CLEARANCE = TAB_BAR_HEIGHT + insets.bottom + spacing.lg;
   const [muted, setMuted] = useState(true);
   const [shareVisible, setShareVisible] = useState(false);
   const [likeCount, setLikeCount] = useState(0);
@@ -191,7 +189,7 @@ export default function ApartmentReelCard({
   const kenBurnsTranslate = kenBurnsProgress.interpolate({ inputRange: [0, 1], outputRange: [0, -10] });
 
   return (
-    <View style={[styles.root, { height }]} testID={`apartment-reel-card-${apartment.id ?? "listing"}`}>
+    <View style={[styles.root, { width: windowWidth, height }]} testID={`apartment-reel-card-${apartment.id ?? "listing"}`}>
       <View style={styles.mediaWrap}>
         {videoUrl ? (
           <>
@@ -237,7 +235,7 @@ export default function ApartmentReelCard({
         </Pressable>
       ) : null}
 
-      <View style={[styles.rightRail, { bottom: BOTTOM_CLEARANCE }]}>
+      <View style={[styles.rightRail, { bottom: spacing.lg }]}>
         <Pressable
           style={styles.avatarCircle}
           onPress={isOwnListing ? undefined : onOpenChat}
@@ -265,7 +263,7 @@ export default function ApartmentReelCard({
         {videoUrl ? <Pressable style={styles.actionButton} onPress={() => setMuted((current) => !current)} accessibilityLabel={muted ? t("feed.unmuteVideo") : t("feed.muteVideo")}><Ionicons name={muted ? "volume-mute-outline" : "volume-high-outline"} size={25} color="#fff" /></Pressable> : null}
       </View>
 
-      <View style={[styles.bottomMeta, { bottom: BOTTOM_CLEARANCE }]}>
+      <View style={[styles.bottomMeta, { bottom: spacing.lg }]}>
         <Text style={styles.price}>{`€${price} / μήνα`}</Text>
         <Text style={styles.titleText} numberOfLines={2}>{apartmentData.title ?? "Property Listing"}</Text>
         <Text style={styles.location} numberOfLines={1}>📍 {area || "Area"}</Text>
@@ -296,7 +294,17 @@ export default function ApartmentReelCard({
 }
 
 const styles = StyleSheet.create({
-  root: { width: "100%", position: "relative", backgroundColor: "#0b0e13" },
+  root: {
+    width: "100%",
+    position: "relative",
+    marginVertical: 0,
+    marginTop: 0,
+    marginBottom: 0,
+    paddingVertical: 0,
+    paddingTop: 0,
+    paddingBottom: 0,
+    backgroundColor: "#0b0e13",
+  },
   mediaWrap: { flex: 1, overflow: "hidden" },
   media: { flex: 1, backgroundColor: "#17242c" },
   video: { ...StyleSheet.absoluteFillObject },

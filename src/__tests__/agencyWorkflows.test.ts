@@ -289,16 +289,11 @@ describe("commission settlement", () => {
     mockDocuments.set("deals/deal-1", { agencyId: "agency-1", settlementStatus: "pending_review", commissionTotal: 2400, agencyCutPercentage: 50, listingBrokerId: "listing", buyerBrokerId: "buyer" });
     mockDocuments.set("agencies/agency-1/commission_settlements/deal-1", { invoiceStatus: "pending_review" });
 
-    const statuses: string[] = [];
-    mockCallable.mockImplementation(async (payload: Record<string, any>) => {
-      statuses.push(payload.action);
-      return {
-        data: {
-          status: payload.action === "approve" ? "approved" : payload.action === "issue" ? "issued" : "settled",
-          dealId: "deal-1",
-          fiscalRecord: { invoiceNumber: "INV-1", issuedAt: Date.now() },
-        },
-      };
+    mockCallable.mockResolvedValue({
+      data: {
+        success: true,
+        fiscalRecord: { invoiceNumber: "INV-1", issuedAt: Date.now() },
+      },
     });
 
     await issueCommissionSettlement({
@@ -311,7 +306,12 @@ describe("commission settlement", () => {
         { brokerId: "buyer", brokerName: "Buyer", role: "buyer_agent", percentage: 25, amount: 600 },
       ],
     });
-    expect(statuses).toEqual(["approve", "issue", "settle"]);
+    expect(mockCallable).toHaveBeenCalledTimes(1);
+    expect(mockCallable).toHaveBeenCalledWith(expect.objectContaining({
+      dealId: "deal-1",
+      agencyId: "agency-1",
+      agencyShare: 1200,
+    }));
   });
 });
 

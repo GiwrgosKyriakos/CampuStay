@@ -32,6 +32,12 @@ type AuthNotice = {
   message: string;
 };
 
+function getFirebaseErrorCode(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null || !("code" in error)) return undefined;
+  const code = error.code;
+  return typeof code === "string" ? code : undefined;
+}
+
 function mapFirebaseAuthError(code?: string): string {
   switch (code) {
     case "auth/invalid-email":
@@ -79,6 +85,7 @@ export default function AuthEmailScreen() {
   const swipeX = React.useRef(new Animated.Value(0)).current;
   const SWIPE_THRESHOLD = 56;
   const activeFieldIds = mode === "login" ? LOGIN : REGISTER;
+  const showSubmitLoading = loading && !auth.authTransition;
 
   const handleBack = () => {
     router.back();
@@ -146,9 +153,8 @@ export default function AuthEmailScreen() {
     try {
       setLoading(true);
       await auth.loginEmail(email.trim(), password);
-      router.replace("/");
-    } catch (err: any) {
-      setAuthNotice({ tone: "error", message: mapFirebaseAuthError(err?.code) });
+    } catch (err: unknown) {
+      setAuthNotice({ tone: "error", message: mapFirebaseAuthError(getFirebaseErrorCode(err)) });
     } finally {
       setLoading(false);
     }
@@ -182,9 +188,8 @@ export default function AuthEmailScreen() {
         return;
       }
       await auth.registerEmail(email.trim(), password, name.trim());
-      router.replace("/");
-    } catch (err: any) {
-      setAuthNotice({ tone: "error", message: mapFirebaseAuthError(err?.code) });
+    } catch (err: unknown) {
+      setAuthNotice({ tone: "error", message: mapFirebaseAuthError(getFirebaseErrorCode(err)) });
     } finally {
       setLoading(false);
     }
@@ -208,8 +213,8 @@ export default function AuthEmailScreen() {
         tone: "success",
         message: t("auth.email.passwordResetSent"),
       });
-    } catch (err: any) {
-      setAuthNotice({ tone: "error", message: mapPasswordResetError(err?.code) });
+    } catch (err: unknown) {
+      setAuthNotice({ tone: "error", message: mapPasswordResetError(getFirebaseErrorCode(err)) });
     } finally {
       setLoading(false);
     }
@@ -390,11 +395,8 @@ export default function AuthEmailScreen() {
             disabled={loading}
             testID={activeFieldIds.submitButton}
           >
-            {loading ? (
-              <ActivityIndicator color={colors.onSurface} size="small" />
-            ) : (
-              <Text style={styles.submitButtonText}>{mode === "login" ? t("auth.email.logIn") : t("auth.email.signUp")}</Text>
-            )}
+            {showSubmitLoading ? <ActivityIndicator color={colors.onBrand} /> : null}
+            <Text style={styles.submitButtonText}>{mode === "login" ? t("auth.email.logIn") : t("auth.email.signUp")}</Text>
           </Pressable>
 
           {mode === "login" && (

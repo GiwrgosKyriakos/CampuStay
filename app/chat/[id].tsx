@@ -1,5 +1,5 @@
-import { getBlockRelationshipState, markIncomingMessagesAsRead, setBlockStateBetweenUsers } from "@/src/api/chat";
-import { createVisitAppointment, getPublicApartmentAddress, updateLinkedCalendarNotes, updateVisitAppointment } from "@/src/api/visitAppointments";
+import { getBlockRelationshipState, markIncomingMessagesAsRead, setBlockStateBetweenUsers, type PropertyCardMessageData } from "@/src/api/chat";
+import { acceptVisitReschedule, createVisitAppointment, deleteLinkedCalendarNotes, getPublicApartmentAddress, proposeVisitReschedule, rejectVisitReschedule, updateLinkedCalendarNotes, updateVisitAppointment } from "@/src/api/visitAppointments";
 import { useTheme } from "@/src/context/ThemeContext";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LinearGradient } from "expo-linear-gradient";
@@ -34,6 +34,7 @@ import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp,
 import { cleanupObsoleteChatMessages } from "@/src/api/chatCleanup";
 import { syncBrokerClientProfile } from "@/src/api/brokerClientProfiles";
 import { saveShowingCalendarNotes } from "@/src/api/brokerCalendar";
+import { recordAcceptedOffer } from "@/src/api/deals";
 import { addPropertyInteraction } from "@/src/api/propertyInteractions";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import CenteredActionModal, { type CenteredModalAction } from "@/src/components/CenteredActionModal";
@@ -41,9 +42,9 @@ import FilterSetVersionModal, { type SharedFilterSetRecord, type FilterSetVersio
 import ChatMessageItem from "@/src/components/chat/ChatMessageItem";
 import PriceProposalModal from "@/src/components/chat/modals/PriceProposalModal";
 import VisitRequestModal, { type VisitRequestListing } from "@/src/components/chat/modals/VisitRequestModal";
-import EditVisitModal from "@/src/components/chat/modals/EditVisitModal";
 import SendAddressModal from "@/src/components/chat/modals/SendAddressModal";
 import ChatUserProfileSheet from "@/src/components/chat/ChatUserProfileSheet";
+import SelectListingShareTargetModal from "@/src/components/chat/SelectListingShareTargetModal";
 import BlockUserModal from "@/src/components/chat/modals/BlockUserModal";
 import AssignClientEmailModal from "@/src/components/AssignClientEmailModal";
 import VoiceInputButton from "@/src/components/common/VoiceInputButton";
@@ -52,6 +53,7 @@ import SearchHistoryPickerModal, { type SearchHistorySelection } from "@/src/com
 import type { FilterSetMessageData, FirestoreUserDoc } from "@/src/components/chat/modals/types";
 import { getUserSettings, saveUserNotifications, saveUserPrivacy, type NotificationPreferences } from "@/src/api/accountSettings";
 import { isChatBlockedByUser } from "@/src/utils/chatHelpers";
+import { cancelScheduledNotificationsForAppointment, scheduleVisitReminderNotifications } from "@/src/utils/notificationService";
 import { submitReportedUserEntry } from "@/src/services/reportedUsers";
 import { subscribeUserLikedApartmentIds, toggleApartmentLike } from "@/src/api/apartmentLikes";
 import {
@@ -68,7 +70,7 @@ import ChatMessagesSkeleton from "@/src/components/skeletons/ChatMessagesSkeleto
 import { getWordCount, isNoteBodyValid, MAX_NOTE_BODY_CHARS, MAX_NOTE_BODY_WORDS } from "@/src/utils/noteValidation";
 import GroupChatScreen from "@/src/screens/chat/GroupChatScreen";
 import type { GroupChatMetadata, SharedProfileMessageMetadata } from "@/src/types/chat";
-import { isBrokerOrAgencyUser } from "@/src/utils/roles";
+import { hasBrokerParticipant, isBrokerOrAgencyUser, type UserRoleData } from "@/src/utils/roles";
 import { getSharedCoManagedListings } from "@/src/api/agencyCollaboration";
 import SelectShareTargetModal from "@/src/components/chat/SelectShareTargetModal";
 import RoommateDeckDetailModal from "@/src/components/chat/RoommateDeckDetailModal";
@@ -117,6 +119,7 @@ interface Message {
   proposedPrice?: number;
   requestedDate?: string;
   requestedTime?: string;
+    notes?: string;
   apartmentId?: string;
   apartmentTitle?: string;
   apartmentPrice?: number;
@@ -142,7 +145,13 @@ interface Message {
     apartmentTitle?: string;
     apartmentAddress?: string;
     appointmentDate?: string;
-    status?: "pending" | "confirmed" | "cancelled" | "completed";
+    notes?: string;
+    status?: "pending" | "confirmed" | "cancelled" | "completed" | "pending_confirmation" | "reschedule_proposed" | "reschedule_accepted" | "reschedule_rejected";
+    proposalStatus?: "pending_confirmation" | "accepted" | "rejected";
+    proposedBy?: string;
+    previousAppointmentId?: string;
+    previousAppointmentDate?: string;
+    proposedAppointmentDate?: string;
     exactAddress?: string;
     latitude?: number;
     longitude?: number;
@@ -188,6 +197,7 @@ interface FirestoreMessageDoc {
   proposedPrice?: number;
   requestedDate?: string;
   requestedTime?: string;
+  notes?: string;
   apartmentId?: string;
   apartmentTitle?: string;
   apartmentPrice?: number;
@@ -209,6 +219,7 @@ interface FirestoreMessageDoc {
 
 interface FirestoreChatDoc {
   users?: string[];
+  participantsData?: UserRoleData[];
   type?: "roommate" | "host" | "colleague" | string;
   agencyId?: string;
   apartmentId?: string;
@@ -258,12 +269,71 @@ interface FirestoreApartmentDoc {
   tags?: string[];
   amenities?: string[];
   hostId?: string;
+  creatorId?: string;
+  createdAt?: unknown;
   ownerId?: string;
   assignedBrokerIds?: string[];
   isOffMarket?: boolean;
   watermarkConfig?: WatermarkConfig;
   exactAddress?: string;
   showExactAddress?: boolean;
+}
+
+function isNonBrokerProfile(data: FirestoreUserDoc | null): boolean {
+  return !!data && data.isBroker !== true && data.is_broker !== true && data.role !== "broker" && !data.agencyId;
+}
+
+function isRoommateSeeking(data: FirestoreUserDoc | null): boolean {
+  return !!data
+    && data.wantsRoommate !== false
+    && data.roommateSeeking !== false
+    && data.looking_for_roommate !== false
+    && data.isLookingForRoommate !== false
+    && data.not_looking_for_roommate !== true;
+}
+
+function isActiveApartment(data: FirestoreApartmentDoc): boolean {
+  return data.status === "active" || (!data.status && data.isOffMarket !== true && data.rentedToUserId == null);
+}
+
+function mapRecentApartment(apartmentId: string, data: FirestoreApartmentDoc): PropertyCardMessageData {
+  return {
+    id: apartmentId,
+    title: data.title?.trim() || t("apartments.unknownListing"),
+    rent: typeof data.rent === "number" ? data.rent : typeof data.price === "number" ? data.price : 0,
+    city: data.city?.trim() || t("apartments.unknownCity"),
+    area: data.area?.trim() || t("apartments.unknownArea"),
+    image: getApartmentCoverImage(data),
+    ...(data.imageUrl ? { imageUrl: data.imageUrl } : {}),
+    ...(data.images ? { images: data.images } : {}),
+    rooms: typeof data.rooms === "number" ? data.rooms : 0,
+    size: typeof data.size === "number" ? data.size : typeof data.sqft === "number" ? data.sqft : 0,
+    ...(data.tags ? { tags: data.tags } : {}),
+  };
+}
+
+async function getRecentActiveApartment(ownerId: string): Promise<PropertyCardMessageData | null> {
+  for (const ownerField of ["hostId", "creatorId"] as const) {
+    let snapshot;
+    try {
+      snapshot = await getDocs(query(
+        collection(db, "apartments"),
+        where(ownerField, "==", ownerId),
+        where("status", "==", "active"),
+        orderBy("createdAt", "desc"),
+        limit(1),
+      ));
+    } catch {
+      snapshot = await getDocs(query(collection(db, "apartments"), where(ownerField, "==", ownerId)));
+    }
+
+    const activeDocs = snapshot.docs
+      .map((apartmentDoc) => ({ id: apartmentDoc.id, data: apartmentDoc.data() as FirestoreApartmentDoc }))
+      .filter(({ data }) => isActiveApartment(data))
+      .sort((left, right) => safeTimestampToMillis(right.data.createdAt) - safeTimestampToMillis(left.data.createdAt));
+    if (activeDocs[0]) return mapRecentApartment(activeDocs[0].id, activeDocs[0].data);
+  }
+  return null;
 }
 
 interface BrokerClientDropdownProperty {
@@ -775,7 +845,7 @@ function DirectChatScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const auth = useAuth();
-  const { id, chatRoomId: chatRoomIdParam, action: notificationAction, appointmentId: notificationAppointmentId, messageId: notificationMessageId } = useLocalSearchParams<{ id: string; chatRoomId?: string; action?: string; appointmentId?: string; messageId?: string }>();
+  const { id, chatRoomId: chatRoomIdParam, action: notificationAction, request: requestAction, appointmentId: notificationAppointmentId, messageId: notificationMessageId } = useLocalSearchParams<{ id: string; chatRoomId?: string; action?: string; request?: string; appointmentId?: string; messageId?: string }>();
   const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
 
   useEffect(() => {
@@ -811,6 +881,8 @@ function DirectChatScreen() {
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [counterpartExists, setCounterpartExists] = useState(true);
   const [profileModalVisible, setProfileModalVisible] = useState(false);
+  const [recentApartment, setRecentApartment] = useState<PropertyCardMessageData | null>(null);
+  const [listingShareVisible, setListingShareVisible] = useState(false);
   const [sharedProfileQuizAnswers, setSharedProfileQuizAnswers] = useState<Record<string, any>>({});
   const [shareTargetVisible, setShareTargetVisible] = useState(false);
   const [sharedProfileVisible, setSharedProfileVisible] = useState(false);
@@ -865,6 +937,26 @@ function DirectChatScreen() {
   }, [auth.isGuest, auth.userId, counterpartId]);
 
   useEffect(() => {
+    if (!counterpartId || !isNonBrokerProfile(counterpartDetails)) {
+      setRecentApartment(null);
+      return;
+    }
+
+    let active = true;
+    void getRecentActiveApartment(counterpartId)
+      .then((apartment) => {
+        if (active) setRecentApartment(apartment);
+      })
+      .catch(() => {
+        if (active) setRecentApartment(null);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [counterpartDetails, counterpartId]);
+
+  useEffect(() => {
     setCurrentUserId(auth.userId ?? null);
   }, [auth.userId]);
 
@@ -884,6 +976,8 @@ function DirectChatScreen() {
   const [userDeleted, setUserDeleted] = useState(false);
   const [chatMetadataLoaded, setChatMetadataLoaded] = useState(false);
   const [chatMetadataRoomId, setChatMetadataRoomId] = useState<string | null>(null);
+  const [conversationAgencyId, setConversationAgencyId] = useState<string | null>(null);
+  const [conversationParticipants, setConversationParticipants] = useState<UserRoleData[]>([]);
   const [messagesLoaded, setMessagesLoaded] = useState(false);
   const [targetMessage, setTargetMessage] = useState<Message | null>(null);
   const [messageLimit, setMessageLimit] = useState(15);
@@ -1006,7 +1100,6 @@ function DirectChatScreen() {
 
   const isPropertyCollapsed = hiddenComponents.apartmentBanner === true;
   const isActionPillsCollapsed = hiddenComponents.quickActions === true;
-  const isRoommateInfoCollapsed = hiddenComponents.roommateInfo === true;
   const showPersistentContext = !storageKey || isPrefsLoaded;
   const olderLoadTriggeredRef = useRef(false);
   const isRoommateChat = chatType === "roommate";
@@ -1016,6 +1109,22 @@ function DirectChatScreen() {
     ((auth.isBroker && brokerChatRole !== "owner") ||
       (!auth.isBroker && counterpartDetails?.is_broker === true));
   const isManualClient = auth.isBroker && isBrokerClientChat && brokerChatRole === "client" && counterpartDetails?.is_manual_client === true;
+  const isBrokerConversation = !chatMetadataLoaded
+    || loadingProfile
+    || auth.isBroker
+    || isBrokerOrAgencyUser(counterpartDetails)
+    || Boolean(conversationAgencyId?.trim())
+    || brokerChatRole !== null
+    || hasBrokerParticipant(conversationParticipants);
+
+  const handleHeaderPress = useCallback(() => {
+    if (isBrokerConversation) return;
+    setProfileModalVisible(true);
+  }, [isBrokerConversation]);
+
+  useEffect(() => {
+    if (isBrokerConversation) setProfileModalVisible(false);
+  }, [isBrokerConversation]);
 
   const openRoommateContractAction = useCallback(() => {
     if (campuStay) {
@@ -1168,6 +1277,7 @@ function DirectChatScreen() {
         proposedPrice: typeof data.proposedPrice === "number" ? data.proposedPrice : undefined,
         requestedDate: typeof data.requestedDate === "string" ? data.requestedDate : undefined,
         requestedTime: typeof data.requestedTime === "string" ? data.requestedTime : undefined,
+        notes: typeof data.notes === "string" ? data.notes : undefined,
         apartmentId: typeof data.apartmentId === "string" ? data.apartmentId : undefined,
         apartmentData: isSharedApartmentData(data.apartmentData) ? data.apartmentData : undefined,
         contractId: typeof data.contractId === "string" ? data.contractId : typeof data.metadata?.contractId === "string" ? data.metadata.contractId : undefined,
@@ -1191,6 +1301,35 @@ function DirectChatScreen() {
     };
   }, [chatRoomId, currentUserId, notificationMessageId]);
 
+  useEffect(() => {
+    if (requestAction !== "reschedule" || !notificationAppointmentId || !currentUserId || !chatRoomId) return;
+    let active = true;
+    void getDoc(doc(db, "appointments", notificationAppointmentId)).then((snapshot) => {
+      if (!active || !snapshot.exists()) return;
+      const appointment = snapshot.data() as { appointmentDate?: string; apartmentId?: string; apartmentTitle?: string; apartmentAddress?: string; notes?: string; status?: "pending" | "confirmed" | "cancelled" | "completed" | "pending_confirmation" | "reschedule_proposed" | "reschedule_accepted" | "reschedule_rejected" };
+      if (appointment.status !== "confirmed") return;
+      setVisitToEdit({
+        id: `appointment-${notificationAppointmentId}`,
+        text: appointment.apartmentTitle ?? "",
+        senderId: "system",
+        createdAt: Date.now(),
+        type: "visit_confirmed",
+        metadata: {
+          appointmentId: notificationAppointmentId,
+          appointmentDate: appointment.appointmentDate,
+          apartmentId: appointment.apartmentId,
+          apartmentTitle: appointment.apartmentTitle,
+          apartmentAddress: appointment.apartmentAddress,
+          notes: appointment.notes,
+          status: "confirmed",
+        },
+      });
+    }).catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [chatRoomId, currentUserId, notificationAppointmentId, requestAction]);
+
   const messages = useMemo(() => {
     if (!chatMetadataLoaded || chatMetadataRoomId !== chatRoomId || userDeleted) return [];
 
@@ -1213,14 +1352,19 @@ function DirectChatScreen() {
   const invertedMessages = useMemo(() => [...messages].reverse(), [messages]);
   const activePinnedAppointment = useMemo(() => {
     const latestByAppointment = new Map<string, { message: Message; index: number }>();
+    const supersededAppointmentIds = new Set<string>();
     messages.forEach((message, index) => {
       const appointmentId = message.metadata?.appointmentId;
       if (appointmentId) latestByAppointment.set(appointmentId, { message, index });
+      if ((message.metadata?.proposalStatus === "accepted" || message.metadata?.status === "reschedule_accepted") && message.metadata.previousAppointmentId) {
+        supersededAppointmentIds.add(message.metadata.previousAppointmentId);
+      }
     });
     return [...latestByAppointment.values()]
       .filter(({ message }) => {
+        if (message.metadata?.appointmentId && supersededAppointmentIds.has(message.metadata.appointmentId)) return false;
         const appointmentDate = message.metadata?.appointmentDate ? Date.parse(message.metadata.appointmentDate) : NaN;
-        return (message.metadata?.status === "pending" || message.metadata?.status === "confirmed") && Number.isFinite(appointmentDate) && appointmentDate > Date.now();
+        return (message.metadata?.status === "pending" || message.metadata?.status === "confirmed" || message.metadata?.status === "reschedule_accepted") && Number.isFinite(appointmentDate) && appointmentDate > Date.now();
       })
       .sort((first, second) => Date.parse(first.message.metadata?.appointmentDate ?? "") - Date.parse(second.message.metadata?.appointmentDate ?? ""))[0] ?? null;
   }, [messages]);
@@ -1278,6 +1422,8 @@ function DirectChatScreen() {
         setUserDeleted(false);
         setChatMetadataLoaded(true);
         setChatMetadataRoomId(chatRoomId);
+        setConversationAgencyId(null);
+        setConversationParticipants([]);
         setChatType("roommate");
         setBrokerChatRole(null);
         setSearchSharingPromptShown(false);
@@ -1301,6 +1447,8 @@ function DirectChatScreen() {
       setUserDeleted(currentUserId ? getUserDeleted(data, currentUserId) : false);
       setChatMetadataLoaded(true);
       setChatMetadataRoomId(chatRoomId);
+      setConversationAgencyId(typeof data.agencyId === "string" ? data.agencyId : null);
+      setConversationParticipants(Array.isArray(data.participantsData) ? data.participantsData : []);
       setIsCrossChatNoticeDismissed(currentUserId ? dismissedCrossChatNoticesMap[currentUserId] === true : false);
       setChatType(data.type === "host" ? "host" : data.type === "colleague" ? "colleague" : "roommate");
       setBrokerChatRole(data.brokerChatRole === "client" || data.brokerChatRole === "owner" ? data.brokerChatRole : null);
@@ -1383,6 +1531,7 @@ function DirectChatScreen() {
               proposedPrice: typeof data.proposedPrice === "number" ? data.proposedPrice : undefined,
               requestedDate: typeof data.requestedDate === "string" ? data.requestedDate : undefined,
               requestedTime: typeof data.requestedTime === "string" ? data.requestedTime : undefined,
+              notes: typeof data.notes === "string" ? data.notes : undefined,
               apartmentId: typeof data.apartmentId === "string" ? data.apartmentId : undefined,
               apartmentData,
               contractId: typeof data.contractId === "string" ? data.contractId : typeof data.metadata?.contractId === "string" ? data.metadata.contractId : undefined,
@@ -2390,7 +2539,7 @@ function DirectChatScreen() {
     }
   }, [brokerChatRole, chatRoomId, counterpartId, currentUserId, hostApartmentId, isSubmittingHostAction, selectedInquiryProperty?.id]);
 
-  const submitVisitRequest = useCallback(async (date: string, time: string, apartmentId: string) => {
+  const submitVisitRequest = useCallback(async (date: string, time: string, apartmentId: string, notes: string) => {
     if (!currentUserId || !chatRoomId || !apartmentId || isSubmittingHostAction) return;
 
     const visitDate = parseIsoDate(date);
@@ -2407,6 +2556,8 @@ function DirectChatScreen() {
         apartmentId,
         apartmentTitle: visitRequestListings.find((listing) => listing.id === apartmentId)?.title ?? hostApartmentTitle ?? "Διαμέρισμα",
         apartmentPrice: visitRequestListings.find((listing) => listing.id === apartmentId)?.rent,
+        ...(notes ? { notes } : {}),
+        ...(notes ? { notes } : {}),
         createdAt: serverTimestamp(),
       });
 
@@ -2473,20 +2624,46 @@ function DirectChatScreen() {
     visitRequestListings,
   ]);
 
-  const saveVisitChanges = useCallback(async (nextDateInput: string) => {
+  const saveVisitChanges = useCallback(async (nextDateInput: string, nextTime: string, apartmentId: string, notes: string) => {
     const appointmentId = visitToEdit?.metadata?.appointmentId;
-    if (!appointmentId || !chatRoomId || !nextDateInput.trim() || Number.isNaN(Date.parse(nextDateInput))) return;
+    if (!appointmentId || !chatRoomId || !nextDateInput.trim() || !nextTime.trim() || Number.isNaN(Date.parse(`${nextDateInput}T${nextTime}:00`))) return;
     setIsSavingVisit(true);
-    const appointmentDate = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(nextDateInput.trim()) ? `${nextDateInput.trim()}:00` : nextDateInput.trim();
+    const appointmentDate = `${nextDateInput.trim()}T${nextTime.trim()}:00`;
     try {
-      await updateVisitAppointment(appointmentId, { appointmentDate, status: "confirmed" });
-      await updateLinkedCalendarNotes({ appointmentId, appointmentDate, status: "confirmed" });
-      const messageText = `Το ραντεβού επαναπρογραμματίστηκε για τις ${new Date(appointmentDate).toLocaleString("el-GR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`;
+      if (!currentUserId) return;
+      const revision = await proposeVisitReschedule({ previousVisitId: appointmentId, proposedBy: currentUserId, appointmentDate });
+      await updateVisitAppointment(revision.proposedVisitId, { notes });
+      await cancelScheduledNotificationsForAppointment(appointmentId);
+      await saveShowingCalendarNotes({
+        brokerId: revision.previousVisit.brokerId,
+        clientId: revision.previousVisit.clientId,
+        clientName: displayName,
+        apartmentId: revision.previousVisit.apartmentId,
+        apartmentTitle: revision.previousVisit.apartmentTitle,
+        appointmentId: revision.proposedVisitId,
+        scheduledDate: nextDateInput.trim(),
+        scheduledTime: nextTime.trim(),
+        notes,
+      });
+      await updateLinkedCalendarNotes({ appointmentId: revision.proposedVisitId, appointmentDate, status: "reschedule_proposed" });
+      const messageText = `Προτεινόμενη νέα ώρα: ${new Date(appointmentDate).toLocaleString("el-GR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`;
       await addDoc(collection(db, "chats", chatRoomId, "messages"), {
         senderId: "system",
         text: messageText,
         type: "visit_rescheduled",
-        metadata: { ...visitToEdit.metadata, appointmentId, appointmentDate, status: "confirmed" },
+        metadata: {
+          ...visitToEdit.metadata,
+          appointmentId: revision.proposedVisitId,
+          previousAppointmentId: appointmentId,
+          appointmentDate,
+          previousAppointmentDate: revision.previousVisit.appointmentDate,
+          proposedAppointmentDate: appointmentDate,
+          proposedBy: currentUserId,
+          status: "pending_confirmation",
+          proposalStatus: "pending_confirmation",
+          apartmentId: apartmentId || revision.previousVisit.apartmentId,
+          notes,
+        },
         createdAt: serverTimestamp(),
         isRead: true,
       });
@@ -2498,7 +2675,70 @@ function DirectChatScreen() {
     } finally {
       setIsSavingVisit(false);
     }
-  }, [chatRoomId, visitToEdit]);
+  }, [chatRoomId, currentUserId, displayName, visitToEdit]);
+
+  const handleVisitRescheduleDecision = useCallback(async (message: Message, decision: "accept" | "reject") => {
+    if (!currentUserId || !chatRoomId || message.metadata?.proposalStatus !== "pending_confirmation" || message.metadata.proposedBy === currentUserId) return;
+    const proposedVisitId = message.metadata.appointmentId;
+    if (!proposedVisitId) return;
+    setIsSavingVisit(true);
+    try {
+      const result = decision === "accept"
+        ? await acceptVisitReschedule({ proposedVisitId, actorId: currentUserId })
+        : await rejectVisitReschedule({ proposedVisitId, actorId: currentUserId });
+      const accepted = decision === "accept";
+      if (accepted) {
+        await cancelScheduledNotificationsForAppointment(result.previousVisit.id);
+        await scheduleVisitReminderNotifications({
+          appointmentId: result.proposedVisit.id,
+          chatRoomId,
+          appointmentDate: result.proposedVisit.appointmentDate,
+          apartmentTitle: result.proposedVisit.apartmentTitle,
+        });
+      } else {
+        await deleteLinkedCalendarNotes(result.proposedVisit.id);
+        await scheduleVisitReminderNotifications({
+          appointmentId: result.previousVisit.id,
+          chatRoomId,
+          appointmentDate: result.previousVisit.appointmentDate,
+          apartmentTitle: result.previousVisit.apartmentTitle,
+        });
+      }
+      await updateDoc(doc(db, "chats", chatRoomId, "messages", message.id), {
+        "metadata.status": accepted ? "reschedule_accepted" : "reschedule_rejected",
+        "metadata.proposalStatus": accepted ? "accepted" : "rejected",
+      });
+      const systemText = accepted ? "Η νέα ώρα της υπόδειξης έγινε αποδεκτή." : "Η νέα ώρα της υπόδειξης απορρίφθηκε. Η αρχική ώρα παραμένει ενεργή.";
+      await addDoc(collection(db, "chats", chatRoomId, "messages"), {
+        senderId: "system",
+        text: systemText,
+        type: "visit_rescheduled",
+        metadata: {
+          ...message.metadata,
+          appointmentId: accepted ? result.proposedVisit.id : result.previousVisit.id,
+          previousAppointmentId: result.previousVisit.id,
+          appointmentDate: accepted ? result.proposedVisit.appointmentDate : result.previousVisit.appointmentDate,
+          previousAppointmentDate: result.previousVisit.appointmentDate,
+          proposedAppointmentDate: result.proposedVisit.appointmentDate,
+          status: accepted ? "reschedule_accepted" : "reschedule_rejected",
+          proposalStatus: accepted ? "accepted" : "rejected",
+        },
+        createdAt: serverTimestamp(),
+        isRead: true,
+      });
+      await setDoc(doc(db, "chats", chatRoomId), {
+        lastMessage: systemText,
+        lastMessageType: "visit_rescheduled",
+        lastMessageTimestamp: Date.now(),
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+    } catch (error) {
+      logPinnedApartmentActionFailure(`appointment_reschedule_${decision}`, error);
+      setActionModal({ title: t("chat.modals.actionFailedTitle"), description: t("common.messages.tryAgain"), actions: [{ label: t("common.actions.gotIt"), iconName: "alert-circle-outline", onPress: () => setActionModal(null) }] });
+    } finally {
+      setIsSavingVisit(false);
+    }
+  }, [chatRoomId, currentUserId]);
 
   const cancelVisit = useCallback(async () => {
     const appointmentId = visitToEdit?.metadata?.appointmentId;
@@ -2548,6 +2788,12 @@ function DirectChatScreen() {
               },
               { merge: true },
             );
+            await recordAcceptedOffer({
+              apartmentId: offerApartmentId,
+              clientId: message.senderId,
+              listingBrokerId: currentUserId,
+              acceptedOfferPrice: message.proposedPrice,
+            });
           }
         }
 
@@ -2576,6 +2822,13 @@ function DirectChatScreen() {
             scheduledDate: message.requestedDate,
             scheduledTime: message.requestedTime,
             appointmentId,
+            notes: message.notes,
+          });
+          await scheduleVisitReminderNotifications({
+            appointmentId,
+            chatRoomId,
+            appointmentDate: `${message.requestedDate}T${message.requestedTime}:00`,
+            apartmentTitle: message.apartmentTitle ?? hostApartmentTitle ?? "Διαμέρισμα",
           });
         }
 
@@ -2595,6 +2848,7 @@ function DirectChatScreen() {
               apartmentTitle: message.apartmentTitle ?? hostApartmentTitle ?? "Διαμέρισμα",
               apartmentAddress: appointmentAddress,
               appointmentDate: `${message.requestedDate}T${message.requestedTime}:00`,
+              ...(message.notes ? { notes: message.notes } : {}),
               status: "confirmed",
             },
           } : {}),
@@ -3052,11 +3306,11 @@ function DirectChatScreen() {
   }
 
   const hasActionPills = isBrokerOwnerChat || isBrokerClientChat || isRoommateChat;
-  const hasRoommateInfo = showRoommateHeaderDetails;
-  const bothSecondaryTiersCollapsed = hasActionPills && hasRoommateInfo && isActionPillsCollapsed && isRoommateInfoCollapsed;
+  const canShareListing = !!recentApartment && isNonBrokerProfile(counterpartDetails) && isRoommateSeeking(counterpartDetails);
   const hasHostApartmentBanner = chatType === "host" && !isBrokerOwnerChat && !isBrokerClientChat && (hostApartment || hostApartmentId || apartmentLocked);
   const hasColleaguePropertyBanner = chatType === "colleague" && sharedColleagueListings.length > 0;
   const hasAttachedProperty = hasHostApartmentBanner || hasColleaguePropertyBanner;
+  const headerSubtitle = showRoommateHeaderDetails ? displayUniversity.trim() : headerSubInfo;
 
   return (
     <View style={styles.container} testID="chat-screen">
@@ -3073,8 +3327,8 @@ function DirectChatScreen() {
           </Pressable>
           <Pressable
             style={styles.headerProfileTapArea}
-            onPress={() => setProfileModalVisible(true)}
-            disabled={maskedAsDeleted || chatStatus === "rejected"}
+            onPress={handleHeaderPress}
+            disabled={isBrokerConversation || maskedAsDeleted || chatStatus === "rejected"}
             testID="chat-header-profile-trigger"
           >
             {showAvatarImage ? (
@@ -3082,7 +3336,7 @@ function DirectChatScreen() {
             ) : (
               <DefaultProfileAvatar size={44} iconSize={22} testID="chat-header-avatar-fallback" />
             )}
-            <View style={[styles.headerTextWrap, !displayUniversity?.trim() && { transform: [{ translateY: 7 }] }]}>
+            <View style={[styles.headerTextWrap, !headerSubtitle && { transform: [{ translateY: 7 }] }]}>
               <View style={styles.headerNameRow}>
                 <Text style={styles.headerName} numberOfLines={1}>
                   {displayName}
@@ -3094,9 +3348,11 @@ function DirectChatScreen() {
                   </View>
                 ) : null}
               </View>
-              <Text style={styles.headerUni} numberOfLines={1}>
-                {showRoommateHeaderDetails ? displayUniversity : headerSubInfo}
-              </Text>
+              {headerSubtitle ? (
+                <Text style={headerSubInfo ? styles.headerBrokerRole : styles.headerUni} numberOfLines={1}>
+                  {headerSubtitle}
+                </Text>
+              ) : null}
             </View>
           </Pressable>
           <Pressable
@@ -3195,31 +3451,8 @@ function DirectChatScreen() {
             </Pressable>
           </View>
         ) : null}
-        {showPersistentContext ? (
-          <>
-            {hasActionPills && hasRoommateInfo && bothSecondaryTiersCollapsed ? (
-              <View style={styles.mergedCollapsedRow}>
-                <Pressable
-                  style={[styles.mergedCollapsedSlot, styles.neutralActionCollapsedSlot]}
-                  onPress={() => toggleHideComponent("quickActions")}
-                  hitSlop={{ top: 4, bottom: 4, left: 8, right: 8 }}
-                  testID="chat-action-collapse-toggle"
-                >
-                  <ObtuseChevron color={colors.onSurfaceTertiary} isExpanded={false} />
-                </Pressable>
-                <Pressable
-                  style={[styles.mergedCollapsedSlot, styles.brandRoommateCollapsedSlot]}
-                  onPress={() => toggleHideComponent("roommateInfo")}
-                  hitSlop={{ top: 4, bottom: 4, left: 8, right: 8 }}
-                  testID="chat-roommate-collapse-toggle"
-                >
-                  <ObtuseChevron color={colors.brand} isExpanded={false} />
-                </Pressable>
-              </View>
-            ) : (
-              <>
-                {hasActionPills ? (
-                  <View style={styles.collapsibleTierBlock}>
+        {showPersistentContext && hasActionPills ? (
+          <View style={styles.collapsibleTierBlock}>
                     {!isActionPillsCollapsed ? (
                       <View style={styles.headerSecondaryActions}>
                         {isBrokerOwnerChat || isBrokerClientChat ? (
@@ -3262,34 +3495,7 @@ function DirectChatScreen() {
                     <Pressable style={styles.obtuseToggleHandleCenter} onPress={() => toggleHideComponent("quickActions")} hitSlop={{ top: 4, bottom: 4, left: 24, right: 24 }} testID="chat-action-collapse-toggle">
                       <ObtuseChevron color={colors.onSurfaceTertiary} isExpanded={!isActionPillsCollapsed} />
                     </Pressable>
-                  </View>
-                ) : null}
-                {hasRoommateInfo ? (
-                  <View style={styles.collapsibleTierBlock}>
-                    {!isRoommateInfoCollapsed ? (
-                      <View style={styles.detailRow}>
-                        <View style={styles.detailPill}>
-                          <Ionicons name="person-outline" size={13} color={colors.onSurfaceTertiary} />
-                          <Text style={styles.detailText}>{displayGender}</Text>
-                        </View>
-                        <View style={styles.detailPill}>
-                          <Ionicons name="calendar-outline" size={13} color={colors.onSurfaceTertiary} />
-                          <Text style={styles.detailText}>{displayAge}</Text>
-                        </View>
-                        <View style={[styles.detailPill, styles.budgetPill]}>
-                          <Ionicons name="wallet-outline" size={13} color={colors.onBrandTertiary} />
-                          <Text style={[styles.detailText, { color: colors.onBrandTertiary }]}>{displayBudget}</Text>
-                        </View>
-                      </View>
-                    ) : null}
-                    <Pressable style={styles.obtuseToggleHandleCenter} onPress={() => toggleHideComponent("roommateInfo")} hitSlop={{ top: 4, bottom: 4, left: 24, right: 24 }} testID="chat-roommate-collapse-toggle">
-                      <ObtuseChevron color={colors.brand} isExpanded={!isRoommateInfoCollapsed} />
-                    </Pressable>
-                  </View>
-                ) : null}
-              </>
-            )}
-          </>
+          </View>
         ) : null}
 
         {showContextMenu ? (
@@ -3744,6 +3950,25 @@ function DirectChatScreen() {
               </Pressable>
             </View>
           ) : null}
+          {activePinnedAppointment ? (
+              <Pressable
+                style={styles.pinnedVisitBanner}
+                onPress={() => {
+                  const targetIndex = messages.length - 1 - activePinnedAppointment.index;
+                  scrollRef.current?.scrollToIndex({ index: targetIndex, animated: true, viewPosition: 0.5 });
+                  setHighlightedMessageId(activePinnedAppointment.message.id);
+                  setTimeout(() => setHighlightedMessageId(null), 1200);
+                }}
+                testID="chat-pinned-visit-banner"
+              >
+                <Ionicons name="calendar-outline" size={18} color={colors.brand} />
+                <View style={styles.pinnedVisitCopy}>
+                  <Text style={styles.pinnedVisitTitle} numberOfLines={1}>Ενεργή υπόδειξη</Text>
+                  <Text style={styles.pinnedVisitDate} numberOfLines={1}>{new Date(activePinnedAppointment.message.metadata?.appointmentDate ?? "").toLocaleString("el-GR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={17} color={colors.brand} />
+              </Pressable>
+          ) : null}
           {!messagesLoaded || !chatMetadataLoaded ? (
             <ChatMessagesSkeleton style={styles.flex} testID="chat-messages-skeleton" />
           ) : (
@@ -3834,6 +4059,9 @@ function DirectChatScreen() {
                     showMatchScore={showChatMatchScore}
                       compatibilityScore={apartmentData ? getChatApartmentCompatibilityScore(apartmentData, latestSharedFilterVersion) : 0}
                       onVisitEdit={() => setVisitToEdit(m)}
+                      currentUserId={currentUserId}
+                      onVisitRescheduleAccept={() => void handleVisitRescheduleDecision(m, "accept")}
+                      onVisitRescheduleReject={() => void handleVisitRescheduleDecision(m, "reject")}
                       onSharedProfilePress={() => {
                         if (m.metadata?.sharedProfile) {
                           setSelectedSharedProfile(m.metadata.sharedProfile);
@@ -3981,15 +4209,21 @@ function DirectChatScreen() {
           setVisitRequestApartmentId(null);
           setSelectedInquiryProperty(null);
         }}
-        onSubmit={(date, time, apartmentId) => void submitVisitRequest(date, time, apartmentId)}
+        onSubmit={(date, time, apartmentId, notes) => void submitVisitRequest(date, time, apartmentId, notes)}
       />
 
-      <EditVisitModal
+      <VisitRequestModal
         visible={visitToEdit !== null}
-        appointmentDate={visitToEdit?.metadata?.appointmentDate}
-        isSaving={isSavingVisit}
+        isSubmitting={isSavingVisit}
+        mode="edit"
+        existingAppointmentDate={visitToEdit?.metadata?.appointmentDate}
+        existingApartmentId={visitToEdit?.metadata?.apartmentId}
+        existingAppointmentId={visitToEdit?.metadata?.appointmentId}
+        existingNotes={visitToEdit?.metadata?.notes}
+        brokerId={auth.isBroker ? currentUserId ?? "" : counterpartId}
+        listings={visitRequestListings}
         onClose={() => setVisitToEdit(null)}
-        onSave={(date) => void saveVisitChanges(date)}
+        onSubmit={(date, time, apartmentId, notes) => void saveVisitChanges(date, time, apartmentId, notes)}
         onCancelAppointment={() => void cancelVisit()}
       />
 
@@ -4046,12 +4280,42 @@ function DirectChatScreen() {
         compatibilityScore={compatibilityScore}
         displayName={displayName}
         displayAbout={displayAbout}
+        displayGender={displayGender}
+        displayBudget={displayBudget}
         showAvatar={showAvatarImage}
         socialLinks={shouldShowSocialLinks ? socialLinks : []}
         canShare={showRoommateHeaderDetails && !counterpartDetails?.preferences?.hideNameInDeck && !counterpartDetails?.preferences?.hideInStack}
         onShare={() => setShareTargetVisible(true)}
+        recentApartment={recentApartment}
+        canShareListing={canShareListing}
+        onOpenRecentApartment={() => {
+          if (!recentApartment) return;
+          setProfileModalVisible(false);
+          router.push({ pathname: "/apartment-detail", params: { id: recentApartment.id } });
+        }}
+        onShareListing={() => {
+          setProfileModalVisible(false);
+          setListingShareVisible(true);
+        }}
         onClose={() => setProfileModalVisible(false)}
       />
+
+      {recentApartment ? (
+        <SelectListingShareTargetModal
+          visible={listingShareVisible}
+          currentUserId={currentUserId ?? ""}
+          apartment={recentApartment}
+          onClose={() => setListingShareVisible(false)}
+          onSent={() => {
+            setListingShareVisible(false);
+            setActionModal({
+              title: t("chat.listingShare.successTitle"),
+              description: t("chat.listingShare.successMessage"),
+              actions: [{ label: t("common.actions.gotIt"), iconName: "checkmark-circle-outline", onPress: () => setActionModal(null) }],
+            });
+          }}
+        />
+      ) : null}
 
       <SelectShareTargetModal
         visible={shareTargetVisible}
@@ -4260,18 +4524,6 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     justifyContent: "center",
     paddingVertical: 1,
   },
-  mergedCollapsedRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    width: "100%",
-    paddingHorizontal: spacing.md,
-    height: 14,
-    gap: spacing.md,
-    marginVertical: 2,
-  },
-  mergedCollapsedSlot: { flex: 1, alignItems: "center", justifyContent: "center", height: "100%" },
-  neutralActionCollapsedSlot: { borderBottomWidth: 1.5, borderBottomColor: colors.border },
-  brandRoommateCollapsedSlot: { borderBottomWidth: 1.5, borderBottomColor: colors.brand },
   headerSecondaryActions: {
     width: "100%",
     flexDirection: "row",
@@ -4324,6 +4576,9 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
+  pinnedVisitCopy: { flex: 1, gap: 2 },
+  pinnedVisitTitle: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onBrandTertiary },
+  pinnedVisitDate: { fontFamily: fonts.regular, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
   headerProfileTapArea: {
     flex: 1,
     flexDirection: "row",
@@ -4535,18 +4790,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     flexShrink: 1,
   },
   headerUni: { fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
-  detailRow: { flexDirection: "row", gap: spacing.sm },
-  detailPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    backgroundColor: colors.surfaceTertiary,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 6,
-    borderRadius: radius.pill,
-  },
-  budgetPill: { backgroundColor: colors.brandTertiary },
-  detailText: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
+  headerBrokerRole: { fontFamily: fonts.regular, fontSize: 11, lineHeight: 14, color: colors.onSurfaceTertiary },
   contextMenuBackdrop: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 5,
@@ -5388,7 +5632,7 @@ export default function ChatScreenRoute() {
       return;
     }
     return onSnapshot(doc(db, "chats", chatRoomId), (snapshot) => {
-      const data = snapshot.exists() ? snapshot.data() as { type?: string; groupMetadata?: GroupChatMetadata; users?: string[]; groupName?: string; hostApartmentId?: string; createdBy?: string } : null;
+      const data = snapshot.exists() ? snapshot.data() as { type?: string; groupMetadata?: GroupChatMetadata; users?: string[]; groupName?: string; hostApartmentId?: string; pinnedApartmentId?: string; createdBy?: string } : null;
       if (!data || data.type !== "roommate_group") {
         setGroupMetadata(null);
         return;
@@ -5401,6 +5645,7 @@ export default function ChatScreenRoute() {
         createdBy: data.groupMetadata?.createdBy ?? data.createdBy ?? memberIds[0] ?? "",
         ...(data.groupMetadata?.hostUserId ? { hostUserId: data.groupMetadata.hostUserId } : {}),
         ...(data.groupMetadata?.hostApartmentId ?? data.hostApartmentId ? { hostApartmentId: data.groupMetadata?.hostApartmentId ?? data.hostApartmentId } : {}),
+        ...(data.groupMetadata?.pinnedApartmentId ?? data.pinnedApartmentId ? { pinnedApartmentId: data.groupMetadata?.pinnedApartmentId ?? data.pinnedApartmentId } : {}),
       });
     }, (error) => {
       console.warn("[Chat] Group metadata listener failed:", error);

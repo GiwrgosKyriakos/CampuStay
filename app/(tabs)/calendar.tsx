@@ -33,6 +33,8 @@ import { cancelScheduledNotification, schedulePostVisitFeedbackReminder } from "
 import { getRoleHomeTab } from "@/src/utils/roles";
 import { shouldSuppressViewingFeedback } from "@/src/utils/viewingFeedbackEligibility";
 import MonthYearPickerModal from "@/src/components/calendar/MonthYearPickerModal";
+import CalendarGridShimmerCell from "@/src/components/calendar/CalendarGridShimmerCell";
+import BrokerTodoSkeleton from "@/src/components/calendar/BrokerTodoSkeleton";
 
 type CalendarViewMode = "month" | "week" | "day";
 const WEEKDAY_LABELS = ["Δευ", "Τρι", "Τετ", "Πεμ", "Παρ", "Σαβ", "Κυρ"] as const;
@@ -270,6 +272,7 @@ function buildMonthWeeks(date: Date): CalendarWeek[] {
 
 export function CalendarView({
   colors,
+  isBroker,
   userId,
   currentDate,
   calendarViewMode,
@@ -287,6 +290,7 @@ export function CalendarView({
   isLoading,
 }: {
   colors: ThemeColors;
+  isBroker: boolean;
   userId: string;
   currentDate: Date;
   calendarViewMode: CalendarViewMode;
@@ -345,18 +349,20 @@ export function CalendarView({
   const selectedDayNotes = useMemo(() => notesByDate.get(selectedDayKey) ?? [], [notesByDate, selectedDayKey]);
   const [feedbackNote, setFeedbackNote] = useState<BrokerNote | null>(null);
   const [feedbackEligibility, setFeedbackEligibility] = useState<Record<string, boolean>>({});
-  const pendingFeedbackNotes = useMemo(
-    () => visibleNotes.filter((note) => {
+  const pendingFeedbackNotes = useMemo(() => {
+    if (!isBroker) return [];
+    return visibleNotes.filter((note) => {
       if (note.category !== "showing" || !note.apartmentId || note.feedbackSubmittedBy?.[userId]) return false;
+      if (note.feedbackStatus === "suppressed_rescheduled" || note.appointmentStatus === "superseded_pending" || note.appointmentStatus === "superseded_final" || note.appointmentStatus === "reschedule_proposed" || note.appointmentStatus === "reschedule_rejected") return false;
       if (feedbackEligibility[note.id] !== true) return false;
       if (note.done || note.isCompleted) return true;
       const visitDate = getCalendarNoteDate(note.scheduledDate ?? note.date, note.scheduledTime ?? note.time, note.timestamp);
       return !!visitDate && currentTime.getTime() >= visitDate.getTime() + 2 * 60 * 60 * 1000;
-    }),
-    [currentTime, feedbackEligibility, userId, visibleNotes],
-  );
+    });
+  }, [currentTime, feedbackEligibility, isBroker, userId, visibleNotes]);
   useEffect(() => {
-    const candidates = visibleNotes.filter((note) => note.category === "showing" && note.apartmentId && feedbackEligibility[note.id] === undefined);
+    if (!isBroker) return;
+    const candidates = visibleNotes.filter((note) => note.category === "showing" && note.apartmentId && note.feedbackStatus !== "suppressed_rescheduled" && note.appointmentStatus !== "superseded_pending" && note.appointmentStatus !== "superseded_final" && note.appointmentStatus !== "reschedule_proposed" && note.appointmentStatus !== "reschedule_rejected" && feedbackEligibility[note.id] === undefined);
     if (candidates.length === 0) return;
     let active = true;
 
@@ -378,11 +384,12 @@ export function CalendarView({
     return () => {
       active = false;
     };
-  }, [feedbackEligibility, visibleNotes]);
+  }, [feedbackEligibility, isBroker, visibleNotes]);
 
   useEffect(() => {
+    if (!isBroker) return;
     visibleNotes.forEach((note) => {
-      if (note.category !== "showing" || !note.apartmentId || note.feedbackSubmittedBy?.[userId]) return;
+      if (note.category !== "showing" || !note.apartmentId || note.feedbackSubmittedBy?.[userId] || note.feedbackStatus === "suppressed_rescheduled" || note.appointmentStatus === "superseded_pending" || note.appointmentStatus === "superseded_final" || note.appointmentStatus === "reschedule_proposed" || note.appointmentStatus === "reschedule_rejected") return;
       if (feedbackEligibility[note.id] !== true) {
         void Promise.all([
           cancelScheduledNotification(note.reminderNotificationId),
@@ -397,7 +404,7 @@ export function CalendarView({
       const visitDate = getCalendarNoteDate(note.scheduledDate ?? note.date, note.scheduledTime ?? note.time, note.timestamp);
       if (visitDate) void schedulePostVisitFeedbackReminder({ noteId: note.id, apartmentTitle: note.apartmentTitle ?? "το διαμέρισμα", scheduledAt: visitDate });
     });
-  }, [feedbackEligibility, userId, visibleNotes]);
+  }, [feedbackEligibility, isBroker, userId, visibleNotes]);
   const nextUpNote = useMemo(() => {
     const currentMinutes = getTimeInMinutes(currentTime);
     const upcomingNotes = visibleNotes
@@ -468,6 +475,22 @@ export function CalendarView({
   const renderExpandedNoteCard = (note: BrokerNote) => {
     const isPast = isArchivedDate(new Date(`${note.date}T00:00:00`));
     const textColor = note.done ? colors.onBrandTertiary : colors.onSurface;
+    const representativeIsBroker = Boolean(note.primaryBrokerId || note.listingBrokerId || note.buyerBrokerId);
+    const representativeName = representativeIsBroker
+      ? note.primaryBrokerName || note.coveringBrokerName || t("calendar.broker")
+      : note.counterpartName || t("calendar.host");
+
+    if (!isBroker) {
+      return (
+        <View key={note.id} style={[styles.noteCard, styles.clientNoteCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, opacity: isPast ? 0.6 : 1 }]} testID={`calendar-client-appointment-${note.id}`}>
+          <View style={styles.noteDetails}>
+            <Text style={[styles.notePrimaryText, { color: colors.onSurface }]}>{t("calendar.noteModal.timeLabel")}: {note.time || "--:--"}</Text>
+            <Text style={[styles.noteSecondaryText, { color: colors.onSurface }]} numberOfLines={2}>{t("calendar.noteModal.apartmentLabel")}: {note.apartmentTitle || "-"}</Text>
+            <Text style={[styles.noteSecondaryText, { color: colors.onSurfaceTertiary }]} numberOfLines={1}>{t("calendar.representative")}: {representativeName}</Text>
+          </View>
+        </View>
+      );
+    }
 
     return (
       <Pressable
@@ -504,7 +527,7 @@ export function CalendarView({
           {note.coveringBrokerId ? <Text style={[styles.coveringNoteBadge, { color: colors.brand }]} numberOfLines={1}>{t("calendar.coveringVisitFor", { name: note.primaryBrokerName || t("agency.coveringBroker") })}</Text> : null}
         </View>
         <View style={styles.noteCardActions}>
-          {note.apartmentId && note.clientId && (note.category === "showing" || note.category === "visit") ? (
+          {isBroker && note.apartmentId && note.clientId && (note.category === "showing" || note.category === "visit") ? (
             <Pressable
               accessibilityLabel={t("esign.signViewingOrder")}
               hitSlop={8}
@@ -528,6 +551,22 @@ export function CalendarView({
     const isPast = isArchivedDate(new Date(`${note.date}T00:00:00`));
     const textColor = note.done ? colors.onBrandTertiary : colors.onSurface;
     const compactTextStyle = { color: textColor, textDecorationLine: note.done ? "line-through" as const : "none" as const };
+    const representativeIsBroker = Boolean(note.primaryBrokerId || note.listingBrokerId || note.buyerBrokerId);
+    const representativeName = representativeIsBroker
+      ? note.primaryBrokerName || note.coveringBrokerName || t("calendar.broker")
+      : note.counterpartName || t("calendar.host");
+
+    if (!isBroker) {
+      return (
+        <View key={note.id} style={[styles.noteCard, styles.compactNoteCard, styles.clientNoteCard, { width, backgroundColor: colors.surfaceSecondary, borderColor: colors.border, opacity: isPast ? 0.6 : 1 }]} testID={`calendar-client-appointment-compact-${note.id}`}>
+          <View style={styles.noteDetails}>
+            <Text style={[styles.notePrimaryText, { color: colors.onSurface }]} numberOfLines={1}>{note.time || "--:--"}</Text>
+            <Text style={[styles.noteSecondaryText, { color: colors.onSurface }]} numberOfLines={1}>{note.apartmentTitle || "-"}</Text>
+            <Text style={[styles.noteSecondaryText, { color: colors.onSurfaceTertiary }]} numberOfLines={1}>{t("calendar.representative")}: {representativeName}</Text>
+          </View>
+        </View>
+      );
+    }
 
     return (
       <Pressable
@@ -553,7 +592,7 @@ export function CalendarView({
           {note.coveringBrokerId && visibleFields.includes("timeOrTitle") ? <Text style={[styles.coveringNoteBadge, { color: colors.brand }]} numberOfLines={1}>{t("calendar.coveringVisit")}</Text> : null}
         </View>
         <View style={styles.noteCardActions}>
-          {note.apartmentId && note.clientId && (note.category === "showing" || note.category === "visit") ? (
+          {isBroker && note.apartmentId && note.clientId && (note.category === "showing" || note.category === "visit") ? (
             <Pressable
               accessibilityLabel={t("esign.signViewingOrder")}
               hitSlop={6}
@@ -615,7 +654,7 @@ export function CalendarView({
             return <View style={styles.noteGrid}>{layout.notes.map((note) => renderCompactNoteCard(note, cardWidth, layout.visibleFields))}</View>;
           })()
         )}
-        {!isPast ? (
+        {isBroker && !isPast ? (
           <Pressable
             style={[styles.addNoteRow, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
             onPress={(event) => {
@@ -692,7 +731,7 @@ export function CalendarView({
                     />
                   </Pressable>
 
-                  {week.cells.map((cell) => {
+                  {week.cells.map((cell, columnIndex) => {
                     const dayNotes = notesByDate.get(cell.dateKey) ?? [];
                     const dayTint = getMostFrequentCategoryColor(dayNotes);
                     const isPastDay = isArchivedDate(cell.date);
@@ -722,6 +761,7 @@ export function CalendarView({
                           {cell.dayOfMonth}
                         </Text>
                         {hasNotes ? <View style={[styles.noteIndicatorDot, { backgroundColor: dotColor }]} /> : null}
+                        {isLoading ? <CalendarGridShimmerCell row={week.index} column={columnIndex} /> : null}
                       </Pressable>
                     );
                   })}
@@ -741,7 +781,7 @@ export function CalendarView({
               <View style={[styles.weekVerticalBar, styles.weekVerticalBarActive, { backgroundColor: colors.brand }]} />
             </Pressable>
 
-            {currentWeekCells.map((cell) => {
+            {currentWeekCells.map((cell, columnIndex) => {
               const dayNotes = notesByDate.get(cell.dateKey) ?? [];
               const dayTint = getMostFrequentCategoryColor(dayNotes);
               const isPastDay = isArchivedDate(cell.date);
@@ -769,6 +809,7 @@ export function CalendarView({
                 >
                   <Text style={[styles.dayNumberText, { color: colors.onSurface }]}>{cell.dayOfMonth}</Text>
                   {hasNotes ? <View style={[styles.noteIndicatorDot, { backgroundColor: dotColor }]} /> : null}
+                  {isLoading ? <CalendarGridShimmerCell row={0} column={columnIndex} /> : null}
                 </Pressable>
               );
             })}
@@ -777,11 +818,6 @@ export function CalendarView({
 
         {calendarViewMode === "week" || calendarViewMode === "day" ? renderAgenda() : null}
 
-        {isLoading ? (
-          <View style={styles.loadingOverlay}>
-            <ActivityIndicator size="small" color={colors.brand} />
-          </View>
-        ) : null}
         </View>
 
         {pendingFeedbackNotes.length > 0 ? <View style={[styles.feedbackCallout, { borderColor: colors.brand, backgroundColor: colors.brandTertiary }]} testID="broker-calendar-pending-feedback-callout"><Ionicons name="star-outline" size={22} color={colors.brand} /><View style={styles.feedbackCalloutCopy}><Text style={[styles.feedbackCalloutText, { color: colors.onSurface }]}>Σημείωση εκτίμησης & feedback για την υπόδειξη στο {pendingFeedbackNotes[0].apartmentTitle ?? "διαμέρισμα"}.</Text><Pressable onPress={() => setFeedbackNote(pendingFeedbackNotes[0])} testID="broker-calendar-open-feedback"><Text style={[styles.feedbackCalloutAction, { color: colors.brand }]}>Καταγραφή Feedback</Text></Pressable></View></View> : null}
@@ -793,9 +829,7 @@ export function CalendarView({
                 To<Text style={{ color: colors.brand }}>Do</Text>
               </Text>
               {isLoading ? (
-                <View style={styles.nextUpEmptyState}>
-                  <ActivityIndicator size="small" color={colors.brand} />
-                </View>
+                <BrokerTodoSkeleton />
               ) : nextUpNote ? (
                 renderExpandedNoteCard(nextUpNote)
               ) : (
@@ -808,7 +842,7 @@ export function CalendarView({
             </View>
           </View>
         ) : null}
-        <PostVisitFeedbackModal visible={feedbackNote !== null} note={feedbackNote} isClient={false} userId={userId} clientName={feedbackNote?.clientName ?? ""} propertyId={feedbackNote?.apartmentId} clientId={feedbackNote?.clientId} profileId={feedbackNote?.brokerId && feedbackNote?.clientId ? `${feedbackNote.brokerId}_${feedbackNote.clientId}` : undefined} listingPrice={feedbackNote?.apartmentPrice} onClose={() => setFeedbackNote(null)} onSaved={() => { if (!feedbackNote) return; onFeedbackSaved(feedbackNote.id); setFeedbackNote(null); }} />
+        <PostVisitFeedbackModal visible={feedbackNote !== null && feedbackEligibility[feedbackNote.id] === true && feedbackNote.feedbackStatus !== "suppressed_rescheduled" && feedbackNote.appointmentStatus !== "superseded_pending" && feedbackNote.appointmentStatus !== "superseded_final" && feedbackNote.appointmentStatus !== "reschedule_proposed" && feedbackNote.appointmentStatus !== "reschedule_rejected"} note={feedbackNote} isClient={false} userId={userId} clientName={feedbackNote?.clientName ?? ""} propertyId={feedbackNote?.apartmentId} clientId={feedbackNote?.clientId} profileId={feedbackNote?.brokerId && feedbackNote?.clientId ? `${feedbackNote.brokerId}_${feedbackNote.clientId}` : undefined} listingPrice={feedbackNote?.apartmentPrice} isBrokerManaged={feedbackNote ? feedbackEligibility[feedbackNote.id] === true : false} onClose={() => setFeedbackNote(null)} onSaved={() => { if (!feedbackNote) return; onFeedbackSaved(feedbackNote.id); setFeedbackNote(null); }} />
       </View>
     </GestureDetector>
   );
@@ -864,7 +898,7 @@ function ClientCalendarScreen() {
       (snapshot) => {
         const nextAppointments = snapshot.docs
           .map((appointmentSnapshot) => ({ id: appointmentSnapshot.id, ...appointmentSnapshot.data() } as VisitAppointment))
-          .filter((appointment) => appointment.status !== "cancelled")
+          .filter((appointment) => appointment.status !== "cancelled" && appointment.status !== "superseded_pending" && appointment.status !== "superseded_final" && appointment.status !== "reschedule_rejected")
           .sort((left, right) => left.appointmentDate.localeCompare(right.appointmentDate));
         setAppointments(nextAppointments);
         setLoading(false);
@@ -899,9 +933,10 @@ function ClientCalendarScreen() {
         <Pressable style={clientCalendarStyles.monthArrow} onPress={() => shiftMonth(-1)} accessibilityLabel={t("calendar.previousMonth")}>
           <Ionicons name="chevron-back" size={20} color={colors.onSurface} />
         </Pressable>
-        <Pressable style={[clientCalendarStyles.monthPill, { backgroundColor: colors.surface, borderColor: colors.border, shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 3 }]} onPress={() => setIsPickerVisible(true)} accessibilityLabel={t("calendar.selectMonthYear")}>
+        <Pressable style={[clientCalendarStyles.monthPill, { backgroundColor: colors.surface, borderColor: colors.border, shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 3 }]} onPress={() => setIsPickerVisible(true)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityRole="button" accessibilityLabel={t("calendar.selectMonthYear")}>
           <Ionicons name="calendar-number-outline" size={17} color={colors.brand} />
           <Text style={[clientCalendarStyles.monthPillText, { color: colors.onSurface }]}>{GREEK_MONTHS[selectedMonth.getMonth()]} {selectedMonth.getFullYear()}</Text>
+          <Ionicons name="chevron-down" size={16} color={colors.onSurfaceTertiary} />
         </Pressable>
         <Pressable style={clientCalendarStyles.monthArrow} onPress={() => shiftMonth(1)} accessibilityLabel={t("calendar.nextMonth")}>
           <Ionicons name="chevron-forward" size={20} color={colors.onSurface} />
@@ -1287,8 +1322,9 @@ function BrokerCalendarScreen() {
           <Pressable style={styles.headerArrowButton} onPress={goToPrevious} hitSlop={8}>
             <Ionicons name="chevron-back" size={22} color={colors.onSurface} />
           </Pressable>
-          <Pressable style={[styles.headerTitleButton, calendarViewMode === "month" && { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 3 }]} onPress={calendarViewMode === "month" ? () => setIsPickerVisible(true) : undefined}>
+          <Pressable style={[styles.headerTitleButton, calendarViewMode === "month" && { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 3 }]} onPress={calendarViewMode === "month" ? () => setIsPickerVisible(true) : undefined} disabled={calendarViewMode !== "month"} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityRole={calendarViewMode === "month" ? "button" : undefined} accessibilityLabel={calendarViewMode === "month" ? t("calendar.selectMonthYear") : headerTitle} testID="broker-calendar-month-year-pill">
             <Text style={[styles.headerTitleText, { color: colors.onSurface }]}>{headerTitle}</Text>
+            {calendarViewMode === "month" ? <Ionicons name="chevron-down" size={16} color={colors.onSurfaceTertiary} /> : null}
           </Pressable>
           <Pressable style={styles.headerArrowButton} onPress={goToNext} hitSlop={8}>
             <Ionicons name="chevron-forward" size={22} color={colors.onSurface} />
@@ -1296,6 +1332,7 @@ function BrokerCalendarScreen() {
         </View>
         <CalendarView
           colors={colors}
+          isBroker={true}
           userId={brokerId}
           currentDate={currentDate}
           calendarViewMode={calendarViewMode}
@@ -1424,8 +1461,10 @@ const styles = StyleSheet.create({
   },
   headerTitleButton: {
     flex: 1,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    gap: spacing.xs,
     paddingHorizontal: spacing.sm,
     minHeight: 40,
     borderRadius: radius.pill,
@@ -1731,6 +1770,9 @@ const styles = StyleSheet.create({
   compactNoteCard: {
     minHeight: 52,
   },
+  clientNoteCard: {
+    paddingVertical: spacing.md,
+  },
   noteIndicatorDot: {
     position: "absolute",
     bottom: 4,
@@ -1757,11 +1799,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     fontSize: fontSize.sm,
     textAlign: "center",
-  },
-  loadingOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: "center",
-    justifyContent: "center",
   },
   pageCard: {
     borderRadius: radius.lg,

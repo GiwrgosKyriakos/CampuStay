@@ -25,6 +25,7 @@ import {
   deleteField,
   doc,
   getDoc,
+  getDocs,
   onSnapshot,
   query,
   runTransaction,
@@ -32,17 +33,21 @@ import {
   setDoc,
   updateDoc,
   orderBy,
+  where,
+  limit,
 } from "firebase/firestore";
 
 import { db } from "@/src/config/firebase";
 import { useTheme } from "@/src/context/ThemeContext";
 import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
 import { subscribeUserLikedApartmentIds } from "@/src/api/apartmentLikes";
-import { renameRoommateGroupChat, setBlockStateBetweenUsers } from "@/src/api/chat";
+import { renameRoommateGroupChat, setBlockStateBetweenUsers, type PropertyCardMessageData } from "@/src/api/chat";
 import { getUserSettings, saveUserPrivacy } from "@/src/api/accountSettings";
 import { updateLinkedCalendarNotes, updateVisitAppointment } from "@/src/api/visitAppointments";
 import type { GroupChatMetadata } from "@/src/types/chat";
-import RenameGroupModal from "@/src/components/chat/RenameGroupModal";
+import GroupProfileModal, { type GroupProfileMember } from "@/src/components/GroupProfileModal";
+import RoommatePropertySelectorModal, { type RoommatePropertyParticipant } from "@/src/components/RoommatePropertySelectorModal";
+import ChatUserProfileSheet from "@/src/components/chat/ChatUserProfileSheet";
 import CommonLikedListingsModal, { type CommonLikedListing } from "@/src/components/chat/CommonLikedListingsModal";
 import RoommateContractPickerModal from "@/src/components/RoommateContractPickerModal";
 import VoiceInputButton from "@/src/components/common/VoiceInputButton";
@@ -51,6 +56,9 @@ import { t } from "@/src/locales";
 import type { ContractDraftContext, ContractType } from "@/src/types/esignature";
 import EditVisitModal from "@/src/components/chat/modals/EditVisitModal";
 import CenteredActionModal from "@/src/components/CenteredActionModal";
+import type { Gender, RoommateProfile } from "@/src/data/profiles";
+import type { FirestoreUserDoc } from "@/src/components/chat/modals/types";
+import { hasBrokerParticipant } from "@/src/utils/roles";
 
 const campuStay = false;
 
@@ -78,6 +86,51 @@ type GroupMemberProfile = {
   name: string;
   photo: string;
 };
+
+function mapMemberProfile(memberId: string, data: FirestoreUserDoc, isHost: boolean): GroupProfileMember {
+  const name = data.name?.trim() || "Μέλος ομάδας";
+  const photo = data.photoUrl || data.photos?.[0] || "";
+  const profile: RoommateProfile = {
+    id: memberId,
+    name,
+    age: typeof data.age === "number" ? data.age : 0,
+    gender: (data.gender as Gender) || (t("common.values.nonBinary") as Gender),
+    budget: typeof data.maxBudget === "number" ? data.maxBudget : typeof data.budget === "number" ? data.budget : 0,
+    university: data.university || "",
+    program: data.year || data.year_of_study || "",
+    bio: data.about || data.bio || "",
+    tags: [],
+    photo,
+    deleted: data.deleted === true || data.isDeleted === true || data.deletedAt != null,
+  };
+  return { id: memberId, name, photo, isHost, profile, details: data };
+}
+
+async function getLatestMemberApartment(memberId: string): Promise<PropertyCardMessageData | null> {
+  for (const ownerField of ["hostId", "creatorId"] as const) {
+    let snapshot;
+    try {
+      snapshot = await getDocs(query(collection(db, "apartments"), where(ownerField, "==", memberId), where("status", "==", "active"), orderBy("createdAt", "desc"), limit(1)));
+    } catch {
+      snapshot = await getDocs(query(collection(db, "apartments"), where(ownerField, "==", memberId)));
+    }
+    const apartment = snapshot.docs[0];
+    if (!apartment) continue;
+    const data = apartment.data() as { title?: string; rent?: number; price?: number; city?: string; area?: string; image?: string; imageUrl?: string; images?: string[]; rooms?: number; size?: number; sqft?: number; status?: string; isOffMarket?: boolean };
+    if ((data.status && data.status !== "active") || data.isOffMarket === true) continue;
+    return {
+      id: apartment.id,
+      title: data.title?.trim() || t("apartments.unknownListing"),
+      rent: typeof data.rent === "number" ? data.rent : data.price ?? 0,
+      city: data.city?.trim() || t("apartments.unknownCity"),
+      area: data.area?.trim() || t("apartments.unknownArea"),
+      image: data.image || data.imageUrl || data.images?.[0] || "",
+      rooms: typeof data.rooms === "number" ? data.rooms : 0,
+      size: typeof data.size === "number" ? data.size : data.sqft ?? 0,
+    };
+  }
+  return null;
+}
 
 type GroupMessagePosition = "first" | "middle" | "last" | "single";
 
@@ -127,7 +180,13 @@ export default function GroupChatScreen({
   const [text, setText] = useState("");
   const draftVoice = useVoiceInputPreview(text, setText);
   const [groupName, setGroupName] = useState(metadata.groupName || "Ομαδική");
-  const [renameVisible, setRenameVisible] = useState(false);
+  const [groupProfileVisible, setGroupProfileVisible] = useState(false);
+  const [propertySelectorVisible, setPropertySelectorVisible] = useState(false);
+  const [groupMembers, setGroupMembers] = useState<GroupProfileMember[]>([]);
+  const [groupMembersLoaded, setGroupMembersLoaded] = useState(false);
+  const [selectedMember, setSelectedMember] = useState<GroupProfileMember | null>(null);
+  const [selectedMemberApartment, setSelectedMemberApartment] = useState<PropertyCardMessageData | null>(null);
+  const [activeApartmentId, setActiveApartmentId] = useState(metadata.pinnedApartmentId ?? metadata.hostApartmentId ?? "");
   const [commonVisible, setCommonVisible] = useState(false);
   const [commonLoading, setCommonLoading] = useState(false);
   const [likedByMember, setLikedByMember] = useState<Record<string, Set<string>>>({});
@@ -147,7 +206,46 @@ export default function GroupChatScreen({
   const [isMuting, setIsMuting] = useState(false);
   const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
   const listRef = useRef<FlatList<GroupMessage>>(null);
-  const hasHost = Boolean(metadata.hostUserId || metadata.hostApartmentId);
+  const hasHost = Boolean(metadata.hostUserId || activeApartmentId);
+  const isBrokerConversation = !groupMembersLoaded
+    || hasBrokerParticipant(groupMembers.map((member) => member.details));
+
+  useEffect(() => {
+    if (isBrokerConversation) {
+      setGroupProfileVisible(false);
+      setSelectedMember(null);
+      setSelectedMemberApartment(null);
+    }
+  }, [isBrokerConversation]);
+
+  useEffect(() => {
+    setActiveApartmentId(metadata.pinnedApartmentId ?? metadata.hostApartmentId ?? "");
+  }, [metadata.hostApartmentId, metadata.pinnedApartmentId]);
+
+  useEffect(() => {
+    setGroupName(metadata.groupName || "Ομαδική");
+  }, [metadata.groupName]);
+
+  useEffect(() => {
+    let active = true;
+    setGroupMembersLoaded(false);
+    void Promise.all(metadata.memberIds.map(async (memberId) => {
+      const snapshot = await getDoc(doc(db, "users", memberId));
+      const data = snapshot.exists() ? snapshot.data() as FirestoreUserDoc : {};
+      return mapMemberProfile(memberId, data, memberId === metadata.hostUserId);
+    })).then((members) => {
+      if (active) {
+        setGroupMembers(members);
+        setGroupMembersLoaded(true);
+      }
+    }).catch(() => {
+      if (active) {
+        setGroupMembers([]);
+        setGroupMembersLoaded(false);
+      }
+    });
+    return () => { active = false; };
+  }, [metadata.hostUserId, metadata.memberIds]);
 
   useEffect(() => {
     const showSubscription = Keyboard.addListener(
@@ -359,8 +457,11 @@ export default function GroupChatScreen({
   }, [metadata.memberIds]);
 
   useEffect(() => {
-    if (!metadata.hostApartmentId) return;
-    return onSnapshot(doc(db, "apartments", metadata.hostApartmentId), (snapshot) => {
+    if (!activeApartmentId) {
+      setHostApartment(null);
+      return;
+    }
+    return onSnapshot(doc(db, "apartments", activeApartmentId), (snapshot) => {
       if (!snapshot.exists()) return setHostApartment(null);
       const data = snapshot.data() as {
         title?: string;
@@ -381,10 +482,10 @@ export default function GroupChatScreen({
         image: data.image || data.imageUrl || data.images?.[0],
       });
     }, (error) => {
-      console.warn("[GroupChat] Host apartment listener failed:", { apartmentId: metadata.hostApartmentId, error });
+      console.warn("[GroupChat] Host apartment listener failed:", { apartmentId: activeApartmentId, error });
       setHostApartment(null);
     });
-  }, [metadata.hostApartmentId]);
+  }, [activeApartmentId]);
 
   const commonIds = useMemo(() => {
     const sets = metadata.memberIds.map((id) => likedByMember[id]).filter(Boolean);
@@ -484,7 +585,12 @@ export default function GroupChatScreen({
   const rename = async (name: string) => {
     await renameRoommateGroupChat(chatRoomId, currentUserId, name);
     setGroupName(name.trim());
-    setRenameVisible(false);
+  };
+
+  const openMemberProfile = (member: GroupProfileMember) => {
+    setSelectedMember(member);
+    setSelectedMemberApartment(null);
+    void getLatestMemberApartment(member.id).then(setSelectedMemberApartment).catch(() => setSelectedMemberApartment(null));
   };
 
   const leaveGroup = async () => {
@@ -565,7 +671,7 @@ export default function GroupChatScreen({
       contractType,
       title: t(contractType === "roommate_agreement" ? "esign.roommateAgreement" : "esign.holdingDeposit"),
       ownerId: metadata.hostUserId,
-      apartmentId: metadata.hostApartmentId,
+      apartmentId: activeApartmentId || undefined,
       chatRoomId,
       participantIds,
       contractPayload:
@@ -610,7 +716,16 @@ export default function GroupChatScreen({
             <Ionicons name="chevron-back" size={18} color={colors.onSurface} />
           </Pressable>
 
-          <Pressable style={styles.headerGroupTapArea} onPress={() => setRenameVisible(true)} hitSlop={6}>
+          <Pressable
+            style={styles.headerGroupTapArea}
+            onPress={() => {
+              if (isBrokerConversation) return;
+              setGroupProfileVisible(true);
+            }}
+            disabled={isBrokerConversation}
+            hitSlop={6}
+            testID="group-chat-profile-trigger"
+          >
             <View style={styles.groupAvatarCircle}>
               <Ionicons name="people" size={22} color={colors.brand} />
             </View>
@@ -619,11 +734,11 @@ export default function GroupChatScreen({
                 <Text style={styles.headerTitle} numberOfLines={1}>
                   {groupName}
                 </Text>
-                <Ionicons name="pencil" size={12} color={colors.onSurfaceTertiary} />
+                {!isBrokerConversation ? <Ionicons name="pencil" size={12} color={colors.onSurfaceTertiary} /> : null}
               </View>
               <View style={styles.headerSubtitleRow}>
                 <Text style={styles.headerSubtitle} numberOfLines={1}>
-                  {`${metadata.memberIds.length} μέλη · Πατήστε για μετονομασία`}
+                  {isBrokerConversation ? `${metadata.memberIds.length} μέλη` : `${metadata.memberIds.length} μέλη · Πατήστε για μετονομασία`}
                 </Text>
                 {isChatMuted ? <Ionicons name="notifications-off-outline" size={14} color={colors.onSurfaceTertiary} testID="group-chat-muted-indicator" /> : null}
               </View>
@@ -735,7 +850,7 @@ export default function GroupChatScreen({
             const chronologicalIndex = messages.length - 1 - index;
             const itemMarginStyle = getGroupMessageMargin(messages, chronologicalIndex);
 
-            if (item.type === "system") {
+            if (item.type === "system" || item.type === "group_name_changed" || item.type === "active_property_updated") {
               return (
                 <View style={[styles.systemPill, itemMarginStyle]}>
                   <Text style={styles.systemText}>{item.text}</Text>
@@ -793,6 +908,7 @@ export default function GroupChatScreen({
             }
 
             const isMine = item.senderId === currentUserId;
+            const sender = groupMembers.find((member) => member.id === item.senderId);
             return (
               <View
                 style={[
@@ -802,6 +918,12 @@ export default function GroupChatScreen({
                   item.id === highlightedMessageId && styles.highlightedMessage,
                 ]}
               >
+                {sender ? (
+                  <View style={styles.senderRow}>
+                    {sender.photo ? <Image source={{ uri: sender.photo }} style={styles.senderAvatar} contentFit="cover" /> : <View style={styles.senderAvatarFallback}><Ionicons name="person-outline" size={12} color={colors.onSurfaceTertiary} /></View>}
+                    <Text style={styles.senderName} numberOfLines={1}>{sender.name}</Text>
+                  </View>
+                ) : null}
                 <Text style={isMine ? styles.messageTextMine : styles.messageTextTheirs}>{item.text}</Text>
               </View>
             );
@@ -843,11 +965,50 @@ export default function GroupChatScreen({
       </View>
       </KeyboardAvoidingView>
 
-      <RenameGroupModal
-        visible={renameVisible}
-        initialName={groupName}
-        onClose={() => setRenameVisible(false)}
-        onSubmit={(name) => void rename(name)}
+      <GroupProfileModal
+        visible={groupProfileVisible}
+        groupName={groupName}
+        members={groupMembers}
+        hostUserId={metadata.hostUserId}
+        onRename={rename}
+        onSelectProperty={() => {
+          setGroupProfileVisible(false);
+          setPropertySelectorVisible(true);
+        }}
+        onMemberPress={openMemberProfile}
+        onClose={() => setGroupProfileVisible(false)}
+      />
+      <RoommatePropertySelectorModal
+        visible={propertySelectorVisible}
+        chatRoomId={chatRoomId}
+        currentUserId={currentUserId}
+        participants={(groupMembers.length > 0 ? groupMembers : metadata.memberIds.map((id) => ({ id, name: t("chat.groupProfile.memberFallback") }))).map((member): RoommatePropertyParticipant => ({ id: member.id, name: member.name }))}
+        pinnedApartmentId={activeApartmentId}
+        onClose={() => setPropertySelectorVisible(false)}
+        onActivePropertyChanged={(property) => {
+          setActiveApartmentId(property.id);
+          setHostApartment({ id: property.id, title: property.title, area: property.area, city: property.city, rent: property.rent, image: property.image });
+        }}
+      />
+      <ChatUserProfileSheet
+        visible={selectedMember !== null}
+        profile={selectedMember?.profile ?? null}
+        details={selectedMember?.details ?? null}
+        compatibilityScore={null}
+        displayName={selectedMember?.name ?? ""}
+        displayAbout={selectedMember?.profile.bio || t("common.values.notAvailable")}
+        displayGender={selectedMember?.profile.gender}
+        displayBudget={selectedMember ? `€${selectedMember.profile.budget}${t("common.format.perMonthShort")}` : undefined}
+        showAvatar={!!selectedMember?.photo}
+        socialLinks={[]}
+        recentApartment={selectedMemberApartment}
+        onOpenRecentApartment={() => {
+          if (selectedMemberApartment) router.push({ pathname: "/apartment-detail", params: { id: selectedMemberApartment.id } });
+        }}
+        onClose={() => {
+          setSelectedMember(null);
+          setSelectedMemberApartment(null);
+        }}
       />
       <CommonLikedListingsModal
         visible={commonVisible}
@@ -1221,6 +1382,15 @@ function createStyles(colors: ThemeColors) {
       borderWidth: 2,
       borderColor: colors.brand,
     },
+    senderRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+      marginBottom: spacing.xs,
+    },
+    senderAvatar: { width: 20, height: 20, borderRadius: radius.pill, backgroundColor: colors.surfaceTertiary },
+    senderAvatarFallback: { width: 20, height: 20, borderRadius: radius.pill, alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceTertiary },
+    senderName: { maxWidth: 160, fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
     messageTextMine: {
       color: colors.onBrand,
       fontFamily: fonts.semibold,

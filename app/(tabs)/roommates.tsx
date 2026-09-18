@@ -1,6 +1,7 @@
 import React, { useMemo, useRef, useState, useCallback, useEffect } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTheme } from "@/src/context/ThemeContext";
-import { View, Text, StyleSheet, Pressable, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, Pressable } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -10,6 +11,7 @@ import { doc, getDoc, onSnapshot, setDoc, updateDoc } from "firebase/firestore";
 import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
 import type { RoommateProfile } from "@/src/data/profiles";
 import SwipeDeck, { SwipeDeckHandle } from "@/src/components/SwipeDeck";
+import SwipeDeckSkeleton from "@/src/components/SwipeDeckSkeleton";
 import FilterSheet, { Filters, DEFAULT_FILTERS } from "@/src/components/FilterSheet";
 import CalendarScheduleView from "@/src/components/calendar/CalendarScheduleView";
 import CalendarNoteModal from "@/src/components/calendar/CalendarNoteModal";
@@ -22,9 +24,11 @@ import { t } from "@/src/locales";
 import { registerForPushNotificationsAsync } from "@/src/utils/notificationService";
 import { calculateMatchScore } from "@/src/utils/matchAlgorithm";
 import type { CompatibilityQuizAnswers, UserProfile as MatchUserProfile } from "@/src/utils/matchAlgorithm";
+import { DEFAULT_HARD_CRITERIA, normalizeSelectedHardCriteria } from "@/src/types/roommateHardCriteria";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 84;
+const ROOMMATE_HARD_CRITERIA_STORAGE_KEY = "roommates.selectedHardCriteria";
 
 let memoryCandidatesCache: {
   userId: string;
@@ -98,7 +102,6 @@ export default function RoommatesScreen() {
     return [];
   });
   const [loading, setLoading] = useState(() => !memoryCandidatesCache || memoryCandidatesCache.data.length === 0);
-  const [quizAnsweredCount, setQuizAnsweredCount] = useState(0);
   const [currentQuizAnswers, setCurrentQuizAnswers] = useState<Record<string, string>>({});
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [activeView, setActiveView] = useState<"deck" | "calendar">("deck");
@@ -106,6 +109,30 @@ export default function RoommatesScreen() {
   const [calendarNoteDate, setCalendarNoteDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [calendarRefreshToken, setCalendarRefreshToken] = useState(0);
   const actionTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hardCriteriaStorageKey = `${ROOMMATE_HARD_CRITERIA_STORAGE_KEY}.${auth.isGuest ? "guest" : auth.userId ?? "anonymous"}`;
+
+  useEffect(() => {
+    if (auth.isLoading) return;
+    let active = true;
+    setFilters({ ...DEFAULT_FILTERS, selectedHardCriteria: [...DEFAULT_HARD_CRITERIA] });
+    void AsyncStorage.getItem(hardCriteriaStorageKey)
+      .then((value) => {
+        if (!active || !value) return;
+        try {
+          const parsed: unknown = JSON.parse(value);
+          const storedCriteria = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+            ? (parsed as { selectedHardCriteria?: unknown }).selectedHardCriteria
+            : parsed;
+          setFilters((previous) => ({ ...previous, selectedHardCriteria: normalizeSelectedHardCriteria(storedCriteria) }));
+        } catch {
+          setFilters((previous) => ({ ...previous, selectedHardCriteria: [...DEFAULT_HARD_CRITERIA] }));
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [auth.isGuest, auth.isLoading, auth.userId, hardCriteriaStorageKey]);
 
 useEffect(() => {
   const setupNotifications = async () => {
@@ -193,36 +220,6 @@ useEffect(() => {
     }, [auth.isGuest, auth.isLoading, auth.userId, load]),
   );
 
-  useFocusEffect(
-    useCallback(() => {
-      if (auth.isGuest) {
-        setQuizAnsweredCount(0);
-        return;
-      }
-
-      if (!auth.userId) {
-        setQuizAnsweredCount(0);
-        return;
-      }
-
-      const ref = doc(db, "quiz_answers", auth.userId);
-      const unsubscribe = onSnapshot(
-        ref,
-        (snapshot) => {
-          const data = snapshot.exists() ? (snapshot.data() as { answers?: Record<string, string> }) : null;
-          setQuizAnsweredCount(Object.keys(data?.answers ?? {}).length);
-        },
-        () => {
-          setQuizAnsweredCount(0);
-        },
-      );
-
-      return () => {
-        unsubscribe();
-      };
-    }, [auth.isGuest, auth.userId]),
-  );
-
   const filtered = useMemo(
     () =>
       candidates
@@ -241,13 +238,16 @@ useEffect(() => {
     [candidates, filters],
   );
 
-  const deckKey = `${filters.gender.join(",")}-${filters.ageMin}-${filters.ageMax}-${filters.budgetMin}-${filters.budgetMax}`;
+  const deckKey = `${filters.gender.join(",")}-${filters.ageMin}-${filters.ageMax}-${filters.budgetMin}-${filters.budgetMax}-${filters.selectedHardCriteria.join(",")}`;
 
   const openSheet = useCallback(() => setSheetVisible(true), []);
   const closeSheet = useCallback(() => setSheetVisible(false), []);
   const handleFiltersChange = useCallback((nextFilters: Filters) => {
-    setFilters(nextFilters);
-  }, []);
+    const selectedHardCriteria = normalizeSelectedHardCriteria(nextFilters.selectedHardCriteria);
+    const normalizedFilters = { ...nextFilters, selectedHardCriteria };
+    setFilters(normalizedFilters);
+    void AsyncStorage.setItem(hardCriteriaStorageKey, JSON.stringify({ selectedHardCriteria }));
+  }, [hardCriteriaStorageKey]);
   const canUseCalendar = !auth.isGuest && !auth.isBroker && userProfile?.not_looking_for_roommate !== true;
 
   useEffect(() => {
@@ -358,7 +358,7 @@ useEffect(() => {
               </Pressable>
             ) : null}
             
-            {quizAnsweredCount === 0 ? (
+            {auth.quizAnsweredCount === 0 ? (
               <Pressable style={styles.quizPill} onPress={() => router.push("/roomie-profile")} testID="roommates-quiz-pill">
                 <Text style={styles.quizPillText}>{t("roommates.quiz")}</Text>
               </Pressable>
@@ -385,15 +385,14 @@ useEffect(() => {
         <>
           <View style={styles.deckArea}>
             {loading ? (
-              <View style={styles.center} testID="deck-loading">
-                <ActivityIndicator size="large" color={colors.brand} />
-              </View>
+              <SwipeDeckSkeleton />
             ) : (
               <SwipeDeck
                 key={deckKey}
                 ref={deckRef}
                 profiles={filtered}
                 currentQuizAnswers={currentQuizAnswers}
+                selectedHardCriteria={filters.selectedHardCriteria}
                 currency={CURRENCY}
                 onLike={onLike}
                 onNope={onNope}

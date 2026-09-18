@@ -7,7 +7,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Linking from "expo-linking";
 
 import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
-import { GuestModeStickyFooter, GuestModeTopBanner } from "@/src/components/GuestModeLayout";
+import { GuestModeStickyFooter } from "@/src/components/GuestModeLayout";
 import ScreenHeader from "@/src/components/ScreenHeader";
 import { useAuth } from "@/src/context/auth";
 import { t } from "@/src/locales";
@@ -84,15 +84,6 @@ export default function HelpSupportScreen() {
         <View style={styles.header}>
           <Text style={styles.subtitle}>{t("helpSupport.subtitle")}</Text>
         </View>
-
-        {auth.isGuest && (
-          <GuestModeTopBanner
-            onPress={() => router.push("/auth-landing")}
-            testID="help-guest-readonly-banner"
-            buttonTestID="help-guest-top-signin-button"
-            style={styles.guestBannerSpacing}
-          />
-        )}
 
         {visibleFaqItems.map((item, index) => {
           const open = openIndex === index;
@@ -233,9 +224,6 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   accordionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: spacing.sm },
   question: { flex: 1, fontFamily: fonts.semibold, fontSize: fontSize.lg, color: colors.onSurface },
   answer: { marginTop: spacing.sm, fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary, lineHeight: 20 },
-  guestBannerSpacing: {
-    marginBottom: spacing.md,
-  },
   footer: {
     backgroundColor: colors.surface,
     borderTopLeftRadius: radius.lg,

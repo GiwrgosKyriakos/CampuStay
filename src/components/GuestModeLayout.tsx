@@ -3,16 +3,8 @@ import { View, Text, Pressable, StyleSheet, ViewStyle, StyleProp } from "react-n
 import { LinearGradient } from "expo-linear-gradient";
 
 import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
-import { useAuth } from "@/src/context/auth";
 import { useTheme } from "@/src/context/ThemeContext";
 import { t } from "@/src/locales";
-
-type GuestModeTopBannerProps = {
-  onPress?: () => void;
-  testID?: string;
-  buttonTestID?: string;
-  style?: StyleProp<ViewStyle>;
-};
 
 type GuestModeStickyFooterProps = {
   onPress?: () => void;
@@ -22,27 +14,7 @@ type GuestModeStickyFooterProps = {
   style?: StyleProp<ViewStyle>;
 };
 
-export function GuestModeTopBanner({ onPress, testID, buttonTestID, style }: GuestModeTopBannerProps) {
-  const auth = useAuth();
-  const { colors } = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
-
-  const handlePress = () => {
-    onPress?.();
-  };
-
-  return (
-    <View style={[styles.topBanner, style]} testID={testID}>
-      <Text style={styles.topBannerText}>{t("common.guest.readOnlyBanner")}</Text>
-      <Pressable style={styles.topBannerButton} onPress={() => void handlePress()} testID={buttonTestID}>
-        <Text style={styles.topBannerButtonText}>{t("common.cta.signInOrRegister")}</Text>
-      </Pressable>
-    </View>
-  );
-}
-
 export function GuestModeStickyFooter({ onPress, testID, buttonTestID, bottomInset, style }: GuestModeStickyFooterProps) {
-  const auth = useAuth();
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
@@ -68,35 +40,6 @@ export function GuestModeStickyFooter({ onPress, testID, buttonTestID, bottomIns
 
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
-    topBanner: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      gap: spacing.md,
-      backgroundColor: colors.surfaceSecondary,
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: radius.md,
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.sm,
-    },
-    topBannerText: {
-      flex: 1,
-      fontFamily: fonts.semibold,
-      fontSize: fontSize.base,
-      color: colors.onSurface,
-    },
-    topBannerButton: {
-      backgroundColor: colors.brand,
-      borderRadius: radius.pill,
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.xs,
-    },
-    topBannerButtonText: {
-      fontFamily: fonts.bold,
-      fontSize: fontSize.sm,
-      color: colors.onBrand,
-    },
     footer: {
       position: "absolute",
       left: 0,

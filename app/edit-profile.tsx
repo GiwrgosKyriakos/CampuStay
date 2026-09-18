@@ -18,20 +18,25 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import * as ImagePicker from "expo-image-picker";
+import { doc, onSnapshot } from "firebase/firestore";
 
 import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
 import Dropdown from "@/src/components/Dropdown";
-import { GuestModeStickyFooter, GuestModeTopBanner } from "@/src/components/GuestModeLayout";
+import { GuestModeStickyFooter } from "@/src/components/GuestModeLayout";
 import ScreenHeader from "@/src/components/ScreenHeader";
 import { getUserId } from "@/src/utils/userId";
 import { getUserProfile, saveUserProfile, UserProfile } from "@/src/api/userProfile";
 import { getUserSettings, saveUserPrivacy } from "@/src/api/accountSettings";
+import { getActiveRoommateGroupsForUser, leaveRoommateGroupsAndSetHousing, type ActiveRoommateGroup } from "@/src/api/chat";
 import { useAuth } from "@/src/context/auth";
+import { db } from "@/src/config/firebase";
 import { uploadProfileImageAsync } from "@/src/api/imageUpload";
 import { formatMonthYear, t } from "@/src/locales";
+import CenteredActionModal from "@/src/components/CenteredActionModal";
 
 const ABOUT_LIMIT = 250;
 const STICKY_FOOTER_PADDING = 152;
+type ProfileSubmitDestination = "profile" | "listing";
 
 const MOVE_IN_OPTIONS = (() => {
   const out: string[] = [t("editProfile.options.moveInAsap")];
@@ -80,8 +85,11 @@ export default function EditProfileScreen() {
   const [linkedin, setLinkedin] = useState("");
   const [twitter, setTwitter] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
+  const [quizAnsweredCount, setQuizAnsweredCount] = useState<number | null>(null);
   const [cityError, setCityError] = useState(false);
   const [budgetError, setBudgetError] = useState<string | null>(null);
+  const [roommateGroupLock, setRoommateGroupLock] = useState<ActiveRoommateGroup[]>([]);
+  const [roommateGroupLockSubmitting, setRoommateGroupLockSubmitting] = useState(false);
   const guestLocked = auth.isGuest;
   const housingPromptAnim = useRef(new Animated.Value(0)).current;
   const [cityOffsetY, setCityOffsetY] = useState(0);
@@ -183,6 +191,24 @@ export default function EditProfileScreen() {
     };
   }, [auth, guestLocked]);
 
+  useEffect(() => {
+    if (guestLocked || !auth.userId) {
+      setQuizAnsweredCount(null);
+      return;
+    }
+
+    const unsubscribe = onSnapshot(
+      doc(db, "quiz_answers", auth.userId),
+      (snapshot) => {
+        const data = snapshot.exists() ? snapshot.data() as { answers?: Record<string, string> } : null;
+        setQuizAnsweredCount(Object.keys(data?.answers ?? {}).length);
+      },
+      () => setQuizAnsweredCount(null),
+    );
+
+    return unsubscribe;
+  }, [auth.userId, guestLocked]);
+
   const addPhotos = useCallback(async () => {
     if (photos.length >= 3) return;
     setPermBlocked(false);
@@ -223,17 +249,47 @@ export default function EditProfileScreen() {
     setPhotos((prev) => prev.filter((_, i) => i !== idx));
   }, []);
 
-  const selectHousingOption = useCallback((option: "has_place" | "looking") => {
+  const selectHousingOption = useCallback(async (option: "has_place" | "looking") => {
     if (option === "has_place") {
+      if (userId && !hasPlace) {
+        try {
+          const activeGroups = await getActiveRoommateGroupsForUser(userId);
+          const roommateGroups = activeGroups.filter((group) => group.hostUserId !== userId);
+          if (roommateGroups.length > 0) {
+            setRoommateGroupLock(roommateGroups);
+            return;
+          }
+        } catch (groupError) {
+          console.warn("[EditProfile] Failed to verify active roommate groups:", groupError);
+          setError(t("editProfile.errors.saveFailed"));
+          return;
+        }
+      }
       setHasPlace(true);
       setLookingForApartment(false);
       return;
     }
     setLookingForApartment(true);
     setHasPlace(false);
-  }, []);
+  }, [hasPlace, userId]);
 
-  const submit = useCallback(async () => {
+  const leaveGroupsAndChangeHousing = useCallback(async () => {
+    if (!userId || roommateGroupLockSubmitting) return;
+    setRoommateGroupLockSubmitting(true);
+    try {
+      await leaveRoommateGroupsAndSetHousing(userId, roommateGroupLock);
+      setRoommateGroupLock([]);
+      setHasPlace(true);
+      setLookingForApartment(false);
+    } catch (groupError) {
+      console.error("[EditProfile] Failed to leave roommate groups:", groupError);
+      setError(t("editProfile.errors.saveFailed"));
+    } finally {
+      setRoommateGroupLockSubmitting(false);
+    }
+  }, [roommateGroupLock, roommateGroupLockSubmitting, userId]);
+
+  const submit = useCallback(async (destination: ProfileSubmitDestination = "profile") => {
     if (submitting) return;
     const sanitizedCity = city?.trim() ?? "";
     const rawBudget = budget.trim();
@@ -265,7 +321,7 @@ export default function EditProfileScreen() {
       const parsedBudget = Number(rawBudget);
       const isBudgetValid = hasOnlyDigits && !Number.isNaN(parsedBudget) && parsedBudget > 0;
       if (!isBudgetValid && !isBrokerUser) {
-        setBudgetError("Παρακαλώ εισάγετε ένα έγκυρο budget μεγαλύτερο από 0");
+        setBudgetError(t("editProfile.errors.budgetInvalid"));
         setCityError(false);
         setError(null);
         return;
@@ -336,8 +392,12 @@ export default function EditProfileScreen() {
           console.warn("[EditProfile] clearProfileSetup warning:", flagError);
         }
       }
-      console.log(`[EditProfile] Profile saved successfully. Redirecting to ${targetRoute}`);
-      router.replace(targetRoute as any);
+      if (destination === "listing") {
+        router.push({ pathname: "/create-listing", params: { returnTo: "edit-profile" } });
+      } else {
+        console.log(`[EditProfile] Profile saved successfully. Redirecting to ${targetRoute}`);
+        router.replace(targetRoute as "/apartments" | "/roommates");
+      }
     } catch (err) {
       console.error("[EditProfile] Error saving profile:", err);
       setError(t("editProfile.errors.saveFailed"));
@@ -404,14 +464,6 @@ export default function EditProfileScreen() {
         keyboardDismissMode="on-drag"
         showsVerticalScrollIndicator={false}
       >
-        {guestLocked && (
-          <GuestModeTopBanner
-            onPress={() => router.push("/auth-landing")}
-            testID="guest-edit-notice"
-            buttonTestID="guest-edit-signin-button"
-          />
-        )}
-
         {/* SECTION 1: Profile Photos */}
         <View style={styles.card}>
           <View style={styles.cardHeader}>
@@ -504,7 +556,7 @@ export default function EditProfileScreen() {
               disabled={guestLocked}
             />
             {cityError && !guestLocked && (
-              <Text style={styles.cityErrorText}>Παρακαλώ επιλέξτε την πόλη σας / Please select your city</Text>
+              <Text style={styles.cityErrorText}>{t("editProfile.errors.cityRequired")}</Text>
             )}
           </View>
 
@@ -543,6 +595,18 @@ export default function EditProfileScreen() {
                 {about.length}/{ABOUT_LIMIT}
               </Text>
 
+              {quizAnsweredCount === 0 ? (
+                <Pressable
+                  style={[styles.quizCta, guestLocked && styles.guestReadOnlyControl]}
+                  onPress={() => router.push("/roomie-profile")}
+                  disabled={guestLocked}
+                  testID="complete-compatibility-quiz-button"
+                >
+                  <Ionicons name="sparkles-outline" size={18} color={colors.brand} />
+                  <Text style={styles.quizCtaText}>{t("editProfile.completeQuiz")}</Text>
+                </Pressable>
+              ) : null}
+
               {!isBroker && (
             <>
               <Text style={styles.label}>{t("editProfile.gender")}</Text>
@@ -570,7 +634,7 @@ export default function EditProfileScreen() {
 
               <Pressable
             style={[styles.checkboxRow, hasPlace && styles.checkboxRowActive, guestLocked && styles.guestReadOnlyControl]}
-            onPress={() => selectHousingOption("has_place")}
+            onPress={() => void selectHousingOption("has_place")}
             testID="has-place-checkbox"
             disabled={guestLocked}
           >
@@ -605,7 +669,8 @@ export default function EditProfileScreen() {
              
             <Pressable
               style={({ pressed }) => [styles.housingPromptCard, pressed && styles.housingPromptCardPressed]}
-              onPress={() => router.push("/create-listing" as any)}
+              onPress={() => void submit("listing")}
+              disabled={submitting || guestLocked}
               testID="housing-listing-prompt-button"
             >
               <Text style={styles.housingPromptText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.95}>
@@ -621,7 +686,7 @@ export default function EditProfileScreen() {
               lookingForApartment && styles.checkboxRowActive,
               guestLocked && styles.guestReadOnlyControl,
             ]}
-            onPress={() => selectHousingOption("looking")}
+            onPress={() => void selectHousingOption("looking")}
             testID="looking-apartment-checkbox"
             disabled={guestLocked}
           >
@@ -821,6 +886,30 @@ export default function EditProfileScreen() {
         </View>
       </KeyboardAwareScrollView>
 
+      <CenteredActionModal
+        visible={roommateGroupLock.length > 0}
+        title={t("editProfile.roommateGroupLock.title")}
+        description={t("editProfile.roommateGroupLock.message", { groupNames: roommateGroupLock.map((group) => group.name).join(", ") })}
+        onDismiss={() => setRoommateGroupLock([])}
+        actions={[
+          {
+            label: t("editProfile.roommateGroupLock.leaveAndChange"),
+            iconName: "exit-outline",
+            variant: "danger",
+            onPress: () => void leaveGroupsAndChangeHousing(),
+            testID: "edit-profile-leave-groups-and-change",
+          },
+          {
+            label: t("editProfile.roommateGroupLock.stayAsRoomie"),
+            iconName: "people-outline",
+            variant: "muted",
+            onPress: () => setRoommateGroupLock([]),
+            testID: "edit-profile-stay-as-roommate",
+          },
+        ]}
+        testID="edit-profile-roommate-group-lock"
+      />
+
       {/* Sticky footer */}
       {guestLocked ? (
         <GuestModeStickyFooter
@@ -837,7 +926,7 @@ export default function EditProfileScreen() {
               <Text style={styles.errorText}>{error}</Text>
             </View>
           )}
-          <Pressable onPress={submit} disabled={submitting} testID="complete-profile-button">
+          <Pressable onPress={() => void submit()} disabled={submitting} testID="complete-profile-button">
             <LinearGradient
               colors={[colors.brand, colors.brandSecondary]}
               start={{ x: 0, y: 0 }}
@@ -912,6 +1001,19 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     color: colors.onSurfaceTertiary,
     marginTop: 4,
   },
+  quizCta: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+    borderWidth: 1.5,
+    borderColor: colors.brand,
+    borderRadius: radius.pill,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    marginTop: spacing.sm,
+  },
+  quizCtaText: { fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.brand },
   photoRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.sm },
   photoThumb: { width: 90, height: 90, borderRadius: radius.md, overflow: "hidden", backgroundColor: colors.surfaceTertiary },
   photoImg: { width: "100%", height: "100%" },

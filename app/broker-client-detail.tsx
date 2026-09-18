@@ -1111,7 +1111,7 @@ export default function BrokerClientDetailScreen() {
       .map((id) => rankedPortfolio.find((apartment) => apartment.id === id)?.image)
       .filter((image): image is string => !!image)
       .slice(0, 3);
-    const finalNoticeText = `[Κοινοποίηση Λίστας Ακινήτων: ${list.title}]`;
+    const finalNoticeText = t("chat.lastMessage.propertyListWithCount", { count: list.apartmentIds.length });
     try {
       await addDoc(collection(db, "chats", params.chatRoomId, "messages"), {
         senderId: auth.userId,
@@ -1128,6 +1128,11 @@ export default function BrokerClientDetailScreen() {
       await setDoc(doc(db, "chats", params.chatRoomId), {
         lastMessage: finalNoticeText,
         lastMessageText: finalNoticeText,
+        lastMessageType: "property_list_share",
+        lastMessageSenderId: auth.userId,
+        lastMessageApartmentIds: list.apartmentIds,
+        lastMessageApartmentCount: list.apartmentIds.length,
+        lastMessageIsRead: false,
         lastMessageTimestamp: serverTimestamp(),
         updatedAt: serverTimestamp(),
       }, { merge: true });

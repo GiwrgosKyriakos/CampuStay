@@ -239,6 +239,7 @@ export interface AnalyticsDealRecord {
   commissionRate?: number;
   commissionPercent?: number;
   dealValue?: number;
+  acceptedOfferPrice?: number;
   expectedCommission?: number;
   calculatedCommission?: number;
   dealCommission?: number;

@@ -1,5 +1,4 @@
 import {
-  addDoc,
   collection,
   deleteDoc,
   doc,
@@ -7,6 +6,7 @@ import {
   getDocs,
   query,
   serverTimestamp,
+  setDoc,
   updateDoc,
   type FieldValue,
   where,
@@ -132,6 +132,8 @@ export interface BrokerNote {
   submittedByCoveringBrokerId?: string;
   feedbackSubmittedBy?: Record<string, boolean>;
   appointmentStatus?: string;
+  feedbackStatus?: "eligible" | "suppressed_rescheduled";
+  feedbackPromptSent?: boolean;
   createdAt: FieldValue;
 }
 
@@ -174,6 +176,8 @@ type FirestoreBrokerNoteReadDoc = {
   submittedByCoveringBrokerId?: string;
   feedbackSubmittedBy?: Record<string, boolean>;
   appointmentStatus?: string;
+  feedbackStatus?: "eligible" | "suppressed_rescheduled";
+  feedbackPromptSent?: boolean;
   createdAt?: unknown;
 };
 
@@ -186,16 +190,19 @@ type FirestoreAppointmentReadDoc = {
   agencyId?: string;
   apartmentId?: string;
   apartmentTitle?: string;
+  notes?: string;
   apartmentAddress?: string;
   appointmentDate?: string;
   status?: string;
+  feedbackStatus?: "eligible" | "suppressed_rescheduled";
+  feedbackPromptSent?: boolean;
   clientName?: string;
   apartmentPrice?: number;
   feedbackSubmittedBy?: Record<string, boolean>;
   createdAt?: unknown;
 };
 
-type SaveBrokerNoteInput = Omit<BrokerNote, "id" | "createdAt" | "done"> & { done?: boolean };
+type SaveBrokerNoteInput = Omit<BrokerNote, "id" | "createdAt" | "done"> & { done?: boolean; idempotencyKey?: string };
 type UpdateBrokerNoteInput = Partial<BrokerNote>;
 
 export type GridDisplayField = "time" | "apartment" | "client" | "apartmentOrClient" | "timeOrTitle";
@@ -294,6 +301,8 @@ function mapFirestoreDocToBrokerNote(id: string, data: FirestoreBrokerNoteReadDo
     submittedByCoveringBrokerId: typeof data.submittedByCoveringBrokerId === "string" ? data.submittedByCoveringBrokerId : undefined,
     feedbackSubmittedBy: data.feedbackSubmittedBy,
     appointmentStatus: typeof data.appointmentStatus === "string" ? data.appointmentStatus : undefined,
+    feedbackStatus: data.feedbackStatus,
+    feedbackPromptSent: data.feedbackPromptSent === true,
     createdAt: (data.createdAt as FieldValue) ?? serverTimestamp(),
   };
 }
@@ -319,6 +328,7 @@ function mapAppointmentToBrokerNote(id: string, data: FirestoreAppointmentReadDo
     apartmentId: data.apartmentId,
     apartmentTitle: data.apartmentTitle,
     apartmentPrice: data.apartmentPrice,
+    notesText: data.notes,
     appointmentId: id,
     clientId: data.clientId,
     clientName: data.clientName,
@@ -329,8 +339,10 @@ function mapAppointmentToBrokerNote(id: string, data: FirestoreAppointmentReadDo
     coveringBrokerId: data.coveringBrokerId,
     feedbackSubmittedBy: data.feedbackSubmittedBy,
     appointmentStatus: data.status,
-    done: data.status === "completed",
-    isCompleted: data.status === "completed",
+    feedbackStatus: data.feedbackStatus,
+    feedbackPromptSent: data.feedbackPromptSent === true,
+    done: data.status !== "confirmed",
+    isCompleted: data.status !== "confirmed",
     createdAt: (data.createdAt as FieldValue) ?? serverTimestamp(),
   };
 }
@@ -341,9 +353,23 @@ export async function saveBrokerNote(brokerId: string, noteData: SaveBrokerNoteI
 
   try {
     const notesRef = collection(db, "users", brokerId, "calendarNotes");
+    const idempotencyKey = noteData.idempotencyKey ?? [
+      brokerId,
+      noteData.calendarOwnerId ?? brokerId,
+      noteData.date,
+      noteData.time ?? "",
+      noteData.category,
+      noteData.apartmentId ?? "",
+      noteData.clientId ?? "",
+      noteData.title?.trim() ?? "",
+      noteData.notesText?.trim() ?? "",
+      Math.floor(Date.now() / 60_000),
+    ].join("|");
+    const noteId = `note_${hashNoteKey(idempotencyKey)}`;
+    const { idempotencyKey: _ignoredIdempotencyKey, ...persistedNoteData } = noteData;
 
     const payload: Omit<BrokerNote, "id"> = {
-      ...noteData,
+      ...persistedNoteData,
       brokerId,
       calendarOwnerId: noteData.calendarOwnerId ?? brokerId,
       done: noteData.done ?? false,
@@ -353,8 +379,9 @@ export async function saveBrokerNote(brokerId: string, noteData: SaveBrokerNoteI
       createdAt: serverTimestamp(),
     };
 
-    const newDocRef = await addDoc(notesRef, sanitizePayload(payload as unknown as Record<string, unknown>));
-    return newDocRef.id;
+    const noteRef = doc(notesRef, noteId);
+    await setDoc(noteRef, sanitizePayload(payload as unknown as Record<string, unknown>), { merge: true });
+    return noteId;
   } catch (error: unknown) {
     throw new Error(`Failed to save broker note: ${toErrorMessage(error)}`);
   }
@@ -370,6 +397,7 @@ export async function saveShowingCalendarNotes(params: {
   apartmentPrice?: number;
   scheduledDate: string;
   scheduledTime: string;
+  notes?: string;
 }): Promise<{ brokerNoteId: string; clientNoteId: string }> {
   const timestamp = new Date(`${params.scheduledDate}T${params.scheduledTime}:00`).getTime();
   const shared = {
@@ -387,6 +415,7 @@ export async function saveShowingCalendarNotes(params: {
     clientId: params.clientId,
     appointmentId: params.appointmentId,
     clientName: params.clientName,
+    notesText: params.notes,
   };
 
   const [brokerNoteId, clientNoteId] = await Promise.all([
@@ -396,12 +425,14 @@ export async function saveShowingCalendarNotes(params: {
       calendarOwnerId: params.brokerId,
       counterpartId: params.clientId,
       counterpartName: params.clientName,
+      idempotencyKey: `showing:${params.appointmentId ?? "no-appointment"}:${params.brokerId}`,
     }),
     saveBrokerNote(params.clientId, {
       ...shared,
       brokerId: params.brokerId,
       calendarOwnerId: params.clientId,
       counterpartId: params.brokerId,
+      idempotencyKey: `showing:${params.appointmentId ?? "no-appointment"}:${params.clientId}`,
     }),
   ]);
 
@@ -496,7 +527,7 @@ export async function getBrokerNotesByDateRange(
     const appointmentIds = new Set([...appointmentNotes.keys()]);
     const notesWithoutAppointmentCopies = mapped.filter((note) => !note.appointmentId || !appointmentIds.has(note.appointmentId));
 
-    return [...notesWithoutAppointmentCopies, ...appointmentNotes.values()].sort((a, b) => {
+    return deduplicateBrokerNotes([...notesWithoutAppointmentCopies, ...appointmentNotes.values()]).sort((a, b) => {
       if (a.date === b.date) {
         return compareTimeAsc(a.time, b.time);
       }
@@ -505,6 +536,29 @@ export async function getBrokerNotesByDateRange(
   } catch (error: unknown) {
     throw new Error(`Failed to fetch broker notes by date range: ${toErrorMessage(error)}`);
   }
+}
+
+function hashNoteKey(value: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+export function deduplicateBrokerNotes(notes: BrokerNote[]): BrokerNote[] {
+  const seen = new Set<string>();
+  const primaryNoteIds = new Set(notes.map((note) => note.primaryNoteId).filter((value): value is string => typeof value === "string"));
+  return notes.filter((note) => {
+    const linkedPrimaryId = note.primaryNoteId ?? (primaryNoteIds.has(note.id) ? note.id : null);
+    const contentKey = linkedPrimaryId
+      ? `primary:${linkedPrimaryId}`
+      : [note.calendarOwnerId ?? note.brokerId, note.date, note.time ?? "", note.category, note.apartmentId ?? "", note.clientId ?? "", note.title?.trim() ?? "", note.notesText?.trim() ?? ""].join("|");
+    if (seen.has(contentKey)) return false;
+    seen.add(contentKey);
+    return true;
+  });
 }
 
 export async function getBrokerNoteById(brokerId: string, noteId: string): Promise<BrokerNote | null> {

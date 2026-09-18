@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -156,6 +156,7 @@ export default function BrokerNoteModal({
   const [coveringBrokerModalVisible, setCoveringBrokerModalVisible] = useState(false);
   const [agencyId, setAgencyId] = useState("");
   const [primaryBrokerName, setPrimaryBrokerName] = useState("");
+  const creationIdempotencyKeyRef = useRef<string | null>(null);
 
   const selectedApartment = useMemo(
     () => listings.find((item) => item.id === selectedApartmentId),
@@ -197,6 +198,7 @@ export default function BrokerNoteModal({
     setCoveringBroker(null);
     setAgencyId("");
     setPrimaryBrokerName("");
+    creationIdempotencyKeyRef.current = null;
     if (isBroker && brokerId) {
       void getUserProfile(brokerId).then(async (profile) => {
         const resolvedAgencyId = profile?.agencyId?.trim() || "";
@@ -249,6 +251,7 @@ export default function BrokerNoteModal({
   };
 
   const handleSave = async () => {
+    if (isSaving) return;
     if (!brokerId.trim()) {
       setErrorText("Δεν βρέθηκε brokerId.");
       return;
@@ -259,6 +262,9 @@ export default function BrokerNoteModal({
     setErrorText(null);
 
     try {
+      if (!creationIdempotencyKeyRef.current) {
+        creationIdempotencyKeyRef.current = `modal:${brokerId}:${initialDate ?? date}:${Date.now()}`;
+      }
       const resolvedTitle = noteTitle.trim() || (selectedCategory === "showing" || selectedCategory === "visit" ? "Σημείωση Επίσκεψης" : selectedCategory === "call" || selectedCategory === "phone" ? "Σημείωση Τηλεφωνήματος" : "Σημείωση");
       const payload = {
         brokerId,
@@ -294,7 +300,7 @@ export default function BrokerNoteModal({
         onUpdated?.(note.id);
         savedNoteId = note.id;
       } else {
-        const newId = await saveBrokerNote(brokerId, payload);
+        const newId = await saveBrokerNote(brokerId, { ...payload, idempotencyKey: creationIdempotencyKeyRef.current });
         onSaved?.(newId);
         onNoteSaved?.(newId);
         savedNoteId = newId;
@@ -308,6 +314,7 @@ export default function BrokerNoteModal({
             primaryBrokerId: brokerId,
             primaryBrokerName: primaryBrokerName || "Μεσίτης",
             primaryNoteId: savedNoteId,
+            idempotencyKey: `${creationIdempotencyKeyRef.current}:covering:${coveringBroker.id}`,
           });
         }
       }

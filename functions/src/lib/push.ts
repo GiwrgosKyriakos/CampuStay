@@ -13,6 +13,9 @@ export type UnifiedNotificationType =
   | "appointment_accepted"
   | "visit_confirmed"
   | "visit_cancelled"
+  | "visit_reschedule_proposed"
+  | "visit_reschedule_accepted"
+  | "visit_reschedule_rejected"
   | "visit_reminder"
   | "visit_navigation"
   | "post_visit_rating"
@@ -36,7 +39,7 @@ export interface UnifiedNotificationPayload {
   title: string;
   body: string;
   screen: string;
-  params: Record<string, any>;
+  params: Record<string, unknown>;
   entityId?: string;
   action?: string;
   categoryId?: string;
@@ -48,7 +51,8 @@ export interface PushDispatchOptions {
   maxDispatches?: number;
 }
 
-export const MAX_RECURRING_DISPATCHES = 4;
+export const MAX_NOTIFICATION_RECURRENCE_COUNT = 4;
+export const MAX_RECURRING_DISPATCHES = MAX_NOTIFICATION_RECURRENCE_COUNT;
 
 type PushData = Record<string, string | number | boolean | undefined>;
 
@@ -93,7 +97,7 @@ async function claimDispatch(
   const sequenceRef = options?.recurringKey
     ? db.doc(`users/${userId}/notificationSequences/${hashKey(options.recurringKey)}`)
     : null;
-  const maxDispatches = Math.min(MAX_RECURRING_DISPATCHES, Math.max(1, Math.floor(options?.maxDispatches ?? MAX_RECURRING_DISPATCHES)));
+  const maxDispatches = Math.min(MAX_NOTIFICATION_RECURRENCE_COUNT, Math.max(1, Math.floor(options?.maxDispatches ?? MAX_NOTIFICATION_RECURRENCE_COUNT)));
 
   return db.runTransaction(async (transaction) => {
     const notificationSnapshot = await transaction.get(notificationRef);

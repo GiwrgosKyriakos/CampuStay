@@ -14,6 +14,7 @@ export type ChatMessageType =
   | "filter_share"
   | "assignment_request"
   | "contract_request"
+  | "property_card"
   | "shared_roommate_profile"
   | "system";
 
@@ -22,6 +23,7 @@ export interface GroupChatMetadata {
   groupName: string;
   hostUserId?: string;
   hostApartmentId?: string;
+  pinnedApartmentId?: string;
   memberIds: string[];
   createdBy: string;
 }

@@ -5,6 +5,7 @@ import Constants from "expo-constants";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 
 import { db, firebaseAuth } from "@/src/config/firebase";
+import { shouldSuppressViewingFeedback } from "@/src/utils/viewingFeedbackEligibility";
 
 export const ROOMMATE_MATCH_CATEGORY = "ROOMMATE_MATCH_100";
 export const ADD_ROOMMATE_ACTION = "ADD_ROOMMATE";
@@ -35,6 +36,26 @@ async function openNavigationLink(params: Record<string, any>): Promise<void> {
       continue;
     }
   }
+}
+
+async function shouldSuppressPostVisitFeedback(appointmentId: unknown): Promise<boolean> {
+  if (typeof appointmentId !== "string" || !appointmentId.trim()) return false;
+
+  const appointmentSnapshot = await getDoc(doc(db, "appointments", appointmentId));
+  if (!appointmentSnapshot.exists()) return true;
+    const appointment = appointmentSnapshot.data() as { apartmentId?: unknown; hostId?: unknown; brokerId?: unknown; status?: unknown; feedbackStatus?: unknown };
+    if (appointment.status === "superseded_final" || appointment.status === "superseded_pending" || appointment.feedbackStatus === "suppressed_rescheduled") return true;
+  const apartmentId = typeof appointment.apartmentId === "string" ? appointment.apartmentId : "";
+  const listingSnapshot = apartmentId ? await getDoc(doc(db, "apartments", apartmentId)) : null;
+  const listing = listingSnapshot?.exists() ? listingSnapshot.data() as Record<string, unknown> : {};
+  const hostId = [appointment.hostId, listing.hostId, listing.ownerId, listing.creatorId, appointment.brokerId]
+    .find((value): value is string => typeof value === "string" && value.trim().length > 0)
+    ?.trim() ?? "";
+  if (!hostId) return true;
+  const hostSnapshot = await getDoc(doc(db, "users", hostId));
+  if (!hostSnapshot.exists()) return true;
+
+  return shouldSuppressViewingFeedback(hostSnapshot.data(), listing);
 }
 
 let categoriesRegistered = false;
@@ -154,6 +175,7 @@ export async function handleNotificationResponse(
   }
 
   if (type === "post_visit_rating") {
+    if (await shouldSuppressPostVisitFeedback(params.appointmentId)) return;
     router.push({ pathname: screen === "broker-client-detail" ? "/broker-client-detail" : "/(tabs)/calendar", params: { ...params, action: "open_modal" } });
     return;
   }
@@ -164,7 +186,7 @@ export async function handleNotificationResponse(
     return;
   }
 
-  if (type === "visit_confirmed" || type === "visit_cancelled" || type === "visit_request" || type === "appointment_proposal" || type === "appointment_accepted" || type === "price_offer" || type === "price_offer_accepted") {
+  if (type === "visit_confirmed" || type === "visit_cancelled" || type === "visit_reschedule_proposed" || type === "visit_reschedule_accepted" || type === "visit_reschedule_rejected" || type === "visit_request" || type === "appointment_proposal" || type === "appointment_accepted" || type === "price_offer" || type === "price_offer_accepted") {
     router.push({ pathname: "/chat/[id]", params: { id: chatTargetId, chatRoomId: chatId, ...params } });
     return;
   }

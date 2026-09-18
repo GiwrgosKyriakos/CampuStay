@@ -39,6 +39,8 @@ import {
 
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
 import { useAuth } from "@/src/context/auth";
+import ApartmentPriceDisplay from "@/src/components/ApartmentPriceDisplay";
+import { useApartmentResolvedPrice } from "@/src/hooks/useApartmentResolvedPrice";
 import { useTheme } from "@/src/context/ThemeContext";
 import KeyboardAwareModal from "@/src/components/common/KeyboardAwareModal";
 import { getOrCreateHostChat } from "@/src/api/chat";
@@ -2316,7 +2318,9 @@ export default function ApartmentDetailScreen() {
   const shouldShowExtraDetailsSection = !!displayExtraDetails && Object.keys(displayExtraDetails).length > 0;
   const shouldShowExtraInformationSection = !!displayExtraInformation || shouldShowAdditionalInformation;
   const hasApprovedClientPrice = typeof approvedClientPrice === "number" && approvedClientPrice > 0;
-  const displayRentPrice = hasApprovedClientPrice ? approvedClientPrice : apt.rent;
+  const resolvedPrice = useApartmentResolvedPrice(apt?.id ?? "", apt.rent);
+  const isAcceptedOfferPrice = resolvedPrice.isAcceptedOffer || hasApprovedClientPrice;
+  const displayRentPrice = resolvedPrice.isAcceptedOffer ? resolvedPrice.displayPrice : hasApprovedClientPrice ? approvedClientPrice : apt.rent;
   const sqmPrice = calculatePricePerSqm(displayRentPrice, apt.size);
   const extraInformationAvailabilityText = (() => {
     if (!displayExtraInformation) return null;
@@ -2845,23 +2849,7 @@ export default function ApartmentDetailScreen() {
             position="bottom-left"
           />
 
-          <View style={[styles.rentBadge, hasApprovedClientPrice && styles.rentBadgeApproved]}>
-            {hasApprovedClientPrice ? (
-              <>
-                <Text style={styles.approvedRentLabel}>Εγκεκριμένη τιμή για εσένα</Text>
-                <View style={styles.approvedRentValueRow}>
-                  <Text style={[styles.rentValue, styles.rentValueApproved]}>{CURRENCY}{displayRentPrice}</Text>
-                  <Text style={[styles.rentPer, styles.rentPerApproved]}>{t("common.format.perMonthShort")}</Text>
-                </View>
-                <Text style={styles.originalRentText}>{`Αρχική: ${CURRENCY}${apt.rent}${t("common.format.perMonthShort")}`}</Text>
-              </>
-            ) : (
-              <>
-                <Text style={styles.rentValue}>{CURRENCY}{displayRentPrice}</Text>
-                <Text style={styles.rentPer}>{t("common.format.perMonthShort")}</Text>
-              </>
-            )}
-          </View>
+          <ApartmentPriceDisplay price={displayRentPrice} originalPrice={resolvedPrice.originalPrice} variant="badge" isAcceptedOffer={isAcceptedOfferPrice} />
           {isReadOnlyWithdrawnCoBroker ? (
             <View style={styles.withdrawnBannerOverlay} testID="apartment-detail-withdrawn-banner">
               <Ionicons name="information-circle-outline" size={16} color="#FFFFFF" />

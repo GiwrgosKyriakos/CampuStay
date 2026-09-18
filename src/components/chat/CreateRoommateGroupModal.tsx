@@ -9,14 +9,26 @@ import { createRoommateGroupChat } from "@/src/api/chat";
 import { radius, spacing, fonts, fontSize } from "@/src/theme";
 import { useTheme } from "@/src/context/ThemeContext";
 import BaseBottomSheet from "@/src/components/common/BaseBottomSheet";
+import { isBrokerOrAgencyUser, isRoommateGroupHost, type UserRoleData } from "@/src/utils/roles";
+import { t } from "@/src/locales";
 
 type GroupCandidate = {
   id: string;
   name: string;
   photo?: string;
   isHost: boolean;
+  isBroker: boolean;
+  role?: string | null;
+  agencyId?: string | null;
   apartmentId?: string;
   apartmentTitle?: string;
+};
+
+type GroupCandidateProfile = UserRoleData & {
+  name?: string;
+  photoUrl?: string;
+  photos?: string[];
+  deleted?: boolean;
 };
 
 export interface CreateRoommateGroupModalProps {
@@ -33,13 +45,18 @@ export default function CreateRoommateGroupModal({ visible, userId, onClose, onC
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [isCreatorHost, setIsCreatorHost] = useState(false);
 
   useEffect(() => {
     if (!visible || !userId) return;
     let active = true;
     setLoading(true);
+    setSelectedIds([]);
     void (async () => {
       try {
+        const creatorSnapshot = await getDoc(doc(db, "users", userId));
+        const creator = creatorSnapshot.exists() ? creatorSnapshot.data() as GroupCandidateProfile : null;
+        const creatorIsHost = isRoommateGroupHost(creator);
         const chats = await getDocs(query(collection(db, "chats"), where("users", "array-contains", userId)));
         const counterpartById = new Map<string, GroupCandidate>();
         await Promise.all(chats.docs.map(async (chatDoc) => {
@@ -62,19 +79,29 @@ export default function CreateRoommateGroupModal({ visible, userId, onClose, onC
             }
             const userSnapshot = await getDoc(doc(db, "users", candidateId));
             if (!userSnapshot.exists()) return;
-            const user = userSnapshot.data() as { name?: string; photoUrl?: string; photos?: string[]; deleted?: boolean };
-            if (user.deleted) return;
-            counterpartById.set(candidateId, {
+            const user = userSnapshot.data() as GroupCandidateProfile;
+            if (user.deleted || isBrokerOrAgencyUser(user)) return;
+            const candidate: GroupCandidate = {
               id: candidateId,
               name: user.name?.trim() || "Άγνωστος χρήστης",
               photo: user.photoUrl || user.photos?.[0] || "",
               isHost: isHostChat,
+              isBroker: isBrokerOrAgencyUser(user),
+              role: user.role,
+              agencyId: user.agencyId,
               ...(apartmentId ? { apartmentId } : {}),
               ...(data.apartmentTitle ? { apartmentTitle: data.apartmentTitle } : {}),
-            });
+            };
+            counterpartById.set(candidateId, candidate);
           }));
         }));
-        if (active) setCandidates(Array.from(counterpartById.values()));
+        const eligibleGroupCandidates = Array.from(counterpartById.values()).filter(
+          (candidate) => !candidate.isBroker && candidate.role !== "broker" && !candidate.agencyId,
+        );
+        if (active) {
+          setIsCreatorHost(creatorIsHost);
+          setCandidates(creatorIsHost ? eligibleGroupCandidates.filter((candidate) => !candidate.isHost) : eligibleGroupCandidates);
+        }
       } catch {
         if (active) setCandidates([]);
       } finally {
@@ -84,9 +111,10 @@ export default function CreateRoommateGroupModal({ visible, userId, onClose, onC
     return () => { active = false; };
   }, [userId, visible]);
 
+  const maxSelectableHosts = isCreatorHost ? 0 : 1;
   const selectedHost = candidates.find((candidate) => candidate.isHost && selectedIds.includes(candidate.id));
   const toggleCandidate = (candidate: GroupCandidate) => {
-    if (!selectedIds.includes(candidate.id) && candidate.isHost && selectedHost) return;
+    if (!selectedIds.includes(candidate.id) && candidate.isHost && (maxSelectableHosts === 0 || !!selectedHost)) return;
     setSelectedIds((previous) => previous.includes(candidate.id) ? previous.filter((id) => id !== candidate.id) : [...previous, candidate.id]);
   };
   const createGroup = async () => {
@@ -114,12 +142,12 @@ export default function CreateRoommateGroupModal({ visible, userId, onClose, onC
             <View><Text style={styles.title}>Δημιουργία Ομαδικής</Text><Text style={styles.subtitle}>Επίλεξε τουλάχιστον 2 συμμετέχοντες</Text></View>
             <Pressable onPress={onClose} hitSlop={10}><Ionicons name="close-outline" size={24} color={colors.onSurface} /></Pressable>
           </View>
-          {selectedHost ? <Text style={styles.warning}>Μπορεί να προστεθεί το πολύ 1 Host με ακίνητο στην ομαδική</Text> : null}
+          {isCreatorHost || selectedHost ? <Text style={styles.warning}>{t("roommates.groupChat.maxHostsReached")}</Text> : null}
           {loading ? <ActivityIndicator color={colors.brand} /> : (
             <View style={styles.list}>
               {candidates.map((candidate) => {
                 const selected = selectedIds.includes(candidate.id);
-                const disabled = candidate.isHost && !!selectedHost && !selected;
+                const disabled = candidate.isHost && (maxSelectableHosts === 0 || (!!selectedHost && !selected));
                 return <Pressable key={candidate.id} style={[styles.row, disabled && styles.disabled]} onPress={() => toggleCandidate(candidate)} disabled={disabled} testID={`group-candidate-${candidate.id}`}>
                   {candidate.photo ? <Image source={{ uri: candidate.photo }} style={styles.avatar} /> : <View style={styles.avatar}><Ionicons name="person-outline" size={20} color={colors.onSurfaceTertiary} /></View>}
                   <View style={styles.rowCopy}><Text style={styles.name}>{candidate.name}</Text><Text style={styles.role}>{candidate.isHost ? "Host" : "Συγκάτοικος"}</Text></View>

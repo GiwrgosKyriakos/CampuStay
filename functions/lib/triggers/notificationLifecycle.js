@@ -20,10 +20,18 @@ async function notifyUsers(userIds, payload, channelId = "deals_pipeline") {
 }
 function appointmentPayload(type, data, appointmentId, action) {
     const chatId = stringValue(data.chatRoomId);
-    const statusText = type === "visit_cancelled" ? "Το ραντεβού υπόδειξης ακυρώθηκε." : "Το ραντεβού υπόδειξης επιβεβαιώθηκε.";
+    const statusText = type === "visit_cancelled"
+        ? "Το ραντεβού υπόδειξης ακυρώθηκε."
+        : type === "visit_confirmed"
+            ? "Το ραντεβού υπόδειξης επιβεβαιώθηκε."
+            : type === "visit_reschedule_proposed"
+                ? "Προτάθηκε νέα ώρα για την υπόδειξη."
+                : type === "visit_reschedule_accepted"
+                    ? "Η νέα ώρα της υπόδειξης έγινε αποδεκτή."
+                    : "Η πρόταση αλλαγής ώρας απορρίφθηκε.";
     return {
         type,
-        title: type === "visit_cancelled" ? "Ακύρωση ραντεβού" : "Επιβεβαίωση υπόδειξης",
+        title: type === "visit_cancelled" ? "Ακύρωση ραντεβού" : type === "visit_confirmed" ? "Επιβεβαίωση υπόδειξης" : "Αλλαγή ώρας υπόδειξης",
         body: statusText,
         screen: chatId ? "chat/[id]" : "calendar",
         params: { appointmentId, ...(chatId ? { chatId } : {}) },
@@ -36,9 +44,14 @@ function appointmentUsers(data) {
 }
 exports.onAppointmentCreated = (0, firestore_2.onDocumentCreated)({ document: "appointments/{appointmentId}", region: "europe-west1" }, async (event) => {
     const data = event.data?.data();
-    if (!data || data.status !== "confirmed")
+    if (!data)
         return;
-    await notifyUsers(appointmentUsers(data), appointmentPayload("visit_confirmed", data, event.params.appointmentId), "visit_reminders");
+    if (data.status === "confirmed") {
+        await notifyUsers(appointmentUsers(data), appointmentPayload("visit_confirmed", data, event.params.appointmentId), "visit_reminders");
+    }
+    else if (data.status === "reschedule_proposed") {
+        await notifyUsers(appointmentUsers(data).filter((userId) => userId !== stringValue(data.proposedBy)), appointmentPayload("visit_reschedule_proposed", data, event.params.appointmentId), "visit_reminders");
+    }
 });
 exports.onAppointmentUpdated = (0, firestore_2.onDocumentUpdated)({ document: "appointments/{appointmentId}", region: "europe-west1" }, async (event) => {
     const before = event.data?.before.data();
@@ -46,6 +59,18 @@ exports.onAppointmentUpdated = (0, firestore_2.onDocumentUpdated)({ document: "a
     if (!before || !after)
         return;
     const appointmentId = event.params.appointmentId;
+    if (before.status !== "reschedule_proposed" && after.status === "reschedule_proposed") {
+        await notifyUsers(appointmentUsers(after).filter((userId) => userId !== stringValue(after.proposedBy)), appointmentPayload("visit_reschedule_proposed", after, appointmentId), "visit_reminders");
+        return;
+    }
+    if (before.status === "reschedule_proposed" && after.status === "confirmed") {
+        await notifyUsers(appointmentUsers(after).filter((userId) => userId !== stringValue(after.proposedBy)), appointmentPayload("visit_reschedule_accepted", after, appointmentId), "visit_reminders");
+        return;
+    }
+    if (before.status === "reschedule_proposed" && after.status === "reschedule_rejected") {
+        await notifyUsers(appointmentUsers(after).filter((userId) => userId !== stringValue(after.proposedBy)), appointmentPayload("visit_reschedule_rejected", after, appointmentId), "visit_reminders");
+        return;
+    }
     if (before.status === "pending" && after.status === "confirmed") {
         await notifyUsers(appointmentUsers(after), appointmentPayload("visit_confirmed", after, appointmentId), "visit_reminders");
         return;

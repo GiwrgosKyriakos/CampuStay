@@ -51,7 +51,7 @@ function reminderDispatchOptions(appointmentId: string, recipientId: string, pha
 }
 
 async function processAppointment(appointmentId: string, data: DocumentData, now: number): Promise<void> {
-  if (data.status === "cancelled") return;
+  if (data.status === "cancelled" || data.status === "superseded_pending" || data.status === "superseded_final" || data.status === "reschedule_proposed" || data.status === "reschedule_rejected" || data.feedbackStatus === "suppressed_rescheduled") return;
   const date = appointmentDate(data);
   if (!date) return;
   const brokerId = typeof data.brokerId === "string" ? data.brokerId : "";
@@ -82,11 +82,14 @@ async function processAppointment(appointmentId: string, data: DocumentData, now
     await sendPushToUser(clientId, { type: "visit_navigation", title: "Η υπόδειξή σας είναι σε 2 ώρες", body: `Η επίσκεψη στο ${title} είναι στις ${time}.`, screen: "calendar", params: { appointmentId, googleMapsUrl: `https://www.google.com/maps/search/?api=1&query=${encodedAddress}`, appleMapsUrl: `maps://?q=${encodedAddress}` }, entityId: appointmentId }, "visit_reminders", reminderDispatchOptions(appointmentId, clientId, "2h"));
   }
 
-  if (!suppressViewingFeedback && data.status === "completed" && isInWindow(date, now, -2 * 60 * 60 * 1000) && await claimPhase(appointmentId, "postVisit", now)) {
-    await Promise.all([
-      sendPushToUser(clientId, { type: "post_visit_rating", title: "Αξιολόγηση επίσκεψης", body: "Πώς ήταν η επίσκεψη στο ακίνητο; Βαθμολόγησε την εμπειρία σου", screen: "calendar", params: { appointmentId }, entityId: appointmentId, action: "open_modal" }, "visit_reminders", reminderDispatchOptions(appointmentId, clientId, "postVisit")),
-      sendPushToUser(brokerId, { type: "post_visit_rating", title: "Feedback υπόδειξης", body: "Ολοκληρώθηκε η υπόδειξη; Κατάγραψε feedback και τυχόν προφορική προσφορά", screen: "broker-client-detail", params: { appointmentId }, entityId: appointmentId, action: "open_modal" }, "visit_reminders", reminderDispatchOptions(appointmentId, brokerId, "postVisit")),
-    ]);
+  if (data.status === "completed" && isInWindow(date, now, -2 * 60 * 60 * 1000)) {
+    const claimedPostVisitPhase = await claimPhase(appointmentId, "postVisit", now);
+    if (claimedPostVisitPhase && !suppressViewingFeedback) {
+      await Promise.all([
+        sendPushToUser(clientId, { type: "post_visit_rating", title: "Αξιολόγηση επίσκεψης", body: "Πώς ήταν η επίσκεψη στο ακίνητο; Βαθμολόγησε την εμπειρία σου", screen: "calendar", params: { appointmentId }, entityId: appointmentId, action: "open_modal" }, "visit_reminders", reminderDispatchOptions(appointmentId, clientId, "postVisit")),
+        sendPushToUser(brokerId, { type: "post_visit_rating", title: "Feedback υπόδειξης", body: "Ολοκληρώθηκε η υπόδειξη; Κατάγραψε feedback και τυχόν προφορική προσφορά", screen: "broker-client-detail", params: { appointmentId }, entityId: appointmentId, action: "open_modal" }, "visit_reminders", reminderDispatchOptions(appointmentId, brokerId, "postVisit")),
+      ]);
+    }
   }
 }
 

@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { CalendarView } from "@/app/(tabs)/calendar";
-import { getBrokerNotesByDateRange, type BrokerNote } from "@/src/api/brokerCalendar";
+import { deduplicateBrokerNotes, getBrokerNotesByDateRange, type BrokerNote } from "@/src/api/brokerCalendar";
 import { useTheme } from "@/src/context/ThemeContext";
 import { getCurrentLocale } from "@/src/locales";
 import { fonts, fontSize, radius, spacing } from "@/src/theme";
+import MonthYearPickerModal from "@/src/components/calendar/MonthYearPickerModal";
 
 export interface CalendarScheduleViewProps {
   isBroker: boolean;
@@ -34,6 +35,7 @@ export default function CalendarScheduleView({ isBroker, userId, onAddNotePress,
   const [currentDate, setCurrentDate] = useState(() => new Date());
   const [notes, setNotes] = useState<BrokerNote[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isPickerVisible, setIsPickerVisible] = useState(false);
 
   const loadNotes = useCallback(async () => {
     if (!userId) {
@@ -44,7 +46,7 @@ export default function CalendarScheduleView({ isBroker, userId, onAddNotePress,
     const start = `${currentDate.getFullYear()}-01-01`;
     const end = `${currentDate.getFullYear() + 1}-12-31`;
     try {
-      setNotes(await getBrokerNotesByDateRange(userId, start, end));
+      setNotes(deduplicateBrokerNotes(await getBrokerNotesByDateRange(userId, start, end)));
     } catch {
       setNotes([]);
     } finally {
@@ -68,16 +70,25 @@ export default function CalendarScheduleView({ isBroker, userId, onAddNotePress,
         <Pressable style={styles.headerButton} onPress={() => setCurrentDate((date) => shiftDate(date, calendarViewMode, -1))} hitSlop={8}>
           <Ionicons name="chevron-back" size={20} color={colors.onSurface} />
         </Pressable>
-        <View style={styles.headerTitlePill}>
+        <Pressable
+          style={styles.headerTitlePill}
+          onPress={calendarViewMode === "month" ? () => setIsPickerVisible(true) : undefined}
+          disabled={calendarViewMode !== "month"}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityRole={calendarViewMode === "month" ? "button" : undefined}
+          accessibilityLabel={calendarViewMode === "month" ? "Επιλογή μήνα και έτους" : headerTitle}
+          testID="calendar-schedule-month-year-pill"
+        >
           <Text style={styles.headerTitle} numberOfLines={1}>{headerTitle}</Text>
-        </View>
+          {calendarViewMode === "month" ? <Ionicons name="chevron-down" size={16} color={colors.onSurfaceTertiary} /> : null}
+        </Pressable>
         <Pressable style={styles.headerButton} onPress={() => setCurrentDate((date) => shiftDate(date, calendarViewMode, 1))} hitSlop={8}>
           <Ionicons name="chevron-forward" size={20} color={colors.onSurface} />
         </Pressable>
       </View>
-      {isLoading ? <ActivityIndicator color={colors.brand} style={styles.loading} /> : null}
       <CalendarView
         colors={colors}
+        isBroker={isBroker}
         userId={userId}
         currentDate={currentDate}
         calendarViewMode={calendarViewMode}
@@ -94,6 +105,15 @@ export default function CalendarScheduleView({ isBroker, userId, onAddNotePress,
         visibleNotes={notes}
         isLoading={isLoading}
       />
+      <MonthYearPickerModal
+        visible={isPickerVisible}
+        currentDate={currentDate}
+        onClose={() => setIsPickerVisible(false)}
+        onSelect={(nextDate) => {
+          setCurrentDate(nextDate);
+          setIsPickerVisible(false);
+        }}
+      />
     </View>
   );
 }
@@ -103,8 +123,7 @@ function createStyles(colors: ReturnType<typeof useTheme>["colors"]) {
     container: { flex: 1, gap: spacing.sm },
     calendarHeader: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceSecondary, paddingHorizontal: spacing.sm },
     headerButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: radius.pill },
-    headerTitlePill: { minHeight: 36, maxWidth: "72%", alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.lg, borderRadius: radius.pill, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 5, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
+    headerTitlePill: { minHeight: 36, maxWidth: "72%", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.xs, paddingHorizontal: spacing.lg, borderRadius: radius.pill, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 5, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
     headerTitle: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface, textAlign: "center" },
-    loading: { position: "absolute", top: spacing.md, right: spacing.md, zIndex: 3 },
   });
 }

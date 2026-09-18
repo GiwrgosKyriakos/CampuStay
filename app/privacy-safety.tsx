@@ -12,7 +12,7 @@ import { collection, doc, getDoc, getDocs, query, where } from "firebase/firesto
 import { useAuth } from "@/src/context/auth";
 import { getUserSettings, saveUserPrivacy, PrivacyPreferences } from "@/src/api/accountSettings";
 import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
-import { GuestModeStickyFooter, GuestModeTopBanner } from "@/src/components/GuestModeLayout";
+import { GuestModeStickyFooter } from "@/src/components/GuestModeLayout";
 import ScreenHeader from "@/src/components/ScreenHeader";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import CenteredActionModal, { type CenteredModalAction } from "@/src/components/CenteredActionModal";
@@ -274,15 +274,6 @@ export default function PrivacySafetyScreen() {
         showsVerticalScrollIndicator={false}
         testID="privacy-safety-screen"
       >
-        {auth.isGuest && (
-          <GuestModeTopBanner
-            onPress={() => router.push("/auth-landing")}
-            testID="privacy-guest-readonly-banner"
-            buttonTestID="privacy-guest-top-signin-button"
-            style={styles.guestBannerSpacing}
-          />
-        )}
-
         {!auth.isBroker && !notLookingForRoommate && (
           <View style={styles.card}>
             <View style={styles.cardHeader}>
@@ -639,7 +630,4 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   saveText: { fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.brand, marginTop: spacing.sm, textAlign: "center" },
   errorText: { fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.error, marginTop: spacing.sm, textAlign: "center" },
-  guestBannerSpacing: {
-    marginBottom: spacing.xs,
-  },
 });

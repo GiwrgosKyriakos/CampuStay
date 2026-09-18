@@ -4,7 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/context/ThemeContext";
 import { fonts, fontSize, radius, spacing } from "@/src/theme";
 import CalendarNoteModal from "@/src/components/calendar/CalendarNoteModal";
-import { getBrokerNotesByDateRange, type BrokerNote } from "@/src/api/brokerCalendar";
+import { deduplicateBrokerNotes, getBrokerNotesByDateRange, type BrokerNote } from "@/src/api/brokerCalendar";
 import type { BrokerClientItem, BrokerListingItem } from "@/src/components/BrokerNoteModal";
 import BaseBottomSheet from "@/src/components/common/BaseBottomSheet";
 
@@ -34,7 +34,7 @@ export default function ClientCalendarNotesModal({
     if (!clientId) return;
     setLoading(true);
     try {
-      const brokerNotes = await getBrokerNotesByDateRange(brokerId, "0000-01-01", "9999-12-31");
+      const brokerNotes = deduplicateBrokerNotes(await getBrokerNotesByDateRange(brokerId, "0000-01-01", "9999-12-31"));
       setNotes(brokerNotes.filter((note) => note.clientId === clientId || note.counterpartId === clientId));
     } catch {
       setNotes([]);

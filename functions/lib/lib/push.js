@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MAX_RECURRING_DISPATCHES = void 0;
+exports.MAX_RECURRING_DISPATCHES = exports.MAX_NOTIFICATION_RECURRENCE_COUNT = void 0;
 exports.sendPushToUser = sendPushToUser;
 const node_crypto_1 = require("node:crypto");
 const app_1 = require("firebase-admin/app");
@@ -10,7 +10,8 @@ const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 if ((0, app_1.getApps)().length === 0)
     (0, app_1.initializeApp)();
 const db = (0, firestore_1.getFirestore)();
-exports.MAX_RECURRING_DISPATCHES = 4;
+exports.MAX_NOTIFICATION_RECURRENCE_COUNT = 4;
+exports.MAX_RECURRING_DISPATCHES = exports.MAX_NOTIFICATION_RECURRENCE_COUNT;
 function isExpoToken(token) {
     return token.startsWith("ExponentPushToken[") || token.startsWith("ExpoPushToken[");
 }
@@ -43,7 +44,7 @@ async function claimDispatch(userId, payload, channelId, options) {
     const sequenceRef = options?.recurringKey
         ? db.doc(`users/${userId}/notificationSequences/${hashKey(options.recurringKey)}`)
         : null;
-    const maxDispatches = Math.min(exports.MAX_RECURRING_DISPATCHES, Math.max(1, Math.floor(options?.maxDispatches ?? exports.MAX_RECURRING_DISPATCHES)));
+    const maxDispatches = Math.min(exports.MAX_NOTIFICATION_RECURRENCE_COUNT, Math.max(1, Math.floor(options?.maxDispatches ?? exports.MAX_NOTIFICATION_RECURRENCE_COUNT)));
     return db.runTransaction(async (transaction) => {
         const notificationSnapshot = await transaction.get(notificationRef);
         const sequenceSnapshot = sequenceRef ? await transaction.get(sequenceRef) : null;

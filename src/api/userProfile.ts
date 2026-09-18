@@ -11,6 +11,9 @@ export interface UserProfile {
   city: string | null;
   has_place: boolean;
   already_have_apartment_to_share: boolean;
+  hasApartment?: boolean;
+  isLooking?: boolean;
+  housingStatus?: "looking" | "has_apartment" | string;
   is_broker?: boolean;
   agencyId?: string | null;
   agencyRole?: "ceo" | "member" | "secretary" | null;
@@ -47,6 +50,9 @@ interface FirestoreUserDocument {
   city?: string | null;
   has_place?: boolean;
   already_have_apartment_to_share?: boolean;
+  hasApartment?: boolean;
+  isLooking?: boolean;
+  housingStatus?: "looking" | "has_apartment" | string;
   is_broker?: boolean;
   agencyId?: string | null;
   agencyRole?: "ceo" | "member" | "secretary" | null;
@@ -87,15 +93,18 @@ function normalizeProfile(docData: Partial<FirestoreUserDocument>): UserProfile 
     about: docData.about ?? "",
     gender: docData.gender ?? null,
     city: docData.city ?? null,
-    has_place: !!docData.has_place,
-    already_have_apartment_to_share: !!docData.already_have_apartment_to_share,
+    has_place: docData.hasApartment === false ? false : !!docData.has_place,
+    already_have_apartment_to_share: docData.hasApartment === false ? false : !!docData.already_have_apartment_to_share,
+    hasApartment: docData.hasApartment ?? docData.has_place ?? false,
+    isLooking: docData.isLooking ?? docData.looking_for_apartment ?? docData.housingStatus === "looking",
+    housingStatus: docData.housingStatus ?? (docData.looking_for_apartment ? "looking" : docData.has_place ? "has_apartment" : "looking"),
     is_broker: !!docData.is_broker,
     agencyId: docData.agencyId ?? null,
     agencyRole: docData.agencyRole ?? null,
     agencyStatus: docData.agencyStatus ?? "none",
     agencyRequestedAt: docData.agencyRequestedAt,
     agencyJoinedAt: docData.agencyJoinedAt,
-    looking_for_apartment: !!docData.looking_for_apartment,
+    looking_for_apartment: !!(docData.isLooking ?? docData.looking_for_apartment ?? docData.housingStatus === "looking"),
     looking_for_roommate: typeof docData.looking_for_roommate === "boolean"
       ? docData.looking_for_roommate
       : typeof docData.isLookingForRoommate === "boolean"
@@ -139,6 +148,9 @@ function buildFirestoreDocument(
     city: profile.city ?? null,
     has_place: !!profile.has_place,
     already_have_apartment_to_share: !!profile.already_have_apartment_to_share,
+    hasApartment: profile.hasApartment ?? profile.has_place,
+    isLooking: profile.isLooking ?? profile.looking_for_apartment,
+    housingStatus: profile.housingStatus ?? (profile.looking_for_apartment ? "looking" : profile.has_place ? "has_apartment" : "looking"),
     is_broker: !!profile.is_broker,
     ...(profile.agencyId && profile.agencyRole
       ? {

@@ -4,6 +4,7 @@ import { Animated, View, Text, StyleSheet, ScrollView, Pressable, TextInput, Swi
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
 import Svg, { Polyline } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
@@ -23,7 +24,8 @@ import { t } from "@/src/locales";
 import { getExcludedUserIds } from "@/src/api/blocking";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { syncBrokerClientProfile } from "@/src/api/brokerClientProfiles";
-import { getUserApartmentNotes, updateNotesOrder, type Apartment as ApartmentNoteData } from "@/src/api/apartmentNotes";
+import { getActiveRoommateGroupsForUser } from "@/src/api/chat";
+import { getUserApartmentNotes, getUserApartmentRatings, updateNotesOrder, type UserApartmentNote } from "@/src/api/apartmentNotes";
 import { storage } from "@/src/utils/storage";
 import { calculatePricePerSqm } from "@/src/utils/pricing";
 import { calculateTenantCompatibilityScore } from "@/src/utils/compatibilityScore";
@@ -31,11 +33,14 @@ import { resolveLocationCoordinates } from "@/src/hooks/useLocationCoordinates";
 import { isPointInPolygon, type LatLng } from "@/src/utils/geometry";
 import MapPolygonDrawModal from "@/src/components/MapPolygonDrawModal";
 import { WatermarkBadge } from "@/src/components/WatermarkBadge";
-import type { FilterSetPayload as SharedFilterSetPayload, HardCriteriaKey } from "@/src/types/filters";
+import type { ApartmentFilterState, FilterSetPayload as SharedFilterSetPayload, HardCriteriaKey, PersistedApartmentFilterState } from "@/src/types/filters";
+import { arePersistedApartmentFiltersEqual, DEFAULT_APARTMENT_FILTER_CRITERIA, DEFAULT_SHOW_ONLY_TOGGLES, getApartmentFiltersStorageKey, hydratePersistedApartmentFilters, serializeApartmentFilters } from "@/src/utils/apartmentFilterPersistence";
 import type { FilterSetVersionData, SharedFilterSetRecord } from "@/src/components/FilterSetVersionModal";
 import type { WatermarkConfig } from "@/src/types/listing";
 import type { VirtualTourData } from "@/src/types/apartment";
 import ApartmentsFeedSkeleton from "@/src/components/skeletons/ApartmentsFeedSkeleton";
+import ApartmentPriceDisplay, { ApartmentResolvedPriceDisplay } from "@/src/components/ApartmentPriceDisplay";
+import { useApartmentResolvedPrice } from "@/src/hooks/useApartmentResolvedPrice";
 import AgencyPickerModal, { type AgencyItem } from "@/src/components/filters/AgencyPickerModal";
 import ProposalListsPickerModal, { type ReceivedProposalList } from "@/src/components/filters/ProposalListsPickerModal";
 import HardCriteriaSelectionModal, { HARD_CRITERIA_OPTIONS } from "@/src/components/HardCriteriaSelectionModal";
@@ -94,7 +99,7 @@ const lightMapStyle = [
 ];
 const APARTMENTS_SORT_BY_STORAGE_KEY = "apartments.sortBy";
 
-export type SortOption = "newest" | "oldest" | "price_asc" | "price_desc" | "size_asc" | "size_desc" | "price_sqm_asc" | "price_sqm_desc";
+export type SortOption = ApartmentFilterState["sortBy"];
 
 export interface FilterSetPayload extends SharedFilterSetPayload {
   title?: string;
@@ -158,6 +163,10 @@ interface ActiveFilterChipState {
   selectedAmenities: readonly string[];
   userHardCriteria: readonly HardCriteriaKey[];
   hasPolygon: boolean;
+  selectedAgencyName: string;
+  selectedBrokerName: string;
+  selectedProposalListTitle: string;
+  showOwnListingsInFeed: boolean;
 }
 
 interface ActiveFilterChipDescriptor {
@@ -633,6 +642,10 @@ export function getActiveFilterChipDescriptors(state: ActiveFilterChipState): Ac
     key: `hard-criteria:${value}`,
     label: HARD_CRITERIA_OPTIONS.find((option) => option.key === value)?.label ?? value,
   }));
+  if (state.selectedAgencyName) descriptors.push({ key: "show-only-agency", label: state.selectedAgencyName });
+  if (state.selectedBrokerName) descriptors.push({ key: "show-only-broker", label: state.selectedBrokerName });
+  if (state.selectedProposalListTitle) descriptors.push({ key: "show-only-list", label: state.selectedProposalListTitle });
+  if (state.showOwnListingsInFeed) descriptors.push({ key: "show-only-own-listings", label: t("apartments.showOwnListings") });
 
   return descriptors;
 }
@@ -680,11 +693,8 @@ type ApartmentGridCardProps = {
   onToggleLike: () => void;
 };
 
-type ApartmentNoteItem = {
-  id: string;
-  text: string;
-  apartmentData: ApartmentNoteData;
-  orderIndex: number;
+type ApartmentNoteItem = UserApartmentNote & {
+  userRating?: number;
 };
 
 function ApartmentGridCard({
@@ -702,6 +712,7 @@ function ApartmentGridCard({
 }: ApartmentGridCardProps) {
   const router = useRouter();
   const [activeImageIndex, setActiveImageIndex] = useState(0);
+  const resolvedPrice = useApartmentResolvedPrice(apt.id, apt.rent);
 
   const cardImages = useMemo(() => {
     const validImages = Array.isArray(apt.images)
@@ -778,13 +789,7 @@ function ApartmentGridCard({
           style={StyleSheet.absoluteFill}
         />
         <View style={styles.topRightBadgesContainer}>
-          <View style={styles.rentBadge}>
-            <Text style={styles.rentText}>
-              {CURRENCY}
-              {apt.rent}
-            </Text>
-            <Text style={styles.rentMo}>{t("apartments.perMonthShort")}</Text>
-          </View>
+          <ApartmentPriceDisplay price={resolvedPrice.displayPrice} originalPrice={resolvedPrice.originalPrice} variant="badge" isAcceptedOffer={resolvedPrice.isAcceptedOffer} />
           {showMatchScore ? (
             <View style={[styles.matchScoreCardBadge, { borderColor: getMatchScoreColor(compatibilityScore, colors) }]}>
               <Ionicons name="sparkles" size={11} color={getMatchScoreColor(compatibilityScore, colors)} style={styles.matchScoreIcon} />
@@ -969,6 +974,11 @@ export default function ApartmentsScreen() {
   const [selectedMapApartment, setSelectedMapApartment] = useState<Apartment | null>(null);
   const [proposalApartmentIds, setProposalApartmentIds] = useState<string[]>([]);
   const [selectedProposalList, setSelectedProposalList] = useState<ReceivedProposalList | null>(null);
+  const [filterPersistenceReady, setFilterPersistenceReady] = useState(false);
+  const [lastSavedFilters, setLastSavedFilters] = useState<PersistedApartmentFilterState | null>(null);
+  const [saveToastVisible, setSaveToastVisible] = useState(false);
+  const saveToastAnimation = useRef(new Animated.Value(0)).current;
+  const saveToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [markersTracking, setMarkersTracking] = useState(true);
   const [fallbackCoordinates, setFallbackCoordinates] = useState<Record<string, { latitude: number; longitude: number }>>({});
   const mapRef = useRef<ApartmentMapRef>(null);
@@ -984,6 +994,7 @@ export default function ApartmentsScreen() {
   const [likeErrorModalVisible, setLikeErrorModalVisible] = useState(false);
   const [showNotesPanel, setShowNotesPanel] = useState(false);
   const [underConstructionModalVisible, setUnderConstructionModalVisible] = useState(false);
+    const [hostNewListingNoticeVisible, setHostNewListingNoticeVisible] = useState(false);
   const [loadingNotes, setLoadingNotes] = useState(false);
   const [notesList, setNotesList] = useState<ApartmentNoteItem[]>([]);
   const [notesOrderSaving, setNotesOrderSaving] = useState(false);
@@ -994,9 +1005,83 @@ export default function ApartmentsScreen() {
   const canOpenHostInbox = hasPublishedHostApartment || hasApartmentShareFlag;
   const canManageListings = !auth.isGuest && (hasPublishedHostApartment || hasApartmentShareFlag || auth.isBroker);
   const isHostUser = canManageListings;
-  const showCreateFab = !auth.isGuest && (!hideCreateFab || auth.isBroker);
+  const showCreateFab = !auth.isGuest && (auth.isBroker || (canManageListings && !hideCreateFab));
   const isHostSharer = !auth.isBroker && auth.notLookingForRoommate === true && hasApartmentShareFlag;
   const showHostInboxFab = !auth.isGuest && !auth.isBroker && !hideCreateFab && canOpenHostInbox && !isHostSharer;
+
+  const filterPersistenceKey = useMemo(
+    () => getApartmentFiltersStorageKey(auth.userId, auth.isGuest),
+    [auth.isGuest, auth.userId],
+  );
+
+  useEffect(() => {
+    let active = true;
+    setFilterPersistenceReady(false);
+    setSelectedAgency(null);
+    setSelectedBrokerFilter(null);
+    setSelectedProposalList(null);
+    setProposalApartmentIds([]);
+    setShowOwnListingsInFeed(DEFAULT_SHOW_ONLY_TOGGLES.showOwnListingsInFeed);
+
+    void Promise.all([
+      storage.getItem<string>(filterPersistenceKey, ""),
+      storage.getItem<SortOption>(APARTMENTS_SORT_BY_STORAGE_KEY, "newest"),
+      storage.getItem<string>(`${filterPersistenceKey}.lastSaved`, ""),
+    ]).then(([rawFilters, legacySort, rawLastSavedFilters]) => {
+      if (!active) return;
+      let persisted = { ...DEFAULT_APARTMENT_FILTER_CRITERIA };
+      if (rawFilters) {
+        try {
+          persisted = hydratePersistedApartmentFilters(JSON.parse(rawFilters));
+        } catch {
+          persisted = { ...DEFAULT_APARTMENT_FILTER_CRITERIA };
+        }
+      } else if (legacySort && SORT_OPTIONS.includes(legacySort)) {
+        persisted.sortBy = legacySort;
+      }
+      if (rawLastSavedFilters) {
+        try {
+          setLastSavedFilters(hydratePersistedApartmentFilters(JSON.parse(rawLastSavedFilters)));
+        } catch {
+          setLastSavedFilters(null);
+        }
+      } else {
+        setLastSavedFilters(null);
+      }
+
+      cityFilterOverrideRef.current = Boolean(persisted.selectedCity);
+      setRentMin(persisted.rentMin);
+      setRentMax(persisted.rentMax);
+      setMinSqmPrice(persisted.minSqmPrice);
+      setMaxSqmPrice(persisted.maxSqmPrice);
+      setSelectedCity(toCanonicalCity(persisted.selectedCity));
+      setAreaQuery(persisted.areaQuery);
+      setSizeMin(persisted.sizeMin);
+      setSizeMax(persisted.sizeMax);
+      setPetFriendly(persisted.petFriendly);
+      setNearMetro(persisted.nearMetro);
+      setPropertyTypes(persisted.propertyTypes.map(toCanonicalPropertyType));
+      setPropertyCategories(persisted.propertyCategories);
+      setFloors(persisted.floors);
+      setBedroomsMin(persisted.bedroomsMin);
+      setBathroomsMin(persisted.bathroomsMin);
+      setFurnishedStatus(persisted.furnishedStatus === "all" ? "all" : toCanonicalFurnishedStatus(persisted.furnishedStatus) as "furnished" | "unfurnished");
+      setHeatingTypes(persisted.heatingTypes.map(toCanonicalHeatingType));
+      setEnergyClasses(persisted.energyClasses);
+      setConstructionYearMin(persisted.constructionYearMin);
+      setRenovationYearMin(persisted.renovationYearMin);
+      setSelectedAmenities(persisted.selectedAmenities.map(toCanonicalAmenity));
+      setUserHardCriteria(persisted.userHardCriteria);
+      setShowMatchScoreOnMap(persisted.showMatchScoreOnMap);
+      setPolygonCoordinates(persisted.polygonCoordinates);
+      setSortBy(persisted.sortBy);
+      setFilterPersistenceReady(true);
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [filterPersistenceKey]);
 
   const detachSavedFilterSet = useCallback(() => {
     if (activeSavedSetId !== null) {
@@ -1037,7 +1122,11 @@ export default function ApartmentsScreen() {
     selectedAmenities,
     userHardCriteria,
     hasPolygon: polygonCoordinates.length >= 3,
-  }), [areaQuery, bathroomsMin, bedroomsMin, constructionYearMin, energyClasses, floors, furnishedStatus, heatingTypes, maxSqmPrice, minSqmPrice, nearMetro, petFriendly, polygonCoordinates.length, propertyCategories, propertyTypes, rentMax, rentMin, renovationYearMin, selectedAmenities, selectedCity, sizeMax, sizeMin, userHardCriteria]);
+    selectedAgencyName: selectedAgency?.name ?? "",
+    selectedBrokerName: selectedBrokerFilter?.name ?? "",
+    selectedProposalListTitle: selectedProposalList?.title ?? "",
+    showOwnListingsInFeed,
+  }), [areaQuery, bathroomsMin, bedroomsMin, constructionYearMin, energyClasses, floors, furnishedStatus, heatingTypes, maxSqmPrice, minSqmPrice, nearMetro, petFriendly, polygonCoordinates.length, propertyCategories, propertyTypes, rentMax, rentMin, renovationYearMin, selectedAgency, selectedAmenities, selectedBrokerFilter, selectedCity, selectedProposalList, showOwnListingsInFeed, sizeMax, sizeMin, userHardCriteria]);
 
   const removeActiveFilter = useCallback((key: string) => {
     const removeStringValue = (setter: React.Dispatch<React.SetStateAction<string[]>>, value: string) => {
@@ -1089,6 +1178,16 @@ export default function ApartmentsScreen() {
     } else if (key.startsWith("hard-criteria:")) {
       const value = key.slice("hard-criteria:".length) as HardCriteriaKey;
       updateFilterValue(setUserHardCriteria, (current) => current.filter((item) => item !== value));
+    } else if (key === "show-only-agency") {
+      setSelectedAgency(null);
+      setAgencyBrokerIds([]);
+    } else if (key === "show-only-broker") {
+      setSelectedBrokerFilter(null);
+    } else if (key === "show-only-list") {
+      setSelectedProposalList(null);
+      setProposalApartmentIds([]);
+    } else if (key === "show-only-own-listings") {
+      setShowOwnListingsInFeed(false);
     }
   }, [updateFilterValue]);
 
@@ -1099,6 +1198,107 @@ export default function ApartmentsScreen() {
     })),
     [activeFilterChipState, removeActiveFilter],
   );
+
+  const clearAllFilters = useCallback(() => {
+    cityFilterOverrideRef.current = true;
+    setRentMin(DEFAULT_APARTMENT_FILTER_CRITERIA.rentMin);
+    setRentMax(DEFAULT_APARTMENT_FILTER_CRITERIA.rentMax);
+    setMinSqmPrice(DEFAULT_APARTMENT_FILTER_CRITERIA.minSqmPrice);
+    setMaxSqmPrice(DEFAULT_APARTMENT_FILTER_CRITERIA.maxSqmPrice);
+    setSelectedCity(DEFAULT_APARTMENT_FILTER_CRITERIA.selectedCity);
+    setAreaQuery(DEFAULT_APARTMENT_FILTER_CRITERIA.areaQuery);
+    setSizeMin(DEFAULT_APARTMENT_FILTER_CRITERIA.sizeMin);
+    setSizeMax(DEFAULT_APARTMENT_FILTER_CRITERIA.sizeMax);
+    setPetFriendly(DEFAULT_APARTMENT_FILTER_CRITERIA.petFriendly);
+    setNearMetro(DEFAULT_APARTMENT_FILTER_CRITERIA.nearMetro);
+    setPropertyTypes([]);
+    setPropertyCategories([]);
+    setFloors([]);
+    setBedroomsMin("");
+    setBathroomsMin("");
+    setFurnishedStatus(DEFAULT_APARTMENT_FILTER_CRITERIA.furnishedStatus);
+    setHeatingTypes([]);
+    setEnergyClasses([]);
+    setConstructionYearMin("");
+    setRenovationYearMin("");
+    setSelectedAmenities([]);
+    setUserHardCriteria([]);
+    setShowMatchScoreOnMap(DEFAULT_APARTMENT_FILTER_CRITERIA.showMatchScoreOnMap);
+    setPolygonCoordinates([]);
+    setSortBy(DEFAULT_APARTMENT_FILTER_CRITERIA.sortBy);
+    setSelectedAgency(null);
+    setSelectedBrokerFilter(null);
+    setSelectedProposalList(null);
+    setProposalApartmentIds([]);
+    setAgencyBrokerIds([]);
+    setShowOwnListingsInFeed(DEFAULT_SHOW_ONLY_TOGGLES.showOwnListingsInFeed);
+    setActiveSavedSetId(null);
+    setFilterSetTitle("");
+    void storage.setItem(filterPersistenceKey, JSON.stringify(DEFAULT_APARTMENT_FILTER_CRITERIA));
+  }, [filterPersistenceKey]);
+
+  const apartmentFilterState = useMemo<ApartmentFilterState>(() => ({
+    ...DEFAULT_SHOW_ONLY_TOGGLES,
+    rentMin,
+    rentMax,
+    minSqmPrice,
+    maxSqmPrice,
+    selectedCity,
+    areaQuery,
+    sizeMin,
+    sizeMax,
+    petFriendly,
+    nearMetro,
+    propertyTypes,
+    propertyCategories,
+    floors,
+    bedroomsMin,
+    bathroomsMin,
+    furnishedStatus,
+    heatingTypes,
+    energyClasses,
+    constructionYearMin,
+    renovationYearMin,
+    selectedAmenities,
+    userHardCriteria,
+    showMatchScoreOnMap,
+    polygonCoordinates,
+    sortBy,
+    selectedAgencyId: selectedAgency?.id ?? null,
+    selectedBrokerId: selectedBrokerFilter?.id ?? null,
+    selectedProposalListId: selectedProposalList?.id ?? null,
+    proposalApartmentIds,
+    showOwnListingsInFeed,
+  }), [areaQuery, bathroomsMin, bedroomsMin, constructionYearMin, energyClasses, floors, furnishedStatus, heatingTypes, maxSqmPrice, minSqmPrice, nearMetro, petFriendly, polygonCoordinates, propertyCategories, propertyTypes, proposalApartmentIds, rentMax, rentMin, renovationYearMin, selectedAgency, selectedAmenities, selectedBrokerFilter, selectedCity, selectedProposalList, showMatchScoreOnMap, showOwnListingsInFeed, sizeMax, sizeMin, sortBy, userHardCriteria]);
+
+  useEffect(() => {
+    if (!filterPersistenceReady) return;
+    const persisted = serializeApartmentFilters(apartmentFilterState);
+    void storage.setItem(filterPersistenceKey, JSON.stringify(persisted));
+  }, [apartmentFilterState, filterPersistenceKey, filterPersistenceReady]);
+
+  const currentPersistedFilters = useMemo(
+    () => serializeApartmentFilters(apartmentFilterState),
+    [apartmentFilterState],
+  );
+  const isFilterSetDirty = !arePersistedApartmentFiltersEqual(currentPersistedFilters, lastSavedFilters);
+
+  const showSaveToast = useCallback(() => {
+    if (saveToastTimerRef.current) clearTimeout(saveToastTimerRef.current);
+    setSaveToastVisible(true);
+    saveToastAnimation.stopAnimation();
+    saveToastAnimation.setValue(0);
+    Animated.timing(saveToastAnimation, { toValue: 1, duration: 220, useNativeDriver: true }).start();
+    saveToastTimerRef.current = setTimeout(() => {
+      Animated.timing(saveToastAnimation, { toValue: 0, duration: 220, useNativeDriver: true }).start(({ finished }) => {
+        if (finished) setSaveToastVisible(false);
+      });
+    }, 2800);
+  }, [saveToastAnimation]);
+
+  useEffect(() => () => {
+    if (saveToastTimerRef.current) clearTimeout(saveToastTimerRef.current);
+  }, []);
 
   const currentFilterSet = useMemo<FilterSetPayload>(
     () => ({
@@ -1174,16 +1374,49 @@ export default function ApartmentsScreen() {
       const savedDoc = await addDoc(savedFilterSetsRef, payload);
       setActiveSavedSetId(savedDoc.id);
       setFilterSetTitle(currentFilterSet.title ?? "");
+      setLastSavedFilters(currentPersistedFilters);
+      await storage.setItem(`${filterPersistenceKey}.lastSaved`, JSON.stringify(currentPersistedFilters));
+      showSaveToast();
       await loadSavedFilterSets();
     } catch (error) {
       console.error("[Apartments] Error saving filter set:", error);
     } finally {
       setSavingFilterSet(false);
     }
-  }, [auth.userId, currentFilterSet, loadSavedFilterSets, savedFilterSetsRef, savingFilterSet]);
+  }, [auth.userId, currentFilterSet, currentPersistedFilters, filterPersistenceKey, loadSavedFilterSets, savedFilterSetsRef, savingFilterSet, showSaveToast]);
 
   const applySavedFilterSet = useCallback((savedSet: SavedFilterSet) => {
     cityFilterOverrideRef.current = true;
+    const savedPersistedFilters: PersistedApartmentFilterState = {
+      ...DEFAULT_APARTMENT_FILTER_CRITERIA,
+      rentMin: savedSet.rentMin ?? "",
+      rentMax: savedSet.rentMax ?? "",
+      minSqmPrice: savedSet.minSqmPrice ?? "",
+      maxSqmPrice: savedSet.maxSqmPrice ?? "",
+      selectedCity: toCanonicalCity(savedSet.selectedCity?.trim() || savedSet.cityQuery?.trim() || ""),
+      areaQuery: savedSet.areaQuery ?? "",
+      sizeMin: savedSet.sizeMin ?? "",
+      sizeMax: savedSet.sizeMax ?? "",
+      petFriendly: savedSet.petFriendly === true,
+      nearMetro: savedSet.nearMetro === true,
+      propertyTypes: (savedSet.propertyTypes ?? []).map(toCanonicalPropertyType),
+      propertyCategories: savedSet.propertyCategories ?? [],
+      floors: savedSet.floors ?? [],
+      bedroomsMin: savedSet.bedroomsMin ?? "",
+      bathroomsMin: savedSet.bathroomsMin ?? "",
+      furnishedStatus: savedSet.furnishedStatus === "all" ? "all" : toCanonicalFurnishedStatus(savedSet.furnishedStatus ?? "furnished") as "furnished" | "unfurnished",
+      heatingTypes: (savedSet.heatingTypes ?? []).map(toCanonicalHeatingType),
+      energyClasses: savedSet.energyClasses ?? [],
+      constructionYearMin: savedSet.constructionYearMin ?? "",
+      renovationYearMin: savedSet.renovationYearMin ?? "",
+      selectedAmenities: (savedSet.selectedAmenities ?? []).map(toCanonicalAmenity),
+      userHardCriteria: savedSet.userHardCriteria ?? [],
+      showMatchScoreOnMap: savedSet.showMatchScore === true || savedSet.showMatchScoreOnMap === true,
+      polygonCoordinates: savedSet.polygonCoordinates ?? [],
+      sortBy: savedSet.sortBy && SORT_OPTIONS.includes(savedSet.sortBy) ? savedSet.sortBy : "newest",
+    };
+    setLastSavedFilters(savedPersistedFilters);
+    void storage.setItem(`${filterPersistenceKey}.lastSaved`, JSON.stringify(savedPersistedFilters));
     setRentMin(savedSet.rentMin ?? "");
     setRentMax(savedSet.rentMax ?? "");
     setMinSqmPrice(savedSet.minSqmPrice ?? "");
@@ -1213,7 +1446,7 @@ export default function ApartmentsScreen() {
     setActiveSavedSetId(savedSet.id);
     setSelectedSetForPreview(null);
     setShowHistoryModal(false);
-  }, []);
+  }, [filterPersistenceKey]);
 
   const shareFilterSet = useCallback(async () => {
     if (!auth.userId || auth.isGuest) return;
@@ -1615,13 +1848,14 @@ export default function ApartmentsScreen() {
     void (async () => {
       try {
         const notes = await getUserApartmentNotes(auth.userId!);
+        const ratings = await getUserApartmentRatings(auth.userId!, notes.map((note) => note.id));
         if (!active) return;
         const sorted = [...notes].sort((left, right) => {
           const leftIndex = Number.isFinite(left.orderIndex) ? left.orderIndex : Number.MAX_SAFE_INTEGER;
           const rightIndex = Number.isFinite(right.orderIndex) ? right.orderIndex : Number.MAX_SAFE_INTEGER;
           return leftIndex - rightIndex;
         });
-        setNotesList(sorted);
+        setNotesList(sorted.map((note) => ({ ...note, userRating: ratings[note.id] })));
       } catch {
         if (!active) return;
         setNotesList([]);
@@ -1955,7 +2189,14 @@ export default function ApartmentsScreen() {
         try {
           const uid = await getUserId();
           const profile = await getUserProfile(uid);
-          if (mounted) setHideCreateFab(!!profile?.looking_for_apartment);
+          if (mounted) {
+            setHideCreateFab(
+              profile?.looking_for_apartment === true ||
+              profile?.isLooking === true ||
+              profile?.housingStatus === "looking" ||
+              profile?.hasApartment === false,
+            );
+          }
         } catch {
           if (mounted) setHideCreateFab(false);
         }
@@ -1965,6 +2206,23 @@ export default function ApartmentsScreen() {
       };
     }, [auth.isGuest]),
   );
+
+  const handleCreateListingPress = useCallback(async () => {
+    if (!auth.userId || auth.isBroker) {
+      router.push("/create-listing" as any);
+      return;
+    }
+    try {
+      const activeGroups = await getActiveRoommateGroupsForUser(auth.userId);
+      if (activeGroups.some((group) => group.hostUserId === auth.userId)) {
+        setHostNewListingNoticeVisible(true);
+        return;
+      }
+    } catch (error) {
+      console.warn("[Apartments] Failed to verify host group membership:", error);
+    }
+    router.push("/create-listing" as any);
+  }, [auth.isBroker, auth.userId, router]);
 
   useEffect(() => {
     if (auth.isGuest || !auth.userId) {
@@ -2815,6 +3073,7 @@ export default function ApartmentsScreen() {
           </Animated.View>
         )}
         {showFilters && (
+          <View style={styles.filterPanelShell}>
           <KeyboardAwareScrollView
             style={styles.filterPanel}
             contentContainerStyle={[styles.filterPanelContent, { flexGrow: 1, paddingBottom: spacing["3xl"] + insets.bottom }]}
@@ -2827,23 +3086,36 @@ export default function ApartmentsScreen() {
           >
             <View style={styles.filterActionsRow}>
               <Pressable
-                style={[styles.filterActionButton, showHistoryModal && styles.filterActionButtonActive]}
-                onPress={() => {
-                  if (campuStay) {
-                    setUnderConstructionModalVisible(true);
-                  } else {
-                    setSelectedSetForPreview(null);
-                    setShowHistoryModal(true);
-                  }
-                }}
-                testID="apartments-filter-history-btn"
+                style={[styles.filterSaveFab, !isFilterSetDirty && styles.filterSaveFabDimmed]}
+                onPress={() => void saveFilterSet()}
+                disabled={!isFilterSetDirty || savingFilterSet || auth.isGuest || !auth.userId}
+                testID="apartments-filter-save-fab"
+                accessibilityLabel={t("apartments.saveFilterSet")}
               >
-                <Ionicons name="time-outline" size={18} color={colors.onSurface} />
+                <Ionicons name={isFilterSetDirty ? "bookmark-outline" : "bookmark"} size={19} color={isFilterSetDirty ? colors.onBrand : colors.onSurfaceTertiary} />
               </Pressable>
-              
-              <Pressable style={styles.filterActionButton} onPress={() => void shareFilterSet()} testID="apartments-filter-share-btn">
-                <Ionicons name="share-social-outline" size={18} color={colors.onSurface} />
-              </Pressable>
+              <View style={styles.filterActionsRight}>
+                <Pressable
+                  style={[styles.filterActionButton, showHistoryModal && styles.filterActionButtonActive]}
+                  onPress={() => {
+                    if (campuStay) {
+                      setUnderConstructionModalVisible(true);
+                    } else {
+                      setSelectedSetForPreview(null);
+                      setShowHistoryModal(true);
+                    }
+                  }}
+                  testID="apartments-filter-history-btn"
+                >
+                  <Ionicons name="time-outline" size={18} color={colors.onSurface} />
+                </Pressable>
+                <Pressable style={styles.filterActionButton} onPress={() => void shareFilterSet()} testID="apartments-filter-share-btn">
+                  <Ionicons name="share-social-outline" size={18} color={colors.onSurface} />
+                </Pressable>
+                <Pressable style={styles.filterActionButton} onPress={clearAllFilters} testID="apartments-filter-reset-btn" accessibilityLabel={t("common.actions.reset")}>
+                  <Ionicons name="refresh-outline" size={18} color={colors.onSurface} />
+                </Pressable>
+              </View>
               
             </View>
 
@@ -2987,15 +3259,6 @@ export default function ApartmentsScreen() {
               placeholderTextColor={colors.onSurfaceTertiary}
               testID="apartments-filter-set-title-input"
             />
-            <Pressable
-              style={[styles.saveFilterSetButton, savingFilterSet && styles.saveFilterSetButtonDisabled]}
-              onPress={() => void saveFilterSet()}
-              disabled={savingFilterSet || auth.isGuest || !auth.userId}
-              testID="apartments-filter-set-save"
-            >
-              <Ionicons name="bookmark-outline" size={17} color={colors.onBrand} />
-              <Text style={styles.saveFilterSetButtonText}>{t("apartments.saveFilterSet")}</Text>
-            </Pressable>
 
             <Text style={styles.filterLabel}>{t("apartments.monthlyRent", { currency: CURRENCY })}</Text>
             <View style={styles.rangeRow}>
@@ -3197,6 +3460,23 @@ export default function ApartmentsScreen() {
               </View>
             </View>
           </KeyboardAwareScrollView>
+          {saveToastVisible ? (
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.filterSaveToast,
+                {
+                  opacity: saveToastAnimation,
+                  transform: [{ translateY: saveToastAnimation.interpolate({ inputRange: [0, 1], outputRange: [18, 0] }) }],
+                },
+              ]}
+              testID="apartments-filter-save-toast"
+            >
+              <Ionicons name="checkmark-circle" size={18} color={colors.brand} />
+              <Text style={styles.filterSaveToastText}>{t("apartments.filterSetSavedToast")}</Text>
+            </Animated.View>
+          ) : null}
+          </View>
         )}
       </Animated.View>
       <HardCriteriaSelectionModal
@@ -3247,7 +3527,7 @@ export default function ApartmentsScreen() {
           {selectedMapApartment ? (
             <Pressable style={styles.mapCardPreviewOverlay} onPress={() => router.push({ pathname: "/apartment-detail", params: { data: JSON.stringify(selectedMapApartment) } } as any)} testID={`apartments-map-preview-${selectedMapApartment.id}`}>
               {selectedMapApartment.image ? <Image source={{ uri: selectedMapApartment.image }} style={styles.mapPreviewThumbnail} contentFit="cover" /> : <View style={[styles.mapPreviewThumbnail, styles.mapPreviewPlaceholder]}><Ionicons name="home-outline" size={24} color={colors.brand} /></View>}
-              <View style={styles.mapPreviewContent}><Text style={styles.mapPreviewTitle} numberOfLines={1}>{selectedMapApartment.title}</Text><View style={styles.mapPreviewLocation}><Ionicons name="location-outline" size={13} color={colors.onSurfaceTertiary} /><Text style={styles.mapPreviewLocationText} numberOfLines={1}>{selectedMapApartment.area}{selectedMapApartment.area && selectedMapApartment.city ? " · " : ""}{selectedMapApartment.city}</Text></View><View style={styles.mapPreviewMetrics}><Text style={styles.mapPreviewRent}>{selectedMapApartment.rent} {CURRENCY}</Text><Text style={styles.mapPreviewScore}>{`${Math.round(calculateTenantCompatibilityScore({ city: selectedMapApartment.city, area: selectedMapApartment.area, latitude: selectedMapApartment.latitude, longitude: selectedMapApartment.longitude, rent: selectedMapApartment.rent, size: selectedMapApartment.size, floor: selectedMapApartment.floor, tags: selectedMapApartment.tags, amenities: selectedMapApartment.amenities, propertyType: selectedMapApartment.propertyType, propertyCategory: selectedMapApartment.propertyCategory }, currentFilterSet))}%`}</Text></View></View>
+              <View style={styles.mapPreviewContent}><Text style={styles.mapPreviewTitle} numberOfLines={1}>{selectedMapApartment.title}</Text><View style={styles.mapPreviewLocation}><Ionicons name="location-outline" size={13} color={colors.onSurfaceTertiary} /><Text style={styles.mapPreviewLocationText} numberOfLines={1}>{selectedMapApartment.area}{selectedMapApartment.area && selectedMapApartment.city ? " · " : ""}{selectedMapApartment.city}</Text></View><View style={styles.mapPreviewMetrics}><ApartmentResolvedPriceDisplay apartmentId={selectedMapApartment.id} basePrice={selectedMapApartment.rent} variant="inline" /><Text style={styles.mapPreviewScore}>{`${Math.round(calculateTenantCompatibilityScore({ city: selectedMapApartment.city, area: selectedMapApartment.area, latitude: selectedMapApartment.latitude, longitude: selectedMapApartment.longitude, rent: selectedMapApartment.rent, size: selectedMapApartment.size, floor: selectedMapApartment.floor, tags: selectedMapApartment.tags, amenities: selectedMapApartment.amenities, propertyType: selectedMapApartment.propertyType, propertyCategory: selectedMapApartment.propertyCategory }, currentFilterSet))}%`}</Text></View></View>
               <Pressable style={styles.mapPreviewClose} onPress={(event) => { event.stopPropagation(); setSelectedMapApartment(null); }} hitSlop={8} testID="apartments-map-preview-close"><Ionicons name="close" size={16} color={colors.onSurfaceTertiary} /></Pressable>
             </Pressable>
           ) : null}
@@ -3339,7 +3619,7 @@ export default function ApartmentsScreen() {
 
                 <View style={[styles.compactCol, styles.compactRentCol]}>
                   <Text style={styles.compactRentPill} numberOfLines={1}>
-                    {`${apt.rent}${CURRENCY}`}
+                    <ApartmentResolvedPriceDisplay apartmentId={apt.id} basePrice={apt.rent} variant="inline" />
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -3398,13 +3678,39 @@ export default function ApartmentsScreen() {
           )}
           <Pressable
             style={styles.fab}
-            onPress={() => router.push("/create-listing" as any)}
+            onPress={() => void handleCreateListingPress()}
             testID="apartments-create-fab"
           >
             <Text style={styles.fabText}>+</Text>
           </Pressable>
         </View>
       )}
+
+      <CenteredActionModal
+        visible={hostNewListingNoticeVisible}
+        title={t("apartments.hostNewListingNotice.title")}
+        description={t("apartments.hostNewListingNotice.message")}
+        onDismiss={() => setHostNewListingNoticeVisible(false)}
+        actions={[
+          {
+            label: t("common.actions.continue"),
+            iconName: "arrow-forward-circle-outline",
+            onPress: () => {
+              setHostNewListingNoticeVisible(false);
+              router.push("/create-listing" as any);
+            },
+            testID: "apartments-host-new-listing-continue",
+          },
+          {
+            label: t("common.actions.cancel"),
+            iconName: "close-circle-outline",
+            variant: "muted",
+            onPress: () => setHostNewListingNoticeVisible(false),
+            testID: "apartments-host-new-listing-cancel",
+          },
+        ]}
+        testID="apartments-host-new-listing-notice"
+      />
 
       <CenteredActionModal
         visible={likeErrorModalVisible}
@@ -3822,51 +4128,81 @@ export default function ApartmentsScreen() {
                 renderItem={({ item, getIndex, drag, isActive }) => {
                   const coverImage = item.apartmentData?.image || item.apartmentData?.imageUrl || item.apartmentData?.images?.[0] || "";
                   const noteExcerpt = item.text?.trim() || t("common.values.notAvailable");
+                  const rating = item.userRating;
 
                   return (
                     <ScaleDecorator>
-                      <TouchableOpacity
-                        activeOpacity={0.9}
-                        onPress={campuStay ? undefined : () =>
-                          router.push({
-                            pathname: "/apartment-note",
-                            params: {
-                              data: JSON.stringify(item.apartmentData),
-                              fromList: "true",
-                            },
-                          } as any)
-                        }
-                        onLongPress={campuStay ? undefined : drag}
-                        delayLongPress={140}
-                        disabled={campuStay}
-                        style={[styles.noteRow, isActive && styles.noteRowActive]}
-                        testID={`apartments-note-row-${item.id}`}
-                      >
+                      <View style={[styles.noteRow, isActive && styles.noteRowActive]} testID={`apartments-note-row-${item.id}`}>
                         <View style={styles.noteIndexBadge}>
                           <Text style={styles.noteIndexText}>{(getIndex?.() ?? 0) + 1}</Text>
                         </View>
 
-                        {coverImage ? (
-                          <Image source={{ uri: coverImage }} style={styles.noteThumb} contentFit="cover" />
-                        ) : (
-                          <View style={[styles.noteThumb, styles.noteThumbPlaceholder]}>
-                            <Ionicons name="home-outline" size={18} color={colors.onSurfaceTertiary} />
+                        <TouchableOpacity
+                          activeOpacity={0.82}
+                          onPress={campuStay ? undefined : () =>
+                            router.push({
+                              pathname: "/apartment-note",
+                              params: {
+                                data: JSON.stringify(item.apartmentData),
+                                fromList: "true",
+                              },
+                            })
+                          }
+                          onLongPress={campuStay ? undefined : () => {
+                            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                            drag();
+                          }}
+                          delayLongPress={220}
+                          disabled={campuStay}
+                          style={styles.noteMainPressable}
+                        >
+                          {coverImage ? (
+                            <Image source={{ uri: coverImage }} style={styles.noteThumb} contentFit="cover" />
+                          ) : (
+                            <View style={[styles.noteThumb, styles.noteThumbPlaceholder]}>
+                              <Ionicons name="home-outline" size={18} color={colors.onSurfaceTertiary} />
+                            </View>
+                          )}
+                          <View style={styles.noteMainTextWrap}>
+                            <Text style={styles.noteTitleText} numberOfLines={1}>
+                              {item.apartmentData.title || t("apartments.unknownListing")}
+                            </Text>
+                            <Text style={styles.noteExcerptText} numberOfLines={1}>
+                              {noteExcerpt}
+                            </Text>
+                            <View style={styles.noteMetaRow}>
+                              <View style={styles.noteRentPill}>
+                                <Text style={styles.noteRentText}>{`${CURRENCY}${item.apartmentData.rent}`}</Text>
+                              </View>
+                              {typeof rating === "number" ? (
+                                <View style={styles.noteRatingBadge} testID={`apartments-note-rating-${item.id}`}>
+                                  {Array.from({ length: 5 }, (_, index) => {
+                                    const starValue = index + 1;
+                                    const iconName = rating >= starValue ? "star" : rating >= starValue - 0.5 ? "star-half" : "star-outline";
+                                    return <Ionicons key={starValue} name={iconName} size={13} color={colors.warning} />;
+                                  })}
+                                  <Text style={styles.noteRatingText}>{`${rating}/5`}</Text>
+                                </View>
+                              ) : null}
+                            </View>
                           </View>
-                        )}
-                        <View style={styles.noteMainTextWrap}>
-                          <Text style={styles.noteTitleText} numberOfLines={1}>
-                            {item.apartmentData.title || t("apartments.unknownListing")}
-                          </Text>
-                          <Text style={styles.noteExcerptText} numberOfLines={1}>
-                            {noteExcerpt}
-                          </Text>
-                          <View style={styles.noteRentPill}>
-                            <Text style={styles.noteRentText}>{`${CURRENCY}${item.apartmentData.rent}`}</Text>
-                          </View>
-                        </View>
+                        </TouchableOpacity>
 
-                        {!campuStay ? <Ionicons name="reorder-two-outline" size={20} color={colors.onSurfaceTertiary} /> : null}
-                      </TouchableOpacity>
+                        {!campuStay ? (
+                          <Pressable
+                            style={styles.notePropertyButton}
+                            onPress={() => {
+                              setShowNotesPanel(false);
+                              router.push({ pathname: "/apartment-detail", params: { id: item.apartmentData.id } });
+                            }}
+                            hitSlop={6}
+                            accessibilityLabel={t("apartments.tab.notes.openProperty")}
+                            testID={`apartments-note-property-${item.id}`}
+                          >
+                            <Ionicons name="arrow-up-right-box" size={20} color={colors.brand} />
+                          </Pressable>
+                        ) : null}
+                      </View>
                     </ScaleDecorator>
                   );
                 }}
@@ -4234,7 +4570,6 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   noteRow: {
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: spacing.sm,
     backgroundColor: colors.surfaceSecondary,
     borderWidth: 1,
     borderColor: colors.border,
@@ -4243,7 +4578,14 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   noteRowActive: {
     opacity: 0.92,
+    borderWidth: 2,
     borderColor: colors.brand,
+  },
+  noteMainPressable: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.sm,
   },
   noteIndexBadge: {
     minWidth: 24,
@@ -4276,6 +4618,11 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     flex: 1,
     gap: 4,
   },
+  noteMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
   noteTitleText: {
     fontFamily: fonts.bold,
     fontSize: fontSize.base,
@@ -4300,6 +4647,26 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     fontFamily: fonts.semibold,
     fontSize: fontSize.sm,
     color: colors.onBrandTertiary,
+  },
+  noteRatingBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+  },
+  noteRatingText: {
+    marginLeft: 2,
+    fontFamily: fonts.semibold,
+    fontSize: fontSize.sm,
+    color: colors.warning,
+  },
+  notePropertyButton: {
+    width: 36,
+    height: 56,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: spacing.xs,
+    borderLeftWidth: 1,
+    borderLeftColor: colors.border,
   },
   notesStateWrap: {
     minHeight: 120,
@@ -4458,6 +4825,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderColor: colors.border,
     overflow: "hidden",
   },
+  filterPanelShell: { position: "relative", maxHeight: 380 },
   filterPanelContent: {
     padding: spacing.md,
     gap: spacing.sm,
@@ -4634,9 +5002,24 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   filterActionsRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "flex-end",
+    justifyContent: "space-between",
     gap: spacing.sm,
   },
+  filterActionsRight: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  filterSaveFab: {
+    width: 42,
+    height: 42,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.brand,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.16,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  filterSaveFabDimmed: { opacity: 0.45, backgroundColor: colors.surfaceTertiary, shadowOpacity: 0, elevation: 0 },
   activeProposalFilterBar: {
     marginTop: spacing.sm,
     marginHorizontal: spacing.lg,
@@ -4671,24 +5054,32 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderColor: colors.brand,
     backgroundColor: colors.brandTertiary,
   },
-  saveFilterSetButton: {
-    alignSelf: "flex-start",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.xs,
-    borderRadius: radius.md,
-    backgroundColor: colors.brand,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-  },
   saveFilterSetButtonDisabled: {
     opacity: 0.55,
   },
-  saveFilterSetButtonText: {
-    fontFamily: fonts.semibold,
-    fontSize: fontSize.sm,
-    color: colors.onBrand,
+  filterSaveToast: {
+    position: "absolute",
+    left: spacing.lg,
+    right: spacing.lg,
+    bottom: spacing.md,
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceSecondary,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.14,
+    shadowRadius: 5,
+    elevation: 4,
+    zIndex: 5,
   },
+  filterSaveToastText: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface },
   sortTitle: {
     fontFamily: fonts.bold,
     fontSize: fontSize.lg,

@@ -106,6 +106,39 @@ export async function cancelScheduledNotification(notificationId?: string): Prom
   await Notifications.cancelScheduledNotificationAsync(notificationId);
 }
 
+export async function cancelScheduledNotificationsForAppointment(appointmentId: string): Promise<void> {
+  if (!appointmentId.trim()) return;
+  const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+  await Promise.all(
+    scheduled
+      .filter((item) => item.content.data?.appointmentId === appointmentId)
+      .map((item) => Notifications.cancelScheduledNotificationAsync(item.identifier)),
+  );
+}
+
+export async function scheduleVisitReminderNotifications(params: {
+  appointmentId: string;
+  chatRoomId: string;
+  appointmentDate: string;
+  apartmentTitle: string;
+}): Promise<string[]> {
+  await cancelScheduledNotificationsForAppointment(params.appointmentId);
+  const appointmentTime = new Date(params.appointmentDate).getTime();
+  if (!Number.isFinite(appointmentTime)) return [];
+  const reminders = [
+    { leadTimeMinutes: 24 * 60, label: "Αύριο" },
+    { leadTimeMinutes: 2 * 60, label: "Σε 2 ώρες" },
+    { leadTimeMinutes: 15, label: "Σε 15 λεπτά" },
+  ];
+  const identifiers = await Promise.all(reminders.map(async ({ leadTimeMinutes, label }) => scheduleLocalCalendarNotification({
+    title: `Υπόδειξη: ${label}`,
+    body: params.apartmentTitle,
+    data: { type: "visit_reminder", appointmentId: params.appointmentId, chatRoomId: params.chatRoomId, leadTimeMinutes },
+    date: new Date(appointmentTime - leadTimeMinutes * 60 * 1000),
+  })));
+  return identifiers.filter((identifier): identifier is string => typeof identifier === "string");
+}
+
 export async function schedulePostVisitFeedbackReminder(params: {
   noteId: string;
   apartmentTitle: string;

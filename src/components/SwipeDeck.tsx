@@ -18,17 +18,29 @@ import Animated, {
 import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
 import { useTheme } from "@/src/context/ThemeContext";
 import type { RoommateProfile } from "@/src/data/profiles";
+import { QUIZ_SECTIONS, type QuizQuestionId } from "@/src/data/quiz";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import { t } from "@/src/locales";
-import { localizeCity, localizeGender, localizeLifestyle } from "@/src/utils/localizeData";
+import { localizeGender } from "@/src/utils/localizeData";
 import { canonicalizeQuizAnswer } from "@/src/utils/matchAlgorithm";
+import {
+  DEFAULT_HARD_CRITERIA,
+  MAX_HARD_CRITERIA_COUNT,
+  getRoommateHardCriteriaOption,
+  normalizeSelectedHardCriteria,
+  type RoommateHardCriteriaKey,
+} from "@/src/types/roommateHardCriteria";
 
 const { width: SCREEN_W } = Dimensions.get("window");
 const SWIPE_THRESHOLD = SCREEN_W * 0.28;
 const OUT_X = SCREEN_W * 1.5;
 
-function getQuizAnswer(answers: Record<string, string>, key: "smoking" | "pets"): string | null {
-  const aliases = key === "smoking" ? ["q7_smoke", "q5"] : ["q8_pets", "q13"];
+function getQuizAnswer(answers: Record<string, string>, questionId: QuizQuestionId): string | null {
+  const aliases = questionId === "q5"
+    ? ["q7_smoke", "q5"]
+    : questionId === "q13"
+      ? ["q8_pets", "q13"]
+      : [questionId];
   return aliases.map((alias) => answers[alias]?.trim()).find(Boolean) ?? null;
 }
 
@@ -40,26 +52,67 @@ function isPetFriendlyAnswer(answer: string): boolean {
   return answer === "pet_owner_or_wants" || answer === "pets_allowed";
 }
 
-function QuizCompatibilityBadges({ profileAnswers, currentAnswers, colors, styles }: { profileAnswers: Record<string, string>; currentAnswers: Record<string, string>; colors: ThemeColors; styles: ReturnType<typeof createStyles> }) {
-  const profileSmokingAnswer = getQuizAnswer(profileAnswers, "smoking");
-  const currentSmokingAnswer = getQuizAnswer(currentAnswers, "smoking");
-  const profilePetsAnswer = getQuizAnswer(profileAnswers, "pets");
-  const currentPetsAnswer = getQuizAnswer(currentAnswers, "pets");
-  const profileSmokingValue = profileSmokingAnswer ? canonicalizeQuizAnswer("q5", profileSmokingAnswer) : undefined;
-  const currentSmokingValue = currentSmokingAnswer ? canonicalizeQuizAnswer("q5", currentSmokingAnswer) : undefined;
-  const profilePetsValue = profilePetsAnswer ? canonicalizeQuizAnswer("q13", profilePetsAnswer) : undefined;
-  const currentPetsValue = currentPetsAnswer ? canonicalizeQuizAnswer("q13", currentPetsAnswer) : undefined;
-  const profileIsSmoker = profileSmokingValue ? isSmokerAnswer(profileSmokingValue) : false;
-  const profileIsPetFriendly = profilePetsValue ? isPetFriendlyAnswer(profilePetsValue) : false;
-  const isMutualSmokingMatch = Boolean(profileSmokingValue && currentSmokingValue && profileSmokingValue === currentSmokingValue);
-  const isMutualPetsMatch = Boolean(profilePetsValue && currentPetsValue && profilePetsValue === currentPetsValue);
+type BadgeIconName = React.ComponentProps<typeof Ionicons>["name"];
 
-  if (!profileSmokingAnswer && !profilePetsAnswer) return null;
+const HARD_CRITERIA_BADGE_ICONS: Record<RoommateHardCriteriaKey, BadgeIconName> = {
+  cleanliness: "sparkles-outline",
+  cleaningFrequency: "refresh-outline",
+  kitchen: "restaurant-outline",
+  bills: "cash-outline",
+  smoking: "flame-outline",
+  noise: "volume-mute-outline",
+  sleepSchedule: "moon-outline",
+  guests: "people-outline",
+  parties: "musical-notes-outline",
+  socializing: "chatbubbles-outline",
+  sharing: "share-social-outline",
+  shopping: "cart-outline",
+  pets: "paw-outline",
+  alcohol: "wine-outline",
+  cooking: "restaurant-outline",
+};
+
+function getCriterionAnswerLabel(questionId: QuizQuestionId, answer: string): string {
+  const question = QUIZ_SECTIONS.flatMap((section) => section.questions).find((item) => item.id === questionId);
+  const option = question?.options.find((item) => item.value === answer);
+  return option ? t(option.labelKey) : t(getRoommateHardCriteriaOption(questionId === "q5" ? "smoking" : questionId === "q13" ? "pets" : "cleanliness").labelKey);
+}
+
+function areCriterionAnswersEqual(key: RoommateHardCriteriaKey, profileAnswer: string, currentAnswer: string): boolean {
+  if (key === "smoking") return canonicalizeQuizAnswer("q5", profileAnswer) === canonicalizeQuizAnswer("q5", currentAnswer);
+  if (key === "pets") return canonicalizeQuizAnswer("q13", profileAnswer) === canonicalizeQuizAnswer("q13", currentAnswer);
+  return profileAnswer === currentAnswer;
+}
+
+function QuizCompatibilityBadges({ selectedHardCriteria, profileAnswers, currentAnswers, colors, styles }: { selectedHardCriteria: RoommateHardCriteriaKey[]; profileAnswers: Record<string, string>; currentAnswers: Record<string, string>; colors: ThemeColors; styles: ReturnType<typeof createStyles> }) {
+  const badges = selectedHardCriteria.slice(0, MAX_HARD_CRITERIA_COUNT).flatMap((key) => {
+    const option = getRoommateHardCriteriaOption(key);
+    const profileAnswer = getQuizAnswer(profileAnswers, option.questionId);
+    const currentAnswer = getQuizAnswer(currentAnswers, option.questionId);
+    const isMutualMatch = Boolean(profileAnswer && currentAnswer && areCriterionAnswersEqual(key, profileAnswer, currentAnswer));
+    const canonicalAnswer = profileAnswer && key === "smoking"
+      ? canonicalizeQuizAnswer("q5", profileAnswer)
+      : profileAnswer && key === "pets"
+        ? canonicalizeQuizAnswer("q13", profileAnswer)
+        : undefined;
+    const icon = key === "smoking" && canonicalAnswer
+      ? isSmokerAnswer(canonicalAnswer) ? "flame-outline" : "ban-outline"
+      : key === "pets" && canonicalAnswer
+        ? isPetFriendlyAnswer(canonicalAnswer) ? "paw-outline" : "ban-outline"
+        : HARD_CRITERIA_BADGE_ICONS[key];
+    const label = key === "smoking" && canonicalAnswer
+      ? isSmokerAnswer(canonicalAnswer) ? t("lifestyle.smoker") : t("lifestyle.nonSmoker")
+      : key === "pets" && canonicalAnswer
+        ? isPetFriendlyAnswer(canonicalAnswer) ? t("lifestyle.petsAllowed") : t("lifestyle.noPets")
+        : profileAnswer ? getCriterionAnswerLabel(option.questionId, profileAnswer) : t(option.labelKey);
+    return [{ key, icon, label, isMutualMatch }];
+  });
+
+  if (badges.length === 0) return null;
 
   return (
     <View style={styles.quizBadgesRow}>
-      {profileSmokingAnswer ? <View style={[styles.quizPillBadge, isMutualSmokingMatch && styles.quizPillBadgeMutualMatch]}><Ionicons name={profileIsSmoker ? "flame-outline" : "ban-outline"} size={12} color={isMutualSmokingMatch ? colors.onBrand : "#FFFFFF"} /><Text style={[styles.quizPillText, isMutualSmokingMatch && styles.quizPillTextMutualMatch]}>{profileIsSmoker ? t("lifestyle.smoker") : t("lifestyle.nonSmoker")}</Text></View> : null}
-      {profilePetsAnswer ? <View style={[styles.quizPillBadge, isMutualPetsMatch && styles.quizPillBadgeMutualMatch]}><Ionicons name={profileIsPetFriendly ? "paw-outline" : "ban-outline"} size={12} color={isMutualPetsMatch ? colors.onBrand : "#FFFFFF"} /><Text style={[styles.quizPillText, isMutualPetsMatch && styles.quizPillTextMutualMatch]}>{profileIsPetFriendly ? t("lifestyle.petsAllowed") : t("lifestyle.noPets")}</Text></View> : null}
+      {badges.map((badge) => <View key={badge.key} style={[styles.quizPillBadge, badge.isMutualMatch && styles.quizPillBadgeMutualMatch]}><Ionicons name={badge.icon} size={12} color={badge.isMutualMatch ? colors.onBrand : "#FFFFFF"} /><Text style={[styles.quizPillText, badge.isMutualMatch && styles.quizPillTextMutualMatch]}>{badge.label}</Text></View>)}
     </View>
   );
 }
@@ -67,13 +120,13 @@ function QuizCompatibilityBadges({ profileAnswers, currentAnswers, colors, style
 interface CardContentProps {
   profile: RoommateProfile;
   currentQuizAnswers: Record<string, string>;
+  selectedHardCriteria: RoommateHardCriteriaKey[];
   currency: string;
   colors: ThemeColors;
 }
 
-const CardContent = React.memo(function CardContent({ profile: p, currentQuizAnswers, currency, colors }: CardContentProps) {
+const CardContent = React.memo(function CardContent({ profile: p, currentQuizAnswers, selectedHardCriteria, currency, colors }: CardContentProps) {
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const localizedTags = p.tags.map((tag) => localizeLifestyle(tag)).filter(Boolean).slice(0, 3);
 
   return (
     <View style={styles.card}>
@@ -116,19 +169,6 @@ const CardContent = React.memo(function CardContent({ profile: p, currentQuizAns
         <Text style={styles.uni} numberOfLines={1}>
           {p.program} · {p.university}
         </Text>
-        {/*
-        {p.city ? (
-          <View style={styles.locationRow}>
-            <Ionicons name="location-outline" size={14} color={colors.onSurfaceInverse} />
-            <Text style={styles.locationText} numberOfLines={1}>{localizeCity(p.city)}</Text>
-          </View>
-        ) : null}
-        {localizedTags.length > 0 ? (
-          <View style={styles.tagRow}>
-            {localizedTags.map((tag) => <View key={tag} style={styles.tagPill}><Text style={styles.tagText} numberOfLines={1}>{tag}</Text></View>)}
-          </View>
-        ) : null}
-        */}
         <View style={styles.pillRow}>
           <View style={styles.metaPill}>
             <Ionicons name="person-outline" size={14} color={colors.onBrand} />
@@ -144,7 +184,7 @@ const CardContent = React.memo(function CardContent({ profile: p, currentQuizAns
         </View>
       </View>
       <View style={styles.criteriaOverlay} pointerEvents="none">
-        <QuizCompatibilityBadges profileAnswers={p.quizAnswers ?? {}} currentAnswers={currentQuizAnswers} colors={colors} styles={styles} />
+        <QuizCompatibilityBadges selectedHardCriteria={selectedHardCriteria} profileAnswers={p.quizAnswers ?? {}} currentAnswers={currentQuizAnswers} colors={colors} styles={styles} />
       </View>
     </View>
   );
@@ -158,6 +198,7 @@ export interface SwipeDeckHandle {
 interface Props {
   profiles: RoommateProfile[];
   currentQuizAnswers?: Record<string, string>;
+  selectedHardCriteria?: RoommateHardCriteriaKey[];
   currency: string;
   onLike: (p: RoommateProfile) => void;
   onNope: (p: RoommateProfile) => void;
@@ -166,7 +207,7 @@ interface Props {
 }
 
 const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck(
-  { profiles, currentQuizAnswers = {}, currency, onLike, onNope, onSwipeAction, onEmptyReset },
+  { profiles, currentQuizAnswers = {}, selectedHardCriteria = DEFAULT_HARD_CRITERIA, currency, onLike, onNope, onSwipeAction, onEmptyReset },
   ref,
 ) {
   const { colors } = useTheme();
@@ -201,6 +242,7 @@ const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck(
 
   const currentProfile = profiles[currentIndex];
   const nextProfile = profiles[currentIndex + 1];
+  const activeHardCriteria = normalizeSelectedHardCriteria(selectedHardCriteria);
 
   // ΑΣΦΑΛΕΙΣ JS ΣΥΝΑΡΤΗΣΕΙΣ ΓΙΑ LOGGING (Εκτελούνται στο JS Thread και διαβάζουν με ασφάλεια το State)
   const logSwipeStart = () => {
@@ -417,7 +459,7 @@ const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck(
               pointerEvents={topSlot === 0 ? "auto" : "none"}
               testID={topSlot === 0 ? "swipe-card-top" : undefined}
             >
-              <CardContent profile={profileSlot0} currentQuizAnswers={currentQuizAnswers} currency={currency} colors={colors} />
+              <CardContent profile={profileSlot0} currentQuizAnswers={currentQuizAnswers} selectedHardCriteria={activeHardCriteria} currency={currency} colors={colors} />
             </Animated.View>
           )}
           {profileSlot1 && (
@@ -427,7 +469,7 @@ const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck(
               pointerEvents={topSlot === 1 ? "auto" : "none"}
               testID={topSlot === 1 ? "swipe-card-top" : undefined}
             >
-              <CardContent profile={profileSlot1} currentQuizAnswers={currentQuizAnswers} currency={currency} colors={colors} />
+              <CardContent profile={profileSlot1} currentQuizAnswers={currentQuizAnswers} selectedHardCriteria={activeHardCriteria} currency={currency} colors={colors} />
             </Animated.View>
           )}
         </View>
@@ -495,11 +537,6 @@ function createStyles(colors: ThemeColors) {
     name: { fontFamily: fonts.displayExtra, fontSize: fontSize["3xl"], color: colors.onSurfaceInverse },
     age: { fontFamily: fonts.display, fontSize: fontSize["2xl"], color: colors.onSurfaceInverse, paddingBottom: 3 },
     uni: { fontFamily: fonts.semibold, fontSize: fontSize.base, color: "rgba(255,255,255,0.85)" },
-    locationRow: { flexDirection: "row", alignItems: "center", gap: 4 },
-    locationText: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: "rgba(255,255,255,0.85)" },
-    tagRow: { flexDirection: "row", flexWrap: "wrap", gap: 5 },
-    tagPill: { maxWidth: "48%", backgroundColor: "rgba(255,255,255,0.16)", paddingHorizontal: 7, paddingVertical: 3, borderRadius: radius.pill },
-    tagText: { fontFamily: fonts.semibold, fontSize: 10, color: "rgba(255,255,255,0.92)" },
     pillRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.xs },
     metaPill: {
       flexDirection: "row",

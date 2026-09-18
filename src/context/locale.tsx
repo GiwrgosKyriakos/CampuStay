@@ -3,11 +3,16 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { storage } from "@/src/utils/storage";
 import { AppLocale, getCurrentLocale, isSupportedLocale, setI18nLocale } from "@/src/locales";
 
-const LOCALE_STORAGE_KEY = "app_locale";
+export const LOCALE_STORAGE_KEY = "app_locale";
+export const HAS_SELECTED_LANGUAGE_KEY = "has_selected_language";
+export const SELECTED_LANGUAGE_KEY = "selected_language";
 
 interface LocaleContextValue {
   locale: AppLocale;
   setLocale: (locale: AppLocale) => Promise<void>;
+  isLanguageReady: boolean;
+  hasSelectedInitialLanguage: boolean;
+  completeInitialLanguage: () => Promise<void>;
 }
 
 const LocaleContext = createContext<LocaleContextValue | null>(null);
@@ -17,6 +22,8 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
     const current = getCurrentLocale();
     return isSupportedLocale(current) ? current : "en";
   });
+  const [isLanguageReady, setIsLanguageReady] = useState(false);
+  const [hasSelectedInitialLanguage, setHasSelectedInitialLanguage] = useState(false);
 
   useEffect(() => {
     setI18nLocale(locale);
@@ -26,9 +33,19 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
     let mounted = true;
 
     (async () => {
-      const stored = await storage.getItem(LOCALE_STORAGE_KEY, locale);
-      if (!mounted || typeof stored !== "string" || !isSupportedLocale(stored)) return;
-      setLocaleState(stored);
+      const [storedLocale, storedFlag, selectedLocale] = await Promise.all([
+        storage.getItem(LOCALE_STORAGE_KEY, locale),
+        storage.getItem(HAS_SELECTED_LANGUAGE_KEY, false),
+        storage.getItem(SELECTED_LANGUAGE_KEY, ""),
+      ]);
+      if (!mounted) return;
+      if (typeof storedLocale === "string" && isSupportedLocale(storedLocale)) setLocaleState(storedLocale);
+      setHasSelectedInitialLanguage(
+        Boolean(storedFlag) ||
+          (typeof storedLocale === "string" && isSupportedLocale(storedLocale)) ||
+          (typeof selectedLocale === "string" && isSupportedLocale(selectedLocale)),
+      );
+      setIsLanguageReady(true);
     })();
 
     return () => {
@@ -39,9 +56,20 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
   const setLocale = useCallback(async (nextLocale: AppLocale) => {
     setLocaleState(nextLocale);
     await storage.setItem(LOCALE_STORAGE_KEY, nextLocale);
-  }, []);
+  }, [locale]);
 
-  const value = useMemo<LocaleContextValue>(() => ({ locale, setLocale }), [locale, setLocale]);
+  const completeInitialLanguage = useCallback(async () => {
+    await Promise.all([
+      storage.setItem(HAS_SELECTED_LANGUAGE_KEY, true),
+      storage.setItem(SELECTED_LANGUAGE_KEY, locale),
+    ]);
+    setHasSelectedInitialLanguage(true);
+  }, [locale]);
+
+  const value = useMemo<LocaleContextValue>(
+    () => ({ locale, setLocale, isLanguageReady, hasSelectedInitialLanguage, completeInitialLanguage }),
+    [completeInitialLanguage, hasSelectedInitialLanguage, isLanguageReady, locale, setLocale],
+  );
 
   return (
     <LocaleContext.Provider value={value}>

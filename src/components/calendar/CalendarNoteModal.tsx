@@ -22,6 +22,8 @@ interface CalendarNoteModalProps {
 }
 
 export default function CalendarNoteModal({ visible, isBroker, userId, brokerId, date, initialClientId, initialClientName, initialDate, listings = [], clients = [], note, onClose, onSaved, onUpdated, onDeleted }: CalendarNoteModalProps) {
+  if (!isBroker) return null;
+
   return (
     <BrokerNoteModal
       visible={visible}

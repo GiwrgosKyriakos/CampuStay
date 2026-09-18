@@ -5,11 +5,14 @@ import {
   query,
   where,
   getDocs,
+  limit,
+  orderBy,
   writeBatch,
   Timestamp,
   serverTimestamp,
   setDoc,
   addDoc,
+  arrayRemove,
   arrayUnion,
   deleteField,
   FieldPath,
@@ -18,7 +21,68 @@ import { db } from "@/src/config/firebase";
 import { getUserSettings } from "@/src/api/accountSettings";
 import { syncBrokerClientProfile } from "@/src/api/brokerClientProfiles";
 import type { GroupChatMetadata, SharedProfileMessageMetadata } from "@/src/types/chat";
-import { isBrokerOrAgencyUser } from "@/src/utils/roles";
+import { isBrokerOrAgencyUser, isRoommateGroupHost, type UserRoleData } from "@/src/utils/roles";
+
+type GroupUserProfile = UserRoleData & {
+  looking_for_roommate?: boolean;
+  isLookingForRoommate?: boolean;
+  not_looking_for_roommate?: boolean;
+};
+
+export interface ActiveRoommateGroup {
+  id: string;
+  name: string;
+  hostUserId: string | null;
+}
+
+function timestampMillis(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (!value || typeof value !== "object") return 0;
+  const timestamp = value as { toMillis?: () => number; seconds?: number; nanoseconds?: number };
+  if (typeof timestamp.toMillis === "function") return timestamp.toMillis();
+  if (typeof timestamp.seconds === "number") return timestamp.seconds * 1000 + Math.floor((timestamp.nanoseconds ?? 0) / 1_000_000);
+  return 0;
+}
+
+function isGroupHostProfile(profile: GroupUserProfile | null): boolean {
+  return isRoommateGroupHost(profile);
+}
+
+async function resolvePinnedApartmentId(
+  creatorId: string,
+  creatorIsHost: boolean,
+  hostUserId: string | undefined,
+  fallbackApartmentId?: string,
+): Promise<string | undefined> {
+  if (creatorIsHost) {
+    for (const ownerField of ["hostId", "creatorId"] as const) {
+      try {
+        const snapshot = await getDocs(query(
+          collection(db, "apartments"),
+          where(ownerField, "==", creatorId),
+          orderBy("createdAt", "desc"),
+          limit(1),
+        ));
+        if (snapshot.docs[0]) return snapshot.docs[0].id;
+      } catch {
+        const fallbackSnapshot = await getDocs(query(collection(db, "apartments"), where(ownerField, "==", creatorId)));
+        const latestFallback = fallbackSnapshot.docs
+          .sort((left, right) => timestampMillis(right.data().createdAt) - timestampMillis(left.data().createdAt))[0];
+        if (latestFallback) return latestFallback.id;
+      }
+    }
+    return fallbackApartmentId;
+  }
+
+  if (!hostUserId) return fallbackApartmentId;
+  const directChats = await getDocs(query(collection(db, "chats"), where("users", "array-contains", creatorId)));
+  const originChats = directChats.docs
+    .map((chatDoc) => ({ id: chatDoc.id, data: chatDoc.data() as { users?: string[]; type?: string; apartmentId?: string; hostApartmentId?: string; updatedAt?: unknown; createdAt?: unknown } }))
+    .filter(({ data }) => data.type === "host" && data.users?.includes(hostUserId))
+    .filter(({ data }) => Boolean(data.apartmentId || data.hostApartmentId))
+    .sort((left, right) => timestampMillis(right.data.updatedAt ?? right.data.createdAt) - timestampMillis(left.data.updatedAt ?? left.data.createdAt));
+  return originChats[0]?.data.apartmentId ?? originChats[0]?.data.hostApartmentId ?? fallbackApartmentId;
+}
 
 export async function createRoommateGroupChat(params: {
   creatorId: string;
@@ -29,24 +93,44 @@ export async function createRoommateGroupChat(params: {
   groupName?: string;
 }): Promise<string> {
   const creatorSnapshot = await getDoc(doc(db, "users", params.creatorId));
-  const creator = creatorSnapshot.exists() ? creatorSnapshot.data() as { is_broker?: boolean; agencyId?: string; agencyRole?: string; role?: string; looking_for_roommate?: boolean; isLookingForRoommate?: boolean; not_looking_for_roommate?: boolean } : null;
-  if (!creator || isBrokerOrAgencyUser(creator) || creator.looking_for_roommate === false || creator.isLookingForRoommate === false || creator.not_looking_for_roommate === true) {
+  const creator = creatorSnapshot.exists() ? creatorSnapshot.data() as GroupUserProfile : null;
+  const creatorIsHost = isGroupHostProfile(creator);
+  if (!creator || isBrokerOrAgencyUser(creator) || (!creatorIsHost && (creator.looking_for_roommate === false || creator.isLookingForRoommate === false || creator.not_looking_for_roommate === true))) {
     throw new Error("Η δημιουργία ομαδικής είναι διαθέσιμη μόνο σε χρήστες που αναζητούν συγκάτοικο.");
   }
   const memberIds = Array.from(new Set([params.creatorId, ...params.memberIds])).filter(Boolean);
   if (memberIds.length < 3) throw new Error("A group chat needs at least two selected participants.");
   const hostUserIds = Array.from(new Set([...(params.hostUserIds ?? []), ...(params.hostUserId ? [params.hostUserId] : [])]));
   if (hostUserIds.length > 1) throw new Error("Μπορεί να προστεθεί μόνο ένας Host στην ομαδική.");
-  const hostUserId = hostUserIds[0];
-  if (hostUserId && !memberIds.includes(hostUserId)) {
+  const requestedHostUserId = hostUserIds[0];
+  if (requestedHostUserId && !memberIds.includes(requestedHostUserId)) {
     throw new Error("The selected host must be a group member.");
   }
+
+  const memberProfiles: Array<GroupUserProfile | null> = await Promise.all(
+    memberIds.map(async (memberId) => {
+      const snapshot = await getDoc(doc(db, "users", memberId));
+      return snapshot.exists() ? snapshot.data() as GroupUserProfile : null;
+    }),
+  );
+  if (memberProfiles.some((profile) => !profile || isBrokerOrAgencyUser(profile))) {
+    throw new Error("Commercial brokers cannot be added to roommate group chats.");
+  }
+  const memberHostIds = memberIds.filter((_, index) => isGroupHostProfile(memberProfiles[index]));
+  if (memberHostIds.length > 1) throw new Error("Μπορεί να προστεθεί μόνο ένας Host στην ομαδική.");
+  const hostUserId = creatorIsHost ? params.creatorId : requestedHostUserId ?? memberHostIds[0];
+  if (hostUserId && !isGroupHostProfile(memberProfiles[memberIds.indexOf(hostUserId)])) {
+    throw new Error("The selected host must have an active host profile.");
+  }
+
+  const pinnedApartmentId = await resolvePinnedApartmentId(params.creatorId, creatorIsHost, hostUserId, params.hostApartmentId);
+  const nonHostMemberIds = memberIds.filter((memberId) => memberId !== hostUserId);
 
   const groupMetadata: GroupChatMetadata = {
     isGroup: true,
     groupName: params.groupName?.trim() || "Ομαδική",
     ...(hostUserId ? { hostUserId } : {}),
-    ...(params.hostApartmentId ? { hostApartmentId: params.hostApartmentId } : {}),
+    ...(pinnedApartmentId ? { hostApartmentId: pinnedApartmentId, pinnedApartmentId } : {}),
     memberIds,
     createdBy: params.creatorId,
   };
@@ -54,13 +138,15 @@ export async function createRoommateGroupChat(params: {
     memberIds.map((memberId) => [memberId, memberId === params.creatorId ? "approved" : "pending"]),
   );
   const chatRef = doc(collection(db, "chats"));
-  await setDoc(chatRef, {
+  const messageRef = doc(collection(db, "chats", chatRef.id, "messages"));
+  const batch = writeBatch(db);
+  batch.set(chatRef, {
     users: memberIds,
     participants: memberIds,
     type: "roommate_group",
     groupName: groupMetadata.groupName,
     groupMetadata,
-    ...(params.hostApartmentId ? { hostApartmentId: params.hostApartmentId, apartmentId: params.hostApartmentId } : {}),
+    ...(pinnedApartmentId ? { hostApartmentId: pinnedApartmentId, pinnedApartmentId, apartmentId: pinnedApartmentId } : {}),
     createdBy: params.creatorId,
     initiatedBy: params.creatorId,
     status: "active",
@@ -72,14 +158,80 @@ export async function createRoommateGroupChat(params: {
     createdAt: serverTimestamp(),
     unreadCounts: Object.fromEntries(memberIds.map((id) => [id, 0])),
   });
-  await addDoc(collection(db, "chats", chatRef.id, "messages"), {
+  nonHostMemberIds.forEach((memberId) => {
+    batch.update(doc(db, "users", memberId), {
+      hasApartment: false,
+      isLooking: true,
+      housingStatus: "looking",
+      has_place: false,
+      already_have_apartment_to_share: false,
+      looking_for_apartment: true,
+      updatedAt: serverTimestamp(),
+    });
+  });
+  batch.set(messageRef, {
     senderId: params.creatorId,
     type: "system",
     text: "Ομαδική συνομιλία δημιουργήθηκε",
     createdAt: serverTimestamp(),
     isRead: true,
   });
+  await batch.commit();
   return chatRef.id;
+}
+
+export async function getActiveRoommateGroupsForUser(userId: string): Promise<ActiveRoommateGroup[]> {
+  const snapshot = await getDocs(query(collection(db, "chats"), where("users", "array-contains", userId)));
+  return snapshot.docs.flatMap((chatDoc): ActiveRoommateGroup[] => {
+    const data = chatDoc.data() as { type?: string; status?: string; groupName?: string; hostUserId?: string; groupMetadata?: GroupChatMetadata };
+    if (data.type !== "roommate_group" || data.status !== "active") return [];
+    return [{
+      id: chatDoc.id,
+      name: data.groupMetadata?.groupName || data.groupName || "Ομαδική",
+      hostUserId: data.groupMetadata?.hostUserId ?? data.hostUserId ?? null,
+    }];
+  });
+}
+
+export async function leaveRoommateGroupsAndSetHousing(userId: string, groups: ActiveRoommateGroup[]): Promise<void> {
+  const userSnapshot = await getDoc(doc(db, "users", userId));
+  const userName = userSnapshot.exists() && typeof userSnapshot.data().name === "string" ? userSnapshot.data().name.trim() : "Χρήστης";
+  const batch = writeBatch(db);
+
+  groups.forEach((group) => {
+    const chatRef = doc(db, "chats", group.id);
+    const messageRef = doc(collection(db, "chats", group.id, "messages"));
+    const messageText = `${userName || "Χρήστης"} αποχώρησε από την ομαδική`;
+    batch.update(
+      chatRef,
+      "users", arrayRemove(userId),
+      "participants", arrayRemove(userId),
+      new FieldPath("groupMetadata", "memberIds"), arrayRemove(userId),
+      new FieldPath("memberStatuses", userId), "rejected",
+      new FieldPath("deletedUsers", userId), true,
+      "lastMessage", messageText,
+      "lastMessageText", messageText,
+      "lastMessageTimestamp", serverTimestamp(),
+      "updatedAt", serverTimestamp(),
+    );
+    batch.set(messageRef, {
+      senderId: userId,
+      type: "user_left_group",
+      text: messageText,
+      createdAt: serverTimestamp(),
+      isRead: true,
+    });
+  });
+  batch.update(doc(db, "users", userId), {
+    hasApartment: true,
+    isLooking: false,
+    housingStatus: "has_apartment",
+    has_place: true,
+    already_have_apartment_to_share: true,
+    looking_for_apartment: false,
+    updatedAt: serverTimestamp(),
+  });
+  await batch.commit();
 }
 
 export async function renameRoommateGroupChat(chatRoomId: string, userId: string, groupName: string): Promise<void> {
@@ -102,7 +254,7 @@ export async function renameRoommateGroupChat(chatRoomId: string, userId: string
   }, { merge: true });
   await addDoc(collection(db, "chats", chatRoomId, "messages"), {
     senderId: userId,
-    type: "system",
+    type: "group_name_changed",
     text: systemText,
     createdAt: serverTimestamp(),
     isRead: true,
@@ -126,6 +278,49 @@ export async function sendSharedRoommateProfile(params: {
   await setDoc(doc(db, "chats", params.chatRoomId), {
     lastMessage: `Κοινοποιήθηκε το προφίλ του/της ${name}`,
     lastMessageText: `Κοινοποιήθηκε το προφίλ του/της ${name}`,
+    lastMessageTimestamp: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
+}
+
+export interface PropertyCardMessageData {
+  id: string;
+  title: string;
+  rent: number;
+  city: string;
+  area: string;
+  image: string;
+  imageUrl?: string;
+  images?: string[];
+  rooms: number;
+  size: number;
+  tags?: string[];
+}
+
+export async function sendPropertyCardMessage(params: {
+  chatRoomId: string;
+  senderId: string;
+  receiverId: string;
+  apartment: PropertyCardMessageData;
+}): Promise<void> {
+  const text = `Κοινοποιήθηκε το ακίνητο ${params.apartment.title || "Ακίνητο"}`;
+  await addDoc(collection(db, "chats", params.chatRoomId, "messages"), {
+    senderId: params.senderId,
+    receiverId: params.receiverId,
+    type: "property_card",
+    text,
+    apartmentId: params.apartment.id,
+    apartmentTitle: params.apartment.title,
+    apartmentPrice: params.apartment.rent,
+    apartmentData: params.apartment,
+    createdAt: serverTimestamp(),
+    isRead: false,
+  });
+  await setDoc(doc(db, "chats", params.chatRoomId), {
+    lastMessage: text,
+    lastMessageText: text,
+    lastMessageType: "property_card",
+    lastMessageSenderId: params.senderId,
     lastMessageTimestamp: serverTimestamp(),
     updatedAt: serverTimestamp(),
   }, { merge: true });

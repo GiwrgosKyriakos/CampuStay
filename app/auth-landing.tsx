@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { useTheme } from "@/src/context/ThemeContext";
-import { View, Text, StyleSheet, Pressable, Image, ActivityIndicator } from "react-native";
+import { ActivityIndicator, View, Text, StyleSheet, Pressable, Image } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -10,7 +10,6 @@ import * as WebBrowser from "expo-web-browser";
 import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
 import { useAuth } from "@/src/context/auth";
 import { t } from "@/src/locales";
-import { getRoleHomeTab } from "@/src/utils/roles";
 
 export default function AuthLandingScreen() {
   const { colors } = useTheme();
@@ -19,13 +18,7 @@ export default function AuthLandingScreen() {
   const router = useRouter();
   const auth = useAuth();
   const [googleLoading, setGoogleLoading] = useState(false);
-  const defaultHomeRoute = `/(tabs)/${getRoleHomeTab(auth)}` as const;
-
-  React.useEffect(() => {
-    if (!auth.isLoading && auth.isLoggedIn) {
-      router.replace(auth.needsProfileSetup ? "/edit-profile" : defaultHomeRoute);
-    }
-  }, [auth.isLoading, auth.isLoggedIn, auth.needsProfileSetup, defaultHomeRoute, router]);
+  const showGoogleLoading = googleLoading && !auth.authTransition;
 
   if (auth.isLoading || auth.isLoggedIn) {
     return null;
@@ -80,14 +73,10 @@ export default function AuthLandingScreen() {
             end={{ x: 1, y: 1 }}
             style={styles.googleGradient}
           >
-            {googleLoading ? (
-              <ActivityIndicator color={colors.onBrand} size="small" />
-            ) : (
-              <>
-                <Ionicons name="logo-google" size={20} color={colors.onBrand} />
-                <Text style={styles.buttonGoogleText}>{t("auth.landing.continueWithGoogle")}</Text>
-              </>
-            )}
+            <>
+              {showGoogleLoading ? <ActivityIndicator color={colors.onBrand} /> : <Ionicons name="logo-google" size={20} color={colors.onBrand} />}
+              <Text style={styles.buttonGoogleText}>{t("auth.landing.continueWithGoogle")}</Text>
+            </>
           </LinearGradient>
         </Pressable>
         {/* Divider */}
@@ -112,7 +101,6 @@ export default function AuthLandingScreen() {
           style={styles.buttonGuest}
           onPress={async () => {
             await auth.continueAsGuest();
-            router.replace("/roommates");
           }}
           testID="guest-mode-button"
         >

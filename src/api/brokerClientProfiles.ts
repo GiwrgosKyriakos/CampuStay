@@ -30,6 +30,7 @@ export interface BrokerDeal {
   apartmentId: string;
   apartmentTitle?: string;
   rent?: number;
+  acceptedOfferPrice?: number;
   pipelineStage: DealPipelineStage;
   createdAt?: unknown;
   updatedAt?: unknown;
@@ -226,7 +227,7 @@ function mapAuthoritativeDeal(dealId: string, data: Record<string, unknown>, bro
     role: "client",
     apartmentId,
     ...(typeof data.apartmentTitle === "string" ? { apartmentTitle: data.apartmentTitle } : {}),
-    ...(typeof data.dealAmount === "number" ? { rent: data.dealAmount } : {}),
+    ...(typeof data.acceptedOfferPrice === "number" ? { acceptedOfferPrice: data.acceptedOfferPrice, rent: data.acceptedOfferPrice } : typeof data.dealValue === "number" ? { rent: data.dealValue } : typeof data.dealAmount === "number" ? { rent: data.dealAmount } : {}),
     pipelineStage,
     createdAt: data.createdAt,
     updatedAt: data.updatedAt,

@@ -1,5 +1,10 @@
 export interface UserRoleData {
   is_broker?: boolean;
+  isBroker?: boolean;
+  isHost?: boolean;
+  has_place?: boolean;
+  already_have_apartment_to_share?: boolean;
+  hasApartment?: boolean;
   role?: string | null;
   agencyId?: string | null;
   agencyRole?: "ceo" | "broker" | "agent" | string | null;
@@ -45,9 +50,29 @@ export function isBrokerOrAgencyUser(user?: UserRoleData | null): boolean {
 
   return Boolean(
     user.is_broker === true ||
+    user.isBroker === true ||
     user.role === "broker" ||
       (typeof user.agencyId === "string" && user.agencyId.trim().length > 0) ||
       user.agencyRole === "ceo" ||
       user.is_agency_ceo === true,
+  );
+}
+
+export function hasBrokerParticipant(participants: readonly UserRoleData[]): boolean {
+  return participants.some((participant) => isBrokerOrAgencyUser(participant));
+}
+
+export function isPeerHost(user?: UserRoleData | null): boolean {
+  if (!user) return false;
+
+  return (user.role === "host" || user.isHost === true) && !isBrokerOrAgencyUser(user);
+}
+
+export function isRoommateGroupHost(user?: UserRoleData | null): boolean {
+  if (!user || isBrokerOrAgencyUser(user)) return false;
+  return isPeerHost(user) || Boolean(
+    user.has_place ||
+    user.already_have_apartment_to_share ||
+    user.hasApartment,
   );
 }

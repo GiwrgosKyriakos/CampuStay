@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { ActivityIndicator, Alert, FlatList, Platform, Pressable, StyleSheet, Text, View, type LayoutChangeEvent, type ViewToken } from "react-native";
+import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, View, useWindowDimensions, type ViewToken } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
 import { collection, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query } from "firebase/firestore";
 import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import ApartmentReelCard from "@/src/components/feed/ApartmentReelCard";
 import VirtualTourViewerModal from "@/src/components/VirtualTourViewerModal";
@@ -16,6 +17,8 @@ import { useAuth } from "@/src/context/auth";
 import { useTheme } from "@/src/context/ThemeContext";
 import { t } from "@/src/locales";
 import { radius } from "@/src/theme";
+import { spacing } from "@/src/theme";
+import { TAB_BAR_HEIGHT } from "@/src/components/GlassTabBar";
 import type { Apartment, VirtualTourData } from "@/src/types/apartment";
 import type { FilterSetPayload } from "@/src/types/filters";
 import { isApartmentEligibleForClient } from "@/src/utils/apartmentEligibility";
@@ -72,12 +75,11 @@ function toApartment(id: string, data: FirestoreRecord): Apartment | null {
 }
 
 export default function ExploreFeedScreen() {
-  // Measure the exact rendered viewport; static window-height math drifts on Android.
-  const [viewportHeight, setViewportHeight] = useState(0);
-  const handleContainerLayout = useCallback((event: LayoutChangeEvent) => {
-    const { height } = event.nativeEvent.layout;
-    setViewportHeight((current) => (height > 0 && Math.abs(height - current) > 1 ? height : current));
-  }, []);
+  const { width: windowWidth } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const CARD_WIDTH = Math.max(1, windowWidth);
+  const CARD_HEIGHT = CARD_WIDTH * (16 / 9);
+  const CONSOLIDATED_BOTTOM_SPACER = TAB_BAR_HEIGHT + insets.bottom + spacing.lg;
   const { colors } = useTheme();
   const auth = useAuth();
   const router = useRouter();
@@ -334,7 +336,7 @@ export default function ExploreFeedScreen() {
   }
 
   const renderCaughtUpCard = () => (
-    <View style={[styles.caughtUpContainer, { height: viewportHeight, backgroundColor: colors.surfaceSecondary }]}>
+    <View style={[styles.caughtUpContainer, { height: CARD_HEIGHT, width: CARD_WIDTH, backgroundColor: colors.surfaceSecondary }]}>
       <View style={[styles.checkCircle, { backgroundColor: colors.surface }]}>
         <Ionicons color={colors.brand} name="checkmark-done" size={40} />
       </View>
@@ -348,53 +350,50 @@ export default function ExploreFeedScreen() {
   );
 
   if (visibleListings.length === 0) {
-    return <View style={[styles.root, { borderColor: colors.border }]} onLayout={handleContainerLayout}><StatusBar style="light" />{viewportHeight > 0 ? renderCaughtUpCard() : null}</View>;
+    return <View style={[styles.root, { height: CARD_HEIGHT, width: CARD_WIDTH, borderColor: colors.border }]}><StatusBar style="light" />{renderCaughtUpCard()}</View>;
   }
 
   return (
-    <View style={[styles.root, { borderColor: colors.border }]} onLayout={handleContainerLayout}>
+    <View style={[styles.root, { height: CARD_HEIGHT, width: CARD_WIDTH, borderColor: colors.border }]}>
       <StatusBar style="light" />
-      {viewportHeight > 0 ? (
-        <FlatList
-          ref={listRef}
-          data={visibleListings}
-          keyExtractor={(item) => item.id ?? item.title ?? "reel"}
-          style={{ height: viewportHeight }}
-          renderItem={({ item, index }) => (
-            <ApartmentReelCard
-              apartment={item}
-              height={viewportHeight}
-              isActive={index === activeIndex}
-              isLiked={item.id ? likedApartmentIds.has(item.id) : false}
-              onToggleLike={() => item.id && void toggleLike(item.id)}
-              onOpenChat={() => void openChat(item)}
-              onOpenDetails={() => openDetails(item)}
-              onOpenVirtualTour={() => {
-                const itemTour = item.virtualTour as VirtualTourData | undefined;
-                if (itemTour?.enabled && itemTour.scenes.length > 0) {
-                  setTourData(itemTour);
-                  setTourVisible(true);
-                }
-              }}
-            />
-          )}
-          pagingEnabled={Platform.OS === "ios"}
-          snapToInterval={viewportHeight}
-          snapToAlignment="start"
-          decelerationRate="fast"
-          bounces={false}
-          overScrollMode="never"
-          showsVerticalScrollIndicator={false}
-          windowSize={3}
-          initialNumToRender={2}
-          maxToRenderPerBatch={3}
-          removeClippedSubviews
-          onViewableItemsChanged={onViewableItemsChanged}
-          viewabilityConfig={viewabilityConfig}
-          getItemLayout={(_, index) => ({ length: viewportHeight, offset: viewportHeight * index, index })}
-          ListFooterComponent={renderCaughtUpCard}
-        />
-      ) : null}
+      <FlatList
+        ref={listRef}
+        data={visibleListings}
+        keyExtractor={(item) => item.id ?? item.title ?? "reel"}
+        style={{ height: CARD_HEIGHT, width: CARD_WIDTH }}
+        renderItem={({ item, index }) => (
+          <ApartmentReelCard
+            apartment={item}
+            height={CARD_HEIGHT}
+            isActive={index === activeIndex}
+            isLiked={item.id ? likedApartmentIds.has(item.id) : false}
+            onToggleLike={() => item.id && void toggleLike(item.id)}
+            onOpenChat={() => void openChat(item)}
+            onOpenDetails={() => openDetails(item)}
+            onOpenVirtualTour={() => {
+              const itemTour = item.virtualTour as VirtualTourData | undefined;
+              if (itemTour?.enabled && itemTour.scenes.length > 0) {
+                setTourData(itemTour);
+                setTourVisible(true);
+              }
+            }}
+          />
+        )}
+        snapToInterval={CARD_HEIGHT}
+        snapToAlignment="start"
+        decelerationRate="fast"
+        bounces={false}
+        overScrollMode="never"
+        showsVerticalScrollIndicator={false}
+        windowSize={3}
+        initialNumToRender={2}
+        maxToRenderPerBatch={3}
+        removeClippedSubviews
+        onViewableItemsChanged={onViewableItemsChanged}
+        viewabilityConfig={viewabilityConfig}
+        getItemLayout={(_, index) => ({ length: CARD_HEIGHT, offset: CARD_HEIGHT * index, index })}
+        ListFooterComponent={<View style={{ height: CONSOLIDATED_BOTTOM_SPACER, width: CARD_WIDTH }} testID="explore-feed-bottom-spacer" />}
+      />
       <VirtualTourViewerModal visible={tourVisible} tourData={tourData} onClose={() => setTourVisible(false)} />
     </View>
   );

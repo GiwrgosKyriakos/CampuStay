@@ -14,10 +14,15 @@ import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme"
 import { useTheme } from "@/src/context/ThemeContext";
 import { useLocale } from "@/src/context/locale";
 import { t } from "@/src/locales";
-import { QUIZ_SECTIONS, type QuizQuestionId } from "@/src/data/quiz";
+import {
+  DEFAULT_HARD_CRITERIA,
+  MAX_HARD_CRITERIA_COUNT,
+  ROOMMATE_HARD_CRITERIA_OPTIONS,
+  normalizeSelectedHardCriteria,
+  type RoommateHardCriteriaKey,
+} from "@/src/types/roommateHardCriteria";
 
 export type GenderFilter = "male" | "female" | "nonBinary";
-export type RoommateHardCriteriaKey = QuizQuestionId;
 
 export interface Filters {
   gender: GenderFilter[];
@@ -25,7 +30,7 @@ export interface Filters {
   ageMax: number;
   budgetMin: number;
   budgetMax: number;
-  userHardCriteria?: RoommateHardCriteriaKey[];
+  selectedHardCriteria: RoommateHardCriteriaKey[];
 }
 
 export const DEFAULT_FILTERS: Filters = {
@@ -34,7 +39,7 @@ export const DEFAULT_FILTERS: Filters = {
   ageMax: 30,
   budgetMin: 0,
   budgetMax: 1000,
-  userHardCriteria: ["q5", "q13"],
+  selectedHardCriteria: [...DEFAULT_HARD_CRITERIA],
 };
 
 const AGE_VALUES = Array.from({ length: 82 }, (_, index) => index + 18);
@@ -65,9 +70,7 @@ const GENDERS: GenderFilter[] = ["female", "male", "nonBinary"];
 
 type HardCriteriaOption = { key: RoommateHardCriteriaKey; label: string };
 
-const hardCriteriaOptions: HardCriteriaOption[] = QUIZ_SECTIONS.flatMap((section) =>
-  section.questions.map((question) => ({ key: question.id, label: question.questionKey })),
-);
+const hardCriteriaOptions: HardCriteriaOption[] = ROOMMATE_HARD_CRITERIA_OPTIONS.map(({ key, labelKey }) => ({ key, label: labelKey }));
 
 function getGenderLabel(value: GenderFilter | "all"): string {
   switch (value) {
@@ -124,7 +127,7 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
 
   useEffect(() => {
     if (visible) {
-      setDraft(current);
+      setDraft({ ...current, selectedHardCriteria: normalizeSelectedHardCriteria(current.selectedHardCriteria) });
       setInputValues(inputValuesFromFilters(current));
     }
   }, [current, visible]);
@@ -328,17 +331,17 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
                 <Text style={styles.hardCriteriaTitle}>{t("filters.hardCriteria.title")}</Text>
                 <Pressable style={styles.hardCriteriaEditButton} onPress={() => setHardCriteriaModalVisible(true)} testID="hard-criteria-edit-button">
                   <Ionicons name="add" size={15} color={colors.brand} />
-                  <Text style={styles.hardCriteriaEditText}>{(draft.userHardCriteria ?? []).length > 0 ? "Επεξεργασία" : "Προσθήκη"}</Text>
+                  <Text style={styles.hardCriteriaEditText}>{draft.selectedHardCriteria.length > 0 ? "Επεξεργασία" : "Προσθήκη"}</Text>
                 </Pressable>
               </View>
               <View style={styles.hardCriteriaPills}>
-                {(draft.userHardCriteria ?? []).map((key) => {
+                {draft.selectedHardCriteria.map((key) => {
                   const option = hardCriteriaOptions.find((item) => item.key === key);
                   if (!option) return null;
                   return (
                     <View key={key} style={styles.hardCriteriaPill}>
                       <Text style={styles.hardCriteriaPillText}>{t(option.label)}</Text>
-                      <Pressable onPress={() => setAndCommit({ userHardCriteria: (draft.userHardCriteria ?? []).filter((item) => item !== key) })} hitSlop={6} testID={`hard-criteria-remove-${key}`}>
+                      <Pressable onPress={() => setAndCommit({ selectedHardCriteria: draft.selectedHardCriteria.filter((item) => item !== key) })} hitSlop={6} testID={`hard-criteria-remove-${key}`}>
                         <Ionicons name="close" size={14} color={colors.brand} />
                       </Pressable>
                     </View>
@@ -370,11 +373,16 @@ const FilterSheet = ({ current, currency, visible, onChange, onClose }: Props) =
       </BottomSheetView>
       <HardCriteriaSelectionModal
         visible={hardCriteriaModalVisible}
-        selected={draft.userHardCriteria ?? []}
+        selected={draft.selectedHardCriteria}
         onClose={() => setHardCriteriaModalVisible(false)}
         onToggle={(key) => {
-          const selected = draftRef.current.userHardCriteria ?? [];
-          setAndCommit({ userHardCriteria: selected.includes(key) ? selected.filter((item) => item !== key) : [...selected, key] });
+          const selected = draftRef.current.selectedHardCriteria;
+          if (selected.includes(key)) {
+            setAndCommit({ selectedHardCriteria: selected.filter((item) => item !== key) });
+            return;
+          }
+          if (selected.length >= MAX_HARD_CRITERIA_COUNT) return;
+          setAndCommit({ selectedHardCriteria: [...selected, key] });
         }}
       />
       <ValuePickerModal
@@ -491,7 +499,7 @@ function HardCriteriaSelectionModal({ visible, selected, onClose, onToggle }: Ha
   const { locale } = useLocale();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const hardCriteriaOptions = useMemo(
-    () => QUIZ_SECTIONS.flatMap((section) => section.questions.map((question) => ({ key: question.id, label: t(question.questionKey) }))),
+    () => ROOMMATE_HARD_CRITERIA_OPTIONS.map((option) => ({ key: option.key, label: t(option.labelKey) })),
     [locale],
   );
 
@@ -511,7 +519,7 @@ function HardCriteriaSelectionModal({ visible, selected, onClose, onToggle }: Ha
             {hardCriteriaOptions.map((option) => {
               const active = selected.includes(option.key);
               return (
-                <Pressable key={option.key} style={[styles.hardCriteriaOption, active && styles.hardCriteriaOptionActive]} onPress={() => onToggle(option.key)} testID={`hard-criteria-option-${option.key}`}>
+                <Pressable key={option.key} style={[styles.hardCriteriaOption, active && styles.hardCriteriaOptionActive, !active && selected.length >= MAX_HARD_CRITERIA_COUNT && styles.hardCriteriaOptionDisabled]} onPress={() => onToggle(option.key)} disabled={!active && selected.length >= MAX_HARD_CRITERIA_COUNT} testID={`hard-criteria-option-${option.key}`}>
                   <Text style={[styles.hardCriteriaOptionText, active && styles.hardCriteriaOptionTextActive]}>{option.label}</Text>
                   <Ionicons name={active ? "checkbox" : "square-outline"} size={22} color={active ? colors.brand : colors.onSurfaceTertiary} />
                 </Pressable>
@@ -604,7 +612,7 @@ function createStyles(colors: ThemeColors) {
     sliderValue: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onBrandTertiary },
     value: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onBrandTertiary, marginTop: spacing.md },
     rowBetween: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-    chipRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.sm },
+    chipRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
     chip: {
       paddingHorizontal: spacing.lg,
       paddingVertical: spacing.sm,
@@ -616,7 +624,7 @@ function createStyles(colors: ThemeColors) {
     chipActive: { backgroundColor: colors.brand, borderColor: colors.brand },
     chipText: { fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onSurfaceTertiary },
     chipTextActive: { color: colors.onBrand },
-    inputRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: spacing.sm },
+    inputRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
     rangeDash: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurfaceTertiary },
     inputCard: {
       flex: 1,
@@ -649,6 +657,7 @@ function createStyles(colors: ThemeColors) {
     hardCriteriaOptions: { gap: spacing.xs, paddingVertical: spacing.xs },
     hardCriteriaOption: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: spacing.md, paddingVertical: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceSecondary },
     hardCriteriaOptionActive: { borderColor: colors.brand, backgroundColor: colors.brandTertiary },
+    hardCriteriaOptionDisabled: { opacity: 0.45 },
     hardCriteriaOptionText: { flex: 1, fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onSurface },
     hardCriteriaOptionTextActive: { fontFamily: fonts.bold, color: colors.brand },
     hardCriteriaDoneButton: { alignItems: "center", justifyContent: "center", paddingVertical: spacing.md, borderRadius: radius.md, backgroundColor: colors.brand },

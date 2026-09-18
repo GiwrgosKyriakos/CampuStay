@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useState, useCallback } from "react";
+import React, { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { GoogleSignin } from "@react-native-google-signin/google-signin";
 import {
   createUserWithEmailAndPassword,
@@ -25,6 +25,8 @@ const SETUP_KEY = "post_login_setup";
 
 type Status = "loading" | "authed" | "guest" | "unauth";
 
+export type AuthTransition = "signing-in" | "creating-account" | "setting-up-profile";
+
 export interface AuthUser {
   user_id: string;
   email: string | null;
@@ -33,8 +35,13 @@ export interface AuthUser {
   agencyName?: string | null;
 }
 
+interface QuizAnswersDocument {
+  answers?: Record<string, string>;
+}
+
 interface AuthContextValue {
   isLoading: boolean;
+  authTransition: AuthTransition | null;
   isLoggedIn: boolean;
   isGuestMode: boolean;
   isGuest: boolean; // alias of isGuestMode
@@ -46,26 +53,43 @@ interface AuthContextValue {
   notLookingForRoommate: boolean;
   agencyId: string | null;
   agencyRole: string | null;
+  quizAnsweredCount: number | null;
   loginEmail: (email: string, password: string) => Promise<void>;
   registerEmail: (email: string, password: string, name?: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
   continueAsGuest: () => Promise<void>;
+  beginAuthTransition: (transition: AuthTransition) => void;
   logout: () => Promise<void>;
   enterGuestMode: () => Promise<void>;
+  clearAuthTransition: () => void;
   clearProfileSetup: () => Promise<void>;
   updateRoleStates: (isBroker: boolean, notLookingForRoommate: boolean) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-function mapFirebaseUser(firebaseUser: FirebaseUser, agencyName?: string | null): AuthUser {
+function mapFirebaseUser(
+  firebaseUser: FirebaseUser,
+  options: { agencyName?: string | null; name?: string | null } = {},
+): AuthUser {
   return {
     user_id: firebaseUser.uid,
     email: firebaseUser.email,
-    name: firebaseUser.displayName,
+    name: options.name ?? firebaseUser.displayName,
     picture: firebaseUser.photoURL,
-    agencyName: agencyName ?? null,
+    agencyName: options.agencyName ?? null,
   };
+}
+
+async function getQuizAnsweredCount(userId: string): Promise<number | null> {
+  try {
+    const snapshot = await getDoc(doc(db, "quiz_answers", userId));
+    if (!snapshot.exists()) return 0;
+    const data = snapshot.data() as QuizAnswersDocument;
+    return Object.keys(data.answers ?? {}).length;
+  } catch {
+    return null;
+  }
 }
 
 interface SyncUserDocumentOptions {
@@ -77,7 +101,7 @@ interface SyncUserDocumentOptions {
 async function syncUserDocument(
   firebaseUser: FirebaseUser,
   options: SyncUserDocumentOptions = {},
-): Promise<boolean> {
+) {
   const userRef = doc(db, "users", firebaseUser.uid);
   const userSnap = await getDoc(userRef);
   const existingData = userSnap.exists() ? userSnap.data() : null;
@@ -146,7 +170,10 @@ async function syncUserDocument(
   }
 
   await setDoc(userRef, payload, { merge: true });
-  return resolvedNeedsProfileSetup;
+  return {
+    needsProfileSetup: resolvedNeedsProfileSetup,
+    data: existingData,
+  };
 }
 
 async function claimManualClientData(firebaseUser: FirebaseUser): Promise<void> {
@@ -236,6 +263,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setNotLookingForRoommate(noRoommateState);
   }, []);
   const [status, setStatus] = useState<Status>("loading");
+  const [authTransition, setAuthTransition] = useState<AuthTransition | null>(null);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [needsProfileSetup, setNeedsProfileSetup] = useState(false);
@@ -243,6 +271,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [notLookingForRoommate, setNotLookingForRoommate] = useState(false);
   const [agencyId, setAgencyId] = useState<string | null>(null);
   const [agencyRole, setAgencyRole] = useState<string | null>(null);
+  const [quizAnsweredCount, setQuizAnsweredCount] = useState<number | null>(null);
+  const pendingRegistrationRef = useRef<{ email: string; name: string } | null>(null);
+  const pendingAuthTransitionRef = useRef<AuthTransition | null>(null);
+
+  const clearAuthTransition = useCallback(() => {
+    pendingAuthTransitionRef.current = null;
+    setAuthTransition(null);
+  }, []);
+
+  const beginAuthTransition = useCallback((transition: AuthTransition) => {
+    pendingAuthTransitionRef.current = transition;
+  }, []);
 
   useEffect(() => {
     GoogleSignin.configure({
@@ -258,12 +298,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await storage.removeItem("roomie_user_id");
     setUserIdCache(null);
     setToken(null);
+    setAuthTransition(null);
     setUser(null);
     setNeedsProfileSetup(false);
     setIsBroker(false);
     setNotLookingForRoommate(false);
     setAgencyId(null);
     setAgencyRole(null);
+    setQuizAnsweredCount(0);
     setStatus("guest");
   }, []);
 
@@ -279,10 +321,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       typeof shouldSetupProfile === "boolean"
         ? shouldSetupProfile
         : (await storage.getItem(SETUP_KEY, false)) ?? false;
+    const resolvedQuizAnsweredCount = await getQuizAnsweredCount(newUser.user_id);
 
     setToken(newToken);
     setUser(newUser);
     setNeedsProfileSetup(needsSetup);
+    setQuizAnsweredCount(resolvedQuizAnsweredCount);
     setStatus("authed");
   }, []);
 
@@ -295,14 +339,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (firebaseUser) {
         try {
+          const pendingTransition = pendingAuthTransitionRef.current;
+          pendingAuthTransitionRef.current = null;
+          if (pendingTransition) {
+            setAuthTransition(pendingTransition === "creating-account" ? "setting-up-profile" : pendingTransition);
+          }
           const idToken = await firebaseUser.getIdToken();
           const userRef = doc(db, "users", firebaseUser.uid);
-          const userSnap = await getDoc(userRef);
-          const userData = userSnap.exists() ? userSnap.data() : null;
-          const needsSetup =
-            typeof userData?.needsProfileSetup === "boolean"
-              ? userData.needsProfileSetup
-              : !userSnap.exists();
+          const pendingRegistration = pendingRegistrationRef.current;
+          const syncResult = await syncUserDocument(firebaseUser, pendingRegistration ? {
+            email: pendingRegistration.email,
+            name: pendingRegistration.name,
+            needsProfileSetup: true,
+          } : {});
+          const userData = syncResult.data;
+          const needsSetup = syncResult.needsProfileSetup;
 
           const resolvedAgencyName = typeof userData?.agencyName === "string" && userData.agencyName.trim().length > 0
             ? userData.agencyName.trim()
@@ -312,7 +363,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setAgencyId(typeof userData?.agencyId === "string" ? userData.agencyId : null);
           setAgencyRole(typeof userData?.agencyRole === "string" ? userData.agencyRole : typeof userData?.role === "string" ? userData.role : null);
           await claimManualClientData(firebaseUser).catch((error) => console.error("[Auth] Manual client claim failed during session restore:", error));
-          await persist(idToken, mapFirebaseUser(firebaseUser, resolvedAgencyName), needsSetup);
+          await persist(idToken, mapFirebaseUser(firebaseUser, {
+            agencyName: resolvedAgencyName,
+            name: pendingRegistration?.name || undefined,
+          }), needsSetup);
+          if (pendingRegistration?.email === firebaseUser.email?.trim().toLowerCase()) {
+            pendingRegistrationRef.current = null;
+          }
 
           unsubscribeUserDoc?.();
           unsubscribeUserDoc = onSnapshot(
@@ -339,6 +396,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           );
         } catch (err) {
           console.error("[Auth] Failed to sync Firebase session:", err);
+          setAuthTransition(null);
           setStatus("unauth");
         }
         return;
@@ -346,6 +404,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       setToken(null);
       setUser(null);
+      setAuthTransition(null);
       setUserIdCache(null);
       setIsBroker(false);
       setNotLookingForRoommate(false);
@@ -355,6 +414,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       unsubscribeUserDoc = null;
 
       const guest = await storage.getItem(GUEST_KEY, false);
+      setQuizAnsweredCount(guest ? 0 : null);
       setStatus(guest ? "guest" : "unauth");
     });
 
@@ -376,40 +436,61 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [persist]);
 
+  useEffect(() => {
+    if (status !== "authed" || !user?.user_id) return;
+
+    const unsubscribe = onSnapshot(
+      doc(db, "quiz_answers", user.user_id),
+      (snapshot) => {
+        const data = snapshot.exists() ? snapshot.data() as QuizAnswersDocument : null;
+        setQuizAnsweredCount(Object.keys(data?.answers ?? {}).length);
+      },
+      () => {
+        setQuizAnsweredCount(null);
+      },
+    );
+
+    return () => unsubscribe();
+  }, [status, user?.user_id]);
+
   const loginEmail = useCallback(
     async (email: string, password: string) => {
-      const userCredential = await signInWithEmailAndPassword(firebaseAuth, email.trim(), password);
-      const needsSetup = await syncUserDocument(userCredential.user);
-      await claimManualClientData(userCredential.user).catch((error) => console.error("[Auth] Manual client claim failed during email login:", error));
-      const idToken = await userCredential.user.getIdToken();
-      await persist(idToken, mapFirebaseUser(userCredential.user, null), needsSetup);
+      try {
+        pendingAuthTransitionRef.current = "signing-in";
+        await signInWithEmailAndPassword(firebaseAuth, email.trim(), password);
+      } catch (error) {
+        pendingAuthTransitionRef.current = null;
+        setAuthTransition(null);
+        throw error;
+      }
     },
-    [persist],
+    [],
   );
 
   const registerEmail = useCallback(
     async (email: string, password: string, name?: string) => {
-      const userCredential = await createUserWithEmailAndPassword(firebaseAuth, email.trim(), password);
       const trimmedName = name?.trim() ?? "";
-
-      if (trimmedName) {
-        await updateProfile(userCredential.user, { displayName: trimmedName });
+      const normalizedEmail = email.trim().toLowerCase();
+      pendingRegistrationRef.current = { email: normalizedEmail, name: trimmedName };
+      pendingAuthTransitionRef.current = "creating-account";
+      try {
+        const userCredential = await createUserWithEmailAndPassword(firebaseAuth, normalizedEmail, password);
+        if (trimmedName) {
+          await updateProfile(userCredential.user, { displayName: trimmedName });
+        }
+      } catch (error) {
+        pendingRegistrationRef.current = null;
+        pendingAuthTransitionRef.current = null;
+        setAuthTransition(null);
+        throw error;
       }
-
-      await syncUserDocument(userCredential.user, {
-        email: email.trim(),
-        name: trimmedName || userCredential.user.displayName,
-        needsProfileSetup: true,
-      });
-      await claimManualClientData(userCredential.user).catch((error) => console.error("[Auth] Manual client claim failed during registration:", error));
-      const idToken = await userCredential.user.getIdToken();
-      await persist(idToken, mapFirebaseUser(userCredential.user, null), true);
     },
-    [persist],
+    [],
   );
 
   const signInWithGoogle = useCallback(async (): Promise<void> => {
     const wasGuest = status === "guest";
+    pendingAuthTransitionRef.current = "signing-in";
     try {
       await GoogleSignin.hasPlayServices();
       const userInfo = await GoogleSignin.signIn();
@@ -421,20 +502,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const credential = GoogleAuthProvider.credential(idToken);
       const userCredential = await signInWithCredential(firebaseAuth, credential);
-      const needsSetup = await syncUserDocument(userCredential.user);
-      await claimManualClientData(userCredential.user).catch((error) => console.error("[Auth] Manual client claim failed during Google login:", error));
-      const firebaseToken = await userCredential.user.getIdToken();
-      await persist(firebaseToken, mapFirebaseUser(userCredential.user, null), needsSetup);
       console.log("[Auth] Native Google sign-in completed via Firebase.", {
         userId: userCredential.user.uid,
         operationType: userCredential.operationType,
         upgradedFromGuest: wasGuest,
       });
     } catch (error) {
+      pendingAuthTransitionRef.current = null;
+      setAuthTransition(null);
       console.error("Native Google Sign-In Error:", error);
       throw error;
     }
-  }, [persist, status]);
+  }, [status]);
 
   const continueAsGuest = useCallback(async () => {
     await enterGuestMode();
@@ -506,12 +585,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setNotLookingForRoommate(false);
     setAgencyId(null);
     setAgencyRole(null);
+    setQuizAnsweredCount(0);
     setStatus("guest");
   }, []);
 
   const value = useMemo<AuthContextValue>(
     () => ({
       isLoading: status === "loading",
+      authTransition,
       isLoggedIn: status === "authed",
       isGuestMode: status === "guest",
       isGuest: status === "guest",
@@ -523,17 +604,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       registerEmail,
       signInWithGoogle,
       continueAsGuest,
+      beginAuthTransition,
       logout,
       enterGuestMode,
+      clearAuthTransition,
       clearProfileSetup,
       updateRoleStates,
       isBroker,
       notLookingForRoommate,
       agencyId,
       agencyRole,
+      quizAnsweredCount,
     }),
     [
       status,
+      authTransition,
       user,
       token,
       needsProfileSetup,
@@ -541,12 +626,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       notLookingForRoommate,
       agencyId,
       agencyRole,
+      quizAnsweredCount,
       loginEmail,
       registerEmail,
       signInWithGoogle,
       continueAsGuest,
+      beginAuthTransition,
       logout,
       enterGuestMode,
+      clearAuthTransition,
       clearProfileSetup,
       updateRoleStates,
     ],

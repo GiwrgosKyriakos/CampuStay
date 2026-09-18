@@ -43,6 +43,7 @@ export interface PostVisitFeedbackModalProps {
   propertyId?: string;
   clientId?: string;
   profileId?: string;
+  isBrokerManaged: boolean;
   listingPrice?: number;
   maxDiscountPercent?: number;
   onClose: () => void;
@@ -50,7 +51,7 @@ export interface PostVisitFeedbackModalProps {
   onSentimentInvalidated?: (apartmentId: string) => void;
 }
 
-export default function PostVisitFeedbackModal({ visible, note, isClient, userId, clientName, propertyId, clientId, profileId, listingPrice, maxDiscountPercent = 10, onClose, onSaved, onSentimentInvalidated }: PostVisitFeedbackModalProps) {
+export default function PostVisitFeedbackModal({ visible, note, isClient, userId, clientName, propertyId, clientId, profileId, listingPrice, maxDiscountPercent = 10, isBrokerManaged, onClose, onSaved, onSentimentInvalidated }: PostVisitFeedbackModalProps) {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
@@ -141,6 +142,8 @@ export default function PostVisitFeedbackModal({ visible, note, isClient, userId
       setIsSaving(false);
     }
   };
+
+  if (!isBrokerManaged) return null;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>

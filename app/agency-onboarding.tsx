@@ -72,6 +72,7 @@ export default function AgencyOnboardingScreen() {
 
     setSubmitting(true);
     try {
+      auth.beginAuthTransition("creating-account");
       const credential = await createUserWithEmailAndPassword(firebaseAuth, email.trim(), password);
       await updateProfile(credential.user, { displayName: displayName.trim() });
       if (role === "ceo") {
@@ -112,8 +113,8 @@ export default function AgencyOnboardingScreen() {
         await updateDoc(doc(db, "agencies", selectedAgency!.id), { pendingBrokerIds: arrayUnion(credential.user.uid), updatedAt: serverTimestamp() });
       }
       auth.updateRoleStates(true, true);
-      router.replace("/edit-profile");
     } catch (submissionError: unknown) {
+      auth.clearAuthTransition();
       const code = submissionError instanceof Error && "code" in submissionError ? submissionError.code : undefined;
       setError(code === "auth/email-already-in-use" ? t("agency.onboarding.emailInUse") : t("agency.onboarding.registrationFailed"));
     } finally {

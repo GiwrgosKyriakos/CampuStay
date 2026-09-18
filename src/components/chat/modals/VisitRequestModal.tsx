@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { radius, spacing, fonts, fontSize } from "@/src/theme";
 import { useTheme } from "@/src/context/ThemeContext";
 import { getCurrentLocale, t } from "@/src/locales";
@@ -11,8 +11,14 @@ export interface VisitRequestModalProps {
   isSubmitting: boolean;
   brokerId: string;
   listings: VisitRequestListing[];
+  mode?: "create" | "edit";
+  existingAppointmentDate?: string;
+  existingApartmentId?: string;
+  existingAppointmentId?: string;
+  existingNotes?: string;
   onClose: () => void;
-  onSubmit: (date: string, time: string, apartmentId: string) => void;
+  onSubmit: (date: string, time: string, apartmentId: string, notes: string) => void;
+  onCancelAppointment?: () => void;
 }
 
 export interface VisitRequestListing {
@@ -33,7 +39,7 @@ function getNextHalfHour(date: Date): Date {
   return next;
 }
 
-export default function VisitRequestModal({ visible, isSubmitting, brokerId, listings, onClose, onSubmit }: VisitRequestModalProps) {
+export default function VisitRequestModal({ visible, isSubmitting, brokerId, listings, mode = "create", existingAppointmentDate, existingApartmentId, existingAppointmentId, existingNotes, onClose, onSubmit, onCancelAppointment }: VisitRequestModalProps) {
   const { colors } = useTheme();
   const styles = createStyles(colors);
   const now = new Date();
@@ -46,20 +52,25 @@ export default function VisitRequestModal({ visible, isSubmitting, brokerId, lis
   const [selectedHour, setSelectedHour] = useState("12");
   const [selectedMinute, setSelectedMinute] = useState<"00" | "30">("00");
   const [selectedApartmentId, setSelectedApartmentId] = useState<string | null>(null);
+  const [notes, setNotes] = useState("");
   const [brokerNotes, setBrokerNotes] = useState<BrokerNote[]>([]);
   const [loadingAvailability, setLoadingAvailability] = useState(false);
   const [monthCursor, setMonthCursor] = useState(todayStart);
 
   useEffect(() => {
     if (visible) {
+      const existingDate = mode === "edit" && existingAppointmentDate ? new Date(existingAppointmentDate) : null;
+      const hasExistingDate = existingDate && !Number.isNaN(existingDate.getTime());
       const next = getNextHalfHour(new Date());
-      setSelectedDate(toIsoDate(next));
-      setSelectedHour(`${next.getHours()}`.padStart(2, "0"));
-      setSelectedMinute(next.getMinutes() >= 30 ? "30" : "00");
-      setMonthCursor(new Date(next.getFullYear(), next.getMonth(), 1));
-      setSelectedApartmentId(listings[0]?.id ?? null);
+      const initialDate = hasExistingDate ? existingDate : next;
+      setSelectedDate(toIsoDate(initialDate));
+      setSelectedHour(`${initialDate.getHours()}`.padStart(2, "0"));
+      setSelectedMinute(initialDate.getMinutes() >= 30 ? "30" : "00");
+      setMonthCursor(new Date(initialDate.getFullYear(), initialDate.getMonth(), 1));
+      setSelectedApartmentId(existingApartmentId && listings.some((listing) => listing.id === existingApartmentId) ? existingApartmentId : listings[0]?.id ?? null);
+      setNotes(mode === "edit" ? existingNotes ?? "" : "");
     }
-  }, [listings, visible]);
+  }, [existingApartmentId, existingAppointmentDate, existingNotes, listings, mode, visible]);
 
   useEffect(() => {
     if (!visible || !brokerId || !selectedDate) return;
@@ -70,7 +81,7 @@ export default function VisitRequestModal({ visible, isSubmitting, brokerId, lis
       .catch(() => { if (active) setBrokerNotes([]); })
       .finally(() => { if (active) setLoadingAvailability(false); });
     return () => { active = false; };
-  }, [brokerId, selectedDate, visible]);
+  }, [brokerId, existingAppointmentId, mode, selectedDate, visible]);
 
   const calendarCells = useMemo(() => {
     const year = monthCursor.getFullYear();
@@ -92,6 +103,7 @@ export default function VisitRequestModal({ visible, isSubmitting, brokerId, lis
   const isSlotUnavailable = (hour: string, minute: "00" | "30") => {
     const selectedTime = `${hour}:${minute}`;
     return brokerNotes.some((note) => {
+      if (mode === "edit" && existingAppointmentId && note.appointmentId === existingAppointmentId) return false;
       if (note.done || note.isCompleted) return false;
       if (note.time && note.time !== selectedTime && note.scheduledTime !== selectedTime) return false;
       const type = note.type ?? note.category;
@@ -115,7 +127,10 @@ export default function VisitRequestModal({ visible, isSubmitting, brokerId, lis
     <Modal transparent animationType="slide" visible={visible} onRequestClose={() => { if (!isSubmitting) onClose(); }}>
       <View style={styles.backdrop}>
         <View style={styles.card}>
-          <Text style={styles.title}>{t("chat.visitRequest.title")}</Text>
+          <View style={styles.titleRow}>
+            <Text style={styles.title}>{mode === "edit" ? t("chat.visitRequest.editTitle") : t("chat.visitRequest.title")}</Text>
+            {mode === "edit" ? <View style={styles.editBadge}><Ionicons name="pencil-outline" size={13} color={colors.warning} /><Text style={styles.editBadgeText}>{t("chat.visitRequest.editBadge")}</Text></View> : null}
+          </View>
           <Text style={styles.sectionLabel}>{t("chat.visitRequest.selectProperty")}</Text>
           <ScrollView style={styles.propertyList} contentContainerStyle={styles.propertyListContent}>
             {listings.map((listing) => <Pressable key={listing.id} style={[styles.propertyOption, selectedApartmentId === listing.id && styles.selected]} onPress={() => setSelectedApartmentId(listing.id)} testID={`chat-visit-property-${listing.id}`}><Text style={[styles.propertyTitle, selectedApartmentId === listing.id && styles.selectedText]} numberOfLines={1}>{listing.title}</Text>{typeof listing.rent === "number" ? <Text style={[styles.propertyRent, selectedApartmentId === listing.id && styles.selectedText]}>€{listing.rent.toLocaleString("el-GR")}</Text> : null}</Pressable>)}
@@ -138,10 +153,12 @@ export default function VisitRequestModal({ visible, isSubmitting, brokerId, lis
             <TimeColumn label={t("chat.visitRequest.hour")} options={hourOptions} selected={selectedHour} disabled={isHourDisabled} onSelect={setSelectedHour} styles={styles} testPrefix="chat-visit-hour" />
             <TimeColumn label={t("chat.visitRequest.minutes")} options={minuteOptions} selected={selectedMinute} disabled={isMinuteDisabled} onSelect={setSelectedMinute} styles={styles} testPrefix="chat-visit-minute" />
           </View>
+          <Text style={styles.sectionLabel}>Σημειώσεις</Text>
+          <TextInput value={notes} onChangeText={setNotes} placeholder="Προαιρετικές σημειώσεις" placeholderTextColor={colors.onSurfaceTertiary} style={styles.notesInput} multiline maxLength={500} testID="chat-visit-notes-input" />
           {loadingAvailability ? <ActivityIndicator color={colors.brand} /> : null}
           <View style={styles.actions}>
-            <Pressable style={styles.cancel} onPress={onClose} disabled={isSubmitting} testID="chat-visit-request-cancel"><Text style={styles.cancelText}>{t("common.actions.cancel")}</Text></Pressable>
-            <Pressable style={[styles.submit, submitDisabled && styles.disabled]} onPress={() => selectedDate && selectedApartmentId && onSubmit(selectedDate, `${selectedHour}:${selectedMinute}`, selectedApartmentId)} disabled={submitDisabled} testID="chat-visit-request-submit"><Ionicons name="checkmark-circle" size={30} color={colors.onBrand} /></Pressable>
+            {mode === "edit" && onCancelAppointment ? <Pressable style={styles.cancelAppointment} onPress={onCancelAppointment} disabled={isSubmitting} testID="cancel-visit-action"><Text style={styles.cancelAppointmentText}>{t("chat.cancelVisit")}</Text></Pressable> : <Pressable style={styles.cancel} onPress={onClose} disabled={isSubmitting} testID="chat-visit-request-cancel"><Text style={styles.cancelText}>{t("common.actions.cancel")}</Text></Pressable>}
+            <Pressable style={[styles.submit, submitDisabled && styles.disabled]} onPress={() => selectedDate && selectedApartmentId && onSubmit(selectedDate, `${selectedHour}:${selectedMinute}`, selectedApartmentId, notes.trim())} disabled={submitDisabled} testID="chat-visit-request-submit"><Ionicons name="checkmark-circle" size={30} color={colors.onBrand} /><Text style={styles.submitText}>{mode === "edit" ? t("chat.visitRequest.proposeTime") : t("chat.visitRequest.submit")}</Text></Pressable>
           </View>
         </View>
       </View>
@@ -160,7 +177,10 @@ function TimeColumn({ label, options, selected, disabled, onSelect, styles, test
 const createStyles = (colors: ReturnType<typeof useTheme>["colors"]) => StyleSheet.create({
   backdrop: { flex: 1, justifyContent: "center", padding: spacing.lg, backgroundColor: "rgba(0,0,0,0.45)" },
   card: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.sm },
-  title: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface },
+  titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
+  title: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface, flex: 1 },
+  editBadge: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.pill, backgroundColor: `${colors.warning}18`, borderWidth: 1, borderColor: colors.warning },
+  editBadgeText: { fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.warning },
   sectionLabel: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface },
   propertyList: { maxHeight: 100, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceSecondary },
   propertyListContent: { padding: 4, gap: 4 },
@@ -181,6 +201,7 @@ const createStyles = (colors: ReturnType<typeof useTheme>["colors"]) => StyleShe
   selectedText: { color: colors.onBrand },
   disabled: { opacity: 0.45 },
   timePicker: { flexDirection: "row", gap: spacing.md },
+  notesInput: { minHeight: 54, maxHeight: 90, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.sm, fontFamily: fonts.regular, fontSize: fontSize.sm, color: colors.onSurface, textAlignVertical: "top" },
   timeColumn: { flex: 1, gap: 6 },
   timeLabel: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
   timeList: { maxHeight: 118, backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: 4 },
@@ -191,5 +212,8 @@ const createStyles = (colors: ReturnType<typeof useTheme>["colors"]) => StyleShe
   actions: { marginTop: spacing.xs, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   cancel: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   cancelText: { fontFamily: fonts.semibold, fontSize: fontSize.base, color: colors.onSurfaceTertiary },
-  submit: { width: 44, height: 44, borderRadius: radius.pill, alignItems: "center", justifyContent: "center", backgroundColor: colors.brand },
+  submit: { minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, borderRadius: radius.pill, paddingHorizontal: spacing.md, backgroundColor: colors.brand },
+  submitText: { fontFamily: fonts.bold, fontSize: fontSize.xs, color: colors.onBrand },
+  cancelAppointment: { borderWidth: 1, borderColor: colors.error, borderRadius: radius.md, paddingHorizontal: spacing.sm, paddingVertical: spacing.sm },
+  cancelAppointmentText: { fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.error },
 });

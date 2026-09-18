@@ -62,6 +62,14 @@ type FirestoreUserDoc = {
   photos?: string[];
 };
 
+const SAVE_FEEDBACK_DURATION_MS = 1400;
+
+type ActionModalState = {
+  title: string;
+  description: string;
+  returnToApartmentDetail?: boolean;
+};
+
 export default function ApartmentNoteScreen() {
   const { colors } = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -83,7 +91,7 @@ export default function ApartmentNoteScreen() {
   const [activeShareMatches, setActiveShareMatches] = useState<ShareMatchItem[]>([]);
   const [loadingShareMatches, setLoadingShareMatches] = useState(false);
   const [sendingShareChatId, setSendingShareChatId] = useState<string | null>(null);
-  const [actionModal, setActionModal] = useState<{ title: string; description: string } | null>(null);
+  const [actionModal, setActionModal] = useState<ActionModalState | null>(null);
 
   const apartmentData = useMemo(() => {
     const serializedData =
@@ -108,9 +116,12 @@ export default function ApartmentNoteScreen() {
 
   useEffect(() => {
     if (!saveFeedbackVisible) return;
-    const timer = setTimeout(() => setSaveFeedbackVisible(false), 1400);
+    const timer = setTimeout(() => {
+      setSaveFeedbackVisible(false);
+      router.back();
+    }, SAVE_FEEDBACK_DURATION_MS);
     return () => clearTimeout(timer);
-  }, [saveFeedbackVisible]);
+  }, [router, saveFeedbackVisible]);
 
   useEffect(() => {
     if (!auth.userId || !apartmentData?.id || auth.isGuest) {
@@ -309,6 +320,7 @@ export default function ApartmentNoteScreen() {
       setActionModal({
         title: t("apartmentNote.shareSuccessTitle"),
         description: t("apartmentNote.shareSuccessDescription"),
+        returnToApartmentDetail: true,
       });
     } catch {
       setActionModal({
@@ -317,6 +329,14 @@ export default function ApartmentNoteScreen() {
       });
     } finally {
       setSendingShareChatId(null);
+    }
+  };
+
+  const dismissActionModal = () => {
+    const shouldReturnToApartmentDetail = actionModal?.returnToApartmentDetail === true;
+    setActionModal(null);
+    if (shouldReturnToApartmentDetail) {
+      router.back();
     }
   };
 
@@ -469,12 +489,13 @@ export default function ApartmentNoteScreen() {
         visible={!!actionModal}
         title={actionModal?.title ?? ""}
         description={actionModal?.description}
-        onDismiss={() => setActionModal(null)}
+        onDismiss={dismissActionModal}
         actions={[
           {
-            label: t("common.actions.ok"),
+            label: actionModal?.returnToApartmentDetail ? t("common.actions.close") : t("common.actions.ok"),
             iconName: "checkmark-circle-outline",
-            onPress: () => setActionModal(null),
+            onPress: dismissActionModal,
+            testID: actionModal?.returnToApartmentDetail ? "apartment-note-share-success-close" : "apartment-note-action-ok",
           },
         ]}
       />

@@ -49,6 +49,23 @@ export interface FirestoreApartmentNoteDoc {
   createdAt: FieldValue;
 }
 
+export interface UserApartmentNote {
+  id: string;
+  title?: string;
+  text: string;
+  apartmentData: Apartment;
+  orderIndex: number;
+}
+
+interface FirestoreApartmentRatingDoc {
+  score?: unknown;
+}
+
+interface FirestorePostVisitFeedbackDoc {
+  apartmentId?: unknown;
+  rating?: unknown;
+}
+
 type FirestoreApartmentNoteReadDoc = {
   apartmentId?: string;
   title?: string;
@@ -139,7 +156,7 @@ export async function getApartmentNoteDetails(userId: string, apartmentId: strin
 
 export async function getUserApartmentNotes(
   userId: string,
-): Promise<Array<{ id: string; text: string; apartmentData: Apartment; orderIndex: number }>> {
+): Promise<UserApartmentNote[]> {
   const notesRef = collection(db, "users", userId, "apartmentNotes");
   const notesSnap = await getDocs(query(notesRef, orderBy("orderIndex", "asc")));
 
@@ -156,6 +173,56 @@ export async function getUserApartmentNotes(
       orderIndex: typeof data.orderIndex === "number" ? data.orderIndex : index,
     };
   });
+}
+
+function normalizeRating(value: unknown, scale: 5 | 10): number | null {
+  const numericValue = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numericValue) || numericValue < 1 || numericValue > scale) return null;
+  const fiveStarValue = scale === 10 ? numericValue / 2 : numericValue;
+  return Math.round(fiveStarValue * 2) / 2;
+}
+
+export async function getUserApartmentRatings(
+  userId: string,
+  apartmentIds: string[],
+): Promise<Record<string, number>> {
+  const requestedApartmentIds = new Set(apartmentIds.filter((id) => id.trim().length > 0));
+  if (requestedApartmentIds.size === 0) return {};
+
+  const [propertyRatingResults, feedbackSnapshots] = await Promise.all([
+    Promise.all([...requestedApartmentIds].map(async (apartmentId) => {
+      try {
+        const snapshot = await getDoc(doc(db, "apartments", apartmentId, "ratings", userId));
+        if (!snapshot.exists()) return null;
+        const rating = normalizeRating((snapshot.data() as FirestoreApartmentRatingDoc).score, 10);
+        return rating === null ? null : { apartmentId, rating };
+      } catch {
+        return null;
+      }
+    })),
+    Promise.all([
+      getDocs(query(collection(db, "post_visit_feedbacks"), where("loggedByUserId", "==", userId))).catch(() => null),
+      getDocs(query(collection(db, "post_visit_feedbacks"), where("clientId", "==", userId))).catch(() => null),
+    ]),
+  ]);
+
+  const ratings: Record<string, number> = {};
+  feedbackSnapshots.forEach((snapshot) => {
+    snapshot?.docs.forEach((feedbackDoc) => {
+      const data = feedbackDoc.data() as FirestorePostVisitFeedbackDoc;
+      const apartmentId = typeof data.apartmentId === "string" ? data.apartmentId : "";
+      const rating = normalizeRating(data.rating, 5);
+      if (requestedApartmentIds.has(apartmentId) && rating !== null && ratings[apartmentId] === undefined) {
+        ratings[apartmentId] = rating;
+      }
+    });
+  });
+
+  propertyRatingResults.forEach((result) => {
+    if (result) ratings[result.apartmentId] = result.rating;
+  });
+
+  return ratings;
 }
 
 export async function updateNotesOrder(userId: string, orderedApartmentIds: string[]): Promise<void> {

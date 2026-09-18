@@ -1,6 +1,7 @@
 type FeedbackProfile = {
   is_broker?: unknown;
   isBroker?: unknown;
+  agencyId?: unknown;
   role?: unknown;
   agencyRole?: unknown;
   not_looking_for_roommate?: unknown;
@@ -12,6 +13,7 @@ type FeedbackProfile = {
 
 type FeedbackListing = {
   isBroker?: unknown;
+  agencyId?: unknown;
   creatorRole?: unknown;
   creatorNotLookingForRoommate?: unknown;
   not_looking_for_roommate?: unknown;
@@ -32,9 +34,11 @@ function isBrokerRole(value: unknown): boolean {
 export function isBrokerProfile(hostUser: FeedbackProfile, listing: FeedbackListing = {}): boolean {
   return hostUser.is_broker === true
     || hostUser.isBroker === true
+    || (typeof hostUser.agencyId === "string" && hostUser.agencyId.trim().length > 0)
     || isBrokerRole(hostUser.role)
     || isBrokerRole(hostUser.agencyRole)
     || listing.isBroker === true
+    || (typeof listing.agencyId === "string" && listing.agencyId.trim().length > 0)
     || isBrokerRole(listing.creatorRole);
 }
 
@@ -55,5 +59,5 @@ export function hasExplicitRoommateOptOut(hostUser: FeedbackProfile, listing: Fe
 }
 
 export function shouldSuppressViewingFeedback(hostUser: FeedbackProfile, listing: FeedbackListing = {}): boolean {
-  return !isBrokerProfile(hostUser, listing) && !hasExplicitRoommateOptOut(hostUser, listing);
+  return !isBrokerProfile(hostUser, listing);
 }

@@ -13,9 +13,11 @@ function isBrokerRole(value) {
 function isBrokerProfile(hostUser, listing = {}) {
     return hostUser.is_broker === true
         || hostUser.isBroker === true
+        || (typeof hostUser.agencyId === "string" && hostUser.agencyId.trim().length > 0)
         || isBrokerRole(hostUser.role)
         || isBrokerRole(hostUser.agencyRole)
         || listing.isBroker === true
+        || (typeof listing.agencyId === "string" && listing.agencyId.trim().length > 0)
         || isBrokerRole(listing.creatorRole);
 }
 function hasExplicitRoommateOptOut(hostUser, listing = {}) {
@@ -36,9 +38,7 @@ function hasExplicitRoommateOptOut(hostUser, listing = {}) {
         || listingPreferences.noRoommates === true;
 }
 function shouldSuppressViewingFeedback(appointment, hostUser, listing = {}) {
-    const isBroker = isBrokerProfile(hostUser, listing);
-    const hasOptedOutOfRoommates = hasExplicitRoommateOptOut(hostUser, listing);
-    return !isBroker && !hasOptedOutOfRoommates;
+    return !isBrokerProfile(hostUser, listing);
 }
 function listingHostId(appointment, listing) {
     const candidates = [

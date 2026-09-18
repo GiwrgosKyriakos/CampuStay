@@ -13,6 +13,7 @@ import {
   TextInput,
   View,
   Linking,
+  BackHandler,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import Slider from "@react-native-community/slider";
@@ -56,6 +57,7 @@ import { buildTourSceneStoragePath, isValidEquirectangularDimensions } from "@/s
 
 type AmenityKey = "petFriendly" | "nearMetro" | "furnished" | "balcony" | "parking";
 type AmenitySlug = "pet_friendly" | "near_metro" | "furnished" | "balcony" | "parking";
+type ReturnTarget = "edit-profile";
 
 export type PropertyStatusKey =
   | "available"
@@ -580,11 +582,31 @@ export default function CreateListingScreen() {
   const [technicalSpecWarnings, setTechnicalSpecWarnings] = useState<Record<string, boolean>>({});
   const [extraDetailsState, setExtraDetailsState] = useState<Record<string, boolean>>({});
   const router = useRouter();
-  const params = useLocalSearchParams<{ mode?: string; listingId?: string }>();
+  const params = useLocalSearchParams<{ mode?: string; listingId?: string; returnTo?: string }>();
   const insets = useSafeAreaInsets();
   const auth = useAuth();
+  const returnTo: ReturnTarget | null = params.returnTo === "edit-profile" ? params.returnTo : null;
   const listingId = typeof params.listingId === "string" ? params.listingId : "";
   const isEditMode = params.mode === "edit" && listingId.length > 0;
+
+  const leaveListingFlow = useCallback(() => {
+    if (returnTo === "edit-profile") {
+      router.replace("/edit-profile");
+      return;
+    }
+    router.back();
+  }, [returnTo, router]);
+
+  useEffect(() => {
+    if (returnTo !== "edit-profile") return;
+
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      leaveListingFlow();
+      return true;
+    });
+
+    return () => subscription.remove();
+  }, [leaveListingFlow, returnTo]);
 
   const [monthlyRent, setMonthlyRent] = useState("");
   const [city, setCity] = useState<string | null>(null);
@@ -1301,7 +1323,7 @@ export default function CreateListingScreen() {
           showFeedbackModal(
             t("createListing.alerts.publishFailedTitle"),
             "Δεν έχετε δικαίωμα επεξεργασίας αυτής της αγγελίας.",
-            () => router.back(),
+            leaveListingFlow,
           );
           return;
         }
@@ -2076,7 +2098,7 @@ export default function CreateListingScreen() {
         showFeedbackModal(
           "Η αγγελία δημοσιεύτηκε επίσημα και είναι πλέον ορατή σε όλους!",
           "",
-          () => router.replace("/apartments"),
+            leaveListingFlow,
         );
       } catch {
         showFeedbackModal("Η δημοσίευση απέτυχε", "Δεν ήταν δυνατή η επίσημη δημοσίευση της αγγελίας. Δοκιμάστε ξανά.");
@@ -2356,7 +2378,7 @@ export default function CreateListingScreen() {
     showFeedbackModal(
       isEditMode ? t("createListing.alerts.updatedTitle") : t("createListing.alerts.publishedTitle"),
       t("createListing.alerts.publishedMessage", { size: sizeSqm, area, city }),
-      () => router.back(),
+      leaveListingFlow,
     );
   };
 
@@ -2383,7 +2405,7 @@ export default function CreateListingScreen() {
           testID="create-listing-screen"
         >
           <View style={styles.headerRow}>
-            <Pressable style={styles.backButton} onPress={() => router.back()} testID="create-listing-back">
+              <Pressable style={styles.backButton} onPress={leaveListingFlow} testID="create-listing-back">
               <Ionicons name="chevron-back" size={20} color={colors.onSurface} />
             </Pressable>
             <View style={styles.headerTextWrap}>
@@ -3703,7 +3725,7 @@ export default function CreateListingScreen() {
 
         <View style={[styles.footer, isOffMarket && styles.offMarketFooter, { paddingBottom: spacing.lg + insets.bottom }]}>
           {isOffMarket ? (
-            <Pressable style={styles.offMarketBackButton} onPress={() => router.back()} testID="create-listing-off-market-back">
+            <Pressable style={styles.offMarketBackButton} onPress={leaveListingFlow} testID="create-listing-off-market-back">
               <Text style={styles.offMarketBackButtonText}>Πίσω</Text>
             </Pressable>
           ) : null}

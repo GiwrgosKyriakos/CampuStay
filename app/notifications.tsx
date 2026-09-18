@@ -18,7 +18,7 @@ import { doc, getDoc, setDoc } from "firebase/firestore";
 import { useAuth } from "@/src/context/auth";
 import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
 import { getUserSettings, saveUserNotifications, type NotificationPreferences } from "@/src/api/accountSettings";
-import { GuestModeStickyFooter, GuestModeTopBanner } from "@/src/components/GuestModeLayout";
+import { GuestModeStickyFooter } from "@/src/components/GuestModeLayout";
 import ScreenHeader from "@/src/components/ScreenHeader";
 import { t } from "@/src/locales";
 import { db } from "@/src/config/firebase";
@@ -186,15 +186,6 @@ export default function NotificationsScreen() {
           </Pressable>
         </View>
 
-        {isGuest && (
-          <GuestModeTopBanner
-            onPress={() => router.push("/auth-landing")}
-            testID="notifications-guest-banner"
-            buttonTestID="notifications-guest-top-signin-button"
-            style={styles.guestBannerSpacing}
-          />
-        )}
-
         <View style={styles.centerBlock}>
           {visibleNotificationRows.map((row) => (
             row.id === "new_matches" ? (
@@ -345,7 +336,6 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderColor: colors.error,
     minWidth: "70%",
   },
-  guestBannerSpacing: { marginBottom: spacing.lg },
   disabledControl: { opacity: 0.6 },
   brokerSettingsSection: { marginTop: spacing.lg, gap: spacing.sm },
   sectionTitle: { fontFamily: fonts.bold, fontSize: fontSize.lg, color: colors.onSurface, marginBottom: spacing.xs },

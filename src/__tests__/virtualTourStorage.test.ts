@@ -6,6 +6,10 @@ jest.mock("firebase/storage", () => ({
   uploadBytes: jest.fn(),
 }));
 
+jest.mock("firebase/auth", () => ({
+  onAuthStateChanged: jest.fn(),
+}));
+
 jest.mock("firebase/firestore", () => ({
   doc: jest.fn(),
   serverTimestamp: jest.fn(),

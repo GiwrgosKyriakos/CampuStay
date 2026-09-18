@@ -11,9 +11,11 @@ function isBrokerRole(value: unknown): boolean {
 export function isBrokerProfile(hostUser: DocumentData, listing: DocumentData = {}): boolean {
   return hostUser.is_broker === true
     || hostUser.isBroker === true
+    || (typeof hostUser.agencyId === "string" && hostUser.agencyId.trim().length > 0)
     || isBrokerRole(hostUser.role)
     || isBrokerRole(hostUser.agencyRole)
     || listing.isBroker === true
+    || (typeof listing.agencyId === "string" && listing.agencyId.trim().length > 0)
     || isBrokerRole(listing.creatorRole);
 }
 
@@ -36,9 +38,7 @@ export function hasExplicitRoommateOptOut(hostUser: DocumentData, listing: Docum
 }
 
 export function shouldSuppressViewingFeedback(appointment: DocumentData, hostUser: DocumentData, listing: DocumentData = {}): boolean {
-  const isBroker = isBrokerProfile(hostUser, listing);
-  const hasOptedOutOfRoommates = hasExplicitRoommateOptOut(hostUser, listing);
-  return !isBroker && !hasOptedOutOfRoommates;
+  return !isBrokerProfile(hostUser, listing);
 }
 
 export function listingHostId(appointment: DocumentData, listing: DocumentData): string {

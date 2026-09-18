@@ -76,7 +76,7 @@ if ((0, app_1.getApps)().length === 0)
     (0, app_1.initializeApp)();
 const db = (0, firestore_1.getFirestore)();
 const AI_DAILY_LIMIT = 15;
-const campuStay = true;
+const campuStay = false;
 async function assertCanAccessApartment(apartmentId, authUid, allowedRoles = ["secretariat", "admin"]) {
     const apartmentSnapshot = await db.doc(`apartments/${apartmentId}`).get();
     const apartment = apartmentSnapshot.data();

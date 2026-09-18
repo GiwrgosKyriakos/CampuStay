@@ -1,4 +1,5 @@
 import { cancelScheduledNotification, scheduleLocalCalendarNotification } from "@/src/utils/notificationService";
+import { MAX_NOTIFICATION_RECURRENCE_COUNT } from "@/src/constants/notifications";
 
 export const NOTE_REMINDER_OPTIONS = [
   { minutes: 15, label: "calendar.noteModal.reminders.15Minutes" },
@@ -31,7 +32,7 @@ export async function scheduleCalendarNoteReminder(params: {
   const eventDate = getCalendarNoteDate(params.date, params.time, params.timestamp);
   if (!eventDate) return [];
 
-  const notificationIds = await Promise.all(params.leadTimeMinutes.map(async (leadTimeMinutes) => {
+  const notificationIds = await Promise.all(params.leadTimeMinutes.slice(0, MAX_NOTIFICATION_RECURRENCE_COUNT).map(async (leadTimeMinutes) => {
     const reminderDate = new Date(eventDate.getTime() - leadTimeMinutes * 60 * 1000);
     return scheduleLocalCalendarNotification({
       title: `Υπενθύμιση: ${params.title}`,

@@ -40,7 +40,8 @@
       "quiz": "Quiz",
       "location": "Τοποθεσία",
       "photos": "Φωτογραφίες",
-      "socialMedia": "Κοινωνικά Δίκτυα"
+      "socialMedia": "Κοινωνικά Δίκτυα",
+      "language": "Γλώσσα"
     },
     "languages": {
       "english": "Αγγλικά",
@@ -341,6 +342,10 @@
       "tryDifferentSearch": "Δοκιμάστε διαφορετικούς όρους αναζήτησης"
   },
   "auth": {
+    "loadingSession": "Γίνεται επαναφορά της σύνδεσης...",
+    "signingIn": "Γίνεται σύνδεση...",
+    "creatingAccount": "Δημιουργία λογαριασμού...",
+    "settingUpProfile": "Προετοιμασία του προφίλ σου...",
     "landing": {
       "tagline": "Βρες τον ιδανικό σου συγκάτοικο",
       "continueWithGoogle": "Συνέχεια με Google",
@@ -502,12 +507,19 @@
     "agePlaceholder": "π.χ. 22",
     "about": "Σχετικά με εσένα",
     "aboutPlaceholder": "Πες μας λίγα λόγια για εσένα, τα ενδιαφέροντά σου και τι ψάχνεις σε έναν συγκάτοικο.",
+    "completeQuiz": "Συμπλήρωσε το κουίζ συμβατότητας",
     "gender": "Φύλο",
     "city": "Πόλη",
     "cityPlaceholder": "Επίλεξε την πόλη σου",
     "hasPlace": "Έχω σπίτι/διαμέρισμα για συγκατοίκηση",
     "lookingForApartment": "Αναζητώ διαμέρισμα",
     "housingPrompt": "Δημιούργησε τώρα την καταχώρισή σου!",
+    "roommateGroupLock": {
+      "title": "Ενεργή συμμετοχή σε ομαδική",
+      "message": "Δεν μπορείτε να αλλάξετε την κατάστασή σας σε «Έχω ήδη σπίτι», καθώς συμμετέχετε στην ομαδική/στις ομαδικές {{groupNames}} ως roommate.",
+      "leaveAndChange": "Αποχώρηση & Αλλαγή",
+      "stayAsRoomie": "Παραμονή ως Roommate"
+    },
     "educationTitle": "Σπουδές & Διαμονή",
     "university": "Πανεπιστήμιο",
     "universityPlaceholder": "Επίλεξε το πανεπιστήμιό σου",
@@ -531,6 +543,8 @@
     "errors": {
       "photoLibrary": "Δεν ήταν δυνατό να ανοίξει η βιβλιοθήκη φωτογραφιών. Προσπάθησε ξανά.",
       "aboutTooLong": "Το πεδίο Σχετικά με εσένα πρέπει να έχει έως {{limit}} χαρακτήρες.",
+      "cityRequired": "Παρακαλώ συμπλήρωσε την πόλη σου.",
+      "budgetInvalid": "Παρακαλώ εισάγετε έγκυρο προϋπολογισμό μεγαλύτερο από 0.",
       "saveFailed": "Δεν ήταν δυνατή η αποθήκευση του προφίλ σου. Προσπάθησε ξανά."
     },
     "options": {
@@ -592,9 +606,6 @@
     "title": "Quiz"
   },
   "chat": {
-    "header": {
-      "activeNow": "Ενεργός τώρα"
-    },
     "unavailable": "Μη διαθέσιμο",
     "exactLocation": "Ακριβής τοποθεσία",
     "openNavigation": "Οδήγηση / Πλοήγηση",
@@ -617,6 +628,28 @@
     "compatibility": "Συμβατότητα",
     "aboutMe": "Σχετικά με εμένα",
     "socialLinks": "Κοινωνικά Δίκτυα",
+    "listingShare": {
+      "latestListing": "Τελευταία αγγελία",
+      "action": "Κοινοποίηση αγγελίας",
+      "title": "Κοινοποίηση αγγελίας",
+      "empty": "Δεν υπάρχουν επιλέξιμες ενεργές συνομιλίες.",
+      "loadFailed": "Δεν ήταν δυνατή η φόρτωση των συνομιλιών.",
+      "sendFailed": "Δεν ήταν δυνατή η κοινοποίηση της αγγελίας.",
+      "successTitle": "Η αγγελία κοινοποιήθηκε",
+      "successMessage": "Η αγγελία κοινοποιήθηκε επιτυχώς."
+    },
+    "groupProfile": {
+      "title": "Προφίλ ομάδας",
+      "selectProperty": "Επιλογή ακινήτου συγκάτοικου",
+      "members": "Μέλη ({{count}})",
+      "memberFallback": "Μέλος ομάδας",
+      "host": "Host",
+      "propertyOwner": "Ακίνητο του/της",
+      "activeProperty": "Ενεργό ακίνητο ομαδικής",
+      "setActive": "Ορισμός ως ενεργό",
+      "noProperties": "Δεν βρέθηκαν ενεργά ακίνητα συγκάτοικων.",
+      "activePropertyUpdated": "Το ενεργό ακίνητο της ομάδας ενημερώθηκε"
+    },
     "socialPlatforms": {
       "instagram": "Instagram",
       "facebook": "Facebook",
@@ -669,6 +702,10 @@
       "proposedProperties": "{{count}} προτεινόμενα ακίνητα",
       "viewList": "Προβολή Λίστας",
       "listingNote": "Σημείωση Αγγελίας"
+    },
+    "lastMessage": {
+      "propertyList": "🏠 Λίστα ακινήτων",
+      "propertyListWithCount": "🏠 Λίστα ακινήτων ({{count}} ακίνητα)"
     },
     "blockModal": {
       "title": "Είσαι σίγουρος ότι θέλεις να αποκλείσεις αυτόν τον χρήστη;",
@@ -745,6 +782,7 @@
     "title": "Ταιριάσματα",
     "subtitleGuest": "Κάνε εγγραφή για να δεις τα ταιριάσματά σου",
     "subtitleHosts": "Οι ιδιοκτήτες με τους οποίους επικοινώνησες θα εμφανίζονται εδώ",
+    "subtitleBrokers": "Συνομιλίες με επαληθευμένους μεσίτες",
     "subtitleNone": "Τα άτομα που σου αρέσουν θα εμφανίζονται εδώ",
     "subtitleCount": "{{count}} {{roommateLabel}} που σου άρεσαν",
     "roommateSingular": "συγκάτοικος",
@@ -752,6 +790,8 @@
     "hostPlural": "ιδιοκτήτες",
     "roommatesToggle": "Συγκάτοικοι",
     "hostsToggle": "Ιδιοκτήτες",
+    "hostRole": "Ιδιοκτήτης",
+    "brokerRole": "Μεσίτης",
     "emptyGuestTitleRoommates": "Συνδέσου για να δεις τα ταιριάσματά σου",
     "emptyGuestTitleHosts": "Συνδέσου για να επικοινωνήσεις με ιδιοκτήτες διαμερισμάτων που σε ενδιαφέρουν",
     "emptyGuestBodyRoommates": "Τα likes, τα ταιριάσματα και τα chats σου εμφανίζονται εδώ αφού συνδεθείς.",
@@ -760,6 +800,8 @@
     "emptyBodyRoommates": "Ξεκίνα τα swipes για να βρεις τον ιδανικό σου συγκάτοικο!",
     "emptyTitleHosts": "Δεν υπάρχουν διαμερίσματα που να σε ενδιαφέρουν ακόμα",
     "emptyBodyHosts": "Επικοινώνησε με ιδιοκτήτες των διαμερισμάτων που σε ενδιαφέρουν!",
+    "emptyTitleBrokers": "Δεν υπάρχουν ακόμα συνομιλίες με μεσίτες",
+    "emptyBodyBrokers": "Οι συνομιλίες με επαληθευμένους μεσίτες θα εμφανίζονται εδώ.",
     "previewPending": "Σε αναμονή έγκρισης",
     "pendingApproval":  " Σε αναμονή έγκρισης...",
     "previewStart": "Ξεκίνα τη συζήτηση"
@@ -783,7 +825,10 @@
   "roommates": {
     "quiz": "Quiz",
     "preferences": "Προτιμήσεις Συγκατοίκησης",
-    "calendarToggle": "Εναλλαγή Ημερολογίου"
+    "calendarToggle": "Εναλλαγή Ημερολογίου",
+    "groupChat": {
+      "maxHostsReached": "Η ομαδική μπορεί να έχει μόνο 1 οικοδεσπότη (συμπεριλαμβανομένου του δημιουργού)."
+    }
   },
   "swipeDeck": {
     "emptyTitle": "Είσαι πλήρως ενημερωμένος!",
@@ -827,6 +872,9 @@
     }
   },
   "calendar": {
+    "broker": "Μεσίτης",
+    "host": "Οικοδεσπότης",
+    "representative": "Υπεύθυνος ραντεβού",
     "title": "Ημερολόγιο",
     "myCalendar": "Το ημερολόγιό μου",
     "scheduledVisits": "Προγραμματισμένες επισκέψεις και υπενθυμίσεις",
@@ -965,6 +1013,10 @@
   },
   "apartments": {
     "title": "Διαμερίσματα",
+    "hostNewListingNotice": {
+      "title": "Δημιουργία Νέας Αγγελίας",
+      "message": "Συμμετέχετε ήδη σε ομαδικές συνομιλίες ως οικοδεσπότης. Εάν προχωρήσετε, θα παραμείνετε στις υπάρχουσες ομαδικές ως οικοδεσπότης του αρχικού ακινήτου."
+    },
     "tab": {
       "clientOnlyView": "μόνο για πελάτες",
       "proposedListTitle": "Προτεινόμενη Λίστα",
@@ -1084,7 +1136,8 @@
       },
       "notes": {
         "empty": "Δεν υπάρχουν αποθηκευμένες σημειώσεις ακόμα.",
-        "savingOrder": "Αποθήκευση νέας σειράς..."
+        "savingOrder": "Αποθήκευση νέας σειράς...",
+        "openProperty": "Άνοιγμα λεπτομερειών ακινήτου"
       }
     },
     "withdrawnByOtherBrokerBanner": "Αποσύρθηκε από άλλον μεσίτη που διαχειριζόταν το ακίνητο",
@@ -1119,6 +1172,7 @@
     "filterSetTitle": "Τίτλος set φίλτρων",
     "filterSetPlaceholder": "π.χ. 2άρι κέντρο φοιτητικό (έως 40 χαρ.)",
     "saveFilterSet": "Αποθήκευση Set",
+    "filterSetSavedToast": "Το σετ φίλτρων αποθηκεύτηκε επιτυχώς",
     "pricePerSqm": "Τιμή ανά τ.μ. (€/m²)",
     "fromPricePerSqm": "Από (€/m²)",
     "toPricePerSqm": "Έως (€/m²)",
@@ -1191,6 +1245,8 @@
     "emailSubject": "Ερώτημα για: {{title}}",
     "hostListingTitle": "Καταχώριση ιδιοκτήτη",
     "hostListingMessage": "Είσαι ο ιδιοκτήτης αυτής της καταχώρισης.",
+    "acceptedOfferPrice": "Εγκεκριμένη τιμή για εσένα",
+    "originalPrice": "Αρχική",
     "chatUnavailableTitle": "Το chat δεν είναι διαθέσιμο",
     "chatUnavailableMessage": "Δεν μπορέσαμε να ανοίξουμε το chat αυτή τη στιγμή. Προσπάθησε ξανά.",
     "amenitiesTitle": "Παροχές",

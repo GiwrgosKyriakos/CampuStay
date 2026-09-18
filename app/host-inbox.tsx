@@ -20,6 +20,7 @@ import { isChatBlockedByUser } from "@/src/utils/chatHelpers";
 import InboxSkeleton from "@/src/components/skeletons/InboxSkeleton";
 import AgencyColleaguesModal from "@/src/components/AgencyColleaguesModal";
 import { createOrGetColleagueChat } from "@/src/api/agencyCollaboration";
+import { formatChatPreviewMessage, isPropertyListMessageType } from "@/src/utils/chatMessagePreview";
 
 interface FirestoreUserDoc {
   name?: string | null;
@@ -51,6 +52,8 @@ interface FirestoreHostChatDoc {
   lastMessageSenderId?: string;
   lastMessageReadBy?: string[];
   lastMessageIsRead?: boolean;
+  lastMessageApartmentIds?: string[];
+  lastMessageApartmentCount?: number;
   lastMessageTimestamp?: { toMillis?: () => number } | number | null;
   updatedAt?: { toMillis?: () => number } | number | null;
   createdAt?: { toMillis?: () => number } | number | null;
@@ -61,11 +64,18 @@ interface FirestoreInboxMessageDoc {
   type?: string;
   requestedDate?: string;
   metadata?: { appointmentDate?: string };
+  apartmentIds?: string[];
+  apartmentCount?: number;
   senderId?: string;
   isRead?: boolean;
 }
 
 function formatInboxMessage(data: FirestoreInboxMessageDoc): string {
+  const propertyListPreview = formatChatPreviewMessage(data);
+  if (isPropertyListMessageType(data.type) || propertyListPreview !== data.text?.trim()) {
+    return propertyListPreview;
+  }
+
   const appointmentDate = data.metadata?.appointmentDate ?? data.requestedDate;
   switch (data.type) {
     case "filter_share":
@@ -339,7 +349,12 @@ export function HostInboxContent({ titleOverride, showBackButton = true }: HostI
                   // fields — no per-row message sub-collection queries.
                   const rawLastMessage = typeof chatData.lastMessage === "string" ? chatData.lastMessage.trim() : "";
                   const lastMessageType = typeof chatData.lastMessageType === "string" ? chatData.lastMessageType : undefined;
-                  const lastMessageText = rawLastMessage || formatInboxMessage({ text: rawLastMessage, type: lastMessageType });
+                  const lastMessageText = formatInboxMessage({
+                    text: rawLastMessage,
+                    type: lastMessageType,
+                    apartmentIds: chatData.lastMessageApartmentIds,
+                    apartmentCount: chatData.lastMessageApartmentCount,
+                  });
                   const lastMessageReadBy = Array.isArray(chatData.lastMessageReadBy) ? chatData.lastMessageReadBy : undefined;
                   const lastMessageIsRead = lastMessageReadBy
                     ? lastMessageReadBy.includes(currentUid)

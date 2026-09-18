@@ -50,14 +50,17 @@ export interface Deal {
   coveringBrokerId?: string;
   stage: number;
   commissionTotal: number;
+  dealValue?: number;
   dealAmount?: number;
+  acceptedOfferPrice?: number;
+  offerAcceptedAt?: unknown;
   agencyCutPercentage: number;
   agencyCutAmount: number;
   brokerSplits: BrokerCommissionSplit[];
   settlementStatus?: SettlementStatus;
   fiscalInvoice?: FiscalInvoiceMetadata;
   agencyShare?: number;
-  status: "active" | "under_negotiation" | "closed" | "cancelled";
+  status: "active" | "under_negotiation" | "offer_accepted" | "closed" | "cancelled";
   checklist?: DealChecklistItem[];
   createdAt: number;
 }

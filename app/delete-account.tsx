@@ -8,7 +8,7 @@ import { deleteUser } from "firebase/auth";
 
 import { useAuth } from "@/src/context/auth";
 import { radius, spacing, fonts, fontSize, type ThemeColors } from "@/src/theme";
-import { GuestModeStickyFooter, GuestModeTopBanner } from "@/src/components/GuestModeLayout";
+import { GuestModeStickyFooter } from "@/src/components/GuestModeLayout";
 import CenteredActionModal, { type CenteredModalAction } from "@/src/components/CenteredActionModal";
 import { firebaseAuth } from "@/src/config/firebase";
 import { wipeUserFirestoreFootprint } from "@/src/services/firebase";
@@ -119,15 +119,6 @@ export default function DeleteAccountScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top + spacing.lg }]} testID="delete-account-screen">
       <View style={styles.mainContent}>
-        {auth.isGuest && (
-          <GuestModeTopBanner
-            onPress={() => router.push("/auth-landing")}
-            testID="delete-guest-banner"
-            buttonTestID="delete-signin-button"
-            style={styles.guestBannerSpacing}
-          />
-        )}
-
         {auth.isGuest ? (
           <View style={styles.content}>
             <Text style={styles.heading}>{t("deleteAccount.guestTitle")}</Text>
@@ -188,7 +179,6 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface, paddingHorizontal: spacing.lg },
   mainContent: { flex: 1 },
   content: { gap: spacing.lg },
-  guestBannerSpacing: { marginBottom: spacing.lg },
   heading: { fontFamily: fonts.displayExtra, fontSize: fontSize["2xl"], color: colors.onSurface, marginBottom: spacing.sm },
   warning: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.brand, lineHeight: 22 },
   credentialBox: {
