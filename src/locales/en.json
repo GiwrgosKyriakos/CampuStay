@@ -565,6 +565,20 @@
     "emptyBody": "New updates will appear here.",
     "feedHistory": "Notification History",
     "saving": "Saving changes...",
+    "agency": {
+      "newPoolItem": {
+        "title": "New Pool Listing",
+        "body": "Listing \"{{title}}\" is available for assignment in your agency pool."
+      },
+      "assignmentRequested": {
+        "title": "Assignment Requested",
+        "body": "{{brokerName}} requested assignment for listing \"{{title}}\"."
+      },
+      "assignmentApproved": {
+        "title": "Assignment Approved",
+        "body": "Your request for listing \"{{title}}\" has been approved."
+      }
+    },
     "errors": {
       "load": "Unable to load notification settings.",
       "save": "Could not save notification settings."
@@ -604,6 +618,126 @@
   },
   "roomieProfile": {
     "title": "Quiz"
+  },
+  "tour": {
+    "common": {
+      "next": "Next",
+      "skip": "Skip Guide",
+      "finish": "Finish",
+      "stepIndicator": "Step {{current}} of {{total}}"
+    },
+    "steps": {
+      "roommates": {
+        "title": "Find your roommate match",
+        "description": "Browse compatible people and use the swipe deck to discover a better fit."
+      },
+      "matches": {
+        "title": "Your matches",
+        "description": "Return here to see mutual likes and continue conversations."
+      },
+      "apartments": {
+        "title": "Explore apartments",
+        "description": "Search available homes, save favorites, and open listing details."
+      },
+      "explore": {
+        "title": "Explore the feed",
+        "description": "Swipe through a visual stream of available properties."
+      },
+      "calendar": {
+        "title": "Keep your plans together",
+        "description": "Track visits, reminders, and appointment notes from one calendar."
+      },
+      "broker": {
+        "title": "Your broker workspace",
+        "description": "Manage clients, owners, listings, and the next action in your pipeline."
+      },
+      "pool": {
+        "title": "Agency property pool",
+        "description": "Review shared agency inventory and coordinate ownership of listings."
+      },
+      "analytics": {
+        "title": "Agency insights",
+        "description": "Use performance signals to keep the agency focused on its strongest opportunities."
+      },
+      "profile": {
+        "title": "Make the app yours",
+        "description": "Update your profile, preferences, language, and privacy settings here."
+      }
+    },
+    "roommate": {
+      "quizTitle": "Start your compatibility quiz",
+      "quizDesc": "Answer a few questions so CampuStay can surface more compatible roommates.",
+      "profileTitle": "Review your roommate profile",
+      "profileDesc": "Open your profile to refine the habits and preferences shown to potential matches.",
+      "prefsTitle": "Tune roommate preferences",
+      "prefsDesc": "Adjust age, budget, and hard criteria. You can save or continue without changing anything.",
+      "swipeTitle": "Try the top compatibility match",
+      "swipeDesc": "Swipe the highlighted card left or right, or use Next to continue the tour."
+    },
+    "cal": {
+      "btnTitle": "Keep a calendar close",
+      "btnDesc": "Switch to Calendar to organize notes, visits, and follow-ups.",
+      "todoTitle": "Your To-Do focus",
+      "todoDesc": "The To-Do area keeps the next important task visible without leaving the calendar.",
+      "weekTitle": "See the week at a glance",
+      "weekDesc": "Use the week control to group your notes and visits into a manageable view.",
+      "dayTitle": "Focus on one day",
+      "dayDesc": "Expand a day when you need a detailed view of its notes and appointments.",
+      "noteTitle": "Add a calendar note",
+      "noteDesc": "Create a reminder or visit note from the plus action. Saving is optional during this tour."
+    },
+    "matches": {
+      "toggleTitle": "Switch between inbox views",
+      "toggleDesc": "Use the segmented control to move between roommate and host conversations.",
+      "brokerTitle": "Open broker conversations",
+      "brokerDesc": "The briefcase action filters the inbox for commercial broker requests."
+    },
+    "chat": {
+      "actionsTitle": "Conversation actions",
+      "actionsDesc": "This secondary strip contains mutuals, viewing, property, and contract actions when available."
+    },
+    "reels": {
+      "actionsTitle": "Act on a property reel",
+      "actionsDesc": "Use the highlighted action rail to like, save, share, or inquire about a listing."
+    },
+    "apt": {
+      "togglesTitle": "Switch apartment views",
+      "togglesDesc": "Move between all, liked, or your listing layouts without losing your search context.",
+      "adjBtnsTitle": "Your apartment controls",
+      "adjBtnsDesc": "Use filters, search, map, notes, and view controls together to narrow the catalog."
+    },
+    "host": {
+      "createTitle": "Create a listing",
+      "createDesc": "Use the plus action to publish a property and start receiving qualified interest.",
+      "inboxTitle": "Open the host inbox",
+      "inboxDesc": "Review incoming property requests and continue conversations with interested people."
+    },
+    "profile": {
+      "editTitle": "Edit your profile",
+      "editDesc": "Update the information that powers matching, listings, and your public profile."
+    },
+    "broker": {
+      "dashboardTitle": "Your broker dashboard",
+      "dashboardDesc": "This is the home for client, owner, and listing activity.",
+      "dossierTitle": "Open a client dossier",
+      "dossierDesc": "Select a client card to review identity, activity, and scheduling context.",
+      "pipelineTitle": "Track the deal pipeline",
+      "pipelineDesc": "Switch segments and pipeline views to keep opportunities moving.",
+      "listingsTitle": "Open your listings",
+      "listingsDesc": "The My Listings control filters the apartment catalog to properties you manage.",
+      "reelsTitle": "Agency reels",
+      "reelsDesc": "Agency brokers can open a full-screen reels view for the agency portfolio."
+    },
+    "management": {
+      "screenTitle": "Agency management",
+      "screenDesc": "Manage agency identity, broker requests, and operational settings here.",
+      "poolTitle": "Review unassigned requests",
+      "poolDesc": "Pending broker requests and shared inventory are surfaced for leadership review.",
+      "afmTitle": "Manage the agency AFM",
+      "afmDesc": "Keep the agency tax identity current for contracts and legal documents.",
+      "codeTitle": "Manage the agency code",
+      "codeDesc": "Update the code that approved brokers use to join your agency."
+    }
   },
   "chat": {
     "unavailable": "Unavailable",
@@ -807,6 +941,8 @@
     "previewStart": "Start the conversation"
   },
   "profile": {
+    "afmLabel": "Tax ID (AFM)",
+    "afmPlaceholder": "Enter your 9-digit Tax ID",
     "guestName": "Guest",
     "fallbackName": "Your Profile",
     "fallbackProgram": "Complete your profile",
@@ -846,6 +982,22 @@
     "maxBudget": "Max budget",
     "budget": "Budget",
     "showRoommates": "Show roommates",
+    "duplicateModal": {
+      "title": "Identical Filter Set Detected",
+      "message": "The identical filter set has already been saved for your client, {{clientName}}, under the title '{{existingTitle}}'. Do you want to save this filter set separately as '{{newTitle}}'?",
+      "confirm": "Save as New",
+      "cancel": "No / Keep Existing"
+    },
+    "noChangesDetected": "No changes made to the filter set.",
+    "amenities": {
+      "elevator": "Elevator",
+      "heating": "Heating",
+      "airConditioning": "Air Conditioning (A/C)",
+      "balcony": "Balcony",
+      "parking": "Parking Space",
+      "solarWaterHeater": "Solar Water Heater",
+      "furnished": "Furnished"
+    },
     "options": {
       "all": "All",
       "female": "Female",
@@ -1013,6 +1165,10 @@
   },
   "apartments": {
     "title": "Apartments",
+    "agencyReelsButton": "View Agency Reels",
+    "agencyReelsTooltip": "View Agency Reels",
+    "exitReels": "Back to Listings",
+    "noAgencyReels": "No agency reels available for your listings.",
     "hostNewListingNotice": {
       "title": "Create New Listing",
       "message": "You are already participating in group chats as a host. If you proceed, you will remain in existing groups as the host of the original property."
@@ -1083,6 +1239,7 @@
         "balcony": "Balcony",
         "parking": "Parking",
         "airConditioner": "Air conditioning",
+        "washingMachine": "Washing machine",
         "securityDoor": "Security door",
         "solarWaterHeater": "Solar water heater",
         "alarm": "Alarm",
@@ -1238,6 +1395,16 @@
       "a4": { "title": "Bright room in WG" }
     }
   },
+  "listings": {
+    "create": {
+      "showInExploreTitle": "Feature in Explore Feed",
+      "showInExploreSubtitle": "Allow this property to be featured in the Explore/Reels feed for maximum reach."
+    },
+    "edit": {
+      "saveAsOfferPrompt": "Save new price as a special offer?"
+    },
+    "offerBadge": "Special Offer"
+  },
   "apartmentDetail": {
     "noPhotosAvailable": "No photos available for this listing.",
     "dataUnavailable": "Apartment data unavailable.",
@@ -1381,7 +1548,29 @@
     "month": "Month",
     "saveFailed": "Could not save the entry."
   },
+  "deals": {
+    "stages": {
+      "newLead": "New lead",
+      "newLeadShort": "Lead",
+      "contacted": "Contacted",
+      "contactedShort": "Contacted",
+      "showingScheduled": "Showing scheduled",
+      "showingScheduledShort": "Showing",
+      "offerMade": "Offer made",
+      "offerMadeShort": "Offer",
+      "underContract": "Under contract",
+      "underContractShort": "Contract",
+      "closedWon": "Closed won",
+      "closedWonShort": "Won",
+      "closedLost": "Closed lost",
+      "closedLostShort": "Lost"
+    }
+  },
   "agency": {
+    "afmLabel": "Agency Tax ID (AFM)",
+    "afmPlaceholder": "Enter company Tax ID",
+    "afmInvalid": "Enter a valid 9-digit Tax ID.",
+    "afmSaved": "Agency Tax ID saved successfully.",
     "poolTab": "Property Pool",
     "directManage": "Manage Directly",
     "directManageSubtitle": "Direct assignment to you & owner added to your clients",
@@ -1483,6 +1672,9 @@
       "sentBy": "Sent by: {{name}}"
     }
   },
+  "contracts": {
+    "missingAfmWarning": "Your Tax ID (AFM) must be completed in your profile before generating legal contracts."
+  },
   "crm": {
     "activeLeads": "active leads",
     "managedByBroker": "Managed by: %{brokerName}",
@@ -1557,6 +1749,12 @@
     "claimLeadFailed": "Could not claim the lead",
     "brokerFallback": "Broker",
     "noActiveColleagues": "No active colleagues found."
+  },
+  "broker": {
+    "roles": { "owner": "Owner" },
+    "tabs": { "owners": "Owners" },
+    "ownerPropertyLabel": "Assigned Listing",
+    "ownerEnrolledToast": "Property owner has been added to your CRM owners."
   },
   "interactionLog": {
     "title": "Interaction Log",

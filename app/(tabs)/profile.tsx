@@ -18,6 +18,7 @@ import { uploadProfileImageAsync } from "@/src/api/imageUpload";
 import { t } from "@/src/locales";
 import { useLocale } from "@/src/context/locale";
 import { useTheme } from "@/src/context/ThemeContext";
+import { TourAnchor } from "@/src/components/tour/TourAnchor";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 84;
@@ -273,17 +274,33 @@ export default function ProfileScreen() {
 
             return (
               <View key={s.label}>
-                <Pressable
-                  style={[styles.row, i < visibleNavSettings.length - 1 && styles.rowBorder]}
-                  testID={s.testID}
-                  onPress={() => router.push(s.route as any)}
-                >
-                  <View style={styles.rowIcon}>
-                    <Ionicons name={s.icon} size={20} color={colors.onSurface} />
-                  </View>
-                  <Text style={styles.rowLabel}>{t(s.label)}</Text>
-                  <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-                </Pressable>
+                {s.route === "/edit-profile" ? (
+                  <TourAnchor targetKey="profile_edit_button">
+                    <Pressable
+                      style={[styles.row, i < visibleNavSettings.length - 1 && styles.rowBorder]}
+                      testID={s.testID}
+                      onPress={() => router.push(s.route as any)}
+                    >
+                      <View style={styles.rowIcon}>
+                        <Ionicons name={s.icon} size={20} color={colors.onSurface} />
+                      </View>
+                      <Text style={styles.rowLabel}>{t(s.label)}</Text>
+                      <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+                    </Pressable>
+                  </TourAnchor>
+                ) : (
+                  <Pressable
+                    style={[styles.row, i < visibleNavSettings.length - 1 && styles.rowBorder]}
+                    testID={s.testID}
+                    onPress={() => router.push(s.route as any)}
+                  >
+                    <View style={styles.rowIcon}>
+                      <Ionicons name={s.icon} size={20} color={colors.onSurface} />
+                    </View>
+                    <Text style={styles.rowLabel}>{t(s.label)}</Text>
+                    <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+                  </Pressable>
+                )}
 
                 {!notLookingForRoommate && (
                   <>

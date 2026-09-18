@@ -191,7 +191,10 @@ export async function loadCEOAnalyticsDataset(userId: string, agencyIdOverride?:
   const dealMap = new Map(topLevelDeals.map((deal) => [deal.id, deal]));
 
   const interactionRows = await Promise.all(apartments.map(async (apartment) => {
-    const rows = await safeGetDocs(collection(db, "apartments", apartment.id, "interactions"));
+    const rows = await safeGetDocs(query(
+      collection(db, "apartments", apartment.id, "interactions"),
+      where("brokerId", "==", userId),
+    ));
     return (rows ?? []).map((row) => ({ id: String((row as { id?: string }).id ?? "interaction"), ...(row as UserRecord) } as AnalyticsInteractionRecord));
   }));
 

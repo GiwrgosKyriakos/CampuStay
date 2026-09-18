@@ -25,6 +25,8 @@ import { registerForPushNotificationsAsync } from "@/src/utils/notificationServi
 import { calculateMatchScore } from "@/src/utils/matchAlgorithm";
 import type { CompatibilityQuizAnswers, UserProfile as MatchUserProfile } from "@/src/utils/matchAlgorithm";
 import { DEFAULT_HARD_CRITERIA, normalizeSelectedHardCriteria } from "@/src/types/roommateHardCriteria";
+import { TourAnchor } from "@/src/components/tour/TourAnchor";
+import { useTour } from "@/src/context/TourContext";
 
 const CURRENCY = "€";
 const TAB_BAR_SPACE = 84;
@@ -90,6 +92,7 @@ export default function RoommatesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const auth = useAuth();
+  const { currentStep, isTourActive, notifyAction } = useTour();
   const deckRef = useRef<SwipeDeckHandle>(null);
   const userIdRef = useRef<string | null>(null);
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
@@ -347,28 +350,48 @@ useEffect(() => {
           <View style={styles.headerActionsRow}>
             
             {canUseCalendar ? (
-              <Pressable
-                style={[styles.iconBtn, activeView === "calendar" && styles.iconBtnActive]}
-                onPress={() => setActiveView((previous) => previous === "calendar" ? "deck" : "calendar")}
-                hitSlop={8}
-                testID="roommates-calendar-toggle-btn"
-                accessibilityLabel={t("roommates.calendarToggle")}
-              >
-                <Ionicons name={activeView === "calendar" ? "calendar" : "calendar-outline"} size={22} color={activeView === "calendar" ? colors.onBrand : colors.onSurface} />
-              </Pressable>
+              <TourAnchor targetKey="header_calendar_button">
+                <Pressable
+                  style={[styles.iconBtn, activeView === "calendar" && styles.iconBtnActive]}
+                  onPress={() => {
+                    if (isTourActive && currentStep?.targetKey === "header_calendar_button") {
+                      router.push("/(tabs)/calendar");
+                      notifyAction("header_calendar_button");
+                      return;
+                    }
+                    setActiveView((previous) => previous === "calendar" ? "deck" : "calendar");
+                  }}
+                  hitSlop={8}
+                  testID="roommates-calendar-toggle-btn"
+                  accessibilityLabel={t("roommates.calendarToggle")}
+                >
+                  <Ionicons name={activeView === "calendar" ? "calendar" : "calendar-outline"} size={22} color={activeView === "calendar" ? colors.onBrand : colors.onSurface} />
+                </Pressable>
+              </TourAnchor>
             ) : null}
             
             {auth.quizAnsweredCount === 0 ? (
-              <Pressable style={styles.quizPill} onPress={() => router.push("/roomie-profile")} testID="roommates-quiz-pill">
-                <Text style={styles.quizPillText}>{t("roommates.quiz")}</Text>
-              </Pressable>
+              <TourAnchor targetKey="roommates_quiz_pill">
+                <Pressable
+                  style={styles.quizPill}
+                  onPress={() => {
+                    router.push("/roomie-profile");
+                    if (isTourActive && currentStep?.targetKey === "roommates_quiz_pill") notifyAction("roommates_quiz_pill");
+                  }}
+                  testID="roommates-quiz-pill"
+                >
+                  <Text style={styles.quizPillText}>{t("roommates.quiz")}</Text>
+                </Pressable>
+              </TourAnchor>
             ) : null}
           </View>
         </View>
         {activeView === "deck" ? (
-          <Pressable style={styles.filterPill} onPress={openSheet} testID="filter-open-button">
-            <Text style={styles.filterText}>{t("roommates.preferences")}</Text>
-          </Pressable>
+          <TourAnchor targetKey="roommates_preferences_button">
+            <Pressable style={styles.filterPill} onPress={openSheet} testID="filter-open-button">
+              <Text style={styles.filterText}>{t("roommates.preferences")}</Text>
+            </Pressable>
+          </TourAnchor>
         ) : null}
       </View>
 
@@ -396,8 +419,12 @@ useEffect(() => {
                 currency={CURRENCY}
                 onLike={onLike}
                 onNope={onNope}
-                onSwipeAction={triggerActionFeedback}
+                onSwipeAction={(direction) => {
+                  triggerActionFeedback(direction);
+                  notifyAction("roommates_top_card");
+                }}
                 onEmptyReset={handleDeckReset}
+                tourTargetKey="roommates_top_card"
               />
             )}
           </View>

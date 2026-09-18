@@ -4,6 +4,7 @@ import { onDocumentCreated, onDocumentUpdated, onDocumentWritten } from "firebas
 
 import { sendPushToUser, type UnifiedNotificationPayload } from "../lib/push";
 import { logAnalyticsEvent, type StandardLeadSource } from "../lib/analyticsEvents";
+import { agencyNotificationTitle, notifyAgencyPoolBrokers } from "../lib/agencyNotifications";
 
 if (getApps().length === 0) initializeApp();
 const db = getFirestore();
@@ -21,6 +22,35 @@ function stringValues(value: unknown): string[] {
 async function notifyUsers(userIds: Iterable<string>, payload: UnifiedNotificationPayload, channelId = "deals_pipeline"): Promise<void> {
   await Promise.all([...new Set([...userIds].filter(Boolean))].map((userId) => sendPushToUser(userId, payload, channelId)));
 }
+
+export const onAgencyPoolApartmentWritten = onDocumentWritten({ document: "apartments/{apartmentId}", region: "europe-west1" }, async (event) => {
+  const before = event.data?.before.data();
+  const after = event.data?.after.data();
+  if (!after || after.assignmentStatus !== "unassigned_pool" || before?.assignmentStatus === "unassigned_pool") return;
+  const agencyId = stringValue(after.agencyId);
+  if (!agencyId) return;
+  await notifyAgencyPoolBrokers({
+    agencyId,
+    apartmentId: event.params.apartmentId,
+    title: agencyNotificationTitle(after),
+    dedupeKey: `agency-pool:new-apartment:${event.id}`,
+  });
+});
+
+export const onAgencyPoolLeadWritten = onDocumentWritten({ document: "leads/{leadId}", region: "europe-west1" }, async (event) => {
+  const before = event.data?.before.data();
+  const after = event.data?.after.data();
+  if (!after || after.status !== "unassigned_pool" || before?.status === "unassigned_pool") return;
+  const agencyId = stringValue(after.agencyId);
+  if (!agencyId) return;
+  const itemId = stringValue(after.apartmentId) || event.params.leadId;
+  await notifyAgencyPoolBrokers({
+    agencyId,
+    apartmentId: itemId,
+    title: agencyNotificationTitle(after, "Lead"),
+    dedupeKey: `agency-pool:new-lead:${event.id}`,
+  });
+});
 
 function appointmentPayload(type: "visit_confirmed" | "visit_cancelled" | "visit_reschedule_proposed" | "visit_reschedule_accepted" | "visit_reschedule_rejected", data: DocumentData, appointmentId: string, action?: string): UnifiedNotificationPayload {
   const chatId = stringValue(data.chatRoomId);

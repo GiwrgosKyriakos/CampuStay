@@ -17,7 +17,7 @@ import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme"
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import CenteredActionModal from "@/src/components/CenteredActionModal";
 import KeyboardAwareModal from "@/src/components/common/KeyboardAwareModal";
-import { type LossReasonKey, type PipelineStageKey } from "@/src/constants/pipeline";
+import { CANONICAL_DEAL_STAGE_CONFIGS, canonicalDealStageFromPercentage, getCanonicalDealStageConfig, normalizeCanonicalDealStage, type CanonicalDealStage, type LossReasonKey, type PipelineStageKey } from "@/src/constants/pipeline";
 import type { LostDealReason } from "@/src/types/analytics";
 import type { BrokerApartment } from "./(tabs)/broker";
 import type { FilterSetPayload, HardCriteriaKey } from "@/src/types/filters";
@@ -30,6 +30,7 @@ import {
   type PropertyInteraction,
 } from "@/src/api/propertyInteractions";
 import { getBrokerClientDeals } from "@/src/api/brokerClientProfiles";
+import { type VisitAppointment } from "@/src/api/visitAppointments";
 import { BrokerModificationBadge } from "@/src/components/BrokerModificationBadge";
 import AssignClientEmailModal from "@/src/components/AssignClientEmailModal";
 import BrokerNoteModal from "@/src/components/BrokerNoteModal";
@@ -39,8 +40,10 @@ import CloseLostDealModal from "@/src/components/CloseLostDealModal";
 import { recordLostDeal } from "@/src/api/lostDeals";
 import DealChecklistSection from "@/src/components/DealChecklistSection";
 import DocumentPreviewModal from "@/src/components/DocumentPreviewModal";
+import BrokerClientDetailSkeleton from "@/src/components/skeletons/BrokerClientDetailSkeleton";
 import { uploadImageAsync } from "@/src/api/imageUpload";
 import { DEFAULT_DEAL_CHECKLIST, type DealChecklistItem } from "@/src/types/checklist";
+import { areFilterCriteriaEqual } from "@/src/utils/filterComparison";
 
 export interface BrokerPropertyList {
   id: string;
@@ -116,6 +119,12 @@ type FilterSetForm = {
   nearMetro: boolean;
   showMatchScore: boolean;
 };
+
+interface DuplicateFilterSetPrompt {
+  existing: BrokerClientFilterSet;
+  newTitle: string;
+  formData: Partial<BrokerClientFilterSet>;
+}
 
 const EMPTY_FILTER_SET_FORM: FilterSetForm = {
   title: "",
@@ -244,7 +253,7 @@ function apartmentToListingData(apartment: ListingFormData): ListingFormData {
 }
 
 export type LeadReadinessKey = "hot" | "warm" | "cold";
-type ClientDetailSubView = "default" | "deal_stage" | "lead_readiness" | "purchasing_power" | "calendar";
+type ClientDetailSubView = "default" | "deal_stage" | "lead_readiness" | "purchasing_power";
 
 const HARD_CRITERIA_LABELS: Record<HardCriteriaKey, string> = {
   rent: "Τιμή",
@@ -260,16 +269,7 @@ const HARD_CRITERIA_LABELS: Record<HardCriteriaKey, string> = {
   amenities: "Παροχές",
 };
 
-const CLEAN_PIPELINE_STAGES = [
-  { key: "new_lead", label: "Νέο Lead", percentage: 10, probability: 0.1 },
-  { key: "showing_scheduled", label: "Πραγματοποίηση Υπόδειξης", percentage: 35, probability: 0.35 },
-  { key: "offer_made", label: "Κατάθεση Προσφοράς", percentage: 65, probability: 0.65 },
-  { key: "negotiation_agreement", label: "Υπό Διαπραγμάτευση / Προσύμφωνο", percentage: 90, probability: 0.9 },
-  { key: "closed_won", label: "Ολοκλήρωση Συμφωνίας", percentage: 100, probability: 1 },
-  { key: "closed_lost", label: "Χάθηκε / Ακυρώθηκε", percentage: 0, probability: 0 },
-] as const;
-
-type CleanPipelineStageKey = typeof CLEAN_PIPELINE_STAGES[number]["key"];
+type CleanPipelineStageKey = CanonicalDealStage;
 
 export interface ClientInteractedPropertyDeal {
   apartmentId: string;
@@ -285,37 +285,11 @@ export interface ClientInteractedPropertyDeal {
   clientRating?: number;
 }
 
-function normalizePipelineStage(value: unknown): CleanPipelineStageKey {
-  switch (value) {
-    case "liked":
-    case "lead":
-    case "new_lead":
-      return "new_lead";
-    case "showing_planned":
-    case "showing_completed":
-    case "showing_scheduled":
-      return "showing_scheduled";
-    case "offer":
-    case "offer_made":
-      return "offer_made";
-    case "negotiation_agreement":
-      return "negotiation_agreement";
-    case "deal_closed":
-    case "closed_won":
-      return "closed_won";
-    case "lost":
-    case "closed_lost":
-      return "closed_lost";
-    default:
-      return "new_lead";
-  }
-}
-
 function getPropertyDealStageTone(stage: CleanPipelineStageKey, colors: ThemeColors) {
   if (stage === "closed_won") return { backgroundColor: "rgba(16,185,129,0.14)", textColor: "#059669" };
   if (stage === "closed_lost") return { backgroundColor: "rgba(239,68,68,0.12)", textColor: "#DC2626" };
   if (stage === "offer_made") return { backgroundColor: "rgba(245,158,11,0.14)", textColor: "#D97706" };
-  if (stage === "negotiation_agreement") return { backgroundColor: "rgba(234,179,8,0.18)", textColor: "#A16207" };
+  if (stage === "under_contract") return { backgroundColor: "rgba(234,179,8,0.18)", textColor: "#A16207" };
   if (stage === "showing_scheduled") return { backgroundColor: colors.brandTertiary, textColor: colors.brand };
   return { backgroundColor: colors.surfaceTertiary, textColor: colors.onSurface };
 }
@@ -392,7 +366,7 @@ export interface ClientPurchasingPowerData {
 }
 
 export default function BrokerClientDetailScreen() {
-  const insets = useSafeAreaInsets(); const router = useRouter(); const auth = useAuth(); const params = useLocalSearchParams<{ clientUserId?: string; clientId?: string; profileId?: string; clientName?: string; clientAvatar?: string; chatRoomId?: string; sharedFilterSet?: string; scrollTo?: string; dealId?: string; highlightItemId?: string }>(); const { colors } = useTheme(); const styles = useMemo(() => createStyles(colors), [colors]);
+  const insets = useSafeAreaInsets(); const router = useRouter(); const auth = useAuth(); const params = useLocalSearchParams<{ clientUserId?: string; clientId?: string; profileId?: string; clientName?: string; clientAvatar?: string; chatRoomId?: string; sharedFilterSet?: string; scrollTo?: string; dealId?: string; highlightItemId?: string; role?: "client" | "owner" }>(); const { colors } = useTheme(); const styles = useMemo(() => createStyles(colors), [colors]);
   const scrollViewRef = useRef<React.ElementRef<typeof KeyboardAwareScrollView> | null>(null);
   const [suggestedSectionY, setSuggestedSectionY] = useState(0);
   const [brokerManagedApartments, setBrokerManagedApartments] = useState<BrokerApartment[]>([]); const [loading, setLoading] = useState(true);
@@ -407,6 +381,8 @@ export default function BrokerClientDetailScreen() {
   const [stageUpdatedAt, setStageUpdatedAt] = useState(Date.now());
   const [leadReadiness, setLeadReadiness] = useState<LeadReadinessKey | null>(null);
   const [activeApartmentId, setActiveApartmentId] = useState<string | null>(null);
+  const [contactRole, setContactRole] = useState<"client" | "owner">(params.role === "owner" ? "owner" : "client");
+  const [ownerListingIds, setOwnerListingIds] = useState<string[]>([]);
   const [isLossModalVisible, setIsLossModalVisible] = useState(false);
   const [pendingLostDeal, setPendingLostDeal] = useState<{ apartmentId: string; apartmentTitle: string; stageBeforeLoss: number; potentialRevenueLoss: number } | null>(null);
   const [expandedScoreListingId, setExpandedScoreListingId] = useState<string | null>(null);
@@ -417,7 +393,10 @@ export default function BrokerClientDetailScreen() {
   const [newListName, setNewListName] = useState("");
   const [savingList, setSavingList] = useState(false);
   const [shareFeedbackModal, setShareFeedbackModal] = useState<{ visible: boolean; title: string; description: string } | null>(null);
+  const [filterSetNotice, setFilterSetNotice] = useState<string | null>(null);
+  const filterSetNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [interactions, setInteractions] = useState<PropertyInteraction[]>([]);
+  const [clientAppointments, setClientAppointments] = useState<VisitAppointment[]>([]);
   const [selectedApartmentFilter, setSelectedApartmentFilter] = useState("all");
   const [selectedTypeFilter, setSelectedTypeFilter] = useState<InteractionType | "all">("all");
   const [addInteractionModalVisible, setAddInteractionModalVisible] = useState(false);
@@ -445,10 +424,27 @@ export default function BrokerClientDetailScreen() {
   const [isNewFilterSetModalOpen, setIsNewFilterSetModalOpen] = useState(false);
   const [filterSetForm, setFilterSetForm] = useState<FilterSetForm>(EMPTY_FILTER_SET_FORM);
   const [savingFilterSet, setSavingFilterSet] = useState(false);
+  const [duplicateFilterSetPrompt, setDuplicateFilterSetPrompt] = useState<DuplicateFilterSetPrompt | null>(null);
   const [isManualClient, setIsManualClient] = useState(false);
+  const [clientDisplayName, setClientDisplayName] = useState(params.clientName?.trim() || "");
   const [isAddEmailModalOpen, setIsAddEmailModalOpen] = useState(false);
   const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
-  const profileId = auth.userId && params.clientUserId ? `${auth.userId}_${params.clientUserId}` : null;
+  const showFilterSetNotice = useCallback((message: string) => {
+    if (filterSetNoticeTimerRef.current) clearTimeout(filterSetNoticeTimerRef.current);
+    setFilterSetNotice(message);
+    filterSetNoticeTimerRef.current = setTimeout(() => setFilterSetNotice(null), 2600);
+  }, []);
+
+  useEffect(() => () => {
+    if (filterSetNoticeTimerRef.current) clearTimeout(filterSetNoticeTimerRef.current);
+  }, []);
+  const profileId = auth.userId && resolvedClientUserId ? `${auth.userId}_${resolvedClientUserId}` : null;
+  const contactUserId = resolvedClientUserId;
+  const isOwnerContact = contactRole === "owner" || params.role === "owner";
+  const ownerApartments = useMemo(
+    () => brokerManagedApartments.filter((apartment) => ownerListingIds.includes(apartment.id)),
+    [brokerManagedApartments, ownerListingIds],
+  );
   const filters = useMemo<FilterSetPayload | null>(() => { try { return params.sharedFilterSet ? JSON.parse(params.sharedFilterSet) as FilterSetPayload : null; } catch { return null; } }, [params.sharedFilterSet]);
   const activeFilterSet = useMemo(
     () => {
@@ -496,48 +492,55 @@ export default function BrokerClientDetailScreen() {
       return { ...apartment, compatibilityScore: suggestion.score, scoreBreakdown, failedHardCriteria: suggestion.failedCriteria };
     });
   }, [activeFilterSet, brokerManagedApartments]);
+  const brokerVisibleInteractions = useMemo(() => {
+    const currentBrokerId = auth.userId;
+    if (!currentBrokerId) return [];
+    return interactions.filter((interaction) => (
+      interaction.brokerId === currentBrokerId || interaction.assignedBrokerIds?.includes(currentBrokerId)
+    ));
+  }, [auth.userId, interactions]);
   const availableApartmentOptions = useMemo(() => {
     const apartmentMap = new Map<string, string>();
     brokerManagedApartments.forEach((apartment) => apartmentMap.set(apartment.id, apartment.title));
-    interactions.forEach((interaction) => {
+    brokerVisibleInteractions.forEach((interaction) => {
       if (interaction.apartmentId && !apartmentMap.has(interaction.apartmentId)) {
         apartmentMap.set(interaction.apartmentId, interaction.apartmentTitle || "Ακίνητο");
       }
     });
     return Array.from(apartmentMap.entries()).map(([id, title]) => ({ id, title }));
-  }, [brokerManagedApartments, interactions]);
+  }, [brokerManagedApartments, brokerVisibleInteractions]);
   const calendarListingOptions = useMemo(
     () => brokerManagedApartments.map((apartment) => ({ id: apartment.id, title: apartment.title, price: apartment.rent })),
     [brokerManagedApartments],
   );
   const calendarClientOptions = useMemo(() => [{
     id: resolvedClientUserId || "",
-    name: params.clientName || t("brokerClient.clientFallback"),
+    name: clientDisplayName || params.clientName || t("brokerClient.clientFallback"),
     apartmentIds: calendarListingOptions.map((listing) => listing.id),
     isActive: true,
-  }], [calendarListingOptions, params.clientName, resolvedClientUserId]);
+  }], [calendarListingOptions, clientDisplayName, params.clientName, resolvedClientUserId]);
   const selectedCalendarDate = new Date().toISOString().slice(0, 10);
   const handleRefreshNotes = useCallback((_noteId: string) => {
     setIsNoteModalOpen(false);
   }, []);
   const interactionMetrics = useMemo(() => {
     const filteredByApartment = selectedApartmentFilter === "all"
-      ? interactions
-      : interactions.filter((interaction) => interaction.apartmentId === selectedApartmentFilter);
+      ? brokerVisibleInteractions
+      : brokerVisibleInteractions.filter((interaction) => interaction.apartmentId === selectedApartmentFilter);
     return {
       calls: filteredByApartment.filter((interaction) => interaction.type === "call").length,
       showings: filteredByApartment.filter((interaction) => interaction.type === "showing").length,
       comments: filteredByApartment.filter((interaction) => interaction.type === "comment").length,
       emails: filteredByApartment.filter((interaction) => interaction.type === "email").length,
     };
-  }, [interactions, selectedApartmentFilter]);
+  }, [brokerVisibleInteractions, selectedApartmentFilter]);
   const visibleInteractions = useMemo(
-    () => interactions.filter((interaction) => {
+    () => brokerVisibleInteractions.filter((interaction) => {
       const matchesApartment = selectedApartmentFilter === "all" || interaction.apartmentId === selectedApartmentFilter;
       const matchesType = selectedTypeFilter === "all" || interaction.type === selectedTypeFilter;
       return matchesApartment && matchesType;
     }),
-    [interactions, selectedApartmentFilter, selectedTypeFilter],
+    [brokerVisibleInteractions, selectedApartmentFilter, selectedTypeFilter],
   );
   const loadFilterSets = useCallback(async () => {
     if (!profileId || !params.clientUserId) {
@@ -624,7 +627,8 @@ export default function BrokerClientDetailScreen() {
   }, [auth.userId, params.chatRoomId, resolvedClientUserId]);
   useEffect(() => { let active = true; if (!auth.userId) return; void Promise.all([getDocs(query(collection(db, "apartments"), where("hostId", "==", auth.userId))), getDocs(query(collection(db, "apartments"), where("assignedBrokerIds", "array-contains", auth.userId)))]).then(([ownedSnapshot, assignedSnapshot]) => { const listingDocs = new Map(ownedSnapshot.docs.map((item) => [item.id, item])); assignedSnapshot.docs.forEach((item) => listingDocs.set(item.id, item)); const mapped = Array.from(listingDocs.values()).map((item) => { const data = item.data() as Record<string, unknown>; return { ...data, id: item.id, title: String(data.title ?? "Ακίνητο"), rent: Number(data.rent ?? data.price ?? 0), city: String(data.city ?? ""), area: String(data.area ?? ""), size: Number(data.size ?? 0), image: String(data.image ?? data.imageUrl ?? ""), tags: Array.isArray(data.tags) ? data.tags.map(String) : [] } as BrokerApartment; }); if (active) setBrokerManagedApartments(mapped); }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, [auth.userId]);
   useEffect(() => {
-    if (!resolvedClientUserId) {
+    const currentBrokerId = auth.userId;
+    if (!currentBrokerId || !resolvedClientUserId) {
       setInteractions([]);
       setSelectedApartmentFilter("all");
       setSelectedTypeFilter("all");
@@ -633,8 +637,27 @@ export default function BrokerClientDetailScreen() {
 
     setSelectedApartmentFilter("all");
     setSelectedTypeFilter("all");
-    return subscribeClientInteractions(resolvedClientUserId, setInteractions);
-  }, [resolvedClientUserId]);
+    return subscribeClientInteractions(resolvedClientUserId, setInteractions, currentBrokerId);
+  }, [auth.userId, resolvedClientUserId]);
+  useEffect(() => {
+    if (!auth.userId || !contactUserId) {
+      setClientAppointments([]);
+      return;
+    }
+    return onSnapshot(
+      query(collection(db, "appointments"), where("clientId", "==", contactUserId)),
+      (snapshot) => setClientAppointments(snapshot.docs
+        .map((appointment) => ({ id: appointment.id, ...appointment.data() } as VisitAppointment))
+        .filter((appointment) => (
+          appointment.brokerId === auth.userId ||
+          appointment.listingBrokerId === auth.userId ||
+          appointment.buyerBrokerId === auth.userId
+        ))
+        .filter((appointment) => appointment.status !== "cancelled" && appointment.status !== "superseded_pending" && appointment.status !== "superseded_final" && appointment.status !== "reschedule_rejected")
+        .sort((left, right) => right.appointmentDate.localeCompare(left.appointmentDate))),
+      () => setClientAppointments([]),
+    );
+  }, [auth.userId, contactUserId, params.role]);
   useEffect(() => {
     if (params.scrollTo !== "suggested_properties" || suggestedSectionY <= 0) return;
     const timer = setTimeout(() => scrollViewRef.current?.scrollTo({ y: Math.max(0, suggestedSectionY - 20), animated: true }), 350);
@@ -729,7 +752,7 @@ export default function BrokerClientDetailScreen() {
             proposalTimestamp: action.proposalTimestamp,
             visitCompletedTimestamp: action.visitCompletedTimestamp,
           });
-          const dynamicStageKey = dynamicStage.stagePercent === 100 ? "closed_won" : dynamicStage.stagePercent === 90 ? "negotiation_agreement" : dynamicStage.stagePercent === 65 ? "offer_made" : dynamicStage.stagePercent === 35 ? "showing_scheduled" : normalizePipelineStage(dealStage);
+          const dynamicStageKey = canonicalDealStageFromPercentage(dynamicStage.stagePercent, normalizeCanonicalDealStage(dealStage));
           rows.push({
             apartmentId,
             title: apartment.title,
@@ -763,20 +786,26 @@ export default function BrokerClientDetailScreen() {
     };
   }, [auth.userId, brokerManagedApartments, filters, resolvedClientUserId]);
   useEffect(() => {
-    if (!auth.userId || !params.clientUserId) return;
+    if (!auth.userId || !contactUserId) return;
     let active = true;
     void (async () => {
       try {
-        const snapshot = await getDoc(doc(db, "brokerClientProfiles", `${auth.userId}_${params.clientUserId}`));
+        const snapshot = await getDoc(doc(db, "brokerClientProfiles", `${auth.userId}_${contactUserId}`));
         if (!snapshot.exists() || !active) return;
-        const data = snapshot.data() as ClientPurchasingPowerData;
+        const data = snapshot.data() as ClientPurchasingPowerData & { displayName?: string; clientName?: string; contactRole?: "client" | "owner"; listingIds?: unknown[] };
+        setContactRole(data.contactRole === "owner" ? "owner" : params.role === "owner" ? "owner" : "client");
+        setClientDisplayName(data.displayName?.trim() || data.clientName?.trim() || params.clientName?.trim() || t("brokerClient.clientFallback"));
         setCashOnHand(typeof data.cashOnHand === "number" ? String(data.cashOnHand) : "");
         setApprovedMortgage(typeof data.approvedMortgage === "number" ? String(data.approvedMortgage) : "");
         setMoveInDeadline(data.moveInDeadline || "");
         setPurchasePurpose(data.purchasePurpose || "");
-        setPipelineStage(normalizePipelineStage(data.pipelineStage));
+        setPipelineStage(normalizeCanonicalDealStage(data.pipelineStage));
         setLeadReadiness(data.leadReadiness ?? null);
         setActiveApartmentId(data.activeApartmentId ?? null);
+        setOwnerListingIds([
+          ...(Array.isArray(data.listingIds) ? data.listingIds.filter((listingId): listingId is string => typeof listingId === "string") : []),
+          ...(data.activeApartmentId ? [data.activeApartmentId] : []),
+        ]);
         setStageUpdatedAt(typeof data.stageUpdatedAt === "number" ? data.stageUpdatedAt : Date.now());
         setSharedSearchQueries(Array.isArray(data.sharedSearchQueries) ? data.sharedSearchQueries.filter((query): query is string => typeof query === "string" && query.trim().length > 0) : []);
         setSharedSearchFilterSets(Array.isArray(data.sharedSearchFilterSets) ? data.sharedSearchFilterSets.filter((filterSet): filterSet is SharedSearchFilterSet => Boolean(filterSet && typeof filterSet.id === "string" && typeof filterSet.title === "string" && filterSet.data && typeof filterSet.data === "object")) : []);
@@ -785,7 +814,7 @@ export default function BrokerClientDetailScreen() {
       }
     })();
     return () => { active = false; };
-  }, [auth.userId, params.clientUserId]);
+  }, [auth.userId, contactUserId]);
 
   useEffect(() => {
     const subscriptions = clientPropertyDeals.map((deal) => {
@@ -810,7 +839,7 @@ export default function BrokerClientDetailScreen() {
     return () => subscriptions.forEach((unsubscribe) => unsubscribe());
   }, [clientPropertyDeals, resolvedClientUserId]);
 
-  const currentStageConfig = CLEAN_PIPELINE_STAGES.find((stage) => stage.key === pipelineStage) ?? CLEAN_PIPELINE_STAGES[0];
+  const currentStageConfig = getCanonicalDealStageConfig(pipelineStage);
   const selectedReadinessOption = LEAD_READINESS_OPTIONS.find((option) => option.key === leadReadiness);
   const realBudget = (Number(cashOnHand) || 0) + (Number(approvedMortgage) || 0);
   const elapsedDays = Math.max(0, Math.floor((Date.now() - stageUpdatedAt) / (1000 * 60 * 60 * 24)));
@@ -901,7 +930,7 @@ export default function BrokerClientDetailScreen() {
   };
 
   const handleSelectDealStage = (apartmentId: string, nextStage: CleanPipelineStageKey) => {
-    const targetStage = CLEAN_PIPELINE_STAGES.find((stage) => stage.key === nextStage)?.percentage ?? 0;
+    const targetStage = getCanonicalDealStageConfig(nextStage).percentage;
     if (targetStage >= 90) {
       const dealId = `${apartmentId}_${params.clientUserId || ""}`;
       const checklistItems = checklistItemsForDeal(dealId);
@@ -910,7 +939,7 @@ export default function BrokerClientDetailScreen() {
         .map((item) => item.title);
       if (missingItems.length > 0) {
         setStageGateModal({
-          stageLabel: `${nextStage === "closed_won" ? "Ολοκληρωμένη Συμφωνία" : "Προσύμφωνο"} (${targetStage}%)`,
+          stageLabel: `${t(getCanonicalDealStageConfig(nextStage).labelKey)} (${targetStage}%)`,
           missingItems,
         });
         setEditingDealStageAptId(null);
@@ -925,7 +954,7 @@ export default function BrokerClientDetailScreen() {
     const apartment = brokerManagedApartments.find((item) => item.id === apartmentId);
     const previousStage = clientPropertyDeals.find((item) => item.apartmentId === apartmentId)?.pipelineStage;
     if (nextStage === "closed_lost") {
-      const previousStageConfig = CLEAN_PIPELINE_STAGES.find((stage) => stage.key === previousStage);
+      const previousStageConfig = getCanonicalDealStageConfig(previousStage);
       setPendingLostDeal({
         apartmentId,
         apartmentTitle: apartment?.title || "Ακίνητο",
@@ -950,10 +979,10 @@ export default function BrokerClientDetailScreen() {
         apartmentTitle: apartment?.title || "Ακίνητο",
         ...(typeof apartment?.rent === "number" ? { dealAmount: apartment.rent } : {}),
       });
-      const targetStage = CLEAN_PIPELINE_STAGES.find((stage) => stage.key === nextStage)?.percentage ?? 0;
+      const targetStage = getCanonicalDealStageConfig(nextStage).percentage;
       await advanceDealStage({ dealId, targetStage });
       setClientPropertyDeals((previous) => previous.map((item) => item.apartmentId === apartmentId ? { ...item, pipelineStage: nextStage } : item));
-      if (nextStage === "negotiation_agreement" && apartmentId) {
+      if (nextStage === "under_contract" && apartmentId) {
         await updateDoc(doc(db, "apartments", apartmentId), {
           status: "under_negotiation",
           isOffMarket: true,
@@ -1150,44 +1179,89 @@ export default function BrokerClientDetailScreen() {
       });
     }
   };
-  const handleSaveFilterSet = async (formData: Partial<BrokerClientFilterSet>, isExisting: boolean) => {
+  const persistNewFilterSet = useCallback(async (formData: Partial<BrokerClientFilterSet>) => {
     if (!profileId || !auth.userId || savingFilterSet) return;
     setSavingFilterSet(true);
     const now = Date.now();
     const brokerName = auth.user?.name?.trim() || "Μεσίτης";
     try {
-      if (isExisting && editingFilterSet) {
-        const updatedSet: Partial<BrokerClientFilterSet> = {
-          ...formData,
-          clientUserId: params.clientUserId,
-          title: editingFilterSet.title,
-          origin: "broker_created",
-          version: (editingFilterSet.version || 1) + 1,
-          brokerModCount: (editingFilterSet.brokerModCount || 0) + 1,
-          lastModifiedByBrokerId: auth.userId,
-          lastModifiedByBrokerName: brokerName,
-          lastModifiedAt: now,
-          isSharedWithClient: false,
-          updatedAt: now,
-        };
-        await setDoc(doc(db, "brokerClientProfiles", profileId, "savedFilterSets", editingFilterSet.id), updatedSet, { merge: true });
-      } else {
-        const newSetId = `broker_fs_${Date.now()}`;
-        const newSet: BrokerClientFilterSet = {
-          ...(formData as Omit<BrokerClientFilterSet, "id" | "title" | "origin" | "version" | "brokerModCount" | "lastModifiedAt" | "isSharedWithClient">),
-          id: newSetId,
-          clientUserId: params.clientUserId,
-          title: formData.title?.trim() || "Προτεινόμενα Κριτήρια",
-          origin: "broker_created",
-          version: 1,
-          brokerModCount: 1,
-          lastModifiedByBrokerId: auth.userId,
-          lastModifiedByBrokerName: brokerName,
-          lastModifiedAt: now,
-          isSharedWithClient: false,
-        };
-        await setDoc(doc(db, "brokerClientProfiles", profileId, "savedFilterSets", newSetId), newSet);
+      const newSetId = `broker_fs_${Date.now()}`;
+      const newSet: BrokerClientFilterSet = {
+        ...(formData as Omit<BrokerClientFilterSet, "id" | "title" | "origin" | "version" | "brokerModCount" | "lastModifiedAt" | "isSharedWithClient">),
+        id: newSetId,
+        clientUserId: params.clientUserId,
+        title: formData.title?.trim() || "Προτεινόμενα Κριτήρια",
+        origin: "broker_created",
+        version: 1,
+        brokerModCount: 1,
+        lastModifiedByBrokerId: auth.userId,
+        lastModifiedByBrokerName: brokerName,
+        lastModifiedAt: now,
+        isSharedWithClient: false,
+      };
+      await setDoc(doc(db, "brokerClientProfiles", profileId, "savedFilterSets", newSetId), newSet);
+      setEditingFilterSet(null);
+      setIsNewFilterSetModalOpen(false);
+      await loadFilterSets();
+    } catch (error) {
+      console.error("[BrokerClientDetail] Error saving filter set:", error);
+    } finally {
+      setSavingFilterSet(false);
+    }
+  }, [auth.isBroker, auth.user?.name, auth.userId, loadFilterSets, params.clientUserId, profileId, savingFilterSet]);
+
+  const handleSaveFilterSet = async (formData: Partial<BrokerClientFilterSet>, isExisting: boolean) => {
+    if (!profileId || !auth.userId || savingFilterSet) return;
+
+    if (!isExisting) {
+      const newTitle = formData.title?.trim() || "Προτεινόμενα Κριτήρια";
+      const duplicateSet = filterSets.find((existing) => areFilterCriteriaEqual(existing, formData));
+      if (duplicateSet) {
+        if (duplicateSet.title.trim() === newTitle) {
+          setFilterSets((previous) => [duplicateSet, ...previous.filter((item) => item.id !== duplicateSet.id)]);
+          setSelectedFilterSetId(duplicateSet.id);
+          setEditingFilterSet(null);
+          setIsNewFilterSetModalOpen(false);
+          showFilterSetNotice(t("filters.noChangesDetected"));
+          return;
+        }
+        setDuplicateFilterSetPrompt({ existing: duplicateSet, newTitle, formData: { ...formData, title: newTitle } });
+        return;
       }
+      await persistNewFilterSet({ ...formData, title: newTitle });
+      return;
+    }
+
+    if (!editingFilterSet) return;
+    const title = formData.title?.trim() || editingFilterSet.title.trim();
+    const nextFilterSet = { ...editingFilterSet, ...formData };
+    const criteriaChanged = !areFilterCriteriaEqual(editingFilterSet, nextFilterSet);
+    const titleChanged = title !== editingFilterSet.title.trim();
+    if (!criteriaChanged && !titleChanged) {
+      setEditingFilterSet(null);
+      setIsNewFilterSetModalOpen(false);
+      showFilterSetNotice(t("filters.noChangesDetected"));
+      return;
+    }
+
+    setSavingFilterSet(true);
+    const now = Date.now();
+    const brokerName = auth.user?.name?.trim() || "Μεσίτης";
+    try {
+      const updatedSet: Partial<BrokerClientFilterSet> = {
+        ...formData,
+        clientUserId: params.clientUserId,
+        title,
+        origin: "broker_created",
+        version: (editingFilterSet.version || 1) + 1,
+        brokerModCount: (editingFilterSet.brokerModCount || 0) + 1,
+        lastModifiedByBrokerId: auth.userId,
+        lastModifiedByBrokerName: brokerName,
+        lastModifiedAt: now,
+        isSharedWithClient: false,
+        updatedAt: now,
+      };
+      await setDoc(doc(db, "brokerClientProfiles", profileId, "savedFilterSets", editingFilterSet.id), updatedSet, { merge: true });
       setEditingFilterSet(null);
       setIsNewFilterSetModalOpen(false);
       await loadFilterSets();
@@ -1197,6 +1271,16 @@ export default function BrokerClientDetailScreen() {
       setSavingFilterSet(false);
     }
   };
+
+  const rejectDuplicateFilterSet = useCallback(() => {
+    if (!duplicateFilterSetPrompt) return;
+    const existing = duplicateFilterSetPrompt.existing;
+    setFilterSets((previous) => [existing, ...previous.filter((item) => item.id !== existing.id)]);
+    setSelectedFilterSetId(existing.id);
+    setDuplicateFilterSetPrompt(null);
+    setEditingFilterSet(null);
+    setIsNewFilterSetModalOpen(false);
+  }, [duplicateFilterSetPrompt]);
   const handleShareFilterSetToChat = async (filterSet: BrokerClientFilterSet) => {
     if (!params.chatRoomId || !params.clientUserId || !auth.userId || !profileId || !filterSet.id) return;
     try {
@@ -1237,7 +1321,7 @@ export default function BrokerClientDetailScreen() {
     setIsNewFilterSetModalOpen(true);
   };
   const handleSaveInteraction = async () => {
-    if (!auth.userId || !params.clientUserId || !newInteractionApartmentId || !newInteractionNote.trim() || isSavingInteraction) return;
+    if (!auth.userId || !contactUserId || !newInteractionApartmentId || !newInteractionNote.trim() || isSavingInteraction) return;
     const apartment = availableApartmentOptions.find((item) => item.id === newInteractionApartmentId);
     if (!apartment) return;
 
@@ -1246,11 +1330,12 @@ export default function BrokerClientDetailScreen() {
       await addPropertyInteraction({
         apartmentId: apartment.id,
         apartmentTitle: apartment.title,
-        clientId: params.clientUserId,
+        clientId: contactUserId,
         clientName: params.clientName || t("brokerClient.clientFallback"),
         type: newInteractionType,
         note: newInteractionNote.trim(),
         loggedByUserId: auth.userId,
+        brokerId: auth.userId,
       });
       setNewInteractionType("call");
       setNewInteractionApartmentId("");
@@ -1273,19 +1358,7 @@ export default function BrokerClientDetailScreen() {
         <Ionicons name="chevron-back" size={24} color={colors.onSurface} />
       </Pressable>
       <Text numberOfLines={1} style={styles.headerTitle}>{t("brokerClient.headerTitle")}</Text>
-      <View style={styles.headerActionsGroup}>
-        {resolvedClientUserId ? (
-          <Pressable
-            style={[styles.headerActionBtn, activeSubView === "calendar" && styles.headerActionBtnActive]}
-            onPress={() => {
-              setActiveSubView((previous) => previous === "calendar" ? "default" : "calendar");
-            }}
-            accessibilityLabel="Ημερολόγιο πελάτη"
-            testID="broker-client-calendar-notes"
-          >
-            <Ionicons name="calendar-outline" size={18} color={activeSubView === "calendar" ? colors.onBrand : colors.onSurface} />
-          </Pressable>
-        ) : null}
+      {!isOwnerContact ? <View style={styles.headerActionsGroup}>
         <Pressable
           style={[styles.headerActionBtn, activeSubView === "deal_stage" && styles.headerActionBtnActive]}
           onPress={() => setActiveSubView((previous) => previous === "deal_stage" ? "default" : "deal_stage")}
@@ -1311,9 +1384,49 @@ export default function BrokerClientDetailScreen() {
         >
           <Ionicons color={activeSubView === "purchasing_power" ? colors.onBrand : colors.onSurface} name="wallet-outline" size={18} />
         </Pressable>
-      </View>
+      </View> : <View style={styles.headerActionsGroup} />}
     </View>
     <KeyboardAwareScrollView ref={scrollViewRef} contentContainerStyle={[styles.content, { flexGrow: 1, paddingBottom: spacing["3xl"] + insets.bottom }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
+      {loading ? <BrokerClientDetailSkeleton /> : <>
+      <View style={styles.calendarViewCard} testID="broker-client-calendar-card">
+        <View style={styles.clientCalendarCardHeader}>
+          <View style={styles.clientCalendarTitleRow}>
+            <Ionicons name="calendar-outline" size={20} color={colors.brand} />
+            <Text style={styles.clientCalendarTitle}>Ημερολόγιο πελάτη</Text>
+          </View>
+          <Pressable
+            onPress={() => setIsNoteModalOpen(true)}
+            style={styles.addNotePillButton}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Προσθήκη σημείωσης"
+            testID="broker-client-calendar-add-note"
+          >
+            <Ionicons color={colors.onBrand} name="add" size={16} />
+            <Text style={styles.addNotePillText}>Σημείωση</Text>
+          </Pressable>
+        </View>
+        {clientAppointments.length === 0 ? (
+          <Text style={[styles.body, { color: colors.onSurfaceTertiary }]}>Δεν υπάρχουν προγραμματισμένα ραντεβού για αυτόν τον πελάτη.</Text>
+        ) : (
+          <View style={styles.clientCalendarAppointments}>
+            {clientAppointments.map((appointment) => {
+              const appointmentMillis = Date.parse(appointment.appointmentDate);
+              return (
+                <View key={appointment.id} style={styles.clientCalendarAppointmentRow}>
+                  <View style={styles.clientCalendarAppointmentIcon}>
+                    <Ionicons name="calendar-outline" size={16} color={colors.brand} />
+                  </View>
+                  <View style={styles.clientCalendarAppointmentCopy}>
+                    <Text numberOfLines={1} style={styles.clientCalendarAppointmentTitle}>{appointment.apartmentTitle || "Ακίνητο"}</Text>
+                    <Text style={styles.clientCalendarAppointmentMeta}>{`${Number.isFinite(appointmentMillis) ? formatDateTime(appointmentMillis) : "—"} · ${appointment.status}`}</Text>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        )}
+      </View>
       <View style={styles.profileCard}>
         {params.clientAvatar ? <Image source={{ uri: params.clientAvatar }} style={styles.avatar} /> : <DefaultProfileAvatar size={64} iconSize={28} />}
         <Text numberOfLines={1} style={styles.clientName}>{params.clientName || t("brokerClient.clientFallback")}</Text>
@@ -1322,10 +1435,15 @@ export default function BrokerClientDetailScreen() {
           <Text style={styles.chatButtonText}>{t("brokerClient.goToChat")}</Text>
         </Pressable>
         {isManualClient ? <Pressable style={styles.addClientEmailButton} onPress={() => setIsAddEmailModalOpen(true)} testID="broker-client-add-email"><Ionicons name="mail-outline" size={16} color={colors.brand} /><Text style={styles.addClientEmailText}>Προσθήκη email</Text></Pressable> : null}
-        <View style={styles.singleLineStatusRow}>
+        {isOwnerContact ? (
+          <View style={[styles.ownerContextBadge, { backgroundColor: colors.brandTertiary }]}>
+            <Ionicons name="briefcase-outline" size={15} color={colors.brand} />
+            <Text style={[styles.ownerContextBadgeText, { color: colors.brand }]}>{t("broker.roles.owner")}</Text>
+          </View>
+        ) : <View style={styles.singleLineStatusRow}>
           <View style={[styles.statusPillItem, styles.statusPillFlex]}>
             <Ionicons color={colors.brand} name="layers-outline" size={13} />
-            <Text numberOfLines={1} style={[styles.statusPillText, { color: colors.brand }]}>{`${currentStageConfig.label} (${currentStageConfig.percentage}%)`}</Text>
+            <Text numberOfLines={1} style={[styles.statusPillText, { color: colors.brand }]}>{`${t(currentStageConfig.labelKey)} (${currentStageConfig.percentage}%)`}</Text>
           </View>
           <View style={[styles.statusIconPill, selectedReadinessOption ? { backgroundColor: `${selectedReadinessOption.iconColor}18` } : null]}>
             <Ionicons color={selectedReadinessOption?.iconColor ?? colors.onSurfaceTertiary} name={selectedReadinessOption?.iconName ?? "speedometer-outline"} size={16} />
@@ -1334,8 +1452,48 @@ export default function BrokerClientDetailScreen() {
             <Ionicons color="#FFFFFF" name="wallet-outline" size={13} />
             <Text numberOfLines={1} style={[styles.statusPillText, { color: "#FFFFFF" }]}>{realBudget > 0 ? `€${realBudget.toLocaleString("el-GR")}/mo` : "— €"}</Text>
           </View>
-        </View>
+        </View>}
       </View>
+      {isOwnerContact ? (
+        <View style={styles.inPlaceSectionCard} testID="broker-owner-assignment-section">
+          <View style={styles.inPlaceHeaderRow}>
+            <View style={styles.inPlaceTitleWithIcon}>
+              <Ionicons color={colors.brand} name="home-outline" size={20} />
+              <Text style={styles.inPlaceTitle}>{t("broker.ownerPropertyLabel")}</Text>
+            </View>
+            <View style={styles.ownerContextBadge}>
+              <Ionicons name="document-text-outline" size={14} color={colors.brand} />
+              <Text style={styles.ownerContextBadgeText}>Εντολή / eIDAS</Text>
+            </View>
+          </View>
+          {ownerApartments.length === 0 ? (
+            <Text style={styles.emptyFilterText}>Δεν βρέθηκαν ακίνητα ανάθεσης.</Text>
+          ) : ownerApartments.map((apartment) => (
+            <Pressable
+              key={apartment.id}
+              style={styles.ownerAssignmentRow}
+              onPress={() => router.push({ pathname: "/apartment-detail", params: { data: JSON.stringify(apartment) } } as never)}
+              testID={`broker-owner-assignment-${apartment.id}`}
+            >
+              <View style={styles.ownerAssignmentCopy}>
+                <Text style={styles.propertyDealTitle} numberOfLines={1}>{apartment.title}</Text>
+                <Text style={styles.propertyDealSubtitle} numberOfLines={1}>{`${apartment.area}, ${apartment.city}`}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+            </Pressable>
+          ))}
+          {ownerApartments.length > 0 ? (
+            <Pressable
+              style={styles.ownerLegalToolsButton}
+              onPress={() => router.push({ pathname: "/broker-owner-detail", params: { ownerName: params.clientName || "Ιδιοκτήτης", ownerAvatar: params.clientAvatar || "", apartmentIds: JSON.stringify(ownerApartments.map((apartment) => apartment.id)) } } as never)}
+              testID="broker-owner-legal-tools"
+            >
+              <Ionicons name="document-text-outline" size={17} color={colors.onBrand} />
+              <Text style={styles.ownerLegalToolsText}>Νομικά έγγραφα & ψηφιακά συμβόλαια</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
       {activeSubView === "deal_stage" ? (
         <View style={styles.inPlaceSectionCard} testID="broker-client-property-deals-section">
           <View style={styles.inPlaceHeaderRow}>
@@ -1357,7 +1515,7 @@ export default function BrokerClientDetailScreen() {
           ) : (
             <View style={styles.propertyDealsList}>
               {clientPropertyDeals.map((item) => {
-                const stage = CLEAN_PIPELINE_STAGES.find((option) => option.key === item.pipelineStage) ?? CLEAN_PIPELINE_STAGES[0];
+                const stage = getCanonicalDealStageConfig(item.pipelineStage);
                 const stageTone = getPropertyDealStageTone(item.pipelineStage, colors);
                 const isEditing = editingDealStageAptId === item.apartmentId;
                 const dealId = `${item.apartmentId}_${params.clientUserId || ""}`;
@@ -1393,18 +1551,18 @@ export default function BrokerClientDetailScreen() {
                     <View style={styles.propertyDealBottomRow}>
                       {item.compatibilityScore > 0 ? <View style={styles.matchBadgePill}><Ionicons color={colors.brand} name="sparkles" size={12} /><Text style={styles.matchBadgePillText}>{`${item.compatibilityScore}% Match`}</Text></View> : <View style={styles.noMatchPill}><Text style={styles.noMatchPillText}>— Match</Text></View>}
                       <Pressable style={[styles.stageSelectorPill, { backgroundColor: stageTone.backgroundColor }]} onPress={() => setEditingDealStageAptId(isEditing ? null : item.apartmentId)} hitSlop={6} testID={`broker-client-stage-selector-${item.apartmentId}`}>
-                        <Text numberOfLines={1} style={[styles.stageSelectorPillText, { color: stageTone.textColor }]}>{stage.label}</Text>
+                        <Text numberOfLines={1} style={[styles.stageSelectorPillText, { color: stageTone.textColor }]}>{t(stage.labelKey)}</Text>
                         <Ionicons color={stageTone.textColor} name={isEditing ? "chevron-up" : "chevron-down"} size={14} />
                       </Pressable>
                     </View>
                     {isEditing ? (
                       <View style={styles.inlineStagePicker}>
                         <Text style={styles.inlineStagePickerTitle}>Επιλέξτε Στάδιο για το ακίνητο:</Text>
-                        {CLEAN_PIPELINE_STAGES.map((option) => {
+                        {CANONICAL_DEAL_STAGE_CONFIGS.map((option) => {
                           const isSelected = item.pipelineStage === option.key;
                           return (
                             <Pressable key={option.key} style={[styles.inlineStageOptRow, isSelected && styles.inlineStageOptRowSelected]} onPress={() => handleSelectDealStage(item.apartmentId, option.key)} testID={`broker-client-stage-opt-${item.apartmentId}-${option.key}`}>
-                              <Text style={[styles.inlineStageOptText, isSelected && styles.inlineStageOptTextSelected]}>{`${option.label} (${option.percentage}%)`}</Text>
+                              <Text style={[styles.inlineStageOptText, isSelected && styles.inlineStageOptTextSelected]}>{`${t(option.labelKey)} (${option.percentage}%)`}</Text>
                               {isSelected ? <Ionicons color={colors.brand} name="checkmark-circle" size={16} /> : null}
                             </Pressable>
                           );
@@ -1477,39 +1635,13 @@ export default function BrokerClientDetailScreen() {
         </View>
       ) : null}
 
-      {activeSubView === "calendar" ? (
-        <View style={[styles.calendarViewCard, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}> 
-          <View style={styles.clientCalendarCardHeader}>
-            <View style={styles.clientCalendarTitleRow}>
-              <Ionicons name="calendar-outline" size={20} color={colors.brand} />
-              <Text style={styles.clientCalendarTitle}>Ημερολόγιο πελάτη</Text>
-            </View>
-            <Pressable
-              onPress={() => setIsNoteModalOpen(true)}
-              style={styles.addNotePillButton}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel="Προσθήκη σημείωσης"
-              testID="broker-client-calendar-add-note"
-            >
-              <Ionicons color={colors.onBrand} name="add" size={16} />
-              <Text style={styles.addNotePillText}>Σημείωση</Text>
-            </Pressable>
-          </View>
-          <Text style={[styles.body, { color: colors.onSurfaceTertiary }]}>Η συνοπτική προβολή του ημερολογίου θα εμφανιστεί εδώ για τον πελάτη.</Text>
-        </View>
-      ) : null}
-
       {activeSubView === "default" ? <>
-        {isStagnant ? <View style={[styles.stagnationBanner, { backgroundColor: `${stagnationColor}22`, borderColor: stagnationColor }]} testID="broker-deal-stagnation-banner"><View style={styles.stagnationHeaderRow}><Ionicons name={stagnationIcon} size={22} color={stagnationColor} /><Text style={[styles.stagnationTitle, { color: stagnationColor }]}>{t("brokerClient.stagnationWarning")}</Text></View><Text style={[styles.stagnationBody, { color: colors.onSurface }]}>{t("brokerClient.stagnationBody", { days: elapsedDays, stage: currentStageConfig.label })}</Text></View> : null}
-      <View style={styles.interactionLogCard} testID="broker-client-interaction-log">
+        {isStagnant ? <View style={[styles.stagnationBanner, { backgroundColor: `${stagnationColor}22`, borderColor: stagnationColor }]} testID="broker-deal-stagnation-banner"><View style={styles.stagnationHeaderRow}><Ionicons name={stagnationIcon} size={22} color={stagnationColor} /><Text style={[styles.stagnationTitle, { color: stagnationColor }]}>{t("brokerClient.stagnationWarning")}</Text></View><Text style={[styles.stagnationBody, { color: colors.onSurface }]}>{t("brokerClient.stagnationBody", { days: elapsedDays, stage: t(currentStageConfig.labelKey) })}</Text></View> : null}
+      <View style={styles.interactionSection}>
         <View style={styles.interactionHeaderRow}>
-          <View style={styles.interactionTitleWrap}>
-            <Ionicons color={colors.brand} name="newspaper-outline" size={20} />
-            <Text style={styles.interactionMainTitle}>Ιστορικό Αλληλεπιδράσεων</Text>
-          </View>
+          <Text style={styles.interactionMainTitle}>Ιστορικό Αλληλεπιδράσεων</Text>
           <Pressable
-            style={styles.addInteractionBtn}
+            style={styles.addInteractionPill}
             onPress={() => {
               if (availableApartmentOptions.length > 0 && !newInteractionApartmentId) {
                 setNewInteractionApartmentId(availableApartmentOptions[0].id);
@@ -1521,11 +1653,12 @@ export default function BrokerClientDetailScreen() {
             accessibilityLabel="Προσθήκη αλληλεπίδρασης"
             testID="broker-client-add-interaction-btn"
           >
-            <Ionicons color={colors.onBrand} name="add" size={20} />
+            <Ionicons color={colors.onBrand} name="add" size={16} />
+            <Text style={styles.addInteractionPillText}>Προσθήκη</Text>
           </Pressable>
         </View>
-
-        <ScrollView contentContainerStyle={styles.clientFilterChipsWrap} horizontal showsHorizontalScrollIndicator={false}>
+        <View style={styles.interactionLogCard} testID="broker-client-interaction-log">
+          <ScrollView contentContainerStyle={styles.clientFilterChipsWrap} horizontal showsHorizontalScrollIndicator={false}>
           <Pressable
             style={[styles.clientFilterChip, selectedApartmentFilter === "all" && styles.clientFilterChipActive]}
             onPress={() => setSelectedApartmentFilter("all")}
@@ -1546,7 +1679,7 @@ export default function BrokerClientDetailScreen() {
               </Pressable>
             );
           })}
-        </ScrollView>
+          </ScrollView>
 
         <View style={styles.metricsSummaryBar}>
           {(["call", "showing", "comment", "email"] as const).map((type, index) => {
@@ -1592,7 +1725,27 @@ export default function BrokerClientDetailScreen() {
             })
           )}
         </View>
+        {clientAppointments.length > 0 ? (
+          <View style={styles.itemLogList}>
+            {clientAppointments.map((appointment) => (
+              <View key={`appointment-${appointment.id}`} style={styles.logEntryRow}>
+                <View style={[styles.logTypeIconWrap, { backgroundColor: colors.brandTertiary }]}>
+                  <Ionicons color={colors.brand} name="calendar-outline" size={15} />
+                </View>
+                <View style={styles.logEntryContent}>
+                  <View style={styles.logEntryTopLine}>
+                    <Text numberOfLines={1} style={styles.logApartmentName}>{appointment.apartmentTitle || "Ακίνητο"}</Text>
+                    <Text style={styles.logDateText}>{formatDateTime(Number.isFinite(Date.parse(appointment.appointmentDate)) ? Date.parse(appointment.appointmentDate) : Date.now())}</Text>
+                  </View>
+                  <Text style={styles.logNoteText}>{`Ραντεβού · ${appointment.status}`}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        ) : null}
+        </View>
       </View>
+      {!isOwnerContact ? <>
       <View style={styles.searchCriteriaContainer}>
         <View style={styles.filterSetsHeaderRow}>
           <Text style={styles.sectionTitle}>Κριτήρια Αναζήτησης</Text>
@@ -1688,7 +1841,15 @@ export default function BrokerClientDetailScreen() {
         {!loading && rankedPortfolio.length === 0 ? <Text style={styles.emptyHint}>Δεν βρέθηκαν διαθέσιμα ακίνητα στο χαρτοφυλάκιό σας που να πληρούν όλα τα κριτήρια.</Text> : null}
       </View>
       </> : null}
+      </> : null}
+      </>}
       </KeyboardAwareScrollView>
+      {filterSetNotice ? (
+        <View pointerEvents="none" style={[styles.filterSetNotice, { top: insets.top + spacing.xl }]} testID="broker-client-filter-set-notice">
+          <Ionicons name="information-circle-outline" size={18} color={colors.onBrand} />
+          <Text style={styles.filterSetNoticeText}>{filterSetNotice}</Text>
+        </View>
+      ) : null}
     <KeyboardAwareModal visible={addInteractionModalVisible} transparent animationType="fade" onRequestClose={() => { if (!isSavingInteraction) setAddInteractionModalVisible(false); }}>
       <Pressable style={styles.modalBackdrop} onPress={() => { if (!isSavingInteraction) setAddInteractionModalVisible(false); }}>
         <Pressable style={styles.interactionModal} onPress={(event) => event.stopPropagation()}>
@@ -1831,6 +1992,37 @@ export default function BrokerClientDetailScreen() {
       onChange={(patch) => setFilterSetForm((previous) => ({ ...previous, ...patch }))}
       onSave={() => void handleSaveFilterSet({ ...formToFilterFields(filterSetForm), title: filterSetForm.title }, !!editingFilterSet)}
     />
+    <CenteredActionModal
+      visible={duplicateFilterSetPrompt !== null}
+      title={t("filters.duplicateModal.title")}
+      description={duplicateFilterSetPrompt ? t("filters.duplicateModal.message", {
+        clientName: clientDisplayName || params.clientName || t("brokerClient.clientFallback"),
+        existingTitle: duplicateFilterSetPrompt.existing.title,
+        newTitle: duplicateFilterSetPrompt.newTitle,
+      }) : undefined}
+      onDismiss={rejectDuplicateFilterSet}
+      actions={[
+        {
+          label: t("filters.duplicateModal.confirm"),
+          iconName: "copy-outline",
+          onPress: () => {
+            const pending = duplicateFilterSetPrompt;
+            if (!pending) return;
+            setDuplicateFilterSetPrompt(null);
+            void persistNewFilterSet(pending.formData);
+          },
+          testID: "broker-client-duplicate-filter-confirm",
+        },
+        {
+          label: t("filters.duplicateModal.cancel"),
+          iconName: "arrow-up-circle-outline",
+          variant: "muted",
+          onPress: rejectDuplicateFilterSet,
+          testID: "broker-client-duplicate-filter-cancel",
+        },
+      ]}
+      testID="broker-client-duplicate-filter-modal"
+    />
     <AssignClientEmailModal
       visible={isAddEmailModalOpen}
       brokerId={auth.userId ?? ""}
@@ -1907,7 +2099,7 @@ function BrokerFilterSetEditorModal({ visible, draft, form, editing, saving, onC
           </View>
           <ScrollView style={styles.interactionModalScroll} contentContainerStyle={styles.filterSetEditorContent} keyboardShouldPersistTaps="handled">
             <Text style={styles.fieldLabel}>Τίτλος</Text>
-            <TextInput value={form.title} onChangeText={(value) => onChange({ title: value })} editable={!editing} placeholder="π.χ. Κριτήρια για κέντρο" placeholderTextColor={colors.onSurfaceTertiary} style={[styles.input, editing && styles.disabledInput]} testID="broker-filter-set-title-input" />
+            <TextInput value={form.title} onChangeText={(value) => onChange({ title: value })} editable={!saving} placeholder="π.χ. Κριτήρια για κέντρο" placeholderTextColor={colors.onSurfaceTertiary} style={styles.input} testID="broker-filter-set-title-input" />
             {fields.map(([key, label, placeholder]) => (
               <View key={key}>
                 <Text style={styles.fieldLabel}>{label}</Text>
@@ -1948,6 +2140,8 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   headerActionBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
   headerActionBtnActive: { backgroundColor: colors.brand, borderColor: colors.brand },
   content: { paddingBottom: spacing["3xl"] },
+  filterSetNotice: { position: "absolute", left: spacing.lg, right: spacing.lg, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.xs, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.pill, backgroundColor: colors.onBrandTertiary, borderWidth: 1, borderColor: colors.brand },
+  filterSetNoticeText: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onBrand },
   profileCard: { marginHorizontal: spacing.lg, marginTop: spacing.md, alignItems: "center", padding: spacing.md, borderRadius: radius.lg, backgroundColor: colors.surfaceSecondary, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
   modalBackdrop: { flex: 1, justifyContent: "center", padding: spacing.lg, backgroundColor: "rgba(0,0,0,0.45)" },
   stageModal: { padding: spacing.md, borderRadius: radius.lg, backgroundColor: colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
@@ -1970,6 +2164,8 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   statusPillFlex: { flex: 1, justifyContent: "center", minWidth: 0 },
   statusIconPill: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceTertiary },
   statusPillText: { fontFamily: fonts.bold, fontSize: fontSize.xs },
+  ownerContextBadge: { flexDirection: "row", alignItems: "center", gap: spacing.xs, alignSelf: "flex-start", paddingHorizontal: spacing.sm, paddingVertical: 5, borderRadius: radius.pill, backgroundColor: colors.surfaceTertiary },
+  ownerContextBadgeText: { fontFamily: fonts.bold, fontSize: fontSize.xs },
   inPlaceSectionCard: { marginHorizontal: spacing.lg, marginTop: spacing.md, padding: spacing.md, borderRadius: radius.lg, backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border, gap: spacing.sm },
   inPlaceHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: spacing.xs },
   inPlaceTitle: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface },
@@ -1983,6 +2179,10 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   dealRatingPillText: { fontFamily: fonts.bold, fontSize: 11, color: "#F59E0B" },
   propertyDealTitle: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface },
   propertyDealSubtitle: { fontFamily: fonts.regular, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
+  ownerAssignmentRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  ownerAssignmentCopy: { flex: 1, minWidth: 0 },
+  ownerLegalToolsButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.xs, marginTop: spacing.xs, paddingVertical: spacing.sm, borderRadius: radius.pill, backgroundColor: colors.brand },
+  ownerLegalToolsText: { fontFamily: fonts.bold, fontSize: fontSize.sm, color: colors.onBrand },
   matchBadgePill: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: spacing.sm, paddingVertical: 5, borderRadius: radius.pill, backgroundColor: colors.brandTertiary },
   matchBadgePillText: { fontFamily: fonts.bold, fontSize: fontSize.xs, color: colors.brand },
   noMatchPill: { paddingHorizontal: spacing.sm, paddingVertical: 5, borderRadius: radius.pill, backgroundColor: colors.surfaceTertiary },
@@ -2011,17 +2211,24 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   presetButtonsRow: { flexDirection: "row", gap: spacing.xs },
   presetBtn: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.pill, backgroundColor: colors.brandTertiary, borderWidth: 1, borderColor: colors.brand },
   presetBtnText: { fontFamily: fonts.bold, fontSize: fontSize.xs, color: colors.brand },
-  calendarViewCard: { marginHorizontal: spacing.lg, marginTop: spacing.md, padding: spacing.md, borderRadius: radius.lg, backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border, gap: spacing.xs },
+  calendarViewCard: { marginHorizontal: spacing.lg, marginTop: spacing.md, marginBottom: spacing.xs, padding: spacing.md, borderRadius: radius.lg, backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border, gap: spacing.md },
   clientCalendarCardHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
   clientCalendarTitleRow: { flex: 1, flexDirection: "row", alignItems: "center", gap: spacing.sm },
   clientCalendarTitle: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface },
+  clientCalendarAppointments: { gap: spacing.sm },
+  clientCalendarAppointmentRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, padding: spacing.sm, borderRadius: radius.md, backgroundColor: colors.surface },
+  clientCalendarAppointmentIcon: { width: 30, height: 30, borderRadius: radius.sm, alignItems: "center", justifyContent: "center", backgroundColor: colors.brandTertiary },
+  clientCalendarAppointmentCopy: { flex: 1, minWidth: 0, gap: 2 },
+  clientCalendarAppointmentTitle: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurface },
+  clientCalendarAppointmentMeta: { fontFamily: fonts.regular, fontSize: fontSize.xs, color: colors.onSurfaceTertiary },
   addNotePillButton: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: spacing.sm, height: 30, borderRadius: radius.pill, backgroundColor: colors.brand },
   addNotePillText: { color: colors.onBrand, fontFamily: fonts.semibold, fontSize: fontSize.xs },
-  interactionLogCard: { marginHorizontal: spacing.lg, marginTop: spacing.md, padding: spacing.md, borderRadius: radius.lg, backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border, gap: spacing.md },
+  interactionSection: { marginTop: spacing.md, gap: spacing.sm },
+  interactionLogCard: { marginHorizontal: spacing.lg, padding: spacing.md, borderRadius: radius.lg, backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border, gap: spacing.md },
   interactionHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: spacing.xs },
-  interactionTitleWrap: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
   interactionMainTitle: { fontFamily: fonts.bold, fontSize: fontSize.base, color: colors.onSurface },
-  addInteractionBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.brand, alignItems: "center", justifyContent: "center" },
+  addInteractionPill: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, backgroundColor: colors.brand },
+  addInteractionPillText: { fontFamily: fonts.bold, fontSize: fontSize.xs, color: colors.onBrand },
   clientFilterChipsWrap: { flexDirection: "row", gap: spacing.xs, paddingVertical: 2 },
   clientFilterChip: { maxWidth: 220, paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.pill, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
   clientFilterChipActive: { backgroundColor: colors.brandTertiary, borderColor: colors.brand },

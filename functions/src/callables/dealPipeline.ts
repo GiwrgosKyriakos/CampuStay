@@ -72,6 +72,16 @@ function initialStage(value: unknown): number {
   return value;
 }
 
+function canonicalProfileStage(targetStage: number, isLoss: boolean): "new_lead" | "contacted" | "showing_scheduled" | "offer_made" | "under_contract" | "closed_won" | "closed_lost" {
+  if (isLoss) return "closed_lost";
+  if (targetStage >= 100) return "closed_won";
+  if (targetStage >= 90) return "under_contract";
+  if (targetStage >= 65) return "offer_made";
+  if (targetStage >= 35) return "showing_scheduled";
+  if (targetStage >= 10) return "contacted";
+  return "new_lead";
+}
+
 export const initializeDealCallable = onCall({ region: "europe-west1" }, async (request) => {
   const uid = requireAuth(request);
   const data = dataOf(request);
@@ -81,15 +91,19 @@ export const initializeDealCallable = onCall({ region: "europe-west1" }, async (
   const apartmentSnapshot = await db.doc(`apartments/${apartmentId}`).get();
   if (!apartmentSnapshot.exists) throw new HttpsError("not-found", "Apartment not found.");
   const apartment = apartmentSnapshot.data() ?? {};
-  const agencyId = requiredString(apartment.agencyId, "agencyId");
-  const leadId = await resolveLeadId({ explicitLeadId: data.leadId, agencyId, apartmentId, clientId });
+  const broker = await getUser(brokerId);
+  const agencyId = typeof apartment.agencyId === "string" && apartment.agencyId.trim()
+    ? apartment.agencyId.trim()
+    : typeof broker.agencyId === "string" && broker.agencyId.trim()
+      ? broker.agencyId.trim()
+      : null;
+  const leadId = await resolveLeadId({ explicitLeadId: data.leadId, agencyId, apartmentId, clientId, brokerId });
   if (!leadId) throw new HttpsError("failed-precondition", "A canonical lead is required before initializing a deal.");
   const leadSource = await getLeadSource(leadId);
   const assignedBrokerIds = Array.isArray(apartment.assignedBrokerIds) ? apartment.assignedBrokerIds : [];
   const brokerManagesApartment = assignedBrokerIds.includes(brokerId) || apartment.ownerId === brokerId || apartment.hostId === brokerId;
   if (!brokerManagesApartment || (uid !== brokerId && uid !== clientId)) throw new HttpsError("permission-denied", "You cannot initialize this deal.");
-  const broker = await getUser(brokerId);
-  if (broker.agencyId !== agencyId || broker.is_broker !== true) throw new HttpsError("permission-denied", "The broker is not part of this agency.");
+  if (broker.is_broker !== true || (agencyId !== null && broker.agencyId !== agencyId)) throw new HttpsError("permission-denied", "The broker is not part of this agency.");
 
   const dealId = `${apartmentId}_${clientId}`;
   const dealRef = db.doc(`deals/${dealId}`);
@@ -104,7 +118,7 @@ export const initializeDealCallable = onCall({ region: "europe-west1" }, async (
       clientId,
       leadId,
       source: leadSource,
-      agencyId,
+      ...(agencyId === null ? {} : { agencyId }),
       listingBrokerId: typeof current.listingBrokerId === "string" ? current.listingBrokerId : brokerId,
       buyerBrokerId: typeof current.buyerBrokerId === "string" ? current.buyerBrokerId : brokerId,
       ...(typeof apartment.ownerId === "string" ? { ownerId: apartment.ownerId } : typeof apartment.hostId === "string" ? { ownerId: apartment.hostId } : {}),
@@ -122,6 +136,111 @@ export const initializeDealCallable = onCall({ region: "europe-west1" }, async (
   });
   await seedDealChecklist(dealId);
   return { dealId };
+});
+
+export const recordAcceptedOfferCallable = onCall({ region: "europe-west1" }, async (request) => {
+  const uid = requireAuth(request);
+  const data = dataOf(request);
+  const apartmentId = requiredString(data.apartmentId, "apartmentId");
+  const clientId = requiredString(data.clientId, "clientId");
+  const listingBrokerId = requiredString(data.listingBrokerId, "listingBrokerId");
+  const acceptedOfferPrice = data.acceptedOfferPrice;
+  if (typeof acceptedOfferPrice !== "number" || !Number.isFinite(acceptedOfferPrice) || acceptedOfferPrice <= 0) {
+    throw new HttpsError("invalid-argument", "acceptedOfferPrice must be a positive number.");
+  }
+
+  const apartmentSnapshot = await db.doc(`apartments/${apartmentId}`).get();
+  if (!apartmentSnapshot.exists) throw new HttpsError("not-found", "Apartment not found.");
+  const apartment = apartmentSnapshot.data() ?? {};
+  const broker = await getUser(listingBrokerId);
+  const agencyId = typeof apartment.agencyId === "string" && apartment.agencyId.trim()
+    ? apartment.agencyId.trim()
+    : typeof broker.agencyId === "string" && broker.agencyId.trim()
+      ? broker.agencyId.trim()
+      : null;
+  const leadId = await resolveLeadId({ explicitLeadId: data.leadId, agencyId, apartmentId, clientId, brokerId: listingBrokerId });
+  if (!leadId) throw new HttpsError("failed-precondition", "A canonical lead is required before accepting an offer.");
+  const assignedBrokerIds = Array.isArray(apartment.assignedBrokerIds) ? apartment.assignedBrokerIds : [];
+  if (!assignedBrokerIds.includes(listingBrokerId) && apartment.ownerId !== listingBrokerId && apartment.hostId !== listingBrokerId) {
+    throw new HttpsError("permission-denied", "The broker does not manage this apartment.");
+  }
+  if (uid !== listingBrokerId && uid !== clientId) throw new HttpsError("permission-denied", "Only the broker or client can accept this offer.");
+
+  const dealId = `${apartmentId}_${clientId}`;
+  const dealRef = db.doc(`deals/${dealId}`);
+  const offerRef = db.doc(`offers/${dealId}_accepted`);
+  await db.runTransaction(async (transaction) => {
+    const dealSnapshot = await transaction.get(dealRef);
+    const current = dealSnapshot.data() ?? {};
+    const currentValue = typeof current.dealValue === "number" && current.dealValue > 0
+      ? current.dealValue
+      : typeof current.dealAmount === "number" && current.dealAmount > 0
+        ? current.dealAmount
+        : typeof apartment.rent === "number" && apartment.rent > 0
+          ? apartment.rent
+          : acceptedOfferPrice;
+    const currentCommission = typeof current.commissionTotal === "number" && current.commissionTotal > 0 ? current.commissionTotal : null;
+    const configuredRate = typeof current.commissionRatePercentage === "number" && current.commissionRatePercentage > 0 ? current.commissionRatePercentage : null;
+    const commissionRate = configuredRate ?? (currentCommission && currentValue > 0 ? currentCommission / currentValue * 100 : 2);
+    const commissionTotal = Math.round(acceptedOfferPrice * commissionRate) / 100;
+    const buyerBrokerId = typeof current.buyerBrokerId === "string" && current.buyerBrokerId.trim() ? current.buyerBrokerId : listingBrokerId;
+    const brokerIds = Array.from(new Set([listingBrokerId, buyerBrokerId, current.coveringBrokerId].filter((brokerId): brokerId is string => typeof brokerId === "string" && brokerId.trim().length > 0)));
+    const profileRefs = brokerIds.map((brokerId) => db.doc(`brokerClientProfiles/${brokerId}_${clientId}`));
+    const profileSnapshots = await Promise.all(profileRefs.map((profileRef) => transaction.get(profileRef)));
+    transaction.set(dealRef, {
+      apartmentId,
+      clientId,
+      leadId,
+      ...(agencyId === null ? {} : { agencyId }),
+      listingBrokerId,
+      buyerBrokerId,
+      acceptedOfferPrice,
+      dealValue: acceptedOfferPrice,
+      dealAmount: acceptedOfferPrice,
+      offerAcceptedAt: FieldValue.serverTimestamp(),
+      status: "offer_accepted",
+      stage: Math.max(typeof current.stage === "number" ? current.stage : 0, 65),
+      commissionRatePercentage: commissionRate,
+      commissionTotal,
+      agencyCutPercentage: 50,
+      agencyCutAmount: Math.round(commissionTotal * 50) / 100,
+      brokerSplits: [
+        { brokerId: listingBrokerId, brokerName: "Listing broker", role: "listing_agent", percentage: 25, amount: Math.round(commissionTotal * 25) / 100 },
+        { brokerId: buyerBrokerId, brokerName: "Buyer broker", role: "buyer_agent", percentage: 25, amount: Math.round(commissionTotal * 25) / 100 },
+      ],
+      ...(!dealSnapshot.exists ? { createdAt: FieldValue.serverTimestamp() } : {}),
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    transaction.set(offerRef, {
+      offerId: offerRef.id,
+      apartmentId,
+      clientId,
+      brokerId: listingBrokerId,
+      ...(agencyId === null ? {} : { agencyId }),
+      amount: acceptedOfferPrice,
+      status: "accepted",
+      dealId,
+      updatedAt: FieldValue.serverTimestamp(),
+      ...(!dealSnapshot.exists ? { createdAt: FieldValue.serverTimestamp() } : {}),
+    }, { merge: true });
+    profileRefs.forEach((profileRef, index) => {
+      transaction.set(profileRef, {
+        brokerId: brokerIds[index],
+        contactUserId: clientId,
+        clientId,
+        clientUserId: clientId,
+        contactRole: "client",
+        role: "client",
+        dealIds: FieldValue.arrayUnion(dealId),
+        pipelineStage: "offer_made",
+        stageUpdatedAt: FieldValue.serverTimestamp(),
+        lastContactAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        ...(!profileSnapshots[index].exists ? { createdAt: FieldValue.serverTimestamp(), agencyId } : {}),
+      }, { merge: true });
+    });
+  });
+  return { dealId, offerId: offerRef.id };
 });
 
 export const reviewChecklistDocumentCallable = onCall({ region: "europe-west1" }, async (request) => {
@@ -180,11 +299,31 @@ export const advanceDealStageCallable = onCall({ region: "europe-west1" }, async
         throw new HttpsError("failed-precondition", "Cannot advance to Stage 100%: All checklist documents must be verified.");
       }
     }
+    const clientId = typeof current.clientId === "string" ? current.clientId.trim() : "";
+    const brokerIds = Array.from(new Set([current.listingBrokerId, current.buyerBrokerId, current.coveringBrokerId].filter((brokerId): brokerId is string => typeof brokerId === "string" && brokerId.trim().length > 0)));
+    const profileRefs = clientId ? brokerIds.map((brokerId) => db.doc(`brokerClientProfiles/${brokerId}_${clientId}`)) : [];
+    const profileSnapshots = await Promise.all(profileRefs.map((profileRef) => transaction.get(profileRef)));
+    const pipelineStage = canonicalProfileStage(targetStage, isLoss);
     transaction.update(dealRef, {
       stage: targetStage,
       ...(targetStage === 90 ? { status: "under_negotiation" } : {}),
       ...(isLoss ? { status: requestedStatus, lostReason: (data.lostReason as string).trim(), lostAt: FieldValue.serverTimestamp() } : {}),
       updatedAt: FieldValue.serverTimestamp(),
+    });
+    profileRefs.forEach((profileRef, index) => {
+      transaction.set(profileRef, {
+        brokerId: brokerIds[index],
+        contactUserId: clientId,
+        clientId,
+        clientUserId: clientId,
+        contactRole: "client",
+        role: "client",
+        dealIds: FieldValue.arrayUnion(dealId),
+        pipelineStage,
+        stageUpdatedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        ...(!profileSnapshots[index].exists ? { createdAt: FieldValue.serverTimestamp(), agencyId: typeof current.agencyId === "string" ? current.agencyId : null } : {}),
+      }, { merge: true });
     });
   });
   await logAnalyticsEvent({

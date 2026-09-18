@@ -127,6 +127,7 @@ export interface ContractAgencyData {
   email?: string;
   phone?: string;
   address?: string;
+  afm?: string;
   taxNumber?: string;
 }
 

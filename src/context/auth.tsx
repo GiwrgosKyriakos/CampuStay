@@ -35,6 +35,39 @@ export interface AuthUser {
   agencyName?: string | null;
 }
 
+interface AuthRoleClaimsDocument {
+  agencyName?: string;
+  agencyId?: string;
+  agencyRole?: string;
+  needsProfileSetup?: boolean;
+  role?: string;
+  isHost?: boolean;
+  has_place?: boolean;
+  already_have_apartment_to_share?: boolean;
+  hasApartment?: boolean;
+  hasCreatedListings?: boolean;
+  has_created_listings?: boolean;
+  wantsRoommate?: boolean;
+  looking_for_roommate?: boolean;
+  not_looking_for_roommate?: boolean;
+}
+
+function resolveTourRoleClaims(data: AuthRoleClaimsDocument | null) {
+  const wantsRoommate = typeof data?.wantsRoommate === "boolean"
+    ? data.wantsRoommate
+    : data?.not_looking_for_roommate !== true;
+  const lookingForRoommate = typeof data?.looking_for_roommate === "boolean"
+    ? data.looking_for_roommate
+    : wantsRoommate;
+
+  return {
+    isHost: data?.isHost === true || data?.role === "host" || data?.has_place === true || data?.already_have_apartment_to_share === true || data?.hasApartment === true,
+    hasCreatedListings: data?.hasCreatedListings === true || data?.has_created_listings === true,
+    wantsRoommate,
+    lookingForRoommate,
+  };
+}
+
 interface QuizAnswersDocument {
   answers?: Record<string, string>;
 }
@@ -50,6 +83,10 @@ interface AuthContextValue {
   token: string | null;
   needsProfileSetup: boolean;
   isBroker: boolean;
+  isHost: boolean;
+  hasCreatedListings: boolean;
+  wantsRoommate: boolean;
+  lookingForRoommate: boolean;
   notLookingForRoommate: boolean;
   agencyId: string | null;
   agencyRole: string | null;
@@ -261,6 +298,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const updateRoleStates = useCallback((brokerState: boolean, noRoommateState: boolean) => {
     setIsBroker(brokerState);
     setNotLookingForRoommate(noRoommateState);
+    setWantsRoommate(!noRoommateState);
+    setLookingForRoommate(!noRoommateState);
   }, []);
   const [status, setStatus] = useState<Status>("loading");
   const [authTransition, setAuthTransition] = useState<AuthTransition | null>(null);
@@ -268,6 +307,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [needsProfileSetup, setNeedsProfileSetup] = useState(false);
   const [isBroker, setIsBroker] = useState(false);
+  const [isHost, setIsHost] = useState(false);
+  const [hasCreatedListings, setHasCreatedListings] = useState(false);
+  const [wantsRoommate, setWantsRoommate] = useState(true);
+  const [lookingForRoommate, setLookingForRoommate] = useState(true);
   const [notLookingForRoommate, setNotLookingForRoommate] = useState(false);
   const [agencyId, setAgencyId] = useState<string | null>(null);
   const [agencyRole, setAgencyRole] = useState<string | null>(null);
@@ -302,6 +345,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
     setNeedsProfileSetup(false);
     setIsBroker(false);
+    setIsHost(false);
+    setHasCreatedListings(false);
+    setWantsRoommate(true);
+    setLookingForRoommate(true);
     setNotLookingForRoommate(false);
     setAgencyId(null);
     setAgencyRole(null);
@@ -352,13 +399,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             name: pendingRegistration.name,
             needsProfileSetup: true,
           } : {});
-          const userData = syncResult.data;
+          const userData = syncResult.data as AuthRoleClaimsDocument | null;
           const needsSetup = syncResult.needsProfileSetup;
+          const roleClaims = resolveTourRoleClaims(userData);
 
           const resolvedAgencyName = typeof userData?.agencyName === "string" && userData.agencyName.trim().length > 0
             ? userData.agencyName.trim()
             : null;
           setIsBroker(isBrokerOrAgencyUser(userData));
+          setIsHost(roleClaims.isHost);
+          setHasCreatedListings(roleClaims.hasCreatedListings);
+          setWantsRoommate(roleClaims.wantsRoommate);
+          setLookingForRoommate(roleClaims.lookingForRoommate);
           setNotLookingForRoommate(userData?.not_looking_for_roommate === true);
           setAgencyId(typeof userData?.agencyId === "string" ? userData.agencyId : null);
           setAgencyRole(typeof userData?.agencyRole === "string" ? userData.agencyRole : typeof userData?.role === "string" ? userData.role : null);
@@ -376,8 +428,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             userRef,
             (snapshot) => {
               if (!mounted) return;
-              const data = snapshot.exists() ? snapshot.data() : null;
+              const data = snapshot.exists() ? snapshot.data() as AuthRoleClaimsDocument : null;
+              const roleClaims = resolveTourRoleClaims(data);
               setIsBroker(isBrokerOrAgencyUser(data));
+              setIsHost(roleClaims.isHost);
+              setHasCreatedListings(roleClaims.hasCreatedListings);
+              setWantsRoommate(roleClaims.wantsRoommate);
+              setLookingForRoommate(roleClaims.lookingForRoommate);
               setNotLookingForRoommate(data?.not_looking_for_roommate === true);
               setAgencyId(typeof data?.agencyId === "string" ? data.agencyId : null);
               setAgencyRole(typeof data?.agencyRole === "string" ? data.agencyRole : typeof data?.role === "string" ? data.role : null);
@@ -407,6 +464,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setAuthTransition(null);
       setUserIdCache(null);
       setIsBroker(false);
+      setIsHost(false);
+      setHasCreatedListings(false);
+      setWantsRoommate(true);
+      setLookingForRoommate(true);
       setNotLookingForRoommate(false);
       setAgencyId(null);
       setAgencyRole(null);
@@ -582,6 +643,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setToken(null);
     setUser(null);
     setNeedsProfileSetup(false);
+    setIsHost(false);
+    setHasCreatedListings(false);
+    setWantsRoommate(true);
+    setLookingForRoommate(true);
     setNotLookingForRoommate(false);
     setAgencyId(null);
     setAgencyRole(null);
@@ -611,6 +676,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       clearProfileSetup,
       updateRoleStates,
       isBroker,
+      isHost,
+      hasCreatedListings,
+      wantsRoommate,
+      lookingForRoommate,
       notLookingForRoommate,
       agencyId,
       agencyRole,
@@ -623,6 +692,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       token,
       needsProfileSetup,
       isBroker,
+      isHost,
+      hasCreatedListings,
+      wantsRoommate,
+      lookingForRoommate,
       notLookingForRoommate,
       agencyId,
       agencyRole,

@@ -11,21 +11,29 @@ import {
 } from "firebase/firestore";
 
 import { db } from "@/src/config/firebase";
+import { resolveClientDisplayName } from "@/src/api/brokerCalendar";
 
-export type InteractionType = "call" | "showing" | "comment" | "email";
+export type InteractionType = "call" | "showing" | "comment" | "email" | "note" | "viewing" | "offer" | "meeting";
 
-export interface PropertyInteraction {
+export interface InteractionLog {
   id: string;
+  brokerId: string;
+  loggedByUserId: string;
+  clientId?: string | null;
+  apartmentId?: string | null;
+  agencyId?: string | null;
+  assignedBrokerIds?: string[];
+  type: InteractionType;
+  note: string;
+  createdAt: Timestamp | Date;
+}
+
+export interface PropertyInteraction extends InteractionLog {
   apartmentId: string;
   apartmentTitle?: string;
   clientId: string;
   clientName: string;
-  type: InteractionType;
-  note: string;
-  createdAt: Timestamp | null;
   createdAtMillis: number;
-  loggedByUserId: string;
-  brokerId?: string;
 }
 
 export async function addPropertyInteraction(payload: {
@@ -36,18 +44,26 @@ export async function addPropertyInteraction(payload: {
   type: InteractionType;
   note: string;
   loggedByUserId: string;
-  brokerId?: string;
+  brokerId: string;
+  agencyId?: string;
+  assignedBrokerIds?: string[];
 }): Promise<string> {
+  const brokerId = payload.brokerId.trim();
+  const loggedByUserId = payload.loggedByUserId.trim();
+  if (!brokerId || brokerId !== loggedByUserId) throw new Error("Interaction logs must be authored by the assigned broker.");
   const colRef = collection(db, "apartments", payload.apartmentId, "interactions");
+  const resolvedClientName = await resolveClientDisplayName(payload.clientId, payload.clientName);
   const docRef = await addDoc(colRef, {
     apartmentId: payload.apartmentId,
     ...(payload.apartmentTitle ? { apartmentTitle: payload.apartmentTitle } : {}),
     clientId: payload.clientId,
-    clientName: payload.clientName,
+    clientName: resolvedClientName || (payload.clientId ? "Πελάτης" : payload.clientName),
     type: payload.type,
     note: payload.note,
-    loggedByUserId: payload.loggedByUserId,
-    ...(payload.brokerId ? { brokerId: payload.brokerId } : {}),
+    loggedByUserId,
+    brokerId,
+    ...(payload.agencyId ? { agencyId: payload.agencyId } : {}),
+    assignedBrokerIds: Array.from(new Set([brokerId, ...(payload.assignedBrokerIds ?? [])].filter((id) => id.trim().length > 0))),
     createdAt: serverTimestamp(),
   });
   return docRef.id;
@@ -55,10 +71,17 @@ export async function addPropertyInteraction(payload: {
 
 export function subscribePropertyInteractions(
   apartmentId: string,
+  brokerId: string,
   callback: (interactions: PropertyInteraction[]) => void,
 ): () => void {
+  const normalizedBrokerId = brokerId.trim();
+  if (!normalizedBrokerId) {
+    callback([]);
+    return () => undefined;
+  }
   const interactionsQuery = query(
     collection(db, "apartments", apartmentId, "interactions"),
+    where("brokerId", "==", normalizedBrokerId),
     orderBy("createdAt", "desc"),
   );
 
@@ -76,10 +99,11 @@ export function subscribePropertyInteractions(
         clientName: typeof data.clientName === "string" && data.clientName.trim() ? data.clientName : "Άγνωστος",
         type: ["call", "showing", "comment", "email"].includes(type) ? type : "comment",
         note: typeof data.note === "string" ? data.note : "",
-        createdAt,
+        createdAt: createdAt ?? new Date(),
         createdAtMillis: createdAt?.toMillis ? createdAt.toMillis() : Date.now(),
         loggedByUserId: typeof data.loggedByUserId === "string" ? data.loggedByUserId : "",
-        brokerId: typeof data.brokerId === "string" ? data.brokerId : undefined,
+        brokerId: typeof data.brokerId === "string" ? data.brokerId : "",
+        assignedBrokerIds: Array.isArray(data.assignedBrokerIds) ? data.assignedBrokerIds.filter((id): id is string => typeof id === "string") : [],
       };
     });
 
@@ -93,10 +117,17 @@ export function subscribePropertyInteractions(
 export function subscribeClientInteractions(
   clientId: string,
   callback: (interactions: PropertyInteraction[]) => void,
+  brokerId: string,
 ): () => void {
+  const normalizedBrokerId = brokerId.trim();
+  if (!normalizedBrokerId) {
+    callback([]);
+    return () => undefined;
+  }
   const interactionsQuery = query(
     collectionGroup(db, "interactions"),
     where("clientId", "==", clientId),
+    where("brokerId", "==", normalizedBrokerId),
     orderBy("createdAt", "desc"),
   );
 
@@ -116,10 +147,11 @@ export function subscribeClientInteractions(
           clientName: typeof data.clientName === "string" ? data.clientName : "",
           type: ["call", "showing", "comment", "email"].includes(type) ? type : "comment",
           note: typeof data.note === "string" ? data.note : "",
-          createdAt,
+          createdAt: createdAt ?? new Date(),
           createdAtMillis: createdAt?.toMillis ? createdAt.toMillis() : Date.now(),
           loggedByUserId: typeof data.loggedByUserId === "string" ? data.loggedByUserId : "",
-          brokerId: typeof data.brokerId === "string" ? data.brokerId : undefined,
+          brokerId: typeof data.brokerId === "string" ? data.brokerId : "",
+          assignedBrokerIds: Array.isArray(data.assignedBrokerIds) ? data.assignedBrokerIds.filter((id): id is string => typeof id === "string") : [],
         };
       });
       callback(list);

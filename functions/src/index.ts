@@ -16,7 +16,8 @@ import { onContractCompleted } from "./triggers/onContractCompleted";
 import { getContractDownloadUrl, recordSigningEvidence, sendSigningOtp, updateContractPayload, updateContractSignerIdentity, verifySigningOtp } from "./callables/signingOtp";
 import { verifyContractSignatureAuditTrailCallable } from "./callables/contractAudit";
 import { claimLeadCallable, claimPropertyCallable, createCrossBrokerShowingCallable, delegateShowingCallable, finalizeCommissionSettlementCallable, publishListingAssignmentCallable, recordKeySafeActionCallable, recordShowingFeedbackCallable, reassignLeadCallable, reviewClaimCallable } from "./callables/agencyCollaboration";
-import { advanceDealStageCallable, finalizeChecklistDocumentUploadCallable, initializeDealCallable, reviewChecklistDocumentCallable } from "./callables/dealPipeline";
+import { ensureBrokerClientRelationshipCallable } from "./callables/brokerClientRelationships";
+import { advanceDealStageCallable, finalizeChecklistDocumentUploadCallable, initializeDealCallable, recordAcceptedOfferCallable, reviewChecklistDocumentCallable } from "./callables/dealPipeline";
 import { migrateLegacyDealsCallable } from "./callables/dealMigration";
 import { analyzeComparativeMarket, generateCmaReport, persistCmaHistory } from "./ai/cmaService";
 import { generateListingCopywriting, generatePropertyListingCopy as generatePropertyListingCopyService } from "./ai/copywriterService";
@@ -35,6 +36,8 @@ import {
   onDealRecordCreated,
   onChecklistItemUpdated,
   onCanonicalDealStageUpdated,
+  onAgencyPoolApartmentWritten,
+  onAgencyPoolLeadWritten,
 } from "./triggers/notificationLifecycle";
 
 if (getApps().length === 0) initializeApp();
@@ -124,10 +127,12 @@ export {
   onDealRecordCreated,
   onChecklistItemUpdated,
   onCanonicalDealStageUpdated,
+  onAgencyPoolApartmentWritten,
+  onAgencyPoolLeadWritten,
 };
 export { onContractCompleted, getContractDownloadUrl, recordSigningEvidence, sendSigningOtp, updateContractPayload, updateContractSignerIdentity, verifySigningOtp, verifyContractSignatureAuditTrailCallable };
 export { issueFiscalInvoice };
-export { advanceDealStageCallable, claimLeadCallable, claimPropertyCallable, createCrossBrokerShowingCallable, delegateShowingCallable, finalizeChecklistDocumentUploadCallable, finalizeCommissionSettlementCallable, initializeDealCallable, migrateLegacyDealsCallable, publishListingAssignmentCallable, recordKeySafeActionCallable, recordShowingFeedbackCallable, reassignLeadCallable, reviewChecklistDocumentCallable, reviewClaimCallable };
+export { advanceDealStageCallable, claimLeadCallable, claimPropertyCallable, createCrossBrokerShowingCallable, delegateShowingCallable, ensureBrokerClientRelationshipCallable, finalizeChecklistDocumentUploadCallable, finalizeCommissionSettlementCallable, initializeDealCallable, migrateLegacyDealsCallable, publishListingAssignmentCallable, recordAcceptedOfferCallable, recordKeySafeActionCallable, recordShowingFeedbackCallable, reassignLeadCallable, reviewChecklistDocumentCallable, reviewClaimCallable };
 export { generateCmaReport, generateListingCopywriting, analyzeShowingFeedbackSentiment, buildOwnerActivityPdfReport };
 
 export const getPropertyFeedbackSentiment = onCall(

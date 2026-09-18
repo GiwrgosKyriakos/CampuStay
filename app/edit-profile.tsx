@@ -70,7 +70,8 @@ export default function EditProfileScreen() {
   const [city, setCity] = useState<string | null>(null);
   const [hasPlace, setHasPlace] = useState(false);
   const [isBroker, setIsBroker] = useState(false);
-  const [agencyRole, setAgencyRole] = useState<"ceo" | "member" | "secretary" | null>(null);
+  const [afm, setAfm] = useState("");
+  const [agencyRole, setAgencyRole] = useState<"ceo" | "owner" | "member" | "secretary" | null>(null);
   const [agencyId, setAgencyId] = useState<string | null>(null);
   const [agencyStatus, setAgencyStatus] = useState<"approved" | "pending" | "none">("none");
   const [isAgencyAffiliated, setIsAgencyAffiliated] = useState(false);
@@ -117,6 +118,7 @@ export default function EditProfileScreen() {
       setCity(null);
       setHasPlace(false);
       setIsBroker(false);
+      setAfm("");
       setAgencyRole(null);
       setAgencyId(null);
       setAgencyStatus("none");
@@ -144,7 +146,7 @@ export default function EditProfileScreen() {
           setUserId(id);
           const authAgencyUser = auth.user as (typeof auth.user & {
             agencyId?: string | null;
-            agencyRole?: "ceo" | "member" | "secretary" | null;
+            agencyRole?: "ceo" | "owner" | "member" | "secretary" | null;
           }) | null;
           const isAgencyUser =
             !!p?.agencyId ||
@@ -157,7 +159,7 @@ export default function EditProfileScreen() {
           setIsAgencyAffiliated(isAgencyUser);
           setAgencyId(p?.agencyId ?? authAgencyUser?.agencyId ?? null);
           setAgencyRole(p?.agencyRole ?? authAgencyUser?.agencyRole ?? null);
-          setIsBroker(!!p?.is_broker || isAgencyUser || auth.isBroker);
+          setIsBroker(!!p?.is_broker || p?.isBroker === true || p?.role === "broker" || isAgencyUser || auth.isBroker);
           if (p) {
             setName(p.name ?? auth.user?.name ?? "");
             setPhotos(p.photos ?? []);
@@ -178,6 +180,7 @@ export default function EditProfileScreen() {
             setLinkedin(p.linkedin ?? "");
             setTwitter(p.twitter ?? "");
             setPhoneNumber((p.phone_number ?? "").replace(/[^0-9]/g, "").slice(0, 10));
+            setAfm((p.afm ?? "").replace(/[^0-9]/g, "").slice(0, 9));
           }
         }
       } catch {
@@ -295,7 +298,7 @@ export default function EditProfileScreen() {
     const rawBudget = budget.trim();
     const authAgencyUser = auth.user as (typeof auth.user & {
       agencyId?: string | null;
-      agencyRole?: "ceo" | "member" | null;
+      agencyRole?: "ceo" | "owner" | "member" | "secretary" | null;
     }) | null;
     const isBrokerUser = isBroker || auth.isBroker || isAgencyAffiliated || agencyRole === "ceo" || agencyRole === "member";
     const resolvedAgencyId = agencyId ?? authAgencyUser?.agencyId ?? null;
@@ -348,6 +351,9 @@ export default function EditProfileScreen() {
         has_place: !isBrokerUser ? hasPlace : false,
         already_have_apartment_to_share: !isBrokerUser ? hasPlace : false,
         is_broker: isBrokerUser,
+        isBroker: isBrokerUser,
+        role: isBrokerUser ? "broker" : undefined,
+        afm: isBrokerUser ? afm.trim() || null : null,
         agencyId: resolvedAgencyId ?? undefined,
         agencyRole: resolvedAgencyRole ?? undefined,
         agencyStatus: isBrokerUser ? agencyStatus : undefined,
@@ -413,6 +419,7 @@ export default function EditProfileScreen() {
     linkedin,
     twitter,
     phoneNumber,
+    afm,
     age,
     gender,
     city,
@@ -559,6 +566,23 @@ export default function EditProfileScreen() {
               <Text style={styles.cityErrorText}>{t("editProfile.errors.cityRequired")}</Text>
             )}
           </View>
+
+          {isBroker && (
+            <>
+              <Text style={styles.label}>{t("profile.afmLabel")}</Text>
+              <TextInput
+                style={[styles.input, guestLocked && styles.guestReadOnlyControl]}
+                value={afm}
+                onChangeText={(value) => setAfm(value.replace(/[^0-9]/g, "").slice(0, 9))}
+                placeholder={t("profile.afmPlaceholder")}
+                placeholderTextColor={colors.onSurfaceTertiary}
+                keyboardType="numeric"
+                maxLength={9}
+                editable={!guestLocked}
+                testID="afm-input"
+              />
+            </>
+          )}
 
           {!isAgencyAffiliated && (
             <>

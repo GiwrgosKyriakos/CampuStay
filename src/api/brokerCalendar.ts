@@ -214,6 +214,51 @@ export interface GridLayoutResult {
   predominantColor: string;
 }
 
+export async function resolveClientDisplayName(clientId?: string | null, fallbackName?: string | null): Promise<string> {
+  const explicitName = fallbackName?.trim();
+  if (explicitName) return explicitName;
+  const normalizedClientId = clientId?.trim();
+  if (!normalizedClientId) return "";
+
+  try {
+    const userSnapshot = await getDoc(doc(db, "users", normalizedClientId));
+    if (userSnapshot.exists()) {
+      const data = userSnapshot.data() as Record<string, unknown>;
+      const displayName = typeof data.displayName === "string" ? data.displayName.trim() : "";
+      const fullName = [data.firstName, data.lastName].filter((value): value is string => typeof value === "string" && value.trim().length > 0).join(" ").trim();
+      const name = typeof data.name === "string" ? data.name.trim() : "";
+      const email = typeof data.email === "string" ? data.email.trim() : "";
+      const resolved = displayName || fullName || name || email;
+      if (resolved) return resolved;
+    }
+  } catch (error) {
+    console.warn(`[resolveClientDisplayName] Failed to fetch user name for ${normalizedClientId}:`, error);
+  }
+
+  try {
+    const profileSnapshots = await Promise.all([
+      getDocs(query(collection(db, "brokerClientProfiles"), where("contactUserId", "==", normalizedClientId))).catch(() => null),
+      getDocs(query(collection(db, "brokerClientProfiles"), where("clientId", "==", normalizedClientId))).catch(() => null),
+    ]);
+    for (const profileSnapshot of profileSnapshots) {
+      const profile = profileSnapshot?.docs.find((profileDocument) => {
+        const data = profileDocument.data() as Record<string, unknown>;
+        return (typeof data.displayName === "string" && data.displayName.trim().length > 0)
+          || (typeof data.clientName === "string" && data.clientName.trim().length > 0);
+      });
+      if (!profile) continue;
+      const data = profile.data() as Record<string, unknown>;
+      const displayName = typeof data.displayName === "string" ? data.displayName.trim() : "";
+      const clientName = typeof data.clientName === "string" ? data.clientName.trim() : "";
+      if (displayName || clientName) return displayName || clientName;
+    }
+  } catch (error) {
+    console.warn(`[resolveClientDisplayName] Failed to fetch broker profile name for ${normalizedClientId}:`, error);
+  }
+
+  return "";
+}
+
 function toErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim().length > 0) {
     return error.message;
@@ -353,6 +398,7 @@ export async function saveBrokerNote(brokerId: string, noteData: SaveBrokerNoteI
 
   try {
     const notesRef = collection(db, "users", brokerId, "calendarNotes");
+    const resolvedClientName = await resolveClientDisplayName(noteData.clientId, noteData.clientName);
     const idempotencyKey = noteData.idempotencyKey ?? [
       brokerId,
       noteData.calendarOwnerId ?? brokerId,
@@ -366,10 +412,12 @@ export async function saveBrokerNote(brokerId: string, noteData: SaveBrokerNoteI
       Math.floor(Date.now() / 60_000),
     ].join("|");
     const noteId = `note_${hashNoteKey(idempotencyKey)}`;
-    const { idempotencyKey: _ignoredIdempotencyKey, ...persistedNoteData } = noteData;
+    const { idempotencyKey: _ignoredIdempotencyKey, clientName: _ignoredClientName, ...persistedNoteData } = noteData;
+    const persistedClientName = noteData.clientId ? resolvedClientName || "Πελάτης" : resolvedClientName;
 
     const payload: Omit<BrokerNote, "id"> = {
       ...persistedNoteData,
+      ...(persistedClientName ? { clientName: persistedClientName } : {}),
       brokerId,
       calendarOwnerId: noteData.calendarOwnerId ?? brokerId,
       done: noteData.done ?? false,
@@ -399,6 +447,8 @@ export async function saveShowingCalendarNotes(params: {
   scheduledTime: string;
   notes?: string;
 }): Promise<{ brokerNoteId: string; clientNoteId: string }> {
+  const resolvedClientName = await resolveClientDisplayName(params.clientId, params.clientName);
+  const clientName = resolvedClientName || "Πελάτης";
   const timestamp = new Date(`${params.scheduledDate}T${params.scheduledTime}:00`).getTime();
   const shared = {
     title: `Επίσκεψη: ${params.apartmentTitle}`,
@@ -414,7 +464,7 @@ export async function saveShowingCalendarNotes(params: {
     timestamp,
     clientId: params.clientId,
     appointmentId: params.appointmentId,
-    clientName: params.clientName,
+    clientName,
     notesText: params.notes,
   };
 
@@ -424,7 +474,7 @@ export async function saveShowingCalendarNotes(params: {
       brokerId: params.brokerId,
       calendarOwnerId: params.brokerId,
       counterpartId: params.clientId,
-      counterpartName: params.clientName,
+      counterpartName: clientName,
       idempotencyKey: `showing:${params.appointmentId ?? "no-appointment"}:${params.brokerId}`,
     }),
     saveBrokerNote(params.clientId, {
@@ -516,16 +566,14 @@ export async function getBrokerNotesByDateRange(
       return mapFirestoreDocToBrokerNote(docSnap.id, data, brokerId);
     }).filter((note) => note.date >= startDate && note.date <= endDate);
 
-    const appointmentQueries = ["brokerId", "listingBrokerId", "buyerBrokerId", "coveringBrokerId"].map((field) => getDocs(query(collection(db, "appointments"), where(field, "==", brokerId))));
-    const appointmentSnapshots = await Promise.all(appointmentQueries);
+    const appointmentSnapshot = await getDocs(query(collection(db, "appointments"), where("brokerId", "==", brokerId)));
     const appointmentNotes = new Map<string, BrokerNote>();
-    appointmentSnapshots.flatMap((result) => result.docs).forEach((appointmentSnapshot) => {
-      const appointmentNote = mapAppointmentToBrokerNote(appointmentSnapshot.id, appointmentSnapshot.data() as FirestoreAppointmentReadDoc, brokerId);
+    appointmentSnapshot.docs.forEach((appointmentDocument) => {
+      const appointmentNote = mapAppointmentToBrokerNote(appointmentDocument.id, appointmentDocument.data() as FirestoreAppointmentReadDoc, brokerId);
       if (appointmentNote && appointmentNote.date >= startDate && appointmentNote.date <= endDate) appointmentNotes.set(appointmentNote.appointmentId!, appointmentNote);
     });
 
-    const appointmentIds = new Set([...appointmentNotes.keys()]);
-    const notesWithoutAppointmentCopies = mapped.filter((note) => !note.appointmentId || !appointmentIds.has(note.appointmentId));
+    const notesWithoutAppointmentCopies = mapped.filter((note) => !note.appointmentId);
 
     return deduplicateBrokerNotes([...notesWithoutAppointmentCopies, ...appointmentNotes.values()]).sort((a, b) => {
       if (a.date === b.date) {

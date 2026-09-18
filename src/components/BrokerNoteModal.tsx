@@ -277,7 +277,7 @@ export default function BrokerNoteModal({
         apartmentTitle: selectedApartment?.title,
         apartmentPrice: selectedApartment?.price,
         ...(isClientMode ? {} : {
-          clientId: selectedClient?.id,
+          clientId: selectedClientId ?? undefined,
           clientName: selectedClient?.name?.trim() || selectedClientName.trim() || note?.clientName?.trim(),
         }),
         category: selectedCategory,

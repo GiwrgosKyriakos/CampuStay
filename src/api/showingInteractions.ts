@@ -1,4 +1,4 @@
-import { addDoc, collection, doc, serverTimestamp, setDoc } from "firebase/firestore";
+import { collection, doc, serverTimestamp, setDoc } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 
 import { db } from "@/src/config/firebase";
@@ -33,41 +33,50 @@ export async function savePostVisitFeedback(input: PostVisitFeedbackInput): Prom
   if (!apartmentId) throw new Error("Δεν βρέθηκε διαμέρισμα για την επίσκεψη.");
   const clientId = input.note.clientId ?? (input.isClient ? input.loggedByUserId : "");
   const brokerId = input.note.brokerId;
+  const interactionBrokerId = input.loggedByUserId.trim();
+  if (!input.isClient && (!interactionBrokerId || !brokerId || brokerId !== interactionBrokerId)) {
+    throw new Error("Interaction logs must be authored by the submitting broker.");
+  }
   const scores = [input.clientPriceScore, input.clientLayoutScore, input.clientConditionScore];
   const averageScore = scores.every((score) => typeof score === "number")
     ? scores.reduce((sum, score) => sum + (score ?? 0), 0) / 3
     : null;
 
-  const interaction = await addDoc(collection(db, "apartments", apartmentId, "interactions"), {
-    apartmentId,
-    apartmentTitle: input.note.apartmentTitle ?? "Διαμέρισμα",
-    clientId,
-    clientName: input.clientName,
-    brokerId,
-    type: "showing",
-    note: input.isClient ? input.clientNotes ?? "" : input.brokerAssessmentNotes ?? "",
-    loggedByUserId: input.loggedByUserId,
-    createdAt: serverTimestamp(),
-    scheduledDate: input.note.scheduledDate ?? input.note.date,
-    scheduledTime: input.note.scheduledTime ?? input.note.time,
-    isVisitCompleted: true,
-    ratings: input.isClient ? {
-      priceScore: input.clientPriceScore,
-      layoutScore: input.clientLayoutScore,
-      conditionScore: input.clientConditionScore,
-      averageScore,
-    } : null,
-    selectedFeedbackTags: input.isClient ? input.selectedTags ?? [] : [],
-    clientNotes: input.isClient ? input.clientNotes ?? "" : "",
-    secondVisitInterest: input.isClient ? input.secondVisitInterest ?? null : null,
-    brokerAssessmentNotes: input.isClient ? "" : input.brokerAssessmentNotes ?? "",
-    hasOralOffer: input.isClient ? false : input.hasOralOffer === true,
-    oralOfferAmount: !input.isClient && input.hasOralOffer ? input.oralOfferAmount ?? null : null,
-    followUpIntent: input.isClient ? null : input.followUpIntent ?? null,
-    submittedByCoveringBrokerId: input.submittedByCoveringBrokerId ?? null,
-  });
+  const interactionRef = doc(collection(db, "apartments", apartmentId, "interactions"));
+  if (!input.isClient) {
+    const assignedBrokerIds = Array.from(new Set([
+      interactionBrokerId,
+      input.note.brokerId,
+      input.note.listingBrokerId,
+      input.note.buyerBrokerId,
+    ].filter((id): id is string => typeof id === "string" && id.trim().length > 0)));
+    await setDoc(interactionRef, {
+      apartmentId,
+      apartmentTitle: input.note.apartmentTitle ?? "Διαμέρισμα",
+      clientId,
+      clientName: input.clientName,
+      brokerId: interactionBrokerId,
+      assignedBrokerIds,
+      type: "showing",
+      note: input.brokerAssessmentNotes ?? "",
+      loggedByUserId: interactionBrokerId,
+      createdAt: serverTimestamp(),
+      scheduledDate: input.note.scheduledDate ?? input.note.date,
+      scheduledTime: input.note.scheduledTime ?? input.note.time,
+      isVisitCompleted: true,
+      ratings: null,
+      selectedFeedbackTags: [],
+      clientNotes: "",
+      secondVisitInterest: null,
+      brokerAssessmentNotes: input.brokerAssessmentNotes ?? "",
+      hasOralOffer: input.hasOralOffer === true,
+      oralOfferAmount: input.hasOralOffer ? input.oralOfferAmount ?? null : null,
+      followUpIntent: input.followUpIntent ?? null,
+      submittedByCoveringBrokerId: input.submittedByCoveringBrokerId ?? null,
+    });
+  }
 
-  await setDoc(doc(db, "post_visit_feedbacks", interaction.id), {
+  await setDoc(doc(db, "post_visit_feedbacks", interactionRef.id), {
     apartmentId,
     apartmentTitle: input.note.apartmentTitle ?? "Διαμέρισμα",
     clientId,
@@ -79,7 +88,7 @@ export async function savePostVisitFeedback(input: PostVisitFeedbackInput): Prom
     selectedFeedbackTags: input.isClient ? input.selectedTags ?? [] : [],
     rating: averageScore,
     createdAt: serverTimestamp(),
-    sourceInteractionId: interaction.id,
+    sourceInteractionId: input.isClient ? null : interactionRef.id,
   });
 
   if (clientId) {
@@ -90,7 +99,7 @@ export async function savePostVisitFeedback(input: PostVisitFeedbackInput): Prom
       clientUserId: clientId,
       role: "client",
       lastShowingFeedback: {
-        interactionId: interaction.id,
+        interactionId: interactionRef.id,
         apartmentId,
         loggedByUserId: input.loggedByUserId,
         createdAt: serverTimestamp(),
@@ -115,5 +124,5 @@ export async function savePostVisitFeedback(input: PostVisitFeedbackInput): Prom
       });
     }
   }
-  return interaction.id;
+  return interactionRef.id;
 }

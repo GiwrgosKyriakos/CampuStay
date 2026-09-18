@@ -18,6 +18,25 @@ import type {
   SignatureSignerEvidence,
 } from "@/src/types/esignature";
 
+export type MissingContractAfmKind = "broker" | "agency";
+
+export class MissingContractAfmError extends Error {
+  readonly kind: MissingContractAfmKind;
+
+  constructor(kind: MissingContractAfmKind) {
+    super(`Missing ${kind} AFM for contract creation.`);
+    this.name = "MissingContractAfmError";
+    this.kind = kind;
+  }
+}
+
+function recordAfm(value: unknown): string {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+  const record = value as Record<string, unknown>;
+  const afm = typeof record.afm === "string" ? record.afm.trim() : "";
+  return /^\d{9}$/.test(afm) ? afm : "";
+}
+
 function sanitizeEvidence(evidence: SignatureSignerEvidence): SignatureSignerEvidence {
   return {
     ...evidence,
@@ -70,9 +89,21 @@ export async function createContractDocument(input: CreateContractInput): Promis
   if (!input.agencyId.trim() || !input.createdByUserId.trim()) throw new Error("Agency and creator are required");
   if (input.signers.length === 0 || input.requiredSignerIds.length === 0) throw new Error("At least one signer is required");
 
+  const brokerId = input.brokerId?.trim() || input.signers.find((signer) => signer.signerRole === "broker")?.signerId.trim() || "";
+  const [brokerSnapshot, agencySnapshot] = await Promise.all([
+    brokerId ? getDoc(doc(db, "users", brokerId)) : Promise.resolve(null),
+    getDoc(doc(db, "agencies", input.agencyId.trim())),
+  ]);
+  const brokerAfm = brokerSnapshot?.exists() ? recordAfm(brokerSnapshot.data()) : "";
+  const agencyAfm = agencySnapshot.exists() ? recordAfm(agencySnapshot.data()) : "";
+  if (!brokerAfm) throw new MissingContractAfmError("broker");
+  if (!agencyAfm) throw new MissingContractAfmError("agency");
+
   const createdAt = Date.now();
   const contractPayload = {
     ...(input.contractPayload ?? {}),
+    brokerAfm,
+    agencyAfm,
     ...((input.contractType === "viewing_order" || input.contractType === "property_assignment") && input.contractPayload?.commissionRatePercentage === undefined ? { commissionRatePercentage: 2 } : {}),
   };
   const payload = {
@@ -92,7 +123,7 @@ export async function createContractDocument(input: CreateContractInput): Promis
     ...(input.chatRoomId?.trim() ? { chatRoomId: input.chatRoomId.trim() } : {}),
     status: "pending_signatures" as const,
     contractPayload,
-    signers: input.signers.map(sanitizeEvidence),
+    signers: input.signers.map(sanitizeEvidence).map((signer) => signer.signerId === brokerId ? { ...signer, signerAfm: brokerAfm } : signer),
     requiredSignerIds: Array.from(new Set(input.requiredSignerIds.filter(Boolean))),
     createdAt,
     updatedAt: createdAt,

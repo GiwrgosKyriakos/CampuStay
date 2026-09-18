@@ -17,7 +17,8 @@ import { collection, doc, getDoc, onSnapshot, query, updateDoc, where } from "fi
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { approveAgencyBroker, rejectAgencyBroker, updateAgencyPasscode } from "@/src/api/agency";
+import { approveAgencyBroker, rejectAgencyBroker, updateAgencyAfm, updateAgencyPasscode } from "@/src/api/agency";
+import { TourAnchor } from "@/src/components/tour/TourAnchor";
 import { uploadImageAsync } from "@/src/api/imageUpload";
 import { getUserProfile, type UserProfile } from "@/src/api/userProfile";
 import { db, storage } from "@/src/config/firebase";
@@ -26,7 +27,7 @@ import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme"
 import { useTheme } from "@/src/context/ThemeContext";
 import { t } from "@/src/locales";
 
-type Agency = { name?: string; ceoEmail?: string; passcode?: string; logoUrl?: string | null };
+type Agency = { name?: string; ceoEmail?: string; passcode?: string; afm?: string | null; logoUrl?: string | null };
 type Broker = UserProfile & { id: string; email?: string | null; agencyJoinedAt?: unknown; agencyRequestedAt?: unknown };
 
 function formatDate(value: unknown): string {
@@ -45,11 +46,14 @@ export default function AgencyManagementScreen() {
 
   const [agencyId, setAgencyId] = useState<string | null>(null);
   const [agency, setAgency] = useState<Agency | null>(null);
+  const [agencyRole, setAgencyRole] = useState<"ceo" | "owner" | "secretary" | null>(null);
   const [pending, setPending] = useState<Broker[]>([]);
   const [active, setActive] = useState<Broker[]>([]);
   const [loading, setLoading] = useState(true);
   const [workingId, setWorkingId] = useState<string | null>(null);
   const [newPasscode, setNewPasscode] = useState("");
+  const [agencyAfm, setAgencyAfm] = useState("");
+  const [afmSaving, setAfmSaving] = useState(false);
   const [passcodeSaving, setPasscodeSaving] = useState(false);
   const [logoSaving, setLogoSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -58,12 +62,13 @@ export default function AgencyManagementScreen() {
     if (auth.isLoading || !auth.userId) return;
     let mounted = true;
     void getUserProfile(auth.userId).then((profile) => {
-      const authorized = (profile?.agencyRole === "ceo" || profile?.agencyRole === "secretary") && !!profile.agencyId;
+      const authorized = (profile?.agencyRole === "ceo" || profile?.agencyRole === "owner" || profile?.agencyRole === "secretary") && !!profile.agencyId;
       if (!mounted) return;
       if (!authorized) {
         router.replace("/profile");
         return;
       }
+      setAgencyRole(profile.agencyRole === "ceo" || profile.agencyRole === "owner" || profile.agencyRole === "secretary" ? profile.agencyRole : null);
       setAgencyId(profile.agencyId!);
     }).catch(() => router.replace("/profile"));
     return () => { mounted = false; };
@@ -73,7 +78,11 @@ export default function AgencyManagementScreen() {
     if (!agencyId) return;
     let mounted = true;
     void getDoc(doc(db, "agencies", agencyId)).then((snapshot) => {
-      if (mounted && snapshot.exists()) setAgency(snapshot.data() as Agency);
+      if (mounted && snapshot.exists()) {
+        const data = snapshot.data() as Agency;
+        setAgency(data);
+        setAgencyAfm((data.afm ?? "").replace(/[^0-9]/g, "").slice(0, 9));
+      }
     });
     const usersQuery = query(collection(db, "users"), where("agencyId", "==", agencyId));
     const unsubscribe = onSnapshot(
@@ -119,6 +128,23 @@ export default function AgencyManagementScreen() {
       setMessage(t("agency.management.changeFailed"));
     } finally {
       setPasscodeSaving(false);
+    }
+  };
+
+  const saveAgencyAfm = async () => {
+    if (!agencyId || agencyRole === "secretary" || !/^\d{9}$/.test(agencyAfm)) {
+      setMessage(t("agency.afmInvalid"));
+      return;
+    }
+    setAfmSaving(true);
+    try {
+      await updateAgencyAfm(agencyId, agencyAfm);
+      setAgency((previous) => (previous ? { ...previous, afm: agencyAfm } : previous));
+      Alert.alert(t("agency.management.success"), t("agency.afmSaved"));
+    } catch {
+      setMessage(t("agency.management.afmSaveFailed"));
+    } finally {
+      setAfmSaving(false);
     }
   };
 
@@ -225,6 +251,7 @@ export default function AgencyManagementScreen() {
   );
 
   return (
+    <TourAnchor targetKey="agency_management_screen" style={styles.container}>
     <View style={styles.container}>
       {/* Curved Elevated Header */}
       <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
@@ -308,14 +335,16 @@ export default function AgencyManagementScreen() {
           </View>
         </View>
 
-        {pending.length ? (
-          pending.map((broker) => renderBrokerRow(broker, true))
-        ) : (
-          <View style={styles.emptyCard}>
-            <Ionicons name="checkmark-done-circle-outline" size={24} color={colors.onSurfaceTertiary} />
-            <Text style={styles.emptyText}>Δεν υπάρχουν εκκρεμή αιτήματα συνεργασίας.</Text>
-          </View>
-        )}
+        <TourAnchor targetKey="agency_unassigned_pool">
+          {pending.length ? (
+            pending.map((broker) => renderBrokerRow(broker, true))
+          ) : (
+            <View style={styles.emptyCard}>
+              <Ionicons name="checkmark-done-circle-outline" size={24} color={colors.onSurfaceTertiary} />
+              <Text style={styles.emptyText}>Δεν υπάρχουν εκκρεμή αιτήματα συνεργασίας.</Text>
+            </View>
+          )}
+        </TourAnchor>
 
         {/* Section: Active Brokers */}
         <View style={styles.sectionHeaderRow}>
@@ -334,7 +363,32 @@ export default function AgencyManagementScreen() {
           </View>
         )}
 
+        {agencyRole === "ceo" || agencyRole === "owner" ? (
+          <TourAnchor targetKey="agency_afm_management">
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>{t("agency.afmLabel")}</Text>
+            <TextInput
+              style={styles.input}
+              value={agencyAfm}
+              onChangeText={(value) => setAgencyAfm(value.replace(/[^0-9]/g, "").slice(0, 9))}
+              placeholder={t("agency.afmPlaceholder")}
+              placeholderTextColor={colors.onSurfaceTertiary}
+              keyboardType="numeric"
+              maxLength={9}
+            />
+            <Pressable
+              style={[styles.button, styles.primaryButton, (!/^\d{9}$/.test(agencyAfm) || afmSaving) && styles.buttonDisabled]}
+              disabled={!/^\d{9}$/.test(agencyAfm) || afmSaving}
+              onPress={() => void saveAgencyAfm()}
+            >
+              {afmSaving ? <ActivityIndicator color={colors.onBrand} /> : <Text style={styles.primaryButtonText}>{t("common.actions.save")}</Text>}
+            </Pressable>
+          </View>
+          </TourAnchor>
+        ) : null}
+
         {/* Section: Passcode Management */}
+        <TourAnchor targetKey="agency_code_management">
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Κωδικός Γραφείου</Text>
           <Text style={styles.cardSubtitle}>
@@ -364,8 +418,10 @@ export default function AgencyManagementScreen() {
             )}
           </Pressable>
         </View>
+        </TourAnchor>
       </KeyboardAwareScrollView>
     </View>
+    </TourAnchor>
   );
 }
 

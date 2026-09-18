@@ -51,3 +51,9 @@ export async function updateAgencyPasscode(agencyId: string, newPasscode: string
     createdAt: serverTimestamp(),
   });
 }
+
+export async function updateAgencyAfm(agencyId: string, afm: string): Promise<void> {
+  const normalizedAfm = afm.trim();
+  if (!/^\d{9}$/.test(normalizedAfm)) throw new Error("Agency AFM must contain exactly 9 digits.");
+  await updateDoc(doc(db, "agencies", agencyId), { afm: normalizedAfm, updatedAt: serverTimestamp() });
+}

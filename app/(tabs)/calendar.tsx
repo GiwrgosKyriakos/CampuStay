@@ -35,6 +35,8 @@ import { shouldSuppressViewingFeedback } from "@/src/utils/viewingFeedbackEligib
 import MonthYearPickerModal from "@/src/components/calendar/MonthYearPickerModal";
 import CalendarGridShimmerCell from "@/src/components/calendar/CalendarGridShimmerCell";
 import BrokerTodoSkeleton from "@/src/components/calendar/BrokerTodoSkeleton";
+import RoommateCalendarRoute from "@/src/components/calendar/RoommateCalendarRoute";
+import { TourAnchor } from "@/src/components/tour/TourAnchor";
 
 type CalendarViewMode = "month" | "week" | "day";
 const WEEKDAY_LABELS = ["Δευ", "Τρι", "Τετ", "Πεμ", "Παρ", "Σαβ", "Κυρ"] as const;
@@ -288,6 +290,7 @@ export function CalendarView({
   bottomInset,
   visibleNotes,
   isLoading,
+  showAddNoteControls = false,
 }: {
   colors: ThemeColors;
   isBroker: boolean;
@@ -306,6 +309,7 @@ export function CalendarView({
   bottomInset: number;
   visibleNotes: BrokerNote[];
   isLoading: boolean;
+  showAddNoteControls?: boolean;
 }) {
   const [currentTime, setCurrentTime] = useState(() => new Date());
   useEffect(() => {
@@ -522,7 +526,7 @@ export function CalendarView({
             {t("calendar.noteModal.apartmentLabel")}: {note.apartmentTitle || "-"}
           </Text>
           <Text style={[styles.noteSecondaryText, { color: textColor, textDecorationLine: note.done ? "line-through" : "none" }]}>
-            {t("calendar.noteModal.clientLabel")}: {note.clientName || "-"}
+            {t("calendar.noteModal.clientLabel")}: {note.clientName || t("brokerClient.clientFallback")}
           </Text>
           {note.coveringBrokerId ? <Text style={[styles.coveringNoteBadge, { color: colors.brand }]} numberOfLines={1}>{t("calendar.coveringVisitFor", { name: note.primaryBrokerName || t("agency.coveringBroker") })}</Text> : null}
         </View>
@@ -586,8 +590,8 @@ export function CalendarView({
         <View style={styles.noteDetails}>
           {visibleFields.includes("time") ? <Text style={[styles.notePrimaryText, compactTextStyle]} numberOfLines={1}>{note.time || "--:--"}</Text> : null}
           {visibleFields.includes("apartment") ? <Text style={[styles.noteSecondaryText, compactTextStyle]} numberOfLines={1}>{note.apartmentTitle || "-"}</Text> : null}
-          {visibleFields.includes("client") ? <Text style={[styles.noteSecondaryText, compactTextStyle]} numberOfLines={1}>{note.clientName || "-"}</Text> : null}
-          {visibleFields.includes("apartmentOrClient") ? <Text style={[styles.noteSecondaryText, compactTextStyle]} numberOfLines={1}>{note.apartmentTitle || note.clientName || "-"}</Text> : null}
+          {visibleFields.includes("client") ? <Text style={[styles.noteSecondaryText, compactTextStyle]} numberOfLines={1}>{note.clientName || t("brokerClient.clientFallback")}</Text> : null}
+          {visibleFields.includes("apartmentOrClient") ? <Text style={[styles.noteSecondaryText, compactTextStyle]} numberOfLines={1}>{note.apartmentTitle || note.clientName || t("brokerClient.clientFallback")}</Text> : null}
           {visibleFields.includes("timeOrTitle") ? <Text style={[styles.notePrimaryText, compactTextStyle]} numberOfLines={1}>{note.time || note.apartmentTitle || "--:--"}</Text> : null}
           {note.coveringBrokerId && visibleFields.includes("timeOrTitle") ? <Text style={[styles.coveringNoteBadge, { color: colors.brand }]} numberOfLines={1}>{t("calendar.coveringVisit")}</Text> : null}
         </View>
@@ -625,23 +629,25 @@ export function CalendarView({
       >
         <View style={styles.dayViewHeaderRow}>
           <Text numberOfLines={1} style={[styles.dayViewTitle, styles.singleDateTitle, { color: colors.onSurface }]}>{dateHeader}</Text>
-          <Pressable
-            accessibilityLabel={showFullTitle ? t("calendar.zoomOutAccessibility") : t("calendar.zoomInAccessibility")}
-            hitSlop={8}
-            onPress={(event) => {
-              event.stopPropagation();
-              if (showFullTitle) {
-                onSelectDate(startOfWeek(date));
-                onCalendarViewModeChange("week");
-              } else {
-                onSelectDate(date);
-                onCalendarViewModeChange("day");
-              }
-            }}
-            style={[styles.zoomButton, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
-          >
-            <Ionicons name={showFullTitle ? "contract-outline" : "expand-outline"} size={19} color={colors.onSurface} />
-          </Pressable>
+          <TourAnchor targetKey="calendar_day_focus">
+            <Pressable
+              accessibilityLabel={showFullTitle ? t("calendar.zoomOutAccessibility") : t("calendar.zoomInAccessibility")}
+              hitSlop={8}
+              onPress={(event) => {
+                event.stopPropagation();
+                if (showFullTitle) {
+                  onSelectDate(startOfWeek(date));
+                  onCalendarViewModeChange("week");
+                } else {
+                  onSelectDate(date);
+                  onCalendarViewModeChange("day");
+                }
+              }}
+              style={[styles.zoomButton, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+            >
+              <Ionicons name={showFullTitle ? "contract-outline" : "expand-outline"} size={19} color={colors.onSurface} />
+            </Pressable>
+          </TourAnchor>
         </View>
         {notes.length === 0 ? (
           <Text style={[styles.emptyStateText, { color: colors.onSurfaceTertiary, textAlign: "left" }]}>{t("calendar.emptyDay")}</Text>
@@ -654,16 +660,19 @@ export function CalendarView({
             return <View style={styles.noteGrid}>{layout.notes.map((note) => renderCompactNoteCard(note, cardWidth, layout.visibleFields))}</View>;
           })()
         )}
-        {isBroker && !isPast ? (
-          <Pressable
-            style={[styles.addNoteRow, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
-            onPress={(event) => {
-              event.stopPropagation();
-              onAddNotePress(dateKey);
-            }}
-          >
-            <Ionicons name="add-circle" size={28} color={brandPrimaryColor} />
-          </Pressable>
+        {(isBroker || showAddNoteControls) && !isPast ? (
+          <TourAnchor targetKey="calendar_add_note_fab">
+            <Pressable
+              style={[styles.addNoteRow, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+              onPress={(event) => {
+                event.stopPropagation();
+                onAddNotePress(dateKey);
+              }}
+              testID="calendar-add-note-fab"
+            >
+              <Ionicons name="add-circle" size={28} color={brandPrimaryColor} />
+            </Pressable>
+          </TourAnchor>
         ) : null}
       </Pressable>
     );
@@ -716,20 +725,16 @@ export function CalendarView({
 
               return (
                 <View key={`week-${week.index}`} style={styles.weekRow}>
-                  <Pressable
-                    style={styles.weekBarTouchArea}
-                    onPress={() => handleWeekSelect(new Date(week.cells[0].date))}
-                    hitSlop={{ top: 4, bottom: 4, left: 6, right: 6 }}
-                    testID={`broker-calendar-week-bar-${week.index}`}
-                  >
-                    <View
-                      style={[
-                        styles.weekVerticalBar,
-                        isWeekActive ? styles.weekVerticalBarActive : styles.weekVerticalBarInactive,
-                        { backgroundColor: isWeekActive ? colors.brand : colors.muted },
-                      ]}
-                    />
-                  </Pressable>
+                  <TourAnchor targetKey="calendar_week_toggle">
+                    <Pressable
+                      style={styles.weekBarTouchArea}
+                      onPress={() => handleWeekSelect(new Date(week.cells[0].date))}
+                      hitSlop={{ top: 4, bottom: 4, left: 6, right: 6 }}
+                      testID={`broker-calendar-week-bar-${week.index}`}
+                    >
+                      <View style={[styles.weekVerticalBar, isWeekActive ? styles.weekVerticalBarActive : styles.weekVerticalBarInactive, { backgroundColor: isWeekActive ? colors.brand : colors.muted }]} />
+                    </Pressable>
+                  </TourAnchor>
 
                   {week.cells.map((cell, columnIndex) => {
                     const dayNotes = notesByDate.get(cell.dateKey) ?? [];
@@ -772,14 +777,16 @@ export function CalendarView({
 
         {calendarViewMode === "week" ? (
           <View style={styles.weekRow}>
-            <Pressable
-              style={styles.weekBarTouchArea}
-              onPress={() => handleWeekSelect(new Date(currentWeekCells[0].date))}
-              hitSlop={{ top: 4, bottom: 4, left: 6, right: 6 }}
-              testID="broker-calendar-week-bar-current"
-            >
-              <View style={[styles.weekVerticalBar, styles.weekVerticalBarActive, { backgroundColor: colors.brand }]} />
-            </Pressable>
+            <TourAnchor targetKey="calendar_week_toggle">
+              <Pressable
+                style={styles.weekBarTouchArea}
+                onPress={() => handleWeekSelect(new Date(currentWeekCells[0].date))}
+                hitSlop={{ top: 4, bottom: 4, left: 6, right: 6 }}
+                testID="broker-calendar-week-bar-current"
+              >
+                <View style={[styles.weekVerticalBar, styles.weekVerticalBarActive, { backgroundColor: colors.brand }]} />
+              </Pressable>
+            </TourAnchor>
 
             {currentWeekCells.map((cell, columnIndex) => {
               const dayNotes = notesByDate.get(cell.dateKey) ?? [];
@@ -823,7 +830,8 @@ export function CalendarView({
         {pendingFeedbackNotes.length > 0 ? <View style={[styles.feedbackCallout, { borderColor: colors.brand, backgroundColor: colors.brandTertiary }]} testID="broker-calendar-pending-feedback-callout"><Ionicons name="star-outline" size={22} color={colors.brand} /><View style={styles.feedbackCalloutCopy}><Text style={[styles.feedbackCalloutText, { color: colors.onSurface }]}>Σημείωση εκτίμησης & feedback για την υπόδειξη στο {pendingFeedbackNotes[0].apartmentTitle ?? "διαμέρισμα"}.</Text><Pressable onPress={() => setFeedbackNote(pendingFeedbackNotes[0])} testID="broker-calendar-open-feedback"><Text style={[styles.feedbackCalloutAction, { color: colors.brand }]}>Καταγραφή Feedback</Text></Pressable></View></View> : null}
 
         {calendarViewMode === "month" ? (
-          <View style={[styles.todoCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+          <TourAnchor targetKey="calendar_todo_button">
+            <View style={[styles.todoCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
             <View style={styles.nextUpSection}>
               <Text style={[styles.toDoTitle, { color: colors.onSurface }]}>
                 To<Text style={{ color: colors.brand }}>Do</Text>
@@ -840,7 +848,8 @@ export function CalendarView({
                 </View>
               )}
             </View>
-          </View>
+            </View>
+          </TourAnchor>
         ) : null}
         <PostVisitFeedbackModal visible={feedbackNote !== null && feedbackEligibility[feedbackNote.id] === true && feedbackNote.feedbackStatus !== "suppressed_rescheduled" && feedbackNote.appointmentStatus !== "superseded_pending" && feedbackNote.appointmentStatus !== "superseded_final" && feedbackNote.appointmentStatus !== "reschedule_proposed" && feedbackNote.appointmentStatus !== "reschedule_rejected"} note={feedbackNote} isClient={false} userId={userId} clientName={feedbackNote?.clientName ?? ""} propertyId={feedbackNote?.apartmentId} clientId={feedbackNote?.clientId} profileId={feedbackNote?.brokerId && feedbackNote?.clientId ? `${feedbackNote.brokerId}_${feedbackNote.clientId}` : undefined} listingPrice={feedbackNote?.apartmentPrice} isBrokerManaged={feedbackNote ? feedbackEligibility[feedbackNote.id] === true : false} onClose={() => setFeedbackNote(null)} onSaved={() => { if (!feedbackNote) return; onFeedbackSaved(feedbackNote.id); setFeedbackNote(null); }} />
       </View>
@@ -1007,7 +1016,8 @@ function BrokerCalendarScreen() {
   const [calendarViewMode, setCalendarViewMode] = useState<CalendarViewMode>("month");
   const [currentDate, setCurrentDate] = useState(new Date());
   const visibleRange = useMemo(() => getVisibleRange(currentDate, calendarViewMode), [calendarViewMode, currentDate]);
-  const initialNotesKey = `${visibleRange.start}_${visibleRange.end}`;
+  const brokerId = auth.user?.user_id ?? auth.userId ?? "";
+  const initialNotesKey = `${brokerId}_${visibleRange.start}_${visibleRange.end}`;
   const [visibleNotes, setVisibleNotes] = useState<BrokerNote[]>(() => memoryNotesCache[initialNotesKey] ?? []);
   const [isVisibleNotesLoading, setIsVisibleNotesLoading] = useState(() => !memoryNotesCache[initialNotesKey]);
   const [isNoteModalVisible, setIsNoteModalVisible] = useState(false);
@@ -1017,7 +1027,6 @@ function BrokerCalendarScreen() {
   const [completedNotePendingEdit, setCompletedNotePendingEdit] = useState<BrokerNote | null>(null);
   const [notesRefreshToken, setNotesRefreshToken] = useState(0);
 
-  const brokerId = auth.user?.user_id ?? auth.userId ?? "";
   const isClientMode = !auth.isBroker && auth.notLookingForRoommate === true;
   const isHomeTab = getRoleHomeTab(auth) === "calendar";
   const headerTitle = useMemo(
@@ -1067,7 +1076,7 @@ function BrokerCalendarScreen() {
       }
 
       try {
-        const rangeKey = `${visibleRange.start}_${visibleRange.end}`;
+        const rangeKey = `${brokerId}_${visibleRange.start}_${visibleRange.end}`;
         if (!memoryNotesCache[rangeKey]) setIsVisibleNotesLoading(true);
         const notes = await getBrokerNotesByDateRange(brokerId, visibleRange.start, visibleRange.end);
         if (isMounted) {
@@ -1076,7 +1085,7 @@ function BrokerCalendarScreen() {
         }
       } catch {
         if (isMounted) {
-          if (!memoryNotesCache[`${visibleRange.start}_${visibleRange.end}`]) setVisibleNotes([]);
+          if (!memoryNotesCache[`${brokerId}_${visibleRange.start}_${visibleRange.end}`]) setVisibleNotes([]);
         }
       } finally {
         if (isMounted) {
@@ -1260,7 +1269,7 @@ function BrokerCalendarScreen() {
   const handleToggleNoteDone = useCallback(
     async (note: BrokerNote) => {
       const nextDone = !note.done;
-      const rangeKey = `${visibleRange.start}_${visibleRange.end}`;
+      const rangeKey = `${brokerId}_${visibleRange.start}_${visibleRange.end}`;
       setVisibleNotes((previous) => {
         const next = previous.map((item) => (item.id === note.id ? { ...item, done: nextDone } : item));
         memoryNotesCache[rangeKey] = next;
@@ -1436,7 +1445,9 @@ const clientCalendarStyles = StyleSheet.create({
 
 export default function CalendarScreen() {
   const auth = useAuth();
-  return auth.isBroker || auth.notLookingForRoommate === true ? <BrokerCalendarScreen /> : <ClientCalendarScreen />;
+  if (auth.isBroker || auth.notLookingForRoommate === true) return <BrokerCalendarScreen />;
+  if (auth.isLoggedIn && !auth.isGuest) return <RoommateCalendarRoute />;
+  return <ClientCalendarScreen />;
 }
 
 const styles = StyleSheet.create({

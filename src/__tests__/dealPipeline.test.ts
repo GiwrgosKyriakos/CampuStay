@@ -48,7 +48,7 @@ function mockApplyUpdate(path: string, data: Record<string, unknown>): void {
 
 jest.mock("firebase-admin/app", () => ({ getApps: () => [], initializeApp: jest.fn() }), { virtual: true });
 jest.mock("firebase-admin/firestore", () => ({
-  FieldValue: { serverTimestamp: () => mockServerTimestamp, delete: () => mockDeleteField },
+  FieldValue: { serverTimestamp: () => mockServerTimestamp, delete: () => mockDeleteField, arrayUnion: (...values: unknown[]) => values },
   getFirestore: () => ({
     doc: (path: string) => mockReference(path),
     collection: mockCollection,
@@ -137,6 +137,18 @@ describe("deal pipeline stage gates", () => {
   it("allows Stage 90 only when all Stage 90 documents are verified", async () => {
     seedChecklist(Object.fromEntries(["engineering-1", "engineering-2", "engineering-3", "legal-1", "legal-2", "legal-3"].map((id) => [id, "verified"])));
     await expect((advanceDealStageCallable as any)(request("broker-1", { dealId: "apt-1_client-1", targetStage: 90 }))).resolves.toEqual({ dealId: "apt-1_client-1", stage: 90 });
+  });
+
+  it("updates the canonical broker-client profile with the deal stage", async () => {
+    seedChecklist(Object.fromEntries(["engineering-1", "engineering-2", "engineering-3", "legal-1", "legal-2", "legal-3"].map((id) => [id, "verified"])));
+    await (advanceDealStageCallable as any)(request("broker-1", { dealId: "apt-1_client-1", targetStage: 90 }));
+    expect(mockDocuments.get("brokerClientProfiles/broker-1_client-1")).toEqual(expect.objectContaining({
+      brokerId: "broker-1",
+      contactUserId: "client-1",
+      pipelineStage: "under_contract",
+      stageUpdatedAt: mockServerTimestamp,
+      updatedAt: mockServerTimestamp,
+    }));
   });
 
   it("blocks Stage 100 until every checklist item is verified, then allows it", async () => {

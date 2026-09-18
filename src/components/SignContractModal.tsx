@@ -28,6 +28,7 @@ import {
   createContractDocument,
   getContractDownloadUrl,
   getContractDocument,
+  MissingContractAfmError,
   recordContractSignature,
   updateContractSignerIdentity,
   updateContractPayload,
@@ -144,6 +145,7 @@ function makeProperty(id: string, data: Record<string, unknown>, fallbackAddress
 }
 
 function makeAgency(id: string, data: Record<string, unknown>): ContractAgencyData {
+  const afm = asString(data.afm) || asString(data.taxNumber) || undefined;
   return {
     id,
     name: asString(data.name) || asString(data.title) || "CampuStay Agency",
@@ -151,7 +153,8 @@ function makeAgency(id: string, data: Record<string, unknown>): ContractAgencyDa
     email: asString(data.email) || undefined,
     phone: asString(data.phone) || asString(data.phoneNumber) || undefined,
     address: asString(data.address) || undefined,
-    taxNumber: asString(data.afm) || asString(data.taxNumber) || undefined,
+    afm,
+    taxNumber: afm,
   };
 }
 
@@ -467,7 +470,7 @@ export default function ContractSigningScreen({
         if (resolvedContract.status === "signed") setSuccessContract(resolvedContract);
         if (!loadedContract) onCreated?.(resolvedContract);
       } catch (error) {
-        if (active) setErrorText(error instanceof Error ? error.message : t("esign.errors.initialization"));
+        if (active) setErrorText(error instanceof MissingContractAfmError ? t("contracts.missingAfmWarning") : error instanceof Error ? error.message : t("esign.errors.initialization"));
       } finally {
         if (active) setIsLoading(false);
       }

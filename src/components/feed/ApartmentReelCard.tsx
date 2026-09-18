@@ -24,6 +24,8 @@ import { subscribeApartmentLikeCount } from "@/src/api/apartmentLikes";
 import { db } from "@/src/config/firebase";
 import { sendPropertyProposalViaMessaging } from "@/src/utils/messagingAutomation";
 import { t } from "@/src/locales";
+import { TourAnchor } from "@/src/components/tour/TourAnchor";
+import type { TourAnchorKey } from "@/src/types/tour";
 import { spacing } from "@/src/theme";
 import { useTheme } from "@/src/context/ThemeContext";
 import type { Apartment, VirtualTourData } from "@/src/types/apartment";
@@ -59,6 +61,7 @@ export interface ApartmentReelCardProps {
   isLiked?: boolean;
   onToggleLike?: () => void;
   onOpenChat?: () => void;
+  tourTargetKey?: TourAnchorKey;
   onOpenDetails?: () => void;
   onOpenVirtualTour?: () => void;
 }
@@ -72,6 +75,7 @@ export default function ApartmentReelCard({
   isLiked = false,
   onToggleLike = () => undefined,
   onOpenChat = () => undefined,
+  tourTargetKey,
   onOpenDetails = () => undefined,
   onOpenVirtualTour = () => undefined,
 }: ApartmentReelCardProps) {
@@ -235,7 +239,7 @@ export default function ApartmentReelCard({
         </Pressable>
       ) : null}
 
-      <View style={[styles.rightRail, { bottom: spacing.lg }]}>
+      <TourAnchor targetKey={tourTargetKey ?? "reels_action_cluster"} style={[styles.rightRail, { bottom: spacing.lg }]}>
         <Pressable
           style={styles.avatarCircle}
           onPress={isOwnListing ? undefined : onOpenChat}
@@ -261,7 +265,7 @@ export default function ApartmentReelCard({
           <Ionicons name="share-social-outline" size={26} color="#fff" />
         </Pressable>
         {videoUrl ? <Pressable style={styles.actionButton} onPress={() => setMuted((current) => !current)} accessibilityLabel={muted ? t("feed.unmuteVideo") : t("feed.muteVideo")}><Ionicons name={muted ? "volume-mute-outline" : "volume-high-outline"} size={25} color="#fff" /></Pressable> : null}
-      </View>
+      </TourAnchor>
 
       <View style={[styles.bottomMeta, { bottom: spacing.lg }]}>
         <Text style={styles.price}>{`€${price} / μήνα`}</Text>

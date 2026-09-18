@@ -13,6 +13,8 @@ import { useAuth } from "@/src/context/auth";
 import { db } from "@/src/config/firebase";
 import { t } from "@/src/locales";
 import { useLocale } from "@/src/context/locale";
+import { TourAnchor } from "@/src/components/tour/TourAnchor";
+import { useTour } from "@/src/context/TourContext";
 
 const STICKY_FOOTER_PADDING = 152;
 
@@ -22,6 +24,7 @@ export default function RoomieProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const auth = useAuth();
+  const { currentStep, isTourActive, notifyAction } = useTour();
   const { locale } = useLocale();
   const [userId, setUserId] = useState<string | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -111,9 +114,19 @@ export default function RoomieProfileScreen() {
       <View style={[styles.stickyHeader, { paddingTop: insets.top + spacing.sm }]}> 
         <View style={styles.headerRow}>
           <View style={[styles.headerSide, styles.headerLeft]}>
-            <Pressable style={styles.backBtn} onPress={handleBack} testID="roomie-back-button" hitSlop={8}>
-              <Ionicons name="chevron-back" size={24} color={colors.onSurface} />
-            </Pressable>
+            <TourAnchor targetKey="roommates_profile_button">
+              <Pressable
+                style={styles.backBtn}
+                onPress={() => {
+                  handleBack();
+                  if (isTourActive && currentStep?.targetKey === "roommates_profile_button") notifyAction("roommates_profile_button");
+                }}
+                testID="roomie-back-button"
+                hitSlop={8}
+              >
+                <Ionicons name="chevron-back" size={24} color={colors.onSurface} />
+              </Pressable>
+            </TourAnchor>
           </View>
 
           <View style={styles.headerCenter}>

@@ -21,17 +21,25 @@ async function resolveLeadId(input) {
         const leadSnapshot = await leads.doc(input.explicitLeadId.trim()).get();
         const lead = leadSnapshot.data() ?? {};
         return leadSnapshot.exists
-            && lead.agencyId === input.agencyId
+            && (input.agencyId === null ? (lead.agencyId === null || lead.agencyId === undefined) : lead.agencyId === input.agencyId)
             && lead.apartmentId === input.apartmentId
             && lead.clientId === input.clientId
+            && (!input.brokerId || lead.brokerId === input.brokerId || lead.assignedBrokerId === input.brokerId)
             ? leadSnapshot.id
             : "";
     }
-    const snapshot = await leads.where("agencyId", "==", input.agencyId).get();
+    const snapshot = input.brokerId
+        ? await leads.where("brokerId", "==", input.brokerId).get()
+        : input.agencyId === null
+            ? await leads.where("agencyId", "==", null).get()
+            : await leads.where("agencyId", "==", input.agencyId).get();
     const matches = snapshot.docs.filter((document) => {
         const lead = document.data();
-        return lead.apartmentId === input.apartmentId && lead.clientId === input.clientId;
+        return lead.apartmentId === input.apartmentId
+            && lead.clientId === input.clientId
+            && (input.agencyId === null ? (lead.agencyId === null || lead.agencyId === undefined) : lead.agencyId === input.agencyId)
+            && (!input.brokerId || lead.brokerId === input.brokerId || lead.assignedBrokerId === input.brokerId);
     });
-    return matches.length === 1 ? matches[0].id : "";
+    return matches.length > 0 ? matches.sort((left, right) => Number(right.data().status === "active") - Number(left.data().status === "active"))[0].id : "";
 }
 //# sourceMappingURL=leadAttribution.js.map

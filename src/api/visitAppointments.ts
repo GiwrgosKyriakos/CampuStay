@@ -13,6 +13,7 @@ import {
 } from "firebase/firestore";
 
 import { db } from "@/src/config/firebase";
+import { resolveClientDisplayName } from "@/src/api/brokerCalendar";
 
 export type VisitAppointmentStatus =
   | "pending"
@@ -37,6 +38,7 @@ export interface VisitAppointment {
   apartmentTitle: string;
   apartmentAddress: string;
   appointmentDate: string;
+  clientName?: string;
   notes?: string;
   status: VisitAppointmentStatus;
   previousVisitId?: string;
@@ -69,8 +71,10 @@ export function getPublicApartmentAddress(data: {
 
 export async function createVisitAppointment(params: Omit<VisitAppointment, "id" | "createdAt" | "updatedAt" | "status"> & { status?: VisitAppointmentStatus }): Promise<string> {
   const appointmentRef = doc(collection(db, "appointments"));
+  const resolvedClientName = await resolveClientDisplayName(params.clientId, params.clientName);
   await setDoc(appointmentRef, {
     ...params,
+    ...(resolvedClientName || params.clientId ? { clientName: resolvedClientName || "Πελάτης" } : {}),
     status: params.status ?? "confirmed",
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -108,6 +112,7 @@ export async function proposeVisitReschedule(params: {
     chatRoomId: previousVisit.chatRoomId,
     brokerId: previousVisit.brokerId,
     clientId: previousVisit.clientId,
+    ...(previousVisit.clientName ? { clientName: previousVisit.clientName } : {}),
     ...(previousVisit.listingBrokerId ? { listingBrokerId: previousVisit.listingBrokerId } : {}),
     ...(previousVisit.buyerBrokerId ? { buyerBrokerId: previousVisit.buyerBrokerId } : {}),
     ...(previousVisit.coveringBrokerId ? { coveringBrokerId: previousVisit.coveringBrokerId } : {}),

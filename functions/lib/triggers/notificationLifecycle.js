@@ -1,11 +1,12 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.onDealRecordCreated = exports.onCanonicalDealStageUpdated = exports.onChecklistItemUpdated = exports.onBrokerApprovalUpdated = exports.onContractStatusUpdatedForNotification = exports.onListingDocumentsUpdated = exports.onApprovedOfferUpdated = exports.onApprovedOfferCreated = exports.onOfferUpdated = exports.onOfferCreated = exports.onAppointmentUpdated = exports.onAppointmentCreated = void 0;
+exports.onDealRecordCreated = exports.onCanonicalDealStageUpdated = exports.onChecklistItemUpdated = exports.onBrokerApprovalUpdated = exports.onContractStatusUpdatedForNotification = exports.onListingDocumentsUpdated = exports.onApprovedOfferUpdated = exports.onApprovedOfferCreated = exports.onOfferUpdated = exports.onOfferCreated = exports.onAppointmentUpdated = exports.onAppointmentCreated = exports.onAgencyPoolLeadWritten = exports.onAgencyPoolApartmentWritten = void 0;
 const app_1 = require("firebase-admin/app");
 const firestore_1 = require("firebase-admin/firestore");
 const firestore_2 = require("firebase-functions/v2/firestore");
 const push_1 = require("../lib/push");
 const analyticsEvents_1 = require("../lib/analyticsEvents");
+const agencyNotifications_1 = require("../lib/agencyNotifications");
 if ((0, app_1.getApps)().length === 0)
     (0, app_1.initializeApp)();
 const db = (0, firestore_1.getFirestore)();
@@ -18,6 +19,37 @@ function stringValues(value) {
 async function notifyUsers(userIds, payload, channelId = "deals_pipeline") {
     await Promise.all([...new Set([...userIds].filter(Boolean))].map((userId) => (0, push_1.sendPushToUser)(userId, payload, channelId)));
 }
+exports.onAgencyPoolApartmentWritten = (0, firestore_2.onDocumentWritten)({ document: "apartments/{apartmentId}", region: "europe-west1" }, async (event) => {
+    const before = event.data?.before.data();
+    const after = event.data?.after.data();
+    if (!after || after.assignmentStatus !== "unassigned_pool" || before?.assignmentStatus === "unassigned_pool")
+        return;
+    const agencyId = stringValue(after.agencyId);
+    if (!agencyId)
+        return;
+    await (0, agencyNotifications_1.notifyAgencyPoolBrokers)({
+        agencyId,
+        apartmentId: event.params.apartmentId,
+        title: (0, agencyNotifications_1.agencyNotificationTitle)(after),
+        dedupeKey: `agency-pool:new-apartment:${event.id}`,
+    });
+});
+exports.onAgencyPoolLeadWritten = (0, firestore_2.onDocumentWritten)({ document: "leads/{leadId}", region: "europe-west1" }, async (event) => {
+    const before = event.data?.before.data();
+    const after = event.data?.after.data();
+    if (!after || after.status !== "unassigned_pool" || before?.status === "unassigned_pool")
+        return;
+    const agencyId = stringValue(after.agencyId);
+    if (!agencyId)
+        return;
+    const itemId = stringValue(after.apartmentId) || event.params.leadId;
+    await (0, agencyNotifications_1.notifyAgencyPoolBrokers)({
+        agencyId,
+        apartmentId: itemId,
+        title: (0, agencyNotifications_1.agencyNotificationTitle)(after, "Lead"),
+        dedupeKey: `agency-pool:new-lead:${event.id}`,
+    });
+});
 function appointmentPayload(type, data, appointmentId, action) {
     const chatId = stringValue(data.chatRoomId);
     const statusText = type === "visit_cancelled"

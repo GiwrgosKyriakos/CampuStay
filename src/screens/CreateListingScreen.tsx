@@ -225,6 +225,9 @@ interface FirestoreApartmentDoc {
   hasExactLocation?: boolean;
   rent?: number;
   price?: number;
+  originalPrice?: number | null;
+  isOffer?: boolean;
+  offerCreatedAt?: unknown;
   maxDiscountPercent?: number;
   size?: number;
   sqft?: number;
@@ -235,6 +238,7 @@ interface FirestoreApartmentDoc {
   watermarkConfig?: WatermarkConfig;
   virtualTour?: VirtualTourData;
   reelMedia?: ApartmentReelMedia | null;
+  showInExploreFeed?: boolean;
   brokerPrivatePhotos?: string[];
   documents?: Partial<Record<DocumentCategoryKey, ListingDocument[]>>;
   tags?: string[];
@@ -574,6 +578,8 @@ export default function CreateListingScreen() {
   const [priceHistory, setPriceHistory] = useState<PriceHistoryEntry[]>([]);
   const [selectedHistoryNode, setSelectedHistoryNode] = useState<PriceHistoryEntry | null>(null);
   const [isHistoryExpanded, setIsHistoryExpanded] = useState(false);
+  const [initialApartmentData, setInitialApartmentData] = useState<FirestoreApartmentDoc | null>(null);
+  const [isOfferChecked, setIsOfferChecked] = useState(false);
   const [originalLoadedRent, setOriginalLoadedRent] = useState<number | null>(null);
   const [originalLoadedPriceExpectation, setOriginalLoadedPriceExpectation] = useState<number | null>(null);
   const [technicalSpecEntries, setTechnicalSpecEntries] = useState<TechnicalSpecEntry[]>([]);
@@ -587,7 +593,8 @@ export default function CreateListingScreen() {
   const auth = useAuth();
   const returnTo: ReturnTarget | null = params.returnTo === "edit-profile" ? params.returnTo : null;
   const listingId = typeof params.listingId === "string" ? params.listingId : "";
-  const isEditMode = params.mode === "edit" && listingId.length > 0;
+  const isEditRoute = params.mode === "edit" && listingId.length > 0;
+  const isEditMode = Boolean(listingId && initialApartmentData);
 
   const leaveListingFlow = useCallback(() => {
     if (returnTo === "edit-profile") {
@@ -641,6 +648,7 @@ export default function CreateListingScreen() {
   const [error, setError] = useState<string | null>(null);
   const [showPhoneNumber, setShowPhoneNumber] = useState(true);
   const [hidePhoneFromBrokers, setHidePhoneFromBrokers] = useState(false);
+  const [showInExploreFeed, setShowInExploreFeed] = useState(true);
   const [permBlocked, setPermBlocked] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [amenities, setAmenities] = useState<Record<AmenityKey, boolean>>({
@@ -1061,6 +1069,14 @@ export default function CreateListingScreen() {
   );
 
   const numericRent = useMemo(() => Number(monthlyRent), [monthlyRent]);
+  const numericRentInput = useMemo(() => Number(monthlyRent), [monthlyRent]);
+  const initialPrice = initialApartmentData?.price ?? 0;
+  const isPriceReduced = isEditMode && numericRentInput > 0 && numericRentInput < initialPrice;
+
+  useEffect(() => {
+    if (!isPriceReduced) setIsOfferChecked(false);
+  }, [isPriceReduced]);
+
   const numericSize = useMemo(() => Number(sizeSqm), [sizeSqm]);
   const numericRooms = useMemo(() => Number(rooms), [rooms]);
   const cityValue = city?.trim() ?? "";
@@ -1300,7 +1316,7 @@ export default function CreateListingScreen() {
   );
 
   useEffect(() => {
-    if (!isEditMode || !listingId) return;
+    if (!isEditRoute || !listingId) return;
 
     let active = true;
     setLoadingEditData(true);
@@ -1332,6 +1348,7 @@ export default function CreateListingScreen() {
         setExistingAssignedBrokerIds(assignedBrokers);
 
         const mappedRent = typeof data.rent === "number" ? data.rent : typeof data.price === "number" ? data.price : 0;
+        setInitialApartmentData({ ...data, price: mappedRent });
         setOriginalLoadedRent(mappedRent > 0 ? mappedRent : null);
         const mappedSize = typeof data.size === "number" ? data.size : typeof data.sqft === "number" ? data.sqft : 0;
         const mappedAmenitiesRaw = Array.isArray(data.amenities)
@@ -1364,6 +1381,7 @@ export default function CreateListingScreen() {
         setDescription(data.description ?? data.about ?? "");
         setShowPhoneNumber(data.showPhoneNumber !== false);
         setHidePhoneFromBrokers(data.hidePhoneFromBrokers === true);
+        setShowInExploreFeed(data.showInExploreFeed !== false);
         setPropertyCategory(data.propertyCategory ?? null);
         setPropertyType(data.propertyType ?? null);
         setFloor(data.floor ?? null);
@@ -1579,7 +1597,7 @@ export default function CreateListingScreen() {
     return () => {
       active = false;
     };
-  }, [auth.userId, isBrokerMode, isEditMode, listingId, router, showFeedbackModal]);
+  }, [auth.userId, isBrokerMode, isEditRoute, listingId, router, showFeedbackModal]);
 
   const assignListingToBroker = async (selectedBrokerId: string) => {
     if (!auth.userId || !listingId || assigningBrokerId) return;
@@ -1853,6 +1871,9 @@ export default function CreateListingScreen() {
           logoStyle: watermarkType === "agency_logo" ? logoStyle : undefined,
         }
       : { enabled: false };
+    const offerFields = isEditMode && isPriceReduced && isOfferChecked
+      ? { isOffer: true, originalPrice: initialPrice, offerCreatedAt: serverTimestamp() }
+      : { isOffer: false, originalPrice: null, offerCreatedAt: null };
     return {
       title: title.trim() || "Αποκλειστικό Ακίνητο (Off-Market)",
       description: description.trim(),
@@ -1871,6 +1892,7 @@ export default function CreateListingScreen() {
       hasExactLocation,
       rent: Number(monthlyRent) || 0,
       price: Number(monthlyRent) || 0,
+      ...offerFields,
       transactionType: "rent",
       maxDiscountPercent: parsedMaxDiscount,
       rooms: normalizedRooms,
@@ -1913,6 +1935,7 @@ export default function CreateListingScreen() {
       priceHistory: currentPriceHistory,
       showPhoneNumber,
       hidePhoneFromBrokers: showPhoneNumber && hidePhoneFromBrokers,
+      showInExploreFeed,
       hostId,
       ownerId: hostId,
       assignedBrokerIds: existingAssignedBrokerIds,
@@ -1920,7 +1943,7 @@ export default function CreateListingScreen() {
       visibility: options?.visibility ?? (isOffMarket ? "client_only" : "public"),
       offMarketAccessUserIds: options?.offMarketAccessUserIds ?? offMarketAccessUserIds,
     };
-  }, [address, addressLatitude, addressLongitude, agencyData, area, availableFromDate, buildYear, city, closedDealPrice, commonExpenses, currentPriceHistory, customOwnerMotivation, description, energyClass, existingAssignedBrokerIds, extraDetailsState, files2d3d, floor, hasExactLocation, heatingSystem, hidePhoneFromBrokers, isImmediatelyAvailable, isOffMarket, kitchens, levels, livingRooms, listingOwnerId, logoStyle, maxDiscountPercent, maxRoommates, monthlyRent, offMarketAccessUserIds, orientation, ownerMotivationType, ownerName, ownerPhone, ownerPriceExpectation, photos, propertyCategory, propertyStatus, propertyType, rooms, selectedAmenitySlugs, showExactAddress, showPhoneNumber, sizeSqm, technicalSpecificationsPayload, title, watermarkEnabled, watermarkType, windowFrames, renovationYear, bathrooms, auth.userId]);
+  }, [address, addressLatitude, addressLongitude, agencyData, area, availableFromDate, buildYear, city, closedDealPrice, commonExpenses, currentPriceHistory, customOwnerMotivation, description, energyClass, existingAssignedBrokerIds, extraDetailsState, files2d3d, floor, hasExactLocation, heatingSystem, hidePhoneFromBrokers, initialPrice, isEditMode, isOfferChecked, isPriceReduced, isImmediatelyAvailable, isOffMarket, kitchens, levels, livingRooms, listingOwnerId, logoStyle, maxDiscountPercent, maxRoommates, monthlyRent, offMarketAccessUserIds, orientation, ownerMotivationType, ownerName, ownerPhone, ownerPriceExpectation, photos, propertyCategory, propertyStatus, propertyType, rooms, selectedAmenitySlugs, showExactAddress, showInExploreFeed, showPhoneNumber, sizeSqm, technicalSpecificationsPayload, title, watermarkEnabled, watermarkType, windowFrames, renovationYear, bathrooms, auth.userId]);
 
   const ensureOwnerForListing = useCallback(async (apartmentId: string, options: { addToBroker?: boolean } = {}): Promise<string | null> => {
     if (!isBrokerMode || !auth.userId || !ownerName.trim()) return null;
@@ -1961,9 +1984,11 @@ export default function CreateListingScreen() {
       await upsertBrokerClientProfile({
         brokerId: auth.userId,
         clientId: ownerUserId,
+        contactUserId: ownerUserId,
         clientName: cleanName,
         role: "owner",
         apartmentId,
+        listingId: apartmentId,
         apartmentTitle: title.trim() || "Ακίνητο",
         rent: Number(monthlyRent) || 0,
         ownerId: ownerUserId,
@@ -2138,6 +2163,9 @@ export default function CreateListingScreen() {
         availableFromDate: availableFromDate ?? undefined,
       };
       const currentPrice = Number(monthlyRent);
+      const offerFields = isEditMode && isPriceReduced && isOfferChecked
+        ? { isOffer: true, originalPrice: initialPrice, offerCreatedAt: serverTimestamp() }
+        : { isOffer: false, originalPrice: null, offerCreatedAt: null };
       const currentPriceHistoryEntry: PriceHistoryEntry = {
         price: currentPrice,
         expectedPrice: ownerPriceExpectation.trim().length > 0 ? Number(ownerPriceExpectation) : null,
@@ -2190,6 +2218,7 @@ export default function CreateListingScreen() {
         hasExactLocation: exactAddressSelected,
         rent: Number(monthlyRent),
         price: Number(monthlyRent),
+        ...offerFields,
         maxDiscountPercent: parsedMaxDiscount,
         rooms: normalizedRooms,
         size: Number(sizeSqm),
@@ -2235,6 +2264,7 @@ export default function CreateListingScreen() {
         priceHistory: isBrokerMode ? nextPriceHistory : undefined,
         showPhoneNumber,
         hidePhoneFromBrokers: showPhoneNumber && hidePhoneFromBrokers,
+        showInExploreFeed,
         hostId,
         ownerId: hostId,
         creatorRole: isBrokerMode ? "broker" : creatorNotLookingForRoommate ? "owner" : "student",
@@ -2257,6 +2287,8 @@ export default function CreateListingScreen() {
       });
       setCurrentListingId(savedApartmentId);
       setIsOffMarket(false);
+      setInitialApartmentData((previous) => previous ? { ...previous, price: currentPrice, ...offerFields } : previous);
+      setIsOfferChecked(false);
       if (isBrokerMode) {
         await ensureOwnerForListing(savedApartmentId, { addToBroker: !publishToPool });
         if (publishMode) await publishListingAssignment({ apartmentId: savedApartmentId, brokerId: currentUserId, mode: publishMode });
@@ -2468,6 +2500,22 @@ export default function CreateListingScreen() {
                 </View>
               </View>
             </View>
+            {isPriceReduced ? (
+              <View style={styles.offerOptInRow}>
+                <View style={styles.offerOptInTextWrap}>
+                  <Text style={styles.offerOptInLabel}>{t("listings.edit.saveAsOfferPrompt")}</Text>
+                </View>
+                <Pressable
+                  style={[styles.offerCheckbox, isOfferChecked && styles.offerCheckboxActive]}
+                  onPress={() => setIsOfferChecked((checked) => !checked)}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: isOfferChecked }}
+                  testID="create-listing-save-offer-toggle"
+                >
+                  <Ionicons name={isOfferChecked ? "checkmark" : "square-outline"} size={18} color={isOfferChecked ? colors.onBrand : colors.onSurfaceTertiary} />
+                </Pressable>
+              </View>
+            ) : null}
           </View>
 
           <View style={styles.card}>
@@ -3360,6 +3408,19 @@ export default function CreateListingScreen() {
                 />
               </View>
             ) : null}
+            <View style={styles.contactToggleRow}>
+              <View style={styles.contactToggleTextWrap}>
+                <Text style={styles.contactToggleLabel}>{t("listings.create.showInExploreTitle")}</Text>
+                <Text style={styles.fieldHint}>{t("listings.create.showInExploreSubtitle")}</Text>
+              </View>
+              <Switch
+                value={showInExploreFeed}
+                onValueChange={setShowInExploreFeed}
+                trackColor={{ false: colors.border, true: colors.brandSecondary }}
+                thumbColor={showInExploreFeed ? colors.brand : colors.onSurface}
+                testID="create-listing-show-in-explore-toggle"
+              />
+            </View>
           </View>
 
 
@@ -4402,6 +4463,41 @@ function createStyles(colors: ThemeColors) {
     formColumn: {
       flex: 1,
       minWidth: 0,
+    },
+    offerOptInRow: {
+      marginTop: spacing.sm,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.md,
+      backgroundColor: colors.brandTertiary,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+    },
+    offerOptInTextWrap: {
+      flex: 1,
+    },
+    offerOptInLabel: {
+      fontFamily: fonts.semibold,
+      fontSize: fontSize.sm,
+      color: colors.onSurface,
+      lineHeight: 18,
+    },
+    offerCheckbox: {
+      width: 28,
+      height: 28,
+      borderRadius: radius.sm,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceSecondary,
+    },
+    offerCheckboxActive: {
+      borderColor: colors.brand,
+      backgroundColor: colors.brand,
     },
     checkboxRow: {
       flexDirection: "row",

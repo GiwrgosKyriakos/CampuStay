@@ -241,7 +241,15 @@ describe("agency property claims", () => {
     expect(mockDocuments.get("apartments/apt-1")).toEqual(expect.objectContaining({ assignmentStatus: "assigned", assignedBrokerIds: ["broker-1"] }));
     expect(mockDocuments.get("agency_claims/claim-1")).toEqual(expect.objectContaining({ status: "approved" }));
     expect(mockDocuments.get("brokerClientProfiles/broker-1_owner-1")).toEqual(expect.objectContaining({ role: "owner" }));
-    expect(mockPushes).toContainEqual(expect.objectContaining({ userId: "broker-1", payload: expect.objectContaining({ action: "claim_approved", title: expect.stringContaining("Apartment One") }) }));
+    expect(mockPushes).toContainEqual(expect.objectContaining({
+      userId: "broker-1",
+      payload: expect.objectContaining({
+        type: "agency_assignment_approved",
+        action: "open_assignment",
+        screen: "apartment-detail",
+        params: expect.objectContaining({ apartmentId: "apt-1", assignmentApproved: true }),
+      }),
+    }));
   });
 
   it("rejects a claim by rolling the apartment back and recording the broker", async () => {

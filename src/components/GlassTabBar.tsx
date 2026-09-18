@@ -8,6 +8,7 @@ import { radius, spacing, type ThemeColors } from "@/src/theme";
 import { useTheme } from "@/src/context/ThemeContext";
 import { useAuth } from "@/src/context/auth";
 import { isAgencyExecutive } from "@/src/utils/roles";
+import { TourAnchor } from "@/src/components/tour/TourAnchor";
 
 export const TAB_BAR_HEIGHT = 64; // Exported in case other screens (like Reels) need to calculate bottom clearance
 
@@ -87,27 +88,28 @@ export default function GlassTabBar({ state, navigation, descriptors }: BottomTa
             };
             
             return (
-              <Pressable
-                key={route.key}
-                onPress={onPress}
-                style={styles.tab}
-                testID={`tab-${route.name}`}
-                hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
-              >
-                <View
-                  style={[
-                    styles.iconPill,
-                    route.name === "explore-feed" && styles.reelIconPill, // Το reel tab είναι ελάχιστα πιο τονισμένο
-                    focused ? styles.iconPillActive : undefined,
-                  ]}
+              <TourAnchor key={route.key} targetKey={`tab:${route.name}` as import("@/src/types/tour").TourAnchorKey} style={styles.tabAnchor}>
+                <Pressable
+                  onPress={onPress}
+                  style={styles.tab}
+                  testID={`tab-${route.name}`}
+                  hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
                 >
-                  <Ionicons
-                    name={focused ? cfg.active : cfg.inactive}
-                    size={24}
-                    color={focused ? colors.onBrand : "#0A3A45"}
-                  />
-                </View>
-              </Pressable>
+                  <View
+                    style={[
+                      styles.iconPill,
+                      route.name === "explore-feed" && styles.reelIconPill, // Το reel tab είναι ελάχιστα πιο τονισμένο
+                      focused ? styles.iconPillActive : undefined,
+                    ]}
+                  >
+                    <Ionicons
+                      name={focused ? cfg.active : cfg.inactive}
+                      size={24}
+                      color={focused ? colors.onBrand : "#0A3A45"}
+                    />
+                  </View>
+                </Pressable>
+              </TourAnchor>
             );
           })}
         </View>
@@ -146,6 +148,11 @@ function createStyles(colors: ThemeColors) {
       alignItems: "center",
       justifyContent: "center",
       backgroundColor: "transparent",
+    },
+    tabAnchor: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
     },
     iconPill: {
       width: 48,  // Ισορροπία ανάμεσα στο 52 (παλιό) και 44 (τωρινό)

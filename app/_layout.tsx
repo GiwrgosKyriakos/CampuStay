@@ -16,6 +16,8 @@ import type { ThemeColors } from "@/src/theme";
 import { AuthProvider, useAuth } from "@/src/context/auth";
 import { LocaleProvider, useLocale } from "@/src/context/locale";
 import { ThemeProvider, useTheme } from "@/src/context/ThemeContext";
+import { TourProvider } from "@/src/context/TourContext";
+import { TourSpotlightOverlay } from "@/src/components/tour/TourSpotlightOverlay";
 import { getRoleHomeTab } from "@/src/utils/roles";
 import type { RoleHomeTab } from "@/src/utils/roles";
 import { configureNotificationChannels, handleNotificationResponse, registerFcmTokenForUser, registerNotificationCategories } from "@/src/services/notifications";
@@ -141,10 +143,13 @@ function AppContent() {
         <SafeAreaProvider>
           <BottomSheetModalProvider>
             <StatusBar style={isDark ? "light" : "dark"} />
-            <AppNavigator surfaceColor={colors.surface} />
-            {isRedirectingProtectedRoute || auth.authTransition ? (
-              <BrandedAuthLoader style={styles.routeGateOverlay} transition={auth.authTransition} />
-            ) : null}
+            <TourProvider>
+              <AppNavigator surfaceColor={colors.surface} />
+              <TourSpotlightOverlay />
+              {isRedirectingProtectedRoute || auth.authTransition ? (
+                <BrandedAuthLoader style={styles.routeGateOverlay} transition={auth.authTransition} />
+              ) : null}
+            </TourProvider>
           </BottomSheetModalProvider>
         </SafeAreaProvider>
       </KeyboardProvider>

@@ -104,6 +104,7 @@ export default function CalendarScheduleView({ isBroker, userId, onAddNotePress,
         bottomInset={insets.bottom}
         visibleNotes={notes}
         isLoading={isLoading}
+        showAddNoteControls
       />
       <MonthYearPickerModal
         visible={isPickerVisible}

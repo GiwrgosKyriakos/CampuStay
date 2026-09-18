@@ -2,39 +2,9 @@ import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 
 import { db } from "@/src/config/firebase";
 
-export interface UserProfile {
-  name: string | null;
-  photos: string[];
-  age: number | null;
-  about: string;
-  gender: string | null;
-  city: string | null;
-  has_place: boolean;
-  already_have_apartment_to_share: boolean;
-  hasApartment?: boolean;
-  isLooking?: boolean;
-  housingStatus?: "looking" | "has_apartment" | string;
-  is_broker?: boolean;
-  agencyId?: string | null;
-  agencyRole?: "ceo" | "member" | "secretary" | null;
-  agencyStatus?: "approved" | "pending" | "none";
-  agencyRequestedAt?: unknown;
-  agencyJoinedAt?: unknown;
-  looking_for_apartment: boolean;
-  looking_for_roommate?: boolean;
-  isLookingForRoommate?: boolean;
-  not_looking_for_roommate?: boolean;
-  university: string | null;
-  year_of_study: string | null;
-  budget: number | null;
-  move_in: string | null;
-  instagram: string;
-  facebook: string;
-  linkedin: string;
-  twitter: string;
-  phone_number?: string;
-  preferences?: { hideNameInDeck?: boolean; hideInStack?: boolean };
-}
+import type { UserProfile } from "@/src/types/user";
+
+export type { UserProfile } from "@/src/types/user";
 
 interface FirestoreUserDocument {
   name: string | null;
@@ -54,8 +24,11 @@ interface FirestoreUserDocument {
   isLooking?: boolean;
   housingStatus?: "looking" | "has_apartment" | string;
   is_broker?: boolean;
+  isBroker?: boolean;
+  role?: string;
+  afm?: string | null;
   agencyId?: string | null;
-  agencyRole?: "ceo" | "member" | "secretary" | null;
+  agencyRole?: "ceo" | "owner" | "member" | "secretary" | null;
   agencyStatus?: "approved" | "pending" | "none";
   agencyRequestedAt?: unknown;
   agencyJoinedAt?: unknown;
@@ -99,6 +72,9 @@ function normalizeProfile(docData: Partial<FirestoreUserDocument>): UserProfile 
     isLooking: docData.isLooking ?? docData.looking_for_apartment ?? docData.housingStatus === "looking",
     housingStatus: docData.housingStatus ?? (docData.looking_for_apartment ? "looking" : docData.has_place ? "has_apartment" : "looking"),
     is_broker: !!docData.is_broker,
+    isBroker: docData.isBroker === true || docData.role === "broker" || docData.is_broker === true,
+    role: docData.role,
+    afm: docData.afm ?? null,
     agencyId: docData.agencyId ?? null,
     agencyRole: docData.agencyRole ?? null,
     agencyStatus: docData.agencyStatus ?? "none",
@@ -152,6 +128,9 @@ function buildFirestoreDocument(
     isLooking: profile.isLooking ?? profile.looking_for_apartment,
     housingStatus: profile.housingStatus ?? (profile.looking_for_apartment ? "looking" : profile.has_place ? "has_apartment" : "looking"),
     is_broker: !!profile.is_broker,
+    ...(profile.isBroker !== undefined ? { isBroker: profile.isBroker } : {}),
+    ...(profile.role !== undefined ? { role: profile.role } : {}),
+    afm: profile.afm ?? null,
     ...(profile.agencyId && profile.agencyRole
       ? {
           agencyId: profile.agencyId,

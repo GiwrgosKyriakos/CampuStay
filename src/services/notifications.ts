@@ -12,8 +12,10 @@ export const ADD_ROOMMATE_ACTION = "ADD_ROOMMATE";
 export const VIEW_PROFILE_ACTION = "VIEW_PROFILE";
 
 const SCREEN_ROUTES: Record<string, string> = {
+  apartments: "/(tabs)/apartments",
   calendar: "/(tabs)/calendar",
   broker: "/(tabs)/broker",
+  "agency-management": "/agency-management",
   profile: "/(tabs)/profile",
 };
 
@@ -188,6 +190,15 @@ export async function handleNotificationResponse(
 
   if (type === "visit_confirmed" || type === "visit_cancelled" || type === "visit_reschedule_proposed" || type === "visit_reschedule_accepted" || type === "visit_reschedule_rejected" || type === "visit_request" || type === "appointment_proposal" || type === "appointment_accepted" || type === "price_offer" || type === "price_offer_accepted") {
     router.push({ pathname: "/chat/[id]", params: { id: chatTargetId, chatRoomId: chatId, ...params } });
+    return;
+  }
+
+  if (type === "agency_pool_new_item" || type === "agency_assignment_requested" || type === "agency_assignment_approved") {
+    if (screen === "apartment-detail") {
+      router.push({ pathname: "/apartment-detail", params });
+    } else {
+      router.push({ pathname: getNotificationRoute(screen || "apartments"), params });
+    }
     return;
   }
 

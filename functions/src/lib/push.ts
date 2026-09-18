@@ -32,7 +32,10 @@ export type UnifiedNotificationType =
   | "document_rejected"
   | "document_verified"
   | "notary_ready"
-  | "chat_message";
+  | "chat_message"
+  | "agency_pool_new_item"
+  | "agency_assignment_requested"
+  | "agency_assignment_approved";
 
 export interface UnifiedNotificationPayload {
   type: UnifiedNotificationType;
@@ -40,6 +43,7 @@ export interface UnifiedNotificationPayload {
   body: string;
   screen: string;
   params: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
   entityId?: string;
   action?: string;
   categoryId?: string;
@@ -79,6 +83,7 @@ function defaultDedupeKey(payload: UnifiedNotificationPayload): string {
     action: payload.action ?? "",
     screen: payload.screen,
     params: payload.params,
+    metadata: payload.metadata ?? {},
   }));
 }
 
@@ -141,6 +146,7 @@ function toTransportData(payload: UnifiedNotificationPayload, channelId?: string
     type: payload.type,
     screen: payload.screen,
     params: JSON.stringify(payload.params),
+    ...(payload.metadata ? { metadata: JSON.stringify(payload.metadata) } : {}),
     ...(payload.entityId ? { entityId: payload.entityId } : {}),
     ...(payload.action ? { action: payload.action } : {}),
     ...(payload.categoryId ? { categoryId: payload.categoryId } : {}),

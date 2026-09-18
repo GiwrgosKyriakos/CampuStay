@@ -44,6 +44,15 @@
         { "fieldPath": "lastContactTimestamp", "order": "ASCENDING" },
         { "fieldPath": "assignedAt", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "interactions",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "clientId", "order": "ASCENDING" },
+        { "fieldPath": "brokerId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

@@ -368,6 +368,7 @@ export default function ExploreFeedScreen() {
             isActive={index === activeIndex}
             isLiked={item.id ? likedApartmentIds.has(item.id) : false}
             onToggleLike={() => item.id && void toggleLike(item.id)}
+            tourTargetKey="reels_action_cluster"
             onOpenChat={() => void openChat(item)}
             onOpenDetails={() => openDetails(item)}
             onOpenVirtualTour={() => {

@@ -33,9 +33,7 @@ import { db } from "@/src/config/firebase";
 import { collection, query, where, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, setDoc, getDoc, getDocs, deleteDoc, limit, FieldPath, deleteField, runTransaction } from "firebase/firestore";
 import { cleanupObsoleteChatMessages } from "@/src/api/chatCleanup";
 import { syncBrokerClientProfile } from "@/src/api/brokerClientProfiles";
-import { saveShowingCalendarNotes } from "@/src/api/brokerCalendar";
 import { recordAcceptedOffer } from "@/src/api/deals";
-import { addPropertyInteraction } from "@/src/api/propertyInteractions";
 import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import CenteredActionModal, { type CenteredModalAction } from "@/src/components/CenteredActionModal";
 import FilterSetVersionModal, { type SharedFilterSetRecord, type FilterSetVersionData } from "@/src/components/FilterSetVersionModal";
@@ -76,6 +74,7 @@ import SelectShareTargetModal from "@/src/components/chat/SelectShareTargetModal
 import RoommateDeckDetailModal from "@/src/components/chat/RoommateDeckDetailModal";
 import RoommateContractPickerModal from "@/src/components/RoommateContractPickerModal";
 import type { ContractDraftContext, ContractType } from "@/src/types/esignature";
+import { TourAnchor } from "@/src/components/tour/TourAnchor";
 
 const CURRENCY = "€";
 const campuStay = false;
@@ -1668,15 +1667,6 @@ function DirectChatScreen() {
     const updatedAt = Date.now();
     setSubmittingFeedbackAptId(apartment.id);
     try {
-      await addPropertyInteraction({
-        apartmentId: apartment.id,
-        apartmentTitle: apartment.title,
-        clientId: currentUserId,
-        clientName: counterpartDetails?.name?.trim() || t("common.values.unknown"),
-        type: "comment",
-        note: `Απόρριψη πρότασης: ${reasonText}`,
-        loggedByUserId: currentUserId,
-      });
       await updateDoc(doc(db, "chats", chatRoomId, "messages", activeViewList.messageId), {
         [`proposalFeedback.${apartment.id}`]: { status: "rejected", reason: reasonText, updatedAt },
         hasClientInteracted: true,
@@ -2634,17 +2624,6 @@ function DirectChatScreen() {
       const revision = await proposeVisitReschedule({ previousVisitId: appointmentId, proposedBy: currentUserId, appointmentDate });
       await updateVisitAppointment(revision.proposedVisitId, { notes });
       await cancelScheduledNotificationsForAppointment(appointmentId);
-      await saveShowingCalendarNotes({
-        brokerId: revision.previousVisit.brokerId,
-        clientId: revision.previousVisit.clientId,
-        clientName: displayName,
-        apartmentId: revision.previousVisit.apartmentId,
-        apartmentTitle: revision.previousVisit.apartmentTitle,
-        appointmentId: revision.proposedVisitId,
-        scheduledDate: nextDateInput.trim(),
-        scheduledTime: nextTime.trim(),
-        notes,
-      });
       await updateLinkedCalendarNotes({ appointmentId: revision.proposedVisitId, appointmentDate, status: "reschedule_proposed" });
       const messageText = `Προτεινόμενη νέα ώρα: ${new Date(appointmentDate).toLocaleString("el-GR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`;
       await addDoc(collection(db, "chats", chatRoomId, "messages"), {
@@ -2807,22 +2786,20 @@ function DirectChatScreen() {
             chatRoomId,
             brokerId: currentUserId,
             clientId: message.senderId,
+            clientName: displayName,
             apartmentId: message.apartmentId,
             apartmentTitle: message.apartmentTitle ?? hostApartmentTitle ?? "Διαμέρισμα",
             apartmentAddress: appointmentAddress,
             appointmentDate: `${message.requestedDate}T${message.requestedTime}:00`,
           });
-          await saveShowingCalendarNotes({
+          await syncBrokerClientProfile({
             brokerId: currentUserId,
             clientId: message.senderId,
-            clientName: displayName,
+            role: "client",
+            chatRoomId,
             apartmentId: message.apartmentId,
-            apartmentTitle: message.apartmentTitle ?? hostApartmentTitle ?? "Διαμέρισμα",
-            apartmentPrice: message.apartmentPrice,
-            scheduledDate: message.requestedDate,
-            scheduledTime: message.requestedTime,
             appointmentId,
-            notes: message.notes,
+            pipelineStage: "showing_scheduled",
           });
           await scheduleVisitReminderNotifications({
             appointmentId,
@@ -3454,7 +3431,7 @@ function DirectChatScreen() {
         {showPersistentContext && hasActionPills ? (
           <View style={styles.collapsibleTierBlock}>
                     {!isActionPillsCollapsed ? (
-                      <View style={styles.headerSecondaryActions}>
+                      <TourAnchor targetKey="chat_actions_non_orange" style={styles.headerSecondaryActions}>
                         {isBrokerOwnerChat || isBrokerClientChat ? (
                           <Pressable style={[styles.headerSecondaryAction, showAssignedPropertiesDropdown && styles.headerSecondaryActionActive]} onPress={() => {
                             setShowContextMenu(false);
@@ -3490,7 +3467,7 @@ function DirectChatScreen() {
                             <Text style={[styles.headerSecondaryActionText, roommateContractPickerVisible && styles.headerSecondaryActionTextActive]}>Συμβόλαιο</Text>
                           </Pressable>
                         ) : null}
-                      </View>
+                      </TourAnchor>
                     ) : null}
                     <Pressable style={styles.obtuseToggleHandleCenter} onPress={() => toggleHideComponent("quickActions")} hitSlop={{ top: 4, bottom: 4, left: 24, right: 24 }} testID="chat-action-collapse-toggle">
                       <ObtuseChevron color={colors.onSurfaceTertiary} isExpanded={!isActionPillsCollapsed} />

@@ -33,6 +33,7 @@ function defaultDedupeKey(payload) {
         action: payload.action ?? "",
         screen: payload.screen,
         params: payload.params,
+        metadata: payload.metadata ?? {},
     }));
 }
 function hashKey(value) {
@@ -85,6 +86,7 @@ function toTransportData(payload, channelId) {
         type: payload.type,
         screen: payload.screen,
         params: JSON.stringify(payload.params),
+        ...(payload.metadata ? { metadata: JSON.stringify(payload.metadata) } : {}),
         ...(payload.entityId ? { entityId: payload.entityId } : {}),
         ...(payload.action ? { action: payload.action } : {}),
         ...(payload.categoryId ? { categoryId: payload.categoryId } : {}),

@@ -189,6 +189,8 @@ interface Apartment {
   creatorId?: string;
   transactionType?: "sale" | "rent";
   price?: number;
+  originalPrice?: number | null;
+  isOffer?: boolean;
   title: string;
   about?: string;
   description?: string;
@@ -241,6 +243,8 @@ interface FirestoreApartmentDoc {
   creatorId?: string;
   transactionType?: "sale" | "rent";
   price?: number;
+  originalPrice?: number | null;
+  isOffer?: boolean;
   title?: string;
   description?: string;
   about?: string;
@@ -753,6 +757,8 @@ export default function ApartmentDetailScreen() {
   const [resolvedPropertyCategory, setResolvedPropertyCategory] = useState<string | null>(null);
   const [resolvedPropertyType, setResolvedPropertyType] = useState<string | null>(null);
   const [resolvedOrientation, setResolvedOrientation] = useState<string | null>(null);
+  const [resolvedIsOffer, setResolvedIsOffer] = useState(apt?.isOffer === true);
+  const [resolvedOriginalPrice, setResolvedOriginalPrice] = useState<number | null>(apt?.originalPrice ?? null);
   const [publishedAtMillis, setPublishedAtMillis] = useState<number | null>(null);
   const [updatedAtMillis, setUpdatedAtMillis] = useState<number | null>(null);
   const [checkingVisibility, setCheckingVisibility] = useState(() => Boolean(apt?.id && auth.userId && !auth.isGuest));
@@ -1106,10 +1112,18 @@ export default function ApartmentDetailScreen() {
     }
   }, [auth.user?.name, auth.userId, canRateApartment, currentApartmentId, isSavingRating, ratingDraft]);
 
+  const brokerVisibleInteractions = useMemo(() => {
+    const currentBrokerId = auth.userId;
+    if (!currentBrokerId || !isManagingBroker) return [];
+    return interactions.filter((interaction) => (
+      interaction.brokerId === currentBrokerId || interaction.assignedBrokerIds?.includes(currentBrokerId)
+    ));
+  }, [auth.userId, interactions, isManagingBroker]);
+
   const interactionMetrics = useMemo(() => {
     const filteredByClient = selectedClientFilter === "all"
-      ? interactions
-      : interactions.filter((interaction) => interaction.clientId === selectedClientFilter);
+      ? brokerVisibleInteractions
+      : brokerVisibleInteractions.filter((interaction) => interaction.clientId === selectedClientFilter);
 
     return {
       calls: filteredByClient.filter((interaction) => interaction.type === "call").length,
@@ -1117,15 +1131,15 @@ export default function ApartmentDetailScreen() {
       comments: filteredByClient.filter((interaction) => interaction.type === "comment").length,
       emails: filteredByClient.filter((interaction) => interaction.type === "email").length,
     };
-  }, [interactions, selectedClientFilter]);
+  }, [brokerVisibleInteractions, selectedClientFilter]);
 
   const visibleInteractions = useMemo(
-    () => interactions.filter((interaction) => {
+    () => brokerVisibleInteractions.filter((interaction) => {
       const matchesClient = selectedClientFilter === "all" || interaction.clientId === selectedClientFilter;
       const matchesType = selectedTypeFilter === "all" || interaction.type === selectedTypeFilter;
       return matchesClient && matchesType;
     }),
-    [interactions, selectedClientFilter, selectedTypeFilter],
+    [brokerVisibleInteractions, selectedClientFilter, selectedTypeFilter],
   );
 
   useEffect(() => {
@@ -1530,15 +1544,15 @@ export default function ApartmentDetailScreen() {
   }, [auth.isBroker, auth.userId, currentApartmentId, isListingOwner]);
 
   useEffect(() => {
-    if (!currentApartmentId || !isListingOwner) {
+    if (!currentApartmentId || !auth.userId || !isManagingBroker) {
       setInteractions([]);
       setSelectedClientFilter("all");
       setSelectedTypeFilter("all");
       return;
     }
 
-    return subscribePropertyInteractions(currentApartmentId, setInteractions);
-  }, [currentApartmentId, isListingOwner]);
+    return subscribePropertyInteractions(currentApartmentId, auth.userId, setInteractions);
+  }, [auth.userId, currentApartmentId, isManagingBroker]);
 
   const matchedClients = useMemo(() => {
     if (!apt || clientPool.length === 0) return [];
@@ -1650,6 +1664,8 @@ export default function ApartmentDetailScreen() {
         setResolvedHostId(docData.hostId || docData.ownerId || apt?.hostId || apt?.ownerId || null);
         setResolvedExtraDetails(normalizeExtraDetailsMap(docData.extraDetails));
         setResolvedExtraInformation(normalizeExtraInformation(docData.extraInformation));
+        setResolvedIsOffer(docData.isOffer === true);
+        setResolvedOriginalPrice(typeof docData.originalPrice === "number" ? docData.originalPrice : null);
         setPriceHistory(normalizePriceHistory(docData.priceHistory));
         setPublishedAtMillis(toMillis(docData.publishedAt) || toMillis(docData.createdAt) || null);
         setUpdatedAtMillis(toMillis(docData.updatedAt) || null);
@@ -2216,47 +2232,30 @@ export default function ApartmentDetailScreen() {
     setIsSavingCallFeedback(true);
     try {
       const clientName = auth.user?.name || "Πελάτης";
-      const profileRef = doc(db, "brokerClientProfiles", `${pendingCall.brokerId}_${auth.userId}`);
-      const profileSnapshot = await getDoc(profileRef);
-      if (!profileSnapshot.exists()) {
-        await setDoc(profileRef, {
-          brokerId: pendingCall.brokerId,
-          clientId: auth.userId,
-          clientUserId: auth.userId,
-          clientName,
-          role: "client",
-          pipelineStage: "new_lead",
-          leadReadiness: "warm",
-          chatRoomId: [auth.userId, pendingCall.brokerId].sort().join("_"),
-          source: "phone_call",
-          apartmentId: pendingCall.apartmentId,
-          apartmentIds: [pendingCall.apartmentId],
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        });
-      } else {
-        await upsertBrokerClientProfile({
-          brokerId: pendingCall.brokerId,
-          clientId: auth.userId,
-          clientName,
-          role: "client",
-          chatRoomId: [auth.userId, pendingCall.brokerId].sort().join("_"),
-          apartmentId: pendingCall.apartmentId,
-          apartmentTitle: pendingCall.apartmentTitle,
-          pipelineStage: "new_lead",
-        });
-      }
-
-      await addPropertyInteraction({
-        apartmentId: pendingCall.apartmentId,
-        apartmentTitle: pendingCall.apartmentTitle,
+      await upsertBrokerClientProfile({
+        brokerId: pendingCall.brokerId,
         clientId: auth.userId,
         clientName,
-        brokerId: pendingCall.brokerId,
-        type: "call",
-        note: feedbackText.trim() || t("apartmentDetail.callInteractionNote"),
-        loggedByUserId: auth.userId,
+        role: "client",
+        chatRoomId: [auth.userId, pendingCall.brokerId].sort().join("_"),
+        apartmentId: pendingCall.apartmentId,
+        apartmentTitle: pendingCall.apartmentTitle,
+        pipelineStage: "new_lead",
+        leadReadiness: "warm",
       });
+
+      if (auth.isBroker && pendingCall.brokerId === auth.userId) {
+        await addPropertyInteraction({
+          apartmentId: pendingCall.apartmentId,
+          apartmentTitle: pendingCall.apartmentTitle,
+          clientId: auth.userId,
+          clientName,
+          brokerId: auth.userId,
+          type: "call",
+          note: feedbackText.trim() || t("apartmentDetail.callInteractionNote"),
+          loggedByUserId: auth.userId,
+        });
+      }
       pendingCallRef.current = null;
       await clearPendingCallInteraction();
       setIsCallFeedbackModalVisible(false);
@@ -2321,6 +2320,7 @@ export default function ApartmentDetailScreen() {
   const resolvedPrice = useApartmentResolvedPrice(apt?.id ?? "", apt.rent);
   const isAcceptedOfferPrice = resolvedPrice.isAcceptedOffer || hasApprovedClientPrice;
   const displayRentPrice = resolvedPrice.isAcceptedOffer ? resolvedPrice.displayPrice : hasApprovedClientPrice ? approvedClientPrice : apt.rent;
+  const isPriceDropOffer = resolvedIsOffer && typeof resolvedOriginalPrice === "number" && resolvedOriginalPrice > displayRentPrice;
   const sqmPrice = calculatePricePerSqm(displayRentPrice, apt.size);
   const extraInformationAvailabilityText = (() => {
     if (!displayExtraInformation) return null;
@@ -2506,7 +2506,7 @@ export default function ApartmentDetailScreen() {
   };
 
   const handleSaveInteraction = async () => {
-    if (!auth.userId || !apt?.id || !newInteractionClientId || !newInteractionNote.trim() || isSavingInteraction) return;
+    if (!auth.userId || !auth.isBroker || !apt?.id || !newInteractionClientId || !newInteractionNote.trim() || isSavingInteraction) return;
 
     const client = availableClientOptions.find((option) => option.id === newInteractionClientId);
     if (!client) return;
@@ -2520,6 +2520,7 @@ export default function ApartmentDetailScreen() {
         type: newInteractionType,
         note: newInteractionNote.trim(),
         loggedByUserId: auth.userId,
+        brokerId: auth.userId,
       });
       setNewInteractionType("call");
       setNewInteractionClientId("");
@@ -2849,7 +2850,7 @@ export default function ApartmentDetailScreen() {
             position="bottom-left"
           />
 
-          <ApartmentPriceDisplay price={displayRentPrice} originalPrice={resolvedPrice.originalPrice} variant="badge" isAcceptedOffer={isAcceptedOfferPrice} />
+          <ApartmentPriceDisplay price={displayRentPrice} originalPrice={isPriceDropOffer ? resolvedOriginalPrice : resolvedPrice.originalPrice} variant="badge" isAcceptedOffer={isAcceptedOfferPrice} isOffer={isPriceDropOffer} />
           {isReadOnlyWithdrawnCoBroker ? (
             <View style={styles.withdrawnBannerOverlay} testID="apartment-detail-withdrawn-banner">
               <Ionicons name="information-circle-outline" size={16} color="#FFFFFF" />

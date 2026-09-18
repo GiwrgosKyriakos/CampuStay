@@ -5,6 +5,7 @@ const app_1 = require("firebase-admin/app");
 const firestore_1 = require("firebase-admin/firestore");
 const https_1 = require("firebase-functions/v2/https");
 const push_1 = require("../lib/push");
+const agencyNotifications_1 = require("../lib/agencyNotifications");
 const dealChecklist_1 = require("../lib/dealChecklist");
 const analyticsEvents_1 = require("../lib/analyticsEvents");
 const leadAttribution_1 = require("../lib/leadAttribution");
@@ -61,19 +62,58 @@ async function requireSameAgencyBroker(uid, agencyId) {
 async function notifyUser(userId, title, body, action, data) {
     await (0, push_1.sendPushToUser)(userId, { type: "deal_stage_update", title, body, screen: "broker", params: data, entityId: String(data.apartmentId ?? data.dealId ?? data.appointmentId ?? ""), action });
 }
-async function addOwnerToBrokerClients(brokerId, apartmentId, apartment) {
-    const ownerId = typeof apartment.ownerId === "string" && apartment.ownerId.trim() ? apartment.ownerId.trim() : typeof apartment.hostId === "string" ? apartment.hostId.trim() : "";
+async function enrollClaimedPropertyOwner(brokerId, apartmentId, agencyId, apartment) {
+    const ownerId = typeof apartment.ownerId === "string" && apartment.ownerId.trim()
+        ? apartment.ownerId.trim()
+        : typeof apartment.hostId === "string" ? apartment.hostId.trim() : "";
     if (!ownerId || ownerId === brokerId)
         return;
+    const ownerDetails = apartment.ownerDetails && typeof apartment.ownerDetails === "object" && !Array.isArray(apartment.ownerDetails)
+        ? apartment.ownerDetails
+        : {};
+    const ownerSnapshot = await db.doc(`users/${ownerId}`).get();
+    const owner = ownerSnapshot.exists ? ownerSnapshot.data() ?? {} : {};
+    const ownerName = typeof ownerDetails.name === "string" && ownerDetails.name.trim()
+        ? ownerDetails.name.trim()
+        : typeof owner.displayName === "string" && owner.displayName.trim()
+            ? owner.displayName.trim()
+            : typeof owner.name === "string" && owner.name.trim()
+                ? owner.name.trim()
+                : [owner.firstName, owner.lastName].filter((value) => typeof value === "string" && value.trim().length > 0).join(" ").trim() || (typeof owner.email === "string" ? owner.email.trim() : "");
+    const ownerPhone = typeof ownerDetails.phone === "string" && ownerDetails.phone.trim()
+        ? ownerDetails.phone.trim()
+        : typeof owner.phone === "string" ? owner.phone.trim() : typeof owner.phone_number === "string" ? owner.phone_number.trim() : "";
+    const ownerEmail = typeof ownerDetails.email === "string" && ownerDetails.email.trim()
+        ? ownerDetails.email.trim()
+        : typeof owner.email === "string" ? owner.email.trim() : "";
     const profileRef = db.doc(`brokerClientProfiles/${brokerId}_${ownerId}`);
+    const profileSnapshot = await profileRef.get();
+    const existing = profileSnapshot.data() ?? {};
+    const apartmentTitle = typeof apartment.title === "string" ? apartment.title.trim() : "";
     await profileRef.set({
         brokerId,
+        contactUserId: ownerId,
+        contactRole: "owner",
+        role: "owner",
         clientId: ownerId,
         clientUserId: ownerId,
-        ...(typeof apartment.ownerDetails?.name === "string" && apartment.ownerDetails.name.trim() ? { clientName: apartment.ownerDetails.name.trim() } : {}),
-        role: "owner",
+        displayName: ownerName || "Ιδιοκτήτης Ακινήτου",
+        clientName: ownerName || "Ιδιοκτήτης Ακινήτου",
+        ...(ownerPhone ? { phone: ownerPhone } : {}),
+        ...(ownerEmail ? { email: ownerEmail } : {}),
+        agencyId: agencyId || existing.agencyId || null,
+        listingIds: firestore_1.FieldValue.arrayUnion(apartmentId),
         apartmentIds: firestore_1.FieldValue.arrayUnion(apartmentId),
-        createdAt: firestore_1.FieldValue.serverTimestamp(),
+        activeApartmentId: apartmentId,
+        activeApartmentTitle: apartmentTitle,
+        pipelineStage: typeof existing.pipelineStage === "string" ? existing.pipelineStage : "contacted",
+        leadReadiness: typeof existing.leadReadiness === "string" ? existing.leadReadiness : "warm",
+        leadIds: Array.isArray(existing.leadIds) ? existing.leadIds : [],
+        chatRoomIds: Array.isArray(existing.chatRoomIds) ? existing.chatRoomIds : [],
+        appointmentIds: Array.isArray(existing.appointmentIds) ? existing.appointmentIds : [],
+        dealIds: Array.isArray(existing.dealIds) ? existing.dealIds : [],
+        contractIds: Array.isArray(existing.contractIds) ? existing.contractIds : [],
+        ...(!profileSnapshot.exists ? { createdAt: firestore_1.FieldValue.serverTimestamp(), lastContactAt: firestore_1.FieldValue.serverTimestamp() } : {}),
         updatedAt: firestore_1.FieldValue.serverTimestamp(),
     }, { merge: true });
 }
@@ -88,7 +128,8 @@ exports.claimPropertyCallable = (0, https_1.onCall)({ region: "europe-west1" }, 
     const apartmentData = apartment.data() ?? {};
     const agencyId = requiredString(apartmentData.agencyId, "agencyId");
     const broker = await requireSameAgencyBroker(uid, agencyId);
-    const brokerName = typeof broker.name === "string" && broker.name.trim() ? broker.name.trim() : "Μεσίτης";
+    const brokerName = (0, agencyNotifications_1.agencyNotificationBrokerName)(broker);
+    const apartmentTitle = (0, agencyNotifications_1.agencyNotificationTitle)(apartmentData);
     const claimRef = db.collection("agency_claims").doc();
     await db.runTransaction(async (transaction) => {
         const currentApartment = await transaction.get(apartmentRef);
@@ -123,10 +164,14 @@ exports.claimPropertyCallable = (0, https_1.onCall)({ region: "europe-west1" }, 
             createdAt: firestore_1.FieldValue.serverTimestamp(),
         });
     });
-    const staff = await db.collection("users").where("agencyId", "==", agencyId).get();
-    await Promise.all(staff.docs
-        .filter((item) => EXECUTIVE_ROLES.has(roleOf(item.data())) && item.id !== uid)
-        .map((item) => notifyUser(item.id, "Νέο αίτημα ανάθεσης", `${brokerName} ζήτησε ένα ακίνητο από το pool.`, "claim_pending", { claimId: claimRef.id, apartmentId })));
+    await (0, agencyNotifications_1.notifyAgencyAssignmentRequested)({
+        agencyId,
+        apartmentId,
+        title: apartmentTitle,
+        brokerName,
+        requestId: claimRef.id,
+        dedupeKey: `agency-assignment-requested:claim:${claimRef.id}`,
+    });
     return { claimId: claimRef.id, status: "claim_pending" };
 });
 exports.publishListingAssignmentCallable = (0, https_1.onCall)({ region: "europe-west1" }, async (request) => {
@@ -158,7 +203,7 @@ exports.publishListingAssignmentCallable = (0, https_1.onCall)({ region: "europe
         });
     });
     if (mode === "direct")
-        await addOwnerToBrokerClients(uid, apartmentId, apartment);
+        await enrollClaimedPropertyOwner(uid, apartmentId, agencyId, apartment);
     return { apartmentId, mode };
 });
 exports.reviewClaimCallable = (0, https_1.onCall)({ region: "europe-west1" }, async (request) => {
@@ -210,10 +255,22 @@ exports.reviewClaimCallable = (0, https_1.onCall)({ region: "europe-west1" }, as
     if (data.approved) {
         const apartmentSnapshot = await apartmentRef.get();
         if (apartmentSnapshot.exists)
-            await addOwnerToBrokerClients(brokerId, apartmentId, apartmentSnapshot.data() ?? {});
+            await enrollClaimedPropertyOwner(brokerId, apartmentId, agencyId, apartmentSnapshot.data() ?? {});
     }
     const title = typeof claim.apartmentTitle === "string" ? claim.apartmentTitle : "Ακίνητο";
-    await notifyUser(brokerId, data.approved ? `Το αίτημα διαχείρισης για το ακίνητο «${title}» εγκρίθηκε!` : "Το αίτημα ανάθεσης απορρίφθηκε", data.approved ? `Μπορείτε πλέον να διαχειρίζεστε το ακίνητο «${title}».` : `Η ανάθεση για το «${title}» απορρίφθηκε από τη Γραμματεία.`, data.approved ? "claim_approved" : "claim_rejected", { apartmentId });
+    if (data.approved) {
+        await (0, agencyNotifications_1.notifyAgencyAssignmentApproved)(brokerId, {
+            agencyId,
+            apartmentId,
+            title,
+            requestId: claimId,
+            approvedByUserId: uid,
+            dedupeKey: `agency-assignment-approved:claim:${claimId}`,
+        });
+    }
+    else {
+        await notifyUser(brokerId, "Το αίτημα ανάθεσης απορρίφθηκε", `Η ανάθεση για το «${title}» απορρίφθηκε από τη Γραμματεία.`, "claim_rejected", { apartmentId });
+    }
     return { status: data.approved ? "assigned" : "unassigned_pool" };
 });
 exports.reassignLeadCallable = (0, https_1.onCall)({ region: "europe-west1" }, async (request) => {
@@ -258,12 +315,15 @@ exports.claimLeadCallable = (0, https_1.onCall)({ region: "europe-west1" }, asyn
     if (!leadSnapshot.exists)
         throw new https_1.HttpsError("not-found", "Lead not found.");
     const agencyId = requiredString(leadSnapshot.data()?.agencyId, "agencyId");
-    await requireSameAgencyBroker(uid, agencyId);
+    const broker = await requireSameAgencyBroker(uid, agencyId);
+    const lead = leadSnapshot.data() ?? {};
+    const brokerName = (0, agencyNotifications_1.agencyNotificationBrokerName)(broker);
+    const requestId = db.collection("lead_claim_requests").doc().id;
     await db.runTransaction(async (transaction) => {
         const current = await transaction.get(leadRef);
         if (!current.exists || current.data()?.status !== "unassigned_pool")
             throw new https_1.HttpsError("failed-precondition", "The lead is no longer available.");
-        transaction.update(leadRef, { status: "assigned", assignedBrokerId: uid, assignedAt: firestore_1.FieldValue.serverTimestamp(), lastContactTimestamp: null, updatedAt: firestore_1.FieldValue.serverTimestamp() });
+        transaction.update(leadRef, { status: "assigned", assignedBrokerId: uid, assignmentRequestId: requestId, assignedAt: firestore_1.FieldValue.serverTimestamp(), lastContactTimestamp: null, updatedAt: firestore_1.FieldValue.serverTimestamp() });
     });
     const clientId = leadSnapshot.data()?.clientId;
     if (typeof clientId === "string" && clientId.trim()) {
@@ -278,6 +338,14 @@ exports.claimLeadCallable = (0, https_1.onCall)({ region: "europe-west1" }, asyn
             createdAt: firestore_1.FieldValue.serverTimestamp(),
         }, { merge: true });
     }
+    await (0, agencyNotifications_1.notifyAgencyAssignmentRequested)({
+        agencyId,
+        apartmentId: typeof lead.apartmentId === "string" && lead.apartmentId.trim() ? lead.apartmentId.trim() : leadId,
+        title: (0, agencyNotifications_1.agencyNotificationTitle)(lead, "Lead"),
+        brokerName,
+        requestId,
+        dedupeKey: `agency-assignment-requested:lead:${requestId}`,
+    });
     return { leadId, assignedBrokerId: uid };
 });
 exports.recordKeySafeActionCallable = (0, https_1.onCall)({ region: "europe-west1" }, async (request) => {

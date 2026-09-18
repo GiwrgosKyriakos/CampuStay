@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "@/src/context/ThemeContext";
-import { Animated, View, Text, StyleSheet, ScrollView, Pressable, TextInput, Switch, TouchableOpacity, PanResponder, Modal, ActivityIndicator, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
+import { Animated, InteractionManager, View, Text, StyleSheet, ScrollView, Pressable, TextInput, Switch, TouchableOpacity, PanResponder, Modal, ActivityIndicator, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -39,6 +39,8 @@ import type { FilterSetVersionData, SharedFilterSetRecord } from "@/src/componen
 import type { WatermarkConfig } from "@/src/types/listing";
 import type { VirtualTourData } from "@/src/types/apartment";
 import ApartmentsFeedSkeleton from "@/src/components/skeletons/ApartmentsFeedSkeleton";
+import FilterSheetSkeleton from "@/src/components/skeletons/FilterSheetSkeleton";
+import AgencyReelsFeed from "@/src/components/feed/AgencyReelsFeed";
 import ApartmentPriceDisplay, { ApartmentResolvedPriceDisplay } from "@/src/components/ApartmentPriceDisplay";
 import { useApartmentResolvedPrice } from "@/src/hooks/useApartmentResolvedPrice";
 import AgencyPickerModal, { type AgencyItem } from "@/src/components/filters/AgencyPickerModal";
@@ -47,6 +49,8 @@ import HardCriteriaSelectionModal, { HARD_CRITERIA_OPTIONS } from "@/src/compone
 import VoiceInputButton from "@/src/components/common/VoiceInputButton";
 import { useVoiceInputPreview } from "@/src/hooks/useVoiceInputPreview";
 import { shouldDisplayListingForUser } from "@/src/utils/listingFilters";
+import { TourAnchor } from "@/src/components/tour/TourAnchor";
+import { useTour } from "@/src/context/TourContext";
 import {
   localizeAmenity,
   localizeCity,
@@ -78,6 +82,7 @@ const CURRENCY = "€";
 const campuStay = false;
 const TAB_BAR_SPACE = 84;
 const COLLAPSE_DISTANCE = 46;
+const FAB_TOGGLE_WIDTH = 28;
 const darkMapStyle = [
   { elementType: "geometry", stylers: [{ color: "#050e1a" }] },
   { elementType: "labels.text.fill", stylers: [{ color: "#8aa4c6" }] },
@@ -256,6 +261,35 @@ function getFilterChipLabel(option: FilterChipOption): string {
   return option.labelKey ? t(option.labelKey) : option.value;
 }
 
+interface AmenityFilterGridProps {
+  selectedAmenities: readonly string[];
+  colors: ThemeColors;
+  styles: ReturnType<typeof createStyles>;
+  onToggle: (value: string) => void;
+}
+
+const AmenityFilterGrid = React.memo(function AmenityFilterGrid({ selectedAmenities, colors, styles, onToggle }: AmenityFilterGridProps) {
+  return (
+    <View style={styles.filterChipGrid}>
+      {AMENITY_FILTER_OPTIONS.map((option) => {
+        const active = selectedAmenities.includes(option.value);
+        return (
+          <Pressable
+            key={option.value}
+            style={[styles.filterChip, active && styles.filterChipActive]}
+            onPress={() => onToggle(option.value)}
+            testID={`apartments-amenity-${option.value}`}
+          >
+            <Ionicons name={option.icon!} size={15} color={active ? colors.onBrand : colors.onSurfaceTertiary} />
+            <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{getFilterChipLabel(option)}</Text>
+            {active ? <Ionicons name="checkmark" size={14} color={colors.onBrand} /> : null}
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+});
+
 const PROPERTY_TYPE_FILTER_OPTIONS: FilterChipOption[] = [
   { value: "apartment", labelKey: "apartments.tab.propertyTypes.apartment", icon: "business-outline" },
   { value: "studio", labelKey: "apartments.tab.propertyTypes.studio", icon: "bed-outline" },
@@ -287,12 +321,14 @@ const HEATING_FILTER_OPTIONS: FilterChipOption[] = [
 ];
 const ENERGY_CLASS_FILTER_OPTIONS: FilterChipOption[] = ["A+", "A", "B+", "B", "C", "D", "E"].map((value) => ({ value, labelKey: "" }));
 const AMENITY_FILTER_OPTIONS: FilterChipOption[] = [
-  { value: "elevator", labelKey: "apartments.tab.amenities.elevator", icon: "business-outline" },
-  { value: "balcony", labelKey: "apartments.tab.amenities.balcony", icon: "sunny-outline" },
-  { value: "parking", labelKey: "apartments.tab.amenities.parking", icon: "car-sport-outline" },
-  { value: "air_condition", labelKey: "apartments.tab.amenities.airConditioner", icon: "snow-outline" },
+  { value: "elevator", labelKey: "filters.amenities.elevator", icon: "business-outline" },
+  { value: "heating", labelKey: "filters.amenities.heating", icon: "thermometer-outline" },
+  { value: "balcony", labelKey: "filters.amenities.balcony", icon: "sunny-outline" },
+  { value: "parking", labelKey: "filters.amenities.parking", icon: "car-sport-outline" },
+  { value: "air_condition", labelKey: "filters.amenities.airConditioning", icon: "snow-outline" },
+  { value: "washing_machine", labelKey: "apartments.tab.amenities.washingMachine", icon: "water-outline" },
   { value: "security_door", labelKey: "apartments.tab.amenities.securityDoor", icon: "lock-closed-outline" },
-  { value: "solar_water_heater", labelKey: "apartments.tab.amenities.solarWaterHeater", icon: "sunny-outline" },
+  { value: "solar_water_heater", labelKey: "filters.amenities.solarWaterHeater", icon: "sunny-outline" },
   { value: "alarm", labelKey: "apartments.tab.amenities.alarm", icon: "notifications-outline" },
   { value: "storage_room", labelKey: "apartments.tab.amenities.storageRoom", icon: "file-tray-stacked-outline" },
   { value: "garden", labelKey: "apartments.tab.amenities.garden", icon: "leaf-outline" },
@@ -300,7 +336,7 @@ const AMENITY_FILTER_OPTIONS: FilterChipOption[] = [
   { value: "wifi", labelKey: "apartments.tab.amenities.wifi", icon: "wifi-outline" },
   { value: "bills_included", labelKey: "apartments.tab.amenities.billsIncluded", icon: "receipt-outline" },
   { value: "shared_kitchen", labelKey: "apartments.tab.amenities.sharedKitchen", icon: "restaurant-outline" },
-  { value: "furnished", labelKey: "apartments.tab.amenities.furnished", icon: "bed-outline" },
+  { value: "furnished", labelKey: "filters.amenities.furnished", icon: "bed-outline" },
   { value: "pet_friendly", labelKey: "apartments.tab.amenities.petFriendly", icon: "paw-outline" },
   { value: "near_metro", labelKey: "apartments.tab.amenities.nearMetro", icon: "train-outline" },
 ];
@@ -441,6 +477,8 @@ interface Apartment {
   longitude?: number;
   hasExactLocation?: boolean;
   rent: number;
+  originalPrice?: number | null;
+  isOffer?: boolean;
   maxDiscountPercent?: number;
   rooms: number;
   size: number;
@@ -506,6 +544,8 @@ interface FirestoreApartmentDoc {
   hasExactLocation?: boolean;
   rent?: number;
   price?: number;
+  originalPrice?: number | null;
+  isOffer?: boolean;
   maxDiscountPercent?: number;
   rooms?: number;
   size?: number;
@@ -671,6 +711,10 @@ function getMatchScoreColor(score: number, colors: ThemeColors): string {
 }
 
 function apartmentHasAmenity(apt: Apartment, amenity: string): boolean {
+  if (toCanonicalAmenity(amenity) === "heating" && apt.extraInformation?.heatingSystem?.trim()) {
+    return true;
+  }
+
   const listingValues = [
     ...apt.tags,
     ...apt.amenities,
@@ -789,7 +833,7 @@ function ApartmentGridCard({
           style={StyleSheet.absoluteFill}
         />
         <View style={styles.topRightBadgesContainer}>
-          <ApartmentPriceDisplay price={resolvedPrice.displayPrice} originalPrice={resolvedPrice.originalPrice} variant="badge" isAcceptedOffer={resolvedPrice.isAcceptedOffer} />
+          <ApartmentPriceDisplay price={resolvedPrice.displayPrice} originalPrice={apt.isOffer ? apt.originalPrice ?? undefined : resolvedPrice.originalPrice} variant="badge" isAcceptedOffer={resolvedPrice.isAcceptedOffer} isOffer={apt.isOffer} />
           {showMatchScore ? (
             <View style={[styles.matchScoreCardBadge, { borderColor: getMatchScoreColor(compatibilityScore, colors) }]}>
               <Ionicons name="sparkles" size={11} color={getMatchScoreColor(compatibilityScore, colors)} style={styles.matchScoreIcon} />
@@ -904,6 +948,7 @@ export default function ApartmentsScreen() {
   });
   const router = useRouter();
   const auth = useAuth();
+  const { currentStep, isTourActive, notifyAction } = useTour();
   const params = useLocalSearchParams<{
     importedFilters?: string;
     proposalApartmentIds?: string;
@@ -914,6 +959,7 @@ export default function ApartmentsScreen() {
   const [publishedApartments, setPublishedApartments] = useState<Apartment[]>([]);
   const [loading, setLoading] = useState(true);
   const [showFilters, setShowFilters] = useState(false);
+  const [filterPanelReady, setFilterPanelReady] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const searchVoice = useVoiceInputPreview(searchQuery, setSearchQuery);
@@ -984,10 +1030,14 @@ export default function ApartmentsScreen() {
   const mapRef = useRef<ApartmentMapRef>(null);
   const previousNonMapViewMode = useRef<"list" | "grid" | "compact">("list");
   const [isViewingMyListings, setIsViewingMyListings] = useState(false);
+  const [isInAgencyReelsMode, setIsInAgencyReelsMode] = useState(false);
   const [hideCreateFab, setHideCreateFab] = useState(false);
   const [hasPublishedHostApartment, setHasPublishedHostApartment] = useState(false);
   const [hasApartmentShareFlag, setHasApartmentShareFlag] = useState(false);
   const [hostInboxHasUnread, setHostInboxHasUnread] = useState(false);
+  const [fabCapsuleCollapsed, setFabCapsuleCollapsed] = useState(false);
+  const [fabActionsWidth, setFabActionsWidth] = useState(0);
+  const fabCollapseProgress = useRef(new Animated.Value(0)).current;
   const [hostChatByApartmentId, setHostChatByApartmentId] = useState<Record<string, ApartmentQuickChatMeta>>({});
   const [likedApartmentIds, setLikedApartmentIds] = useState<Set<string>>(new Set());
   const [likedApartmentTimestampById, setLikedApartmentTimestampById] = useState<Record<string, number>>({});
@@ -1008,6 +1058,49 @@ export default function ApartmentsScreen() {
   const showCreateFab = !auth.isGuest && (auth.isBroker || (canManageListings && !hideCreateFab));
   const isHostSharer = !auth.isBroker && auth.notLookingForRoommate === true && hasApartmentShareFlag;
   const showHostInboxFab = !auth.isGuest && !auth.isBroker && !hideCreateFab && canOpenHostInbox && !isHostSharer;
+  const isAgencyBroker = auth.isBroker && auth.agencyRole === "broker" && Boolean(auth.agencyId);
+  const isMyListingsActive = isViewingMyListings;
+  const showReelsButton = isAgencyBroker && isMyListingsActive;
+  useEffect(() => {
+    const animation = Animated.spring(fabCollapseProgress, {
+      toValue: fabCapsuleCollapsed ? 1 : 0,
+      damping: 20,
+      stiffness: 150,
+      mass: 0.8,
+      useNativeDriver: false,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [fabCapsuleCollapsed, fabCollapseProgress]);
+  const toggleFabCapsule = useCallback(() => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setFabCapsuleCollapsed((previous) => !previous);
+  }, []);
+  const handleOpenFilters = useCallback(() => {
+    setShowFilters(true);
+  }, []);
+  const handleCloseFilters = useCallback(() => {
+    setShowFilters(false);
+  }, []);
+
+  useEffect(() => {
+    if (!showFilters) {
+      setFilterPanelReady(false);
+      return;
+    }
+
+    const interactionTask = InteractionManager.runAfterInteractions(() => {
+      setFilterPanelReady(true);
+    });
+
+    return () => interactionTask.cancel();
+  }, [showFilters]);
+
+  useEffect(() => {
+    if (!showReelsButton && isInAgencyReelsMode) {
+      setIsInAgencyReelsMode(false);
+    }
+  }, [isInAgencyReelsMode, showReelsButton]);
 
   const filterPersistenceKey = useMemo(
     () => getApartmentFiltersStorageKey(auth.userId, auth.isGuest),
@@ -1097,6 +1190,12 @@ export default function ApartmentsScreen() {
     },
     [detachSavedFilterSet],
   );
+
+  const toggleAmenity = useCallback((value: string) => {
+    updateFilterValue(setSelectedAmenities, (current) => current.includes(value)
+      ? current.filter((item) => item !== value)
+      : [...current, value]);
+  }, [updateFilterValue]);
 
   const activeFilterChipState = useMemo<ActiveFilterChipState>(() => ({
     rentMin,
@@ -2071,6 +2170,8 @@ export default function ApartmentsScreen() {
                   hasExactLocation: data.hasExactLocation === true,
                   showExactAddress: data.showExactAddress !== false,
                   rent: typeof data.rent === "number" ? data.rent : typeof data.price === "number" ? data.price : 0,
+                  originalPrice: typeof data.originalPrice === "number" ? data.originalPrice : null,
+                  isOffer: data.isOffer === true,
                   rooms: typeof data.rooms === "number" ? data.rooms : 1,
                   size: typeof data.size === "number" ? data.size : typeof data.sqft === "number" ? data.sqft : 0,
                   maxRoommates: typeof data.maxRoommates === "number" ? data.maxRoommates : undefined,
@@ -2208,6 +2309,7 @@ export default function ApartmentsScreen() {
   );
 
   const handleCreateListingPress = useCallback(async () => {
+    if (isTourActive && currentStep?.targetKey === "apartments_create_listing") notifyAction("apartments_create_listing");
     if (!auth.userId || auth.isBroker) {
       router.push("/create-listing" as any);
       return;
@@ -2222,7 +2324,7 @@ export default function ApartmentsScreen() {
       console.warn("[Apartments] Failed to verify host group membership:", error);
     }
     router.push("/create-listing" as any);
-  }, [auth.isBroker, auth.userId, router]);
+  }, [auth.isBroker, auth.userId, currentStep?.targetKey, isTourActive, notifyAction, router]);
 
   useEffect(() => {
     if (auth.isGuest || !auth.userId) {
@@ -2832,7 +2934,7 @@ export default function ApartmentsScreen() {
         <Animated.View style={{ opacity: topHeaderOpacity }}>
           <View style={styles.titleRowTop}>
           <Text style={styles.title}>{t("apartments.title")}</Text>
-          <View style={styles.topActionsRow}>
+          <TourAnchor targetKey="apartments_top_right_controls" style={styles.topActionsRow}>
             {!auth.isBroker ? (
               <Pressable
                 style={[styles.topIconBtn, viewMode === "map" && styles.topIconBtnActive]}
@@ -2846,19 +2948,36 @@ export default function ApartmentsScreen() {
               </Pressable>
             ) : null}
             {canManageListings ? (
-              <Pressable
-                style={[styles.topIconBtn, isViewingMyListings && styles.topIconBtnActive]}
-                onPress={toggleMyListings}
-                disabled={viewMode === "map"}
-                hitSlop={8}
-                testID="apartments-my-listings-icon-btn"
-                accessibilityRole="button"
-                accessibilityLabel={t("apartments.myListings")}
-              >
-                <Ionicons name={isViewingMyListings ? "briefcase" : "briefcase-outline"} size={20} color={isViewingMyListings ? colors.brand : colors.onSurface} />
-              </Pressable>
+              <TourAnchor targetKey="broker_my_listings">
+                <Pressable
+                  style={[styles.topIconBtn, isViewingMyListings && styles.topIconBtnActive]}
+                  onPress={toggleMyListings}
+                  disabled={viewMode === "map"}
+                  hitSlop={8}
+                  testID="apartments-my-listings-icon-btn"
+                  accessibilityRole="button"
+                  accessibilityLabel={t("apartments.myListings")}
+                >
+                  <Ionicons name={isViewingMyListings ? "briefcase" : "briefcase-outline"} size={20} color={isViewingMyListings ? colors.brand : colors.onSurface} />
+                </Pressable>
+              </TourAnchor>
             ) : null}
-          </View>
+            {showReelsButton && !isInAgencyReelsMode ? (
+              <TourAnchor targetKey="broker_agency_reels">
+                <Pressable
+                  style={styles.topIconBtn}
+                  onPress={() => setIsInAgencyReelsMode(true)}
+                  hitSlop={8}
+                  testID="apartments-agency-reels-button"
+                  accessibilityRole="button"
+                  accessibilityLabel={t("apartments.agencyReelsButton")}
+                  accessibilityHint={t("apartments.agencyReelsTooltip")}
+                >
+                  <Ionicons name="play-circle-outline" size={20} color={colors.onSurface} />
+                </Pressable>
+              </TourAnchor>
+            ) : null}
+          </TourAnchor>
           </View>
         </Animated.View>
         <View style={[styles.morphingRowContainer, isHeaderCollapsed && activeFilterChips.length === 0 && styles.morphingRowContainerEmpty]}>
@@ -2866,10 +2985,10 @@ export default function ApartmentsScreen() {
             pointerEvents={isHeaderCollapsed ? "none" : "auto"}
             style={[styles.actionButtonsRow, { opacity: actionButtonsOpacity }]}
           >
-          <View style={styles.headerControlsRow}>
+          <TourAnchor targetKey="apartments_adjacent_buttons" style={styles.headerControlsRow}>
           <Pressable
             style={[styles.iconControlButton, showFilters && styles.iconControlButtonActive]}
-            onPress={() => setShowFilters((v) => !v)}
+            onPress={showFilters ? handleCloseFilters : handleOpenFilters}
             testID="apartments-filter-toggle"
             accessibilityRole="button"
             accessibilityLabel={t("apartments.accessibility.filters")}
@@ -2903,7 +3022,8 @@ export default function ApartmentsScreen() {
             </Pressable>
           )}
           {!isViewingMyListings ? (
-            <View style={styles.viewToggle} testID="apartments-view-toggle">
+            <TourAnchor targetKey="apartments_main_toggles">
+              <View style={styles.viewToggle} testID="apartments-view-toggle">
               <Pressable
                 style={[styles.viewToggleOption, activeTab === "all" && styles.viewToggleOptionActive]}
                     onPress={() => setActiveTab("all")}
@@ -2926,9 +3046,11 @@ export default function ApartmentsScreen() {
                   {t("apartments.liked")}
                 </Text>
               </Pressable>
-            </View>
+              </View>
+            </TourAnchor>
           ) : canManageListings ? (
-            <View style={styles.viewToggle} testID="apartments-my-listings-view-toggle">
+            <TourAnchor targetKey="apartments_main_toggles">
+              <View style={styles.viewToggle} testID="apartments-my-listings-view-toggle">
               <Pressable
                 style={[styles.viewToggleOption, myListingsLayout === "grid" && styles.viewToggleOptionActive]}
                 onPress={() => {
@@ -2959,9 +3081,10 @@ export default function ApartmentsScreen() {
                   color={myListingsLayout === "compact" ? colors.onBrand : colors.onBrandTertiary}
                 />
               </Pressable>
-            </View>
+              </View>
+            </TourAnchor>
           ) : null}
-          </View>
+          </TourAnchor>
           </Animated.View>
           <Animated.View
             pointerEvents={isHeaderCollapsed ? "auto" : "none"}
@@ -3074,7 +3197,7 @@ export default function ApartmentsScreen() {
         )}
         {showFilters && (
           <View style={styles.filterPanelShell}>
-          <KeyboardAwareScrollView
+          {!filterPanelReady ? <FilterSheetSkeleton /> : <KeyboardAwareScrollView
             style={styles.filterPanel}
             contentContainerStyle={[styles.filterPanelContent, { flexGrow: 1, paddingBottom: spacing["3xl"] + insets.bottom }]}
             showsVerticalScrollIndicator={true}
@@ -3402,12 +3525,7 @@ export default function ApartmentsScreen() {
 
             <View style={styles.extendedFilterSection}>
               <Text style={styles.filterSectionTitle}>{t("apartments.tab.filters.amenitiesTitle")}</Text>
-              <View style={styles.filterChipGrid}>
-                {AMENITY_FILTER_OPTIONS.map((option) => {
-                  const active = selectedAmenities.includes(option.value);
-                  return <Pressable key={option.value} style={[styles.filterChip, active && styles.filterChipActive]} onPress={() => setSelectedAmenities((current) => active ? current.filter((value) => value !== option.value) : [...current, option.value])} testID={`apartments-amenity-${option.value}`}><Ionicons name={option.icon!} size={15} color={active ? colors.onBrand : colors.onSurfaceTertiary} /><Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{getFilterChipLabel(option)}</Text>{active ? <Ionicons name="checkmark" size={14} color={colors.onBrand} /> : null}</Pressable>;
-                })}
-              </View>
+              <AmenityFilterGrid selectedAmenities={selectedAmenities} colors={colors} styles={styles} onToggle={toggleAmenity} />
             </View>
 
             <View style={styles.extendedFilterSection}>
@@ -3459,7 +3577,7 @@ export default function ApartmentsScreen() {
                 <Pressable style={styles.hardCriteriaEditButton} onPress={() => setHardCriteriaModalVisible(true)} testID="apartments-hard-criteria-edit"><Ionicons name="add" size={15} color={colors.brand} /><Text style={styles.hardCriteriaEditText}>{userHardCriteria.length ? t("apartments.tab.filters.edit") : t("apartments.tab.filters.add")}</Text></Pressable>
               </View>
             </View>
-          </KeyboardAwareScrollView>
+          </KeyboardAwareScrollView>}
           {saveToastVisible ? (
             <Animated.View
               pointerEvents="none"
@@ -3665,24 +3783,64 @@ export default function ApartmentsScreen() {
       </Animated.ScrollView>}
       </View>
       {showCreateFab && (
-        <View style={[styles.fabCluster, { bottom: TAB_BAR_SPACE + insets.bottom + spacing.md }]}>
-          {showHostInboxFab && (
-            <Pressable
-              style={[styles.hostInboxFab, hostInboxHasUnread && styles.hostInboxFabUnread]}
-              onPress={() => router.push("/host-inbox" as any)}
-              accessibilityLabel={t("apartments.accessibility.hostInbox")}
-              testID="apartments-host-inbox-fab"
-            >
-              <Ionicons name="mail-outline" size={22} color={colors.onBrand} />
-            </Pressable>
-          )}
-          <Pressable
-            style={styles.fab}
-            onPress={() => void handleCreateListingPress()}
-            testID="apartments-create-fab"
+        <View pointerEvents="box-none" style={[styles.fabDock, { bottom: TAB_BAR_SPACE + insets.bottom + spacing.md }]}>
+          <Animated.View
+            style={[
+              styles.fabCapsule,
+              {
+                width: fabActionsWidth > 0
+                  ? fabCollapseProgress.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [fabActionsWidth + FAB_TOGGLE_WIDTH, FAB_TOGGLE_WIDTH],
+                  })
+                  : FAB_TOGGLE_WIDTH,
+              },
+            ]}
           >
-            <Text style={styles.fabText}>+</Text>
-          </Pressable>
+            <Pressable
+              style={styles.fabToggle}
+              onPress={toggleFabCapsule}
+              accessibilityLabel={fabCapsuleCollapsed ? "Εμφάνιση ενεργειών" : "Απόκρυψη ενεργειών"}
+              testID="apartments-fab-capsule-toggle"
+              hitSlop={4}
+            >
+              <Ionicons
+                name={fabCapsuleCollapsed ? "chevron-back" : "chevron-forward"}
+                size={15}
+                color={colors.onSurfaceTertiary}
+              />
+            </Pressable>
+            <Animated.View
+              pointerEvents={fabCapsuleCollapsed ? "none" : "auto"}
+              onLayout={(event) => setFabActionsWidth(event.nativeEvent.layout.width)}
+              style={[styles.fabActions, { transform: [{ translateX: fabCollapseProgress.interpolate({ inputRange: [0, 1], outputRange: [0, fabActionsWidth] }) }] }]}
+            >
+              {showHostInboxFab && (
+                <TourAnchor targetKey="apartments_host_inbox">
+                  <Pressable
+                    style={[styles.hostInboxFab, hostInboxHasUnread && styles.hostInboxFabUnread]}
+                    onPress={() => {
+                      if (isTourActive && currentStep?.targetKey === "apartments_host_inbox") notifyAction("apartments_host_inbox");
+                      router.push("/host-inbox" as any);
+                    }}
+                    accessibilityLabel={t("apartments.accessibility.hostInbox")}
+                    testID="apartments-host-inbox-fab"
+                  >
+                    <Ionicons name="mail-outline" size={22} color={colors.onBrand} />
+                  </Pressable>
+                </TourAnchor>
+              )}
+              <TourAnchor targetKey="apartments_create_listing">
+                <Pressable
+                  style={styles.fab}
+                  onPress={() => void handleCreateListingPress()}
+                  testID="apartments-create-fab"
+                >
+                  <Text style={styles.fabText}>+</Text>
+                </Pressable>
+              </TourAnchor>
+            </Animated.View>
+          </Animated.View>
         </View>
       )}
 
@@ -4231,12 +4389,21 @@ export default function ApartmentsScreen() {
         onClose={() => setIsPolygonModalVisible(false)}
         onSave={setPolygonCoordinates}
       />
+      {isInAgencyReelsMode && auth.agencyId ? (
+        <View style={styles.agencyReelsOverlay} testID="apartments-agency-reels-overlay">
+          <AgencyReelsFeed
+            agencyId={auth.agencyId}
+            onExit={() => setIsInAgencyReelsMode(false)}
+          />
+        </View>
+      ) : null}
     </View>
   );
 }
 
 const createStyles = (colors: ThemeColors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
+  agencyReelsOverlay: { ...StyleSheet.absoluteFillObject, zIndex: 40, elevation: 40, backgroundColor: colors.surface },
   flexOne: { flex: 1 },
   header: { paddingHorizontal: spacing.lg, paddingBottom: 2, gap: spacing.xs, borderBottomLeftRadius: 24, borderBottomRightRadius: 24, backgroundColor: colors.surface, shadowColor: "#000000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 5, elevation: 3 },
   collapsibleHeader: {
@@ -5512,12 +5679,42 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   emptyTitle: { fontFamily: fonts.displayExtra, fontSize: fontSize.xl, color: colors.onSurface, textAlign: "center" },
   emptySub: { fontFamily: fonts.regular, fontSize: fontSize.base, color: colors.onSurfaceTertiary, textAlign: "center" },
-  fabCluster: {
+  fabDock: {
     position: "absolute",
-    right: spacing.lg,
+    right: 0,
+    zIndex: 40,
+  },
+  fabCapsule: {
+    flexDirection: "row",
+    alignItems: "center",
+    minHeight: 56,
+    overflow: "hidden",
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: 28,
+    borderBottomLeftRadius: 28,
+    borderTopRightRadius: 0,
+    borderBottomRightRadius: 0,
+    borderWidth: 1,
+    borderRightWidth: 0,
+    borderColor: colors.border,
+    shadowColor: "#000000",
+    shadowOffset: { width: -2, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  fabToggle: {
+    width: FAB_TOGGLE_WIDTH,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  fabActions: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
   },
   fab: {
     width: 50,

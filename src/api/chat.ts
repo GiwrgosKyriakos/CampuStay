@@ -517,9 +517,23 @@ export async function getOrCreateHostChat(params: {
 }): Promise<string> {
   const { currentUserId, hostId, apartmentId, apartmentTitle } = params;
   const blockState = await getBlockRelationshipState(currentUserId, hostId);
-  const hostSnapshot = await getDoc(doc(db, "users", hostId)).catch(() => null);
+  const [hostSnapshot, currentUserSnapshot, apartmentSnapshot] = await Promise.all([
+    getDoc(doc(db, "users", hostId)).catch(() => null),
+    getDoc(doc(db, "users", currentUserId)).catch(() => null),
+    getDoc(doc(db, "apartments", apartmentId)).catch(() => null),
+  ]);
   const hostData = hostSnapshot?.exists() ? hostSnapshot.data() as { is_broker?: boolean } : null;
-  const brokerChatRole = hostData?.is_broker === true ? "client" : undefined;
+  const currentUserData = currentUserSnapshot?.exists() ? currentUserSnapshot.data() as { is_broker?: boolean } : null;
+  const apartmentData = apartmentSnapshot?.exists() ? apartmentSnapshot.data() as { ownerId?: unknown; hostId?: unknown } : null;
+  const hostIsBroker = hostData?.is_broker === true;
+  const currentUserIsBroker = currentUserData?.is_broker === true;
+  const relationshipBrokerId = hostIsBroker ? hostId : currentUserIsBroker ? currentUserId : null;
+  const relationshipContactUserId = relationshipBrokerId === hostId ? currentUserId : relationshipBrokerId === currentUserId ? hostId : null;
+  const relationshipRole: "client" | "owner" = relationshipBrokerId === currentUserId
+    && (apartmentData?.ownerId === hostId || apartmentData?.hostId === hostId)
+    ? "owner"
+    : "client";
+  const brokerChatRole = hostIsBroker ? "client" : undefined;
   const blockedByUsers = {
     [currentUserId]: blockState.isBlocker,
     [hostId]: blockState.isBlocked,
@@ -539,11 +553,11 @@ export async function getOrCreateHostChat(params: {
       },
       { merge: true },
     );
-    if (brokerChatRole) {
+    if (relationshipBrokerId && relationshipContactUserId) {
       await syncBrokerClientProfile({
-        brokerId: hostId,
-        clientId: currentUserId,
-        role: "client",
+        brokerId: relationshipBrokerId,
+        clientId: relationshipContactUserId,
+        role: relationshipRole,
         chatRoomId: existingRoomId,
         apartmentId,
       });
@@ -572,11 +586,11 @@ export async function getOrCreateHostChat(params: {
       },
       { merge: true },
     );
-    if (brokerChatRole) {
+    if (relationshipBrokerId && relationshipContactUserId) {
       await syncBrokerClientProfile({
-        brokerId: hostId,
-        clientId: currentUserId,
-        role: "client",
+        brokerId: relationshipBrokerId,
+        clientId: relationshipContactUserId,
+        role: relationshipRole,
         chatRoomId,
         apartmentId,
       });
@@ -597,11 +611,11 @@ export async function getOrCreateHostChat(params: {
     { merge: true },
   );
 
-  if (brokerChatRole) {
+  if (relationshipBrokerId && relationshipContactUserId) {
     await syncBrokerClientProfile({
-      brokerId: hostId,
-      clientId: currentUserId,
-      role: "client",
+      brokerId: relationshipBrokerId,
+      clientId: relationshipContactUserId,
+      role: relationshipRole,
       chatRoomId,
       apartmentId,
     });

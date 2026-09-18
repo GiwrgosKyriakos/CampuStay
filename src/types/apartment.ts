@@ -1,3 +1,5 @@
+import type { Timestamp } from "firebase/firestore";
+
 export interface VirtualTourHotspot {
   pitch: number;
   yaw: number;
@@ -57,6 +59,10 @@ export interface OpenHouseConfig {
 
 export interface Apartment {
   id?: string;
+  price?: number;
+  originalPrice?: number | null;
+  isOffer?: boolean;
+  offerCreatedAt?: Timestamp | Date | null;
   title?: string;
   address?: string;
   exactAddress?: string;
@@ -86,6 +92,15 @@ export interface Apartment {
   status: "active" | "under_negotiation" | "withdrawn" | "rented" | "sold" | "closed_deal";
   withdrawalMetadata?: ListingWithdrawalMetadata;
   reelMedia?: ApartmentReelMedia;
+  showInExploreFeed?: boolean;
   virtualTour?: VirtualTourData;
   [key: string]: unknown;
+}
+
+export interface ApartmentListing {
+  price: number;
+  originalPrice?: number | null;
+  isOffer?: boolean;
+  offerCreatedAt?: Timestamp | Date | null;
+  showInExploreFeed?: boolean;
 }

@@ -55,6 +55,8 @@ const AMENITY_CANONICAL_MAP: Record<string, string> = {
   μετρο: "near_metro",
   elevator: "elevator",
   ασανσερ: "elevator",
+  heating: "heating",
+  θερμανση: "heating",
   bills_included: "bills_included",
   λογαριασμοι_περιλαμβανονται: "bills_included",
   shared_kitchen: "shared_kitchen",

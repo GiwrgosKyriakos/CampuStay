@@ -23,6 +23,8 @@ import DefaultProfileAvatar from "@/src/components/DefaultProfileAvatar";
 import { t } from "@/src/locales";
 import { localizeGender } from "@/src/utils/localizeData";
 import { canonicalizeQuizAnswer } from "@/src/utils/matchAlgorithm";
+import { TourAnchor } from "@/src/components/tour/TourAnchor";
+import type { TourAnchorKey } from "@/src/types/tour";
 import {
   DEFAULT_HARD_CRITERIA,
   MAX_HARD_CRITERIA_COUNT,
@@ -204,10 +206,11 @@ interface Props {
   onNope: (p: RoommateProfile) => void;
   onSwipeAction?: (dir: "left" | "right") => void;
   onEmptyReset?: () => void;
+  tourTargetKey?: TourAnchorKey;
 }
 
 const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck(
-  { profiles, currentQuizAnswers = {}, selectedHardCriteria = DEFAULT_HARD_CRITERIA, currency, onLike, onNope, onSwipeAction, onEmptyReset },
+  { profiles, currentQuizAnswers = {}, selectedHardCriteria = DEFAULT_HARD_CRITERIA, currency, onLike, onNope, onSwipeAction, onEmptyReset, tourTargetKey },
   ref,
 ) {
   const { colors } = useTheme();
@@ -448,30 +451,30 @@ const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck(
   const profileSlot0 = topSlot === 0 ? currentProfile : nextProfile;
   const profileSlot1 = topSlot === 1 ? currentProfile : nextProfile;
 
+  const renderCard = (profile: RoommateProfile | undefined, slot: 0 | 1, topStyle: typeof slot0TopStyle, nextStyle: typeof slot0NextStyle, isTop: boolean) => {
+    if (!profile) return null;
+    const card = (
+      <Animated.View
+        key={`deck-slot-${slot}`}
+        style={[styles.cardWrap, isTop ? topStyle : nextStyle, isTop ? styles.topCard : styles.nextCard]}
+        pointerEvents={isTop ? "auto" : "none"}
+        testID={isTop ? "swipe-card-top" : undefined}
+      >
+        <CardContent profile={profile} currentQuizAnswers={currentQuizAnswers} selectedHardCriteria={activeHardCriteria} currency={currency} colors={colors} />
+      </Animated.View>
+    );
+
+    return isTop && tourTargetKey
+      ? <TourAnchor key={`tour-${slot}`} targetKey={tourTargetKey} style={styles.cardWrap}>{card}</TourAnchor>
+      : card;
+  };
+
   return (
     <View style={styles.deckArea}>
       <GestureDetector gesture={pan}>
         <View style={StyleSheet.absoluteFillObject}>
-          {profileSlot0 && (
-            <Animated.View
-              key="deck-slot-0"
-              style={[styles.cardWrap, topSlot === 0 ? slot0TopStyle : slot0NextStyle, topSlot === 0 ? styles.topCard : styles.nextCard]}
-              pointerEvents={topSlot === 0 ? "auto" : "none"}
-              testID={topSlot === 0 ? "swipe-card-top" : undefined}
-            >
-              <CardContent profile={profileSlot0} currentQuizAnswers={currentQuizAnswers} selectedHardCriteria={activeHardCriteria} currency={currency} colors={colors} />
-            </Animated.View>
-          )}
-          {profileSlot1 && (
-            <Animated.View
-              key="deck-slot-1"
-              style={[styles.cardWrap, topSlot === 1 ? slot1TopStyle : slot1NextStyle, topSlot === 1 ? styles.topCard : styles.nextCard]}
-              pointerEvents={topSlot === 1 ? "auto" : "none"}
-              testID={topSlot === 1 ? "swipe-card-top" : undefined}
-            >
-              <CardContent profile={profileSlot1} currentQuizAnswers={currentQuizAnswers} selectedHardCriteria={activeHardCriteria} currency={currency} colors={colors} />
-            </Animated.View>
-          )}
+          {renderCard(profileSlot0, 0, slot0TopStyle, slot0NextStyle, topSlot === 0)}
+          {renderCard(profileSlot1, 1, slot1TopStyle, slot1NextStyle, topSlot === 1)}
         </View>
       </GestureDetector>
     </View>

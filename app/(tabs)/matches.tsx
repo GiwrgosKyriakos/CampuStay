@@ -25,6 +25,8 @@ import { getUserProfile } from "@/src/api/userProfile";
 import type { GroupMemberStatus } from "@/src/types/chat";
 import { isChatBlockedByUser } from "@/src/utils/chatHelpers";
 import { formatChatPreviewMessage, isPropertyListMessageType } from "@/src/utils/chatMessagePreview";
+import { TourAnchor } from "@/src/components/tour/TourAnchor";
+import { useTour } from "@/src/context/TourContext";
 
 const TAB_BAR_SPACE = 84;
 const INBOX_PAGE_SIZE = 10;
@@ -300,6 +302,7 @@ export default function MatchesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const auth = useAuth();
+  const { registerModalBridge } = useTour();
   const [selectedChatType, setSelectedChatType] = useState<"roommate" | "host">("roommate");
   const [inboxLimit, setInboxLimit] = useState(INBOX_PAGE_SIZE);
   const [hasMoreInbox, setHasMoreInbox] = useState(true);
@@ -954,6 +957,14 @@ export default function MatchesScreen() {
     }
   };
 
+  const openTourChat = useMemo(() => () => {
+    const profile = matches.find((item) => item.chat_status === "active" && !item.isBlocked && !item.isBlocker);
+    if (!profile) return;
+    router.push({ pathname: "/chat/[id]", params: { id: profile.id, chatRoomId: profile.chatRoomId } });
+  }, [matches, router]);
+
+  useEffect(() => registerModalBridge("tour_chat_preview", { open: openTourChat, close: () => undefined }), [openTourChat, registerModalBridge]);
+
   const handleConfirmDeleteChat = async () => {
     if (!currentUserId || !chatToDelete) return;
 
@@ -991,13 +1002,15 @@ export default function MatchesScreen() {
               </Pressable>
             ) : null}
             
-            <Pressable
-              style={[styles.brokersToggleBtn, isBrokersView && styles.brokersToggleBtnActive]}
-              onPress={() => setIsBrokersView((previous) => !previous)}
-              testID="matches-brokers-view-toggle"
-            >
-              <Ionicons name="briefcase-outline" size={18} color={isBrokersView ? colors.onBrand : colors.onSurface} />
-            </Pressable>
+            <TourAnchor targetKey="matches_broker_filter">
+              <Pressable
+                style={[styles.brokersToggleBtn, isBrokersView && styles.brokersToggleBtnActive]}
+                onPress={() => setIsBrokersView((previous) => !previous)}
+                testID="matches-brokers-view-toggle"
+              >
+                <Ionicons name="briefcase-outline" size={18} color={isBrokersView ? colors.onBrand : colors.onSurface} />
+              </Pressable>
+            </TourAnchor>
             
           </View>
         </View>
@@ -1018,7 +1031,8 @@ export default function MatchesScreen() {
         </Text>
       </View>
       {!isBrokersView && !notLookingForRoommate && (
-        <View style={[styles.toggleShell, { marginHorizontal: spacing.lg }]}> 
+        <TourAnchor targetKey="matches_segment_toggle" style={{ marginHorizontal: spacing.lg }}>
+          <View style={styles.toggleShell}>
           <Pressable
             style={[styles.toggleOption, selectedChatType === "roommate" && styles.toggleOptionActive]}
             onPress={() => setSelectedChatType("roommate")}
@@ -1037,7 +1051,8 @@ export default function MatchesScreen() {
               {t("matches.hostsToggle")}
             </Text>
           </Pressable>
-        </View>
+          </View>
+        </TourAnchor>
       )}
 
       <Animated.View style={[styles.flexOne, { transform: [{ translateX: swipeX }] }]} {...contentPanResponder.panHandlers}>
@@ -1147,15 +1162,15 @@ export default function MatchesScreen() {
             const previewIsFaded = !unreadFromCounterparty;
 
             return (
-              <Pressable
-                key={p.id}
-                style={[styles.row, isBlockedChat && styles.row]}
-                testID={`chat-row-${p.id}`}
-                onPress={() => handleNavigateToChat(p)}
-                onLongPress={() => setActiveContextChatId(p.chatRoomId)}
-                delayLongPress={350}
-                disabled={isPending}
-              >
+              <TourAnchor key={`tour-row-${p.id}`} targetKey="matches_chat_row">
+                <Pressable
+                  style={[styles.row, isBlockedChat && styles.row]}
+                  testID={`chat-row-${p.id}`}
+                  onPress={() => handleNavigateToChat(p)}
+                  onLongPress={() => setActiveContextChatId(p.chatRoomId)}
+                  delayLongPress={350}
+                  disabled={isPending}
+                >
                 {activeContextChatId === p.chatRoomId ? (
                   <View style={styles.contextTooltip} testID={`matches-delete-tooltip-${p.chatRoomId}`}>
                     <Pressable
@@ -1277,7 +1292,8 @@ export default function MatchesScreen() {
                     <Ionicons name="paper-plane-outline" size={22} color={colors.onSurfaceTertiary} />
                   )}
                 </View>
-              </Pressable>
+                </Pressable>
+              </TourAnchor>
             );
           })}
         </ScrollView>

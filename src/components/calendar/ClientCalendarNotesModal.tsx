@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/context/ThemeContext";
 import { fonts, fontSize, radius, spacing } from "@/src/theme";
+import { t } from "@/src/locales";
 import CalendarNoteModal from "@/src/components/calendar/CalendarNoteModal";
 import { deduplicateBrokerNotes, getBrokerNotesByDateRange, type BrokerNote } from "@/src/api/brokerCalendar";
 import type { BrokerClientItem, BrokerListingItem } from "@/src/components/BrokerNoteModal";
@@ -71,7 +72,7 @@ export default function ClientCalendarNotesModal({
             {notes.length === 0 ? <Text style={[styles.empty, { color: colors.onSurfaceTertiary }]}>Δεν υπάρχουν σημειώσεις, επισκέψεις ή υπενθυμίσεις.</Text> : notes.map((note) => (
               <Pressable key={note.id} style={[styles.note, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]} onPress={() => { setSelectedNote(note); setEditorVisible(true); }} testID={`client-calendar-note-${note.id}`}>
                 <View style={styles.noteHeader}><Text style={[styles.noteTitle, { color: colors.onSurface }]} numberOfLines={1}>{note.title || "Σημείωση"}</Text><Text style={[styles.noteDate, { color: colors.brand }]}>{note.date} {note.time || ""}</Text></View>
-                <Text style={[styles.noteMeta, { color: colors.onSurfaceTertiary }]}>{note.category} {note.apartmentTitle ? `· ${note.apartmentTitle}` : ""}</Text>
+                <Text style={[styles.noteMeta, { color: colors.onSurfaceTertiary }]}>{note.category} · {note.clientName || t("brokerClient.clientFallback")} {note.apartmentTitle ? `· ${note.apartmentTitle}` : ""}</Text>
                 {note.notesText ? <Text style={[styles.noteBody, { color: colors.onSurface }]} numberOfLines={2}>{note.notesText}</Text> : null}
               </Pressable>
             ))}

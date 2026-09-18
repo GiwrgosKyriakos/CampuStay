@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, StyleSheet, Pressable, Animated, PanResponder, FlatList } from "react-native";
+import { View, Text, StyleSheet, Pressable, Animated, PanResponder, FlatList, Linking } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -15,9 +15,10 @@ import { t } from "@/src/locales";
 import { fonts, fontSize, radius, spacing, type ThemeColors } from "@/src/theme";
 import type { LeadReadinessKey } from "../broker-client-detail";
 import type { HardCriteriaKey } from "@/src/types/filters";
-import { getPipelineStageConfig, type PipelineStageKey } from "@/src/constants/pipeline";
+import { getCanonicalDealStageConfig, normalizeCanonicalDealStage, type CanonicalDealStage } from "@/src/constants/pipeline";
 import { isBrokerOrAgencyUser } from "@/src/utils/roles";
-import { getBrokerDeals } from "@/src/api/brokerClientProfiles";
+import { getBrokerClientProfiles, getBrokerDeals } from "@/src/api/brokerClientProfiles";
+import { TourAnchor } from "@/src/components/tour/TourAnchor";
 import AddManualClientModal from "@/src/components/AddManualClientModal";
 import LeadsPoolSection from "@/src/components/LeadsPoolSection";
 
@@ -49,6 +50,9 @@ export interface BrokerOwnerItem {
   apartments: BrokerApartment[];
   ownerId?: string;
   ownerAvatar?: string;
+  ownerPhone?: string;
+  ownerEmail?: string;
+  activeApartmentTitle?: string;
   aggregatePipelinePercentage: number;
   expectedRevenue: number;
   brokerCommission: number;
@@ -74,10 +78,12 @@ export interface BrokerClientLead {
   clientUserId: string;
   clientName: string;
   clientAvatar: string;
+  clientPhone?: string | null;
+  clientEmail?: string | null;
   chatRoomId: string;
   sharedFilterSet?: FilterSetPayload & { sharedAt?: number };
   leadReadiness?: LeadReadinessKey | null;
-  pipelineStage?: PipelineStageKey;
+  pipelineStage?: CanonicalDealStage;
   pipelinePercentage?: number;
   pipelineStageLabel?: string;
   activeApartmentTitle?: string | null;
@@ -110,12 +116,8 @@ function mapApartment(id: string, data: Record<string, unknown>): BrokerApartmen
   };
 }
 
-function getDealPipelinePercentage(stage: "liked" | "lead" | "showing_scheduled" | "offer_made" | "negotiation_agreement" | "deal_closed" | "lost"): number {
-  if (stage === "showing_scheduled") return 40;
-  if (stage === "offer_made") return 60;
-  if (stage === "negotiation_agreement") return 90;
-  if (stage === "deal_closed") return 100;
-  return stage === "lost" ? 0 : 10;
+function getDealPipelinePercentage(stage: string): number {
+  return getCanonicalDealStageConfig(normalizeCanonicalDealStage(stage)).percentage;
 }
 
 export default function BrokerHubScreen() {
@@ -139,26 +141,50 @@ export default function BrokerHubScreen() {
       if (!auth.userId) return;
       setIsLoading(true);
       try {
-        const [ownedApartmentsSnap, assignedApartmentsSnap, chatsSnap, deals] = await Promise.all([
+        const [ownedApartmentsSnap, assignedApartmentsSnap, chatsSnap, deals, profiles] = await Promise.all([
           getDocs(query(collection(db, "apartments"), where("hostId", "==", auth.userId))),
           getDocs(query(collection(db, "apartments"), where("assignedBrokerIds", "array-contains", auth.userId))),
           getDocs(query(collection(db, "chats"), where("users", "array-contains", auth.userId), where("type", "==", "host"))),
-          getBrokerDeals(auth.userId),
+          getBrokerDeals(auth.userId, auth.agencyId ?? undefined),
+          getBrokerClientProfiles(auth.userId),
         ]);
         const dealByClientApartment = new Map(deals.filter((deal) => deal.role !== "owner").map((deal) => [`${deal.apartmentId}:${deal.clientId}`, deal]));
+        const profileByClient = new Map(profiles.map((profile) => [profile.contactUserId, profile]));
         const ownerMap = new Map<string, BrokerOwnerItem>();
+        profiles.filter((profile) => profile.contactRole === "owner").forEach((profile) => {
+          ownerMap.set(profile.contactUserId, {
+            name: profile.displayName,
+            apartments: [],
+            ownerId: profile.contactUserId,
+            ownerAvatar: profile.clientAvatar || "",
+            ownerPhone: profile.phone,
+            ownerEmail: profile.email,
+            activeApartmentTitle: profile.activeApartmentTitle || undefined,
+            aggregatePipelinePercentage: 0,
+            expectedRevenue: 0,
+            brokerCommission: 0,
+          });
+        });
         const apartmentDocs = new Map(ownedApartmentsSnap.docs.map((listing) => [listing.id, listing]));
         assignedApartmentsSnap.docs.forEach((listing) => apartmentDocs.set(listing.id, listing));
         apartmentDocs.forEach((listing) => {
           const apartment = mapApartment(listing.id, listing.data() as Record<string, unknown>);
           const details = apartment.ownerDetails;
-          const name = details?.name?.trim();
+          const ownerId = typeof apartment.ownerId === "string" && apartment.ownerId.trim()
+            ? apartment.ownerId.trim()
+            : typeof apartment.hostId === "string" ? apartment.hostId.trim() : undefined;
+          const canonicalOwner = ownerId ? profiles.find((profile) => profile.contactUserId === ownerId && profile.contactRole === "owner") : undefined;
+          const name = details?.name?.trim() || canonicalOwner?.displayName?.trim();
           if (!name) return;
-          const current = ownerMap.get(name) ?? { name, apartments: [], aggregatePipelinePercentage: 0, expectedRevenue: 0, brokerCommission: 0 };
-          current.ownerId ??= typeof apartment.ownerId === "string" ? apartment.ownerId : typeof apartment.hostId === "string" ? apartment.hostId : undefined;
+          const ownerKey = ownerId || name;
+          const current = ownerMap.get(ownerKey) ?? { name, apartments: [], ownerId, aggregatePipelinePercentage: 0, expectedRevenue: 0, brokerCommission: 0 };
+          current.ownerId ??= ownerId;
           current.ownerAvatar ??= details?.avatar || "";
-          current.apartments.push(apartment);
-          ownerMap.set(name, current);
+          current.ownerPhone ??= canonicalOwner?.phone;
+          current.ownerEmail ??= canonicalOwner?.email;
+          current.activeApartmentTitle ??= canonicalOwner?.activeApartmentTitle || apartment.title;
+          if (!current.apartments.some((item) => item.id === apartment.id)) current.apartments.push(apartment);
+          ownerMap.set(ownerKey, current);
         });
         const clientItems: (BrokerClientLead | null)[] = await Promise.all(chatsSnap.docs.map(async (chat): Promise<BrokerClientLead | null> => {
           const data = chat.data() as { users?: string[]; brokerChatRole?: string; apartmentId?: string; apartmentTitle?: string; visitCompleted?: boolean; status?: string };
@@ -166,19 +192,19 @@ export default function BrokerHubScreen() {
           if ((data.status ?? "active") !== "active") return null;
           const clientUserId = data.users?.find((userId) => userId !== auth.userId);
           if (!clientUserId) return null;
-          const [userSnap, profileSnap, messagesSnapshot] = await Promise.all([
+          const [userSnap, messagesSnapshot] = await Promise.all([
             getDoc(doc(db, "users", clientUserId)),
-            getDoc(doc(db, "brokerClientProfiles", `${auth.userId}_${clientUserId}`)),
             getDocs(collection(db, "chats", chat.id, "messages")),
           ]);
           const user = userSnap.exists() ? userSnap.data() : {};
           if (isBrokerOrAgencyUser(user) && data.brokerChatRole !== "client") return null;
-          const profileData = profileSnap.exists() ? profileSnap.data() as { leadReadiness?: LeadReadinessKey | null; pipelineStage?: PipelineStageKey; activeApartmentTitle?: string | null; dealCommission?: number; clientName?: string } : {};
+          const profileData = profileByClient.get(clientUserId);
           const apartmentId = typeof data.apartmentId === "string" ? data.apartmentId : undefined;
           const deal = apartmentId ? dealByClientApartment.get(`${apartmentId}:${clientUserId}`) : undefined;
-          const stageConfig = getPipelineStageConfig(deal?.pipelineStage === "liked" || deal?.pipelineStage === "lead" ? "new_lead" : deal?.pipelineStage === "deal_closed" ? "closed_won" : deal?.pipelineStage === "lost" ? "closed_lost" : deal?.pipelineStage ?? profileData.pipelineStage);
+          const canonicalStage = normalizeCanonicalDealStage(deal?.pipelineStage ?? profileData?.pipelineStage);
+          const stageConfig = getCanonicalDealStageConfig(canonicalStage);
           const messageTypes = messagesSnapshot.docs.map((message) => (message.data() as { type?: unknown }).type);
-          let apartmentTitle = typeof data.apartmentTitle === "string" ? data.apartmentTitle : profileData.activeApartmentTitle ?? undefined;
+          let apartmentTitle = typeof data.apartmentTitle === "string" ? data.apartmentTitle : profileData?.activeApartmentTitle ?? undefined;
           let apartmentPrice: number | undefined;
           let isDealClosed = false;
           if (apartmentId) {
@@ -190,7 +216,7 @@ export default function BrokerHubScreen() {
               isDealClosed = apartment.status === "closed_deal" && apartment.rentedToUserId === clientUserId;
             }
           }
-          const dealCommission = typeof profileData.dealCommission === "number" ? profileData.dealCommission : apartmentPrice ?? 1000;
+          const dealCommission = typeof profileData?.dealCommission === "number" ? profileData.dealCommission : apartmentPrice ?? 1000;
           const weightedShare = dealCommission * stageConfig.probability;
           const shared = messagesSnapshot.docs
             .map((message) => message.data() as { type?: string; filterSetData?: BrokerClientLead["sharedFilterSet"] })
@@ -198,14 +224,16 @@ export default function BrokerHubScreen() {
             .at(-1)?.filterSetData;
           return {
             clientUserId,
-            clientName: profileData.clientName?.trim() || (typeof user.name === "string" ? user.name.trim() : ""),
-            clientAvatar: typeof user.photoUrl === "string" ? user.photoUrl : typeof user.avatar === "string" ? user.avatar : Array.isArray(user.photos) ? String(user.photos[0] ?? "") : "",
+            clientName: deal?.clientName?.trim() || profileData?.displayName.trim() || (typeof user.name === "string" ? user.name.trim() : "Πελάτης"),
+            clientAvatar: deal?.clientAvatar?.trim() || (typeof user.photoUrl === "string" ? user.photoUrl : typeof user.avatar === "string" ? user.avatar : Array.isArray(user.photos) ? String(user.photos[0] ?? "") : ""),
+            clientPhone: deal?.clientPhone ?? null,
+            clientEmail: deal?.clientEmail ?? null,
             chatRoomId: chat.id,
-            leadReadiness: profileData.leadReadiness ?? null,
-            pipelineStage: stageConfig.key,
+            leadReadiness: deal?.leadReadiness ?? profileData?.leadReadiness ?? null,
+            pipelineStage: canonicalStage,
             pipelinePercentage: Math.round(stageConfig.probability * 100),
-            pipelineStageLabel: stageConfig.label,
-            activeApartmentTitle: profileData.activeApartmentTitle,
+            pipelineStageLabel: t(stageConfig.labelKey),
+            activeApartmentTitle: deal?.activeApartmentTitle ?? profileData?.activeApartmentTitle ?? null,
             apartmentId,
             apartmentTitle,
             apartmentPrice,
@@ -237,7 +265,7 @@ export default function BrokerHubScreen() {
           }, 0);
           owner.brokerCommission = owner.expectedRevenue * BROKER_COMMISSION_RATE;
         });
-        const ownerEntries = [...ownerMap.values()];
+        const ownerEntries = [...ownerMap.values()].filter((owner) => owner.apartments.length > 0 || Boolean(owner.ownerId));
         const ownerIds = [...new Set(ownerEntries.map((owner) => owner.ownerId).filter((id): id is string => Boolean(id)))];
         const ownerProfiles = await Promise.all(ownerIds.map(async (ownerId) => {
           const snapshot = await getDoc(doc(db, "users", ownerId));
@@ -296,8 +324,8 @@ export default function BrokerHubScreen() {
   }, []);
 
   const renderClientItem = useCallback(({ item }: { item: BrokerClientLead }) => {
-    const stage = getPipelineStageConfig(item.pipelineStage);
-    const stagePercent = Math.round(stage.probability * 100);
+    const stage = getCanonicalDealStageConfig(item.pipelineStage);
+    const stagePercent = stage.percentage;
     return (
       <Pressable
         style={[styles.clientCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
@@ -341,7 +369,7 @@ export default function BrokerHubScreen() {
     <Pressable
       style={[styles.clientCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
       testID={`broker-owner-row-${index}`}
-      onPress={() => router.push({ pathname: "/broker-owner-detail", params: { ownerName: item.name, ownerAvatar: item.ownerAvatar || "", apartmentIds: JSON.stringify(item.apartments.map((apartment) => apartment.id)) } })}
+      onPress={() => router.push({ pathname: "/broker-client-detail", params: { clientUserId: item.ownerId || "", clientName: item.name, clientAvatar: item.ownerAvatar || "", role: "owner" } })}
     >
       <View style={styles.clientCardHeader}>
         <View style={styles.clientAvatarWrap}>
@@ -349,10 +377,35 @@ export default function BrokerHubScreen() {
         </View>
         <View style={styles.clientTextCol}>
           <Text style={styles.ownerCardName} numberOfLines={1}>{item.name || "Ιδιοκτήτης"}</Text>
-          <View style={styles.ownerCountPill}><Ionicons name="home-outline" size={13} color={colors.brand} /><Text style={styles.ownerCountText}>{t("brokerHub.propertyCount", { count: item.apartments.length })}</Text></View>
+          <View style={styles.ownerRoleBadge}><Ionicons name="briefcase-outline" size={12} color={colors.brand} /><Text style={styles.ownerRoleBadgeText}>{t("broker.roles.owner")}</Text></View>
         </View>
         <View style={styles.ownerAggregatePill}><Text style={[styles.percentBadgeText, styles.ownerAggregateText]}>{item.aggregatePipelinePercentage}%</Text></View>
         <Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />
+      </View>
+      <Text style={styles.ownerPropertyLabel} numberOfLines={1}>{`${t("broker.ownerPropertyLabel")}: ${item.activeApartmentTitle || item.apartments[0]?.title || "—"}`}</Text>
+      <View style={styles.ownerContactRow}>
+        {item.ownerPhone ? (
+          <Pressable
+            style={styles.ownerContactButton}
+            onPress={(event) => { event.stopPropagation(); void Linking.openURL(`tel:${item.ownerPhone}`); }}
+            accessibilityLabel={`Κλήση ${item.name}`}
+            testID={`broker-owner-call-${index}`}
+          >
+            <Ionicons name="call-outline" size={16} color={colors.brand} />
+            <Text style={styles.ownerContactText}>Κλήση</Text>
+          </Pressable>
+        ) : null}
+        {item.ownerEmail ? (
+          <Pressable
+            style={styles.ownerContactButton}
+            onPress={(event) => { event.stopPropagation(); void Linking.openURL(`mailto:${item.ownerEmail}`); }}
+            accessibilityLabel={`Email ${item.name}`}
+            testID={`broker-owner-message-${index}`}
+          >
+            <Ionicons name="mail-outline" size={16} color={colors.brand} />
+            <Text style={styles.ownerContactText}>Μήνυμα</Text>
+          </Pressable>
+        ) : null}
       </View>
       {isMoneyModeActive ? <View style={styles.pipelineBadgeRow}>
         <Text style={[styles.pipelineBadge, { backgroundColor: colors.surfaceTertiary, color: colors.onSurface }]}>Προμήθεια: €{Math.round(item.brokerCommission).toLocaleString("el-GR")}</Text>
@@ -363,7 +416,8 @@ export default function BrokerHubScreen() {
 
   const clientsActive = selectedSegment === "clients";
   return (
-    <View style={[styles.container, { paddingTop: insets.top + spacing.lg }]} testID="broker-hub-screen">
+    <TourAnchor targetKey="broker_dashboard" style={[styles.container, { paddingTop: insets.top + spacing.lg }]}>
+    <View style={styles.container} testID="broker-hub-screen">
       <View style={styles.header}>
         <View style={styles.headerTopRow}>
           <Text style={styles.brokerTitle}>Broker<Text style={styles.brokerTitleAccent}>Tab</Text></Text>
@@ -400,10 +454,12 @@ export default function BrokerHubScreen() {
           </View>
         </View>
       </View>
+      <TourAnchor targetKey="broker_pipeline">
       <View style={styles.toggleShell}>
         <Pressable style={[styles.toggleOption, clientsActive && styles.toggleOptionActive]} onPress={() => setSelectedSegment("clients")} testID="broker-hub-toggle-clients"><Text style={[styles.toggleText, clientsActive && styles.toggleTextActive]}>{t("brokerHub.clients")}</Text></Pressable>
         <Pressable style={[styles.toggleOption, !clientsActive && styles.toggleOptionActive]} onPress={() => setSelectedSegment("owners")} testID="broker-hub-toggle-owners"><Text style={[styles.toggleText, !clientsActive && styles.toggleTextActive]}>{t("brokerHub.owners")}</Text></Pressable>
       </View>
+      </TourAnchor>
       {isMoneyModeActive ? (
         <View style={styles.revenueOverviewCard} testID="broker-revenue-overview">
           <View style={styles.revenueCardHeader}>
@@ -425,9 +481,11 @@ export default function BrokerHubScreen() {
         </View>
       ) : null}
       {isLoading ? <BrokerHubSkeleton cardCount={6} /> : (
-        <Animated.View style={[styles.contentArea, { transform: [{ translateX: swipeX }] }]} {...contentPanResponder.panHandlers}>
-          {clientsActive ? <FlatList data={clients} testID="broker-clients-list" keyExtractor={(item) => item.clientUserId} ListHeaderComponent={auth.agencyId && auth.userId ? <View style={styles.leadsPoolWrap}><Text style={styles.leadsPoolTitle}>Αδιάθετα Leads</Text><LeadsPoolSection agencyId={auth.agencyId} brokerId={auth.userId} onChanged={() => setClientDataRefreshToken((previous) => previous + 1)} /></View> : null} ListEmptyComponent={<Text style={styles.emptyStateSubtitle}>{t("brokerHub.noClients")}</Text>} renderItem={renderClientItem} /> : <FlatList data={owners} testID="broker-owners-list" keyExtractor={(item) => item.name} ListEmptyComponent={<Text style={styles.emptyStateSubtitle}>{t("brokerHub.noOwners")}</Text>} renderItem={renderOwnerItem} />}
-        </Animated.View>
+        <TourAnchor targetKey="broker_client_dossier" style={styles.contentArea}>
+          <Animated.View style={styles.contentArea} {...contentPanResponder.panHandlers}>
+            {clientsActive ? <FlatList data={clients} testID="broker-clients-list" keyExtractor={(item) => item.clientUserId} ListHeaderComponent={auth.agencyId && auth.userId ? <View style={styles.leadsPoolWrap}><Text style={styles.leadsPoolTitle}>Αδιάθετα Leads</Text><LeadsPoolSection agencyId={auth.agencyId} brokerId={auth.userId} onChanged={() => setClientDataRefreshToken((previous) => previous + 1)} /></View> : null} ListEmptyComponent={<Text style={styles.emptyStateSubtitle}>{t("brokerHub.noClients")}</Text>} renderItem={renderClientItem} /> : <FlatList data={owners} testID="broker-owners-list" keyExtractor={(item) => item.name} ListEmptyComponent={<Text style={styles.emptyStateSubtitle}>{t("brokerHub.noOwners")}</Text>} renderItem={renderOwnerItem} />}
+          </Animated.View>
+        </TourAnchor>
       )}
       <AddManualClientModal
         visible={isAddClientModalVisible}
@@ -439,13 +497,18 @@ export default function BrokerHubScreen() {
         }}
       />
     </View>
+    </TourAnchor>
   );
 }
 
 const createOwnerStyles = (colors: ThemeColors) => StyleSheet.create({
   ownerCardName: { fontFamily: fonts.displayExtra, fontSize: fontSize.lg, color: colors.onSurface },
-  ownerCountPill: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: colors.surfaceTertiary },
-  ownerCountText: { fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.brand },
+  ownerRoleBadge: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 4, marginTop: spacing.xs, paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: colors.brandTertiary },
+  ownerRoleBadgeText: { fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.brand },
+  ownerPropertyLabel: { fontFamily: fonts.semibold, fontSize: fontSize.sm, color: colors.onSurfaceTertiary },
+  ownerContactRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  ownerContactButton: { flexDirection: "row", alignItems: "center", gap: spacing.xs, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.pill, backgroundColor: colors.surfaceTertiary },
+  ownerContactText: { fontFamily: fonts.semibold, fontSize: fontSize.xs, color: colors.brand },
   ownerAggregatePill: { minHeight: 28, paddingHorizontal: spacing.sm, borderRadius: radius.pill, alignItems: "center", justifyContent: "center", backgroundColor: colors.brandTertiary },
   ownerAggregateText: { color: colors.brand },
 });

@@ -26,6 +26,7 @@ export interface AgencyLegalVariables {
   agencyBrokerRegNo: string;
   agencyPhone: string;
   agencyEmail: string;
+  brokerAfm: string;
 }
 
 export interface ShowingMandateVariables extends ContractAuditVariables, AgencyLegalVariables {
@@ -348,12 +349,13 @@ function documentHtml(title: string, documentId: string, signingDateTime: string
   </style></head><body><main class="page"><header class="masthead"><div class="eyebrow">CampusStay · Νομικό έγγραφο</div><h1>${escapeHtml(title)}</h1><div class="meta">Αριθμός εγγράφου: ${escapeHtml(documentId)} · Ημερομηνία &amp; ώρα: ${escapeHtml(signingDateTime)} · Τόπος: ${escapeHtml(city)}</div></header>${body}</main></body></html>`;
 }
 
-function agencyRows(variables: AgencyLegalVariables): [string, string][] {
+function agencyRows(variables: AgencyLegalVariables & { brokerName: string }): [string, string][] {
   return [
     ["Επωνυμία / Διακριτικός τίτλος", `${variables.agencyName} (${variables.agencyLegalForm})`],
     ["Έδρα", variables.agencyAddress],
     ["Α.Φ.Μ. / Δ.Ο.Υ.", `${variables.agencyAfm} · ${variables.agencyDoy}`],
     ["Αρ. Γ.Ε.ΜΗ. / Μητρώο μεσιτών", `${variables.agencyGemi} · ${variables.agencyBrokerRegNo}`],
+    ["Ενεργών μεσίτης / προσωπικό Α.Φ.Μ.", `${variables.brokerName ?? ""} · ${variables.brokerAfm}`],
     ["Τηλέφωνο / Email", `${variables.agencyPhone} · ${variables.agencyEmail}`],
   ];
 }
@@ -377,7 +379,7 @@ export function generateShowingMandateHtml(variables: ShowingMandateVariables): 
     "Ο Εντολέας υποχρεούται να μην κοινοποιεί σε τρίτους πληροφορίες του ακινήτου χωρίς έγγραφη συναίνεση του Μεσίτη.",
   ]))}
   ${section("5. Ενημέρωση για προσωπικά δεδομένα (GDPR)", `<p>Ο Εντολέας συναινεί στην επεξεργασία των στοιχείων ταυτότητας, Α.Φ.Μ., επικοινωνίας, φωτογραφίας ταυτότητας και γεωεντοπισμού κατά την υπογραφή, αποκλειστικά για την εκτέλεση της παρούσας σύμβασης, την ταυτοποίηση, τις φορολογικές υποχρεώσεις και τη νομική κατοχύρωση των μερών σύμφωνα με τον Κανονισμό (ΕΕ) 2016/679.</p>`)}
-  ${signatureGrid([{ title: "Για τη μεσιτική επιχείρηση", image: variables.brokerSignatureImage, name: variables.brokerName, afm: variables.agencyAfm }, { title: "Ο Εντολέας / Υποψήφιος", image: variables.clientSignatureImage, name: variables.clientName, afm: variables.clientAfm }])}
+  ${signatureGrid([{ title: "Για τη μεσιτική επιχείρηση", image: variables.brokerSignatureImage, name: variables.brokerName, afm: variables.brokerAfm }, { title: "Ο Εντολέας / Υποψήφιος", image: variables.clientSignatureImage, name: variables.clientName, afm: variables.clientAfm }])}
   ${auditFooter(variables)}`;
   return documentHtml("Εντολή Υπόδειξης Ακινήτου & Μεσιτική Σύμβαση", variables.documentId, variables.signingDateTime, variables.propertyCity, body);
 }
@@ -405,7 +407,7 @@ export function generateAssignmentMandateHtml(variables: AssignmentMandateVariab
     "Εάν η σύμβαση συναφθεί εντός ενός (1) έτους από τη λήξη με υποδειχθέντα αγοραστή ή παρένθετο πρόσωπο, η αμοιβή οφείλεται ακέραιη.",
   ]))}
   ${section("6. Προσωπικά δεδομένα (GDPR)", `<p>Ο Εντολέας συναινεί στην τήρηση και επεξεργασία των προσωπικών του δεδομένων και των στοιχείων του ακινήτου για την εκτέλεση της εντολής, τους ελέγχους ταυτοπροσωπίας, τις φορολογικές υποχρεώσεις και το αρχείο εντολών, σύμφωνα με τον Κανονισμό (ΕΕ) 2016/679.</p>`)}
-  ${signatureGrid([{ title: "Για τη μεσιτική επιχείρηση", image: variables.brokerSignatureImage, name: variables.brokerName, afm: variables.agencyAfm }, { title: "Ο Εντολέας / Ιδιοκτήτης", image: variables.ownerSignatureImage, name: variables.ownerName, afm: variables.ownerAfm }])}
+  ${signatureGrid([{ title: "Για τη μεσιτική επιχείρηση", image: variables.brokerSignatureImage, name: variables.brokerName, afm: variables.brokerAfm }, { title: "Ο Εντολέας / Ιδιοκτήτης", image: variables.ownerSignatureImage, name: variables.ownerName, afm: variables.ownerAfm }])}
   ${auditFooter(variables)}`;
   return documentHtml("Εντολή Ανάθεσης Ακινήτου & Μεσιτική Σύμβαση", variables.documentId, variables.signingDateTime, variables.propertyCity, body);
 }
@@ -510,7 +512,7 @@ function audit(data: ContractTemplateData, selected: SignatureSignerEvidence): C
 function agency(data: ContractTemplateData): AgencyLegalVariables {
   const source = data.agency as ContractTemplateData["agency"] & Record<string, unknown>;
   return {
-    agencyName: text(source.name), agencyLegalForm: text(source.legalForm), agencyAddress: text(source.address), agencyAfm: text(source.taxNumber), agencyDoy: text(source.doy), agencyGemi: text(source.gemi), agencyBrokerRegNo: text(source.brokerRegNo), agencyPhone: text(source.phone), agencyEmail: text(source.email),
+    agencyName: text(source.name), agencyLegalForm: text(source.legalForm), agencyAddress: text(source.address), agencyAfm: text(source.afm || source.taxNumber), agencyDoy: text(source.doy), agencyGemi: text(source.gemi), agencyBrokerRegNo: text(source.brokerRegNo), agencyPhone: text(source.phone), agencyEmail: text(source.email), brokerAfm: text(data.document.contractPayload.brokerAfm),
   };
 }
 
@@ -524,12 +526,12 @@ function commonProperty(data: ContractTemplateData): { city: string; address: st
 
 function buildShowing(data: ContractTemplateData): ShowingMandateVariables {
   const p = commonProperty(data); const payload = data.document.contractPayload; const broker = signer(data, "broker"); const client = signer(data, "client"); const clientParty = participant(data, "client"); const totals = calculateCommissionTotals(payload); const a = agency(data);
-  return { ...a, ...audit(data, client), documentId: data.document.id, signingDateTime: dateTime(data.document.createdAt), propertyCity: p.city, brokerName: text(broker.signerName), clientName: text(client.signerName || clientParty.fullName), clientFatherName: field(payload, "clientFatherName"), clientAdt: text(client.signerIdCardNumber || clientParty.idCardNumber), clientAfm: text(client.signerAfm || clientParty.afm), clientDoy: field(payload, "clientDoy"), clientAddress: field(payload, "clientAddress"), clientPhone: text(client.signerPhone || clientParty.phone), clientEmail: text(client.signerEmail || clientParty.email), transactionType: field(payload, "transactionType", "αγορά / μίσθωση"), propertyCode: p.code, propertyAddress: p.address, propertyArea: p.area, propertyFloor: p.floor, propertyType: p.type, propertySqm: p.sqm, propertyPrice: p.price, commissionRate: text(payload.commissionRatePercentage ?? 2), commissionAmount: amount(payload.commissionAmountCalculated ?? totals.commission), vatRate: "24", totalCommissionWithVat: amount(totals.totalPayable), brokerSignatureImage: broker.signatureBase64, clientSignatureImage: client.signatureBase64 };
+  return { ...a, ...audit(data, client), documentId: data.document.id, signingDateTime: dateTime(data.document.createdAt), propertyCity: p.city, brokerName: text(broker.signerName), brokerAfm: text(broker.signerAfm || payload.brokerAfm), clientName: text(client.signerName || clientParty.fullName), clientFatherName: field(payload, "clientFatherName"), clientAdt: text(client.signerIdCardNumber || clientParty.idCardNumber), clientAfm: text(client.signerAfm || clientParty.afm), clientDoy: field(payload, "clientDoy"), clientAddress: field(payload, "clientAddress"), clientPhone: text(client.signerPhone || clientParty.phone), clientEmail: text(client.signerEmail || clientParty.email), transactionType: field(payload, "transactionType", "αγορά / μίσθωση"), propertyCode: p.code, propertyAddress: p.address, propertyArea: p.area, propertyFloor: p.floor, propertyType: p.type, propertySqm: p.sqm, propertyPrice: p.price, commissionRate: text(payload.commissionRatePercentage ?? 2), commissionAmount: amount(payload.commissionAmountCalculated ?? totals.commission), vatRate: "24", totalCommissionWithVat: amount(totals.totalPayable), brokerSignatureImage: broker.signatureBase64, clientSignatureImage: client.signatureBase64 };
 }
 
 function buildAssignment(data: ContractTemplateData): AssignmentMandateVariables {
   const p = commonProperty(data); const payload = data.document.contractPayload; const broker = signer(data, "broker"); const owner = signer(data, "owner"); const ownerParty = participant(data, "owner"); const totals = calculateCommissionTotals(payload); const a = agency(data);
-  return { ...a, ...audit(data, owner), documentId: data.document.id, signingDateTime: dateTime(data.document.createdAt), propertyCity: p.city, assignmentType: payload.assignmentMode === "exclusive" ? "Αποκλειστική" : "Μη Αποκλειστική - Απλή", brokerName: text(broker.signerName), ownerName: text(owner.signerName || ownerParty.fullName), ownerFatherName: field(payload, "ownerFatherName"), ownerAdt: text(owner.signerIdCardNumber || ownerParty.idCardNumber), ownerAfm: text(owner.signerAfm || ownerParty.afm), ownerDoy: field(payload, "ownerDoy"), ownerAddress: field(payload, "ownerAddress"), ownerPhone: text(owner.signerPhone || ownerParty.phone), ownerEmail: text(owner.signerEmail || ownerParty.email), ownershipPercentage: field(payload, "ownershipPercentage", "100"), transactionType: field(payload, "transactionType", "πώληση / εκμίσθωση"), propertyCode: p.code, propertyAddress: p.address, propertyArea: p.area, propertyFloor: p.floor, propertyType: p.type, propertySqm: p.sqm, propertyKaek: field(payload, "propertyKaek"), askingPrice: amount(payload.agreedListingPrice ?? p.price), minAcceptablePrice: amount(payload.minAcceptablePrice), storageSqm: field(payload, "storageSqm"), parkingSlot: field(payload, "parkingSlot"), assignmentDurationMonths: text(payload.durationMonths ?? 6), expirationDate: field(payload, "expirationDate"), commissionRate: text(payload.commissionRatePercentage ?? 2), commissionAmount: amount(payload.commissionAmountCalculated ?? totals.commission), vatRate: "24", totalCommissionWithVat: amount(totals.totalPayable), brokerSignatureImage: broker.signatureBase64, ownerSignatureImage: owner.signatureBase64 };
+  return { ...a, ...audit(data, owner), documentId: data.document.id, signingDateTime: dateTime(data.document.createdAt), propertyCity: p.city, assignmentType: payload.assignmentMode === "exclusive" ? "Αποκλειστική" : "Μη Αποκλειστική - Απλή", brokerName: text(broker.signerName), brokerAfm: text(broker.signerAfm || payload.brokerAfm), ownerName: text(owner.signerName || ownerParty.fullName), ownerFatherName: field(payload, "ownerFatherName"), ownerAdt: text(owner.signerIdCardNumber || ownerParty.idCardNumber), ownerAfm: text(owner.signerAfm || ownerParty.afm), ownerDoy: field(payload, "ownerDoy"), ownerAddress: field(payload, "ownerAddress"), ownerPhone: text(owner.signerPhone || ownerParty.phone), ownerEmail: text(owner.signerEmail || ownerParty.email), ownershipPercentage: field(payload, "ownershipPercentage", "100"), transactionType: field(payload, "transactionType", "πώληση / εκμίσθωση"), propertyCode: p.code, propertyAddress: p.address, propertyArea: p.area, propertyFloor: p.floor, propertyType: p.type, propertySqm: p.sqm, propertyKaek: field(payload, "propertyKaek"), askingPrice: amount(payload.agreedListingPrice ?? p.price), minAcceptablePrice: amount(payload.minAcceptablePrice), storageSqm: field(payload, "storageSqm"), parkingSlot: field(payload, "parkingSlot"), assignmentDurationMonths: text(payload.durationMonths ?? 6), expirationDate: field(payload, "expirationDate"), commissionRate: text(payload.commissionRatePercentage ?? 2), commissionAmount: amount(payload.commissionAmountCalculated ?? totals.commission), vatRate: "24", totalCommissionWithVat: amount(totals.totalPayable), brokerSignatureImage: broker.signatureBase64, ownerSignatureImage: owner.signatureBase64 };
 }
 
 function optionalString(...values: unknown[]): string {

@@ -13,6 +13,78 @@ export type PipelineStageKey =
   | "closed_won"
   | "closed_lost";
 
+export const CANONICAL_DEAL_STAGES = [
+  "new_lead",
+  "contacted",
+  "showing_scheduled",
+  "offer_made",
+  "under_contract",
+  "closed_won",
+  "closed_lost",
+] as const;
+
+export type CanonicalDealStage = (typeof CANONICAL_DEAL_STAGES)[number];
+
+export interface CanonicalDealStageConfig {
+  key: CanonicalDealStage;
+  labelKey: string;
+  shortLabelKey: string;
+  percentage: number;
+  probability: number;
+}
+
+export const CANONICAL_DEAL_STAGE_CONFIGS: readonly CanonicalDealStageConfig[] = [
+  { key: "new_lead", labelKey: "deals.stages.newLead", shortLabelKey: "deals.stages.newLeadShort", percentage: 5, probability: 0.05 },
+  { key: "contacted", labelKey: "deals.stages.contacted", shortLabelKey: "deals.stages.contactedShort", percentage: 10, probability: 0.10 },
+  { key: "showing_scheduled", labelKey: "deals.stages.showingScheduled", shortLabelKey: "deals.stages.showingScheduledShort", percentage: 35, probability: 0.35 },
+  { key: "offer_made", labelKey: "deals.stages.offerMade", shortLabelKey: "deals.stages.offerMadeShort", percentage: 65, probability: 0.65 },
+  { key: "under_contract", labelKey: "deals.stages.underContract", shortLabelKey: "deals.stages.underContractShort", percentage: 90, probability: 0.90 },
+  { key: "closed_won", labelKey: "deals.stages.closedWon", shortLabelKey: "deals.stages.closedWonShort", percentage: 100, probability: 1 },
+  { key: "closed_lost", labelKey: "deals.stages.closedLost", shortLabelKey: "deals.stages.closedLostShort", percentage: 0, probability: 0 },
+];
+
+export function normalizeCanonicalDealStage(value: unknown): CanonicalDealStage {
+  switch (value) {
+    case "contacted":
+      return "contacted";
+    case "showing_scheduled":
+    case "showing_planned":
+    case "showing_completed":
+      return "showing_scheduled";
+    case "offer_made":
+    case "offer":
+      return "offer_made";
+    case "under_contract":
+    case "negotiation_agreement":
+      return "under_contract";
+    case "closed_won":
+    case "deal_closed":
+      return "closed_won";
+    case "closed_lost":
+    case "lost":
+      return "closed_lost";
+    case "new_lead":
+    case "liked":
+    case "lead":
+    default:
+      return "new_lead";
+  }
+}
+
+export function getCanonicalDealStageConfig(stage: unknown): CanonicalDealStageConfig {
+  const normalizedStage = normalizeCanonicalDealStage(stage);
+  return CANONICAL_DEAL_STAGE_CONFIGS.find((config) => config.key === normalizedStage) ?? CANONICAL_DEAL_STAGE_CONFIGS[0];
+}
+
+export function canonicalDealStageFromPercentage(percentage: number, fallback: CanonicalDealStage = "new_lead"): CanonicalDealStage {
+  if (percentage >= 100) return "closed_won";
+  if (percentage >= 90) return "under_contract";
+  if (percentage >= 65) return "offer_made";
+  if (percentage >= 35) return "showing_scheduled";
+  if (percentage >= 10) return "contacted";
+  return fallback;
+}
+
 export type LossReasonKey =
   | "high_price"
   | "loan_rejected"
